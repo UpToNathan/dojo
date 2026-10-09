@@ -16,7 +16,6 @@ const CORNER_RADIUS: f32 = 28.;
 const SHELL_SURFACE: u32 = 0x1e1e2e;
 
 struct FrameView {
-    display_width: gpui::Pixels,
     power: PowerStatus,
     tray: TrayHandle,
     tray_items: Vec<TrayItem>,
@@ -24,8 +23,19 @@ struct FrameView {
     menu_data: Option<TrayMenu>,
     active_submenu: Option<i32>,
     hovered_menu_item: Option<i32>,
+    pending_menu_hover: Option<(i32, Instant)>,
+    submenu_bounds: Option<Bounds<gpui::Pixels>>,
+    last_menu_pointer: Option<gpui::Point<gpui::Pixels>>,
     last_power_update: Instant,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PrimaryTrayAction {
+    ShowMenu,
+    Activate,
+    ContextMenu,
+}
+
 struct ReservationView {
     exclusive_zone: f32,
 }
@@ -131,7 +141,7 @@ impl DisplayFrame {
                 }),
                 ..Default::default()
             },
-            |window, cx| cx.new(|cx| FrameView::new(bounds.size.width, tray.clone(), window, cx)),
+            |window, cx| cx.new(|cx| FrameView::new(tray.clone(), window, cx)),
         ) {
             Ok(window) => window,
             Err(error) => {
@@ -320,17 +330,101 @@ fn tray_menu_height(items: &[TrayMenuItem]) -> f32 {
     16. + items
         .iter()
         .filter(|item| item.visible)
-        .map(|item| if item.separator { 9. } else { 30. })
+        .map(tray_menu_row_height)
         .sum::<f32>()
 }
 
+fn tray_menu_row_height(item: &TrayMenuItem) -> f32 {
+    if item.separator {
+        9.
+    } else {
+        30. + item.label.lines().count().saturating_sub(1) as f32 * 18.
+    }
+}
+
+fn tray_menu_width(items: &[TrayMenuItem], window: &Window) -> f32 {
+    let text_system = window.text_system();
+    let widest = items
+        .iter()
+        .filter(|item| item.visible && !item.separator)
+        .flat_map(|item| item.label.lines())
+        .map(|line| {
+            let label = line.replace('_', "");
+            let run = gpui::TextRun {
+                len: label.len(),
+                font: gpui::font(power::FONT_FAMILY),
+                color: rgb(0xcdd6f4).into(),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            f32::from(
+                text_system
+                    .shape_line(label.into(), px(12.), &[run], None)
+                    .width,
+            )
+        })
+        .fold(0., f32::max);
+    (widest + 60.).max(224.)
+}
+
+fn primary_tray_action(item: &TrayItem) -> PrimaryTrayAction {
+    if !item.item_is_menu {
+        PrimaryTrayAction::Activate
+    } else if item.menu_path.is_some() {
+        PrimaryTrayAction::ShowMenu
+    } else {
+        PrimaryTrayAction::ContextMenu
+    }
+}
+
+fn top_bar_input_region(viewport: Size<gpui::Pixels>) -> Bounds<gpui::Pixels> {
+    Bounds {
+        origin: point(px(0.), px(0.)),
+        size: Size::new(viewport.width, px(TOP_BAR_HEIGHT as f32)),
+    }
+}
+
+fn menu_aim_contains(
+    previous: gpui::Point<gpui::Pixels>,
+    current: gpui::Point<gpui::Pixels>,
+    submenu: Bounds<gpui::Pixels>,
+) -> bool {
+    let edge = if previous.x >= submenu.right() {
+        submenu.right()
+    } else if previous.x <= submenu.left() {
+        submenu.left()
+    } else {
+        return submenu.contains(&current);
+    };
+    let distance = f32::from(edge - previous.x);
+    if distance.abs() < f32::EPSILON {
+        return submenu.contains(&current);
+    }
+    let progress = f32::from(current.x - previous.x) / distance;
+    if !(0. ..=1.).contains(&progress) || progress == 0. {
+        return false;
+    }
+    let upper = previous.y + (submenu.top() - px(8.) - previous.y) * progress;
+    let lower = previous.y + (submenu.bottom() + px(8.) - previous.y) * progress;
+    current.y >= upper && current.y <= lower
+}
+
+fn submenu_hover_target(
+    active: Option<i32>,
+    is_submenu: bool,
+    item_id: i32,
+    has_submenu: bool,
+) -> Option<i32> {
+    if is_submenu {
+        active
+    } else {
+        has_submenu.then_some(item_id)
+    }
+}
+
 impl FrameView {
-    fn new(
-        display_width: gpui::Pixels,
-        tray: TrayHandle,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    fn new(tray: TrayHandle, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let tray_for_updates = tray.clone();
         cx.spawn_in(window, async move |this, cx| {
             loop {
@@ -356,13 +450,15 @@ impl FrameView {
         })
         .detach();
         Self {
-            display_width,
             power: power::read_status(),
             tray_items: tray.items(),
             open_menu: None,
             menu_data: None,
             active_submenu: None,
             hovered_menu_item: None,
+            pending_menu_hover: None,
+            submenu_bounds: None,
+            last_menu_pointer: None,
             last_power_update: Instant::now(),
             tray,
         }
@@ -385,6 +481,8 @@ impl FrameView {
         self.menu_data = None;
         self.active_submenu = None;
         self.hovered_menu_item = None;
+        self.pending_menu_hover = None;
+        self.last_menu_pointer = None;
 
         let tray = self.tray.clone();
         cx.spawn_in(window, async move |this, cx| {
@@ -416,6 +514,9 @@ impl FrameView {
         self.menu_data = None;
         self.active_submenu = None;
         self.hovered_menu_item = None;
+        self.pending_menu_hover = None;
+        self.submenu_bounds = None;
+        self.last_menu_pointer = None;
         cx.notify();
     }
 
@@ -423,6 +524,8 @@ impl FrameView {
         &self,
         items: &[TrayMenuItem],
         menu_owner: &TrayItem,
+        menu_width: f32,
+        is_submenu: bool,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
         items
@@ -441,32 +544,37 @@ impl FrameView {
                 let item_id = item.id;
                 let enabled = item.enabled;
                 let has_submenu = item.has_submenu;
-                let mut row = div()
-                    .id(format!("dbus-menu-item-{item_id}"))
-                    .mx(px(8.))
-                    .w(px(208.))
-                    .h(px(30.))
-                    .px(px(10.))
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .text_size(px(12.))
-                    .rounded(px(15.))
-                    .bg(if self.hovered_menu_item == Some(item_id) {
-                        rgb(0x45475a)
-                    } else {
-                        rgb(SHELL_SURFACE)
-                    })
-                    .text_color(if enabled {
-                        rgb(0xcdd6f4)
-                    } else {
-                        rgb(0x6c7086)
-                    })
-                    .child(if item.label.is_empty() {
-                        " ".to_string()
-                    } else {
-                        item.label.replace('_', "")
-                    });
+                let mut row =
+                    div()
+                        .id(format!("dbus-menu-item-{item_id}"))
+                        .mx(px(8.))
+                        .w(px(menu_width - 16.))
+                        .h(px(tray_menu_row_height(item)))
+                        .px(px(10.))
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .text_size(px(12.))
+                        .rounded(px(15.))
+                        .bg(if self.hovered_menu_item == Some(item_id) {
+                            rgb(0x45475a)
+                        } else {
+                            rgb(SHELL_SURFACE)
+                        })
+                        .text_color(if enabled {
+                            rgb(0xcdd6f4)
+                        } else {
+                            rgb(0x6c7086)
+                        })
+                        .child(div().flex().flex_col().children(item.label.split('\n').map(
+                            |line| {
+                                div().h(px(18.)).child(if line.is_empty() {
+                                    " ".to_string()
+                                } else {
+                                    line.replace('_', "")
+                                })
+                            },
+                        )));
 
                 if item.checked {
                     row = row.child("✓");
@@ -474,14 +582,54 @@ impl FrameView {
                     row = row.child("›");
                 }
 
-                row = row.on_hover(cx.listener(move |this, hovered, _, cx| {
+                row = row.on_hover(cx.listener(move |this, hovered, window, cx| {
                     if *hovered {
                         this.hovered_menu_item = Some(item_id);
                     } else if this.hovered_menu_item == Some(item_id) {
                         this.hovered_menu_item = None;
                     }
                     if *hovered {
-                        this.active_submenu = has_submenu.then_some(item_id);
+                        let pointer = window.mouse_position();
+                        let target = submenu_hover_target(
+                            this.active_submenu,
+                            is_submenu,
+                            item_id,
+                            has_submenu,
+                        );
+                        if is_submenu {
+                            this.pending_menu_hover = None;
+                            this.active_submenu = target;
+                        } else {
+                            let heading_to_submenu = this.active_submenu != target
+                                && this.last_menu_pointer.zip(this.submenu_bounds).is_some_and(
+                                    |(previous, bounds)| {
+                                        menu_aim_contains(previous, pointer, bounds)
+                                    },
+                                );
+                            if heading_to_submenu {
+                                let request = (item_id, Instant::now());
+                                this.pending_menu_hover = Some(request);
+                                cx.spawn_in(window, async move |this, cx| {
+                                    cx.background_executor()
+                                        .timer(Duration::from_millis(300))
+                                        .await;
+                                    if let Err(error) = this.update_in(cx, |this, _, cx| {
+                                        if this.pending_menu_hover == Some(request) {
+                                            this.pending_menu_hover = None;
+                                            this.active_submenu = target;
+                                            cx.notify();
+                                        }
+                                    }) {
+                                        eprintln!("Dojo could not update submenu hover: {error}");
+                                    }
+                                })
+                                .detach();
+                            } else {
+                                this.pending_menu_hover = None;
+                                this.active_submenu = target;
+                            }
+                        }
+                        this.last_menu_pointer = Some(pointer);
                     }
                     cx.notify();
                 }));
@@ -491,6 +639,7 @@ impl FrameView {
                         MouseButton::Left,
                         cx.listener(move |this, _, _, cx| {
                             this.active_submenu = Some(item_id);
+                            this.pending_menu_hover = None;
                             cx.notify();
                         }),
                     );
@@ -513,10 +662,8 @@ impl FrameView {
 
 impl Render for FrameView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let top_bar_input = [Bounds {
-            origin: point(px(0.), px(0.)),
-            size: Size::new(self.display_width, px(TOP_BAR_HEIGHT as f32)),
-        }];
+        let viewport = window.viewport_size();
+        let top_bar_input = [top_bar_input_region(viewport)];
 
         let battery_glyph =
             power::battery_glyph(self.power.capacity, self.power.battery_status.as_deref());
@@ -559,15 +706,19 @@ impl Render for FrameView {
                 .child(icon)
                 .on_mouse_down(
                     MouseButton::Left,
-                    cx.listener(move |this, _, window, cx| {
-                        if left_item.menu_path.is_some() {
-                            this.open_tray_menu(left_item.clone(), window, cx);
-                        } else if left_item.item_is_menu {
-                            this.tray.activate(&left_item, TrayAction::ContextMenu);
-                        } else {
-                            this.tray.activate(&left_item, TrayAction::Activate);
-                        }
-                    }),
+                    cx.listener(
+                        move |this, _, window, cx| match primary_tray_action(&left_item) {
+                            PrimaryTrayAction::ShowMenu => {
+                                this.open_tray_menu(left_item.clone(), window, cx);
+                            }
+                            PrimaryTrayAction::Activate => {
+                                this.tray.activate(&left_item, TrayAction::Activate);
+                            }
+                            PrimaryTrayAction::ContextMenu => {
+                                this.tray.activate(&left_item, TrayAction::ContextMenu);
+                            }
+                        },
+                    ),
                 );
 
             let right_item = (*item).clone();
@@ -641,12 +792,14 @@ impl Render for FrameView {
 
         let active_item = self.open_menu.as_ref().map(|(_, item)| item);
         let active_menu = self.menu_data.as_ref();
-        let menu_width = 224.;
+        let menu_width = active_menu
+            .map_or(224., |menu| tray_menu_width(&menu.items, window))
+            .min((f32::from(viewport.width) - RIGHT_INSET as f32 * 2.).max(1.));
         let menu_height = active_menu.map_or(46., |menu| tray_menu_height(&menu.items));
         let menu_right = active_item.map(|_| RIGHT_INSET as f32);
         let menu_bounds = menu_right.map(|right| Bounds {
             origin: point(
-                self.display_width - px(right + menu_width),
+                viewport.width - px(right + menu_width),
                 px(TOP_BAR_HEIGHT as f32),
             ),
             size: Size::new(px(menu_width), px(menu_height.max(46.))),
@@ -662,7 +815,7 @@ impl Render for FrameView {
             menu_bounds,
             menu_right,
         ) {
-            let rows = self.render_menu_items(&menu.items, owner, cx);
+            let rows = self.render_menu_items(&menu.items, owner, menu_width, false, cx);
             menu_content.push(
                 div()
                     .absolute()
@@ -682,13 +835,16 @@ impl Render for FrameView {
             {
                 let submenu_height = tray_menu_height(&submenu.children);
                 let submenu_right = right + menu_width - 2.;
-                let submenu_rows = self.render_menu_items(&submenu.children, owner, cx);
+                let submenu_width = tray_menu_width(&submenu.children, window)
+                    .min((f32::from(viewport.width) - submenu_right).max(1.));
+                let submenu_rows =
+                    self.render_menu_items(&submenu.children, owner, submenu_width, true, cx);
                 let submenu_bounds = Bounds {
                     origin: point(
-                        self.display_width - px(submenu_right + menu_width),
+                        viewport.width - px(submenu_right + submenu_width),
                         bounds.origin.y,
                     ),
-                    size: Size::new(px(menu_width), px(submenu_height.max(46.))),
+                    size: Size::new(px(submenu_width), px(submenu_height.max(46.))),
                 };
                 menu_hit_bounds.push(submenu_bounds);
                 menu_content.push(
@@ -696,7 +852,7 @@ impl Render for FrameView {
                         .absolute()
                         .top(bounds.origin.y)
                         .right(px(submenu_right))
-                        .w(px(menu_width))
+                        .w(px(submenu_width))
                         .flex()
                         .flex_col()
                         .py(px(8.))
@@ -712,6 +868,7 @@ impl Render for FrameView {
                 });
             }
         }
+        self.submenu_bounds = menu_hit_bounds.get(1).copied();
         if active_item.is_some() {
             window.set_input_region(Some(&[Bounds {
                 origin: point(px(0.), px(0.)),
@@ -821,6 +978,53 @@ mod tests {
     use super::*;
 
     #[test]
+    fn hovering_a_submenu_leaf_keeps_its_parent_open() {
+        assert_eq!(submenu_hover_target(Some(17), true, 18, false), Some(17));
+        assert_eq!(submenu_hover_target(Some(17), false, 19, false), None);
+        assert_eq!(submenu_hover_target(Some(17), false, 20, true), Some(20));
+    }
+
+    #[test]
+    fn menu_aim_protects_diagonal_travel_toward_a_left_submenu() {
+        let submenu = Bounds {
+            origin: point(px(0.), px(0.)),
+            size: Size::new(px(200.), px(300.)),
+        };
+        let previous = point(px(400.), px(150.));
+        assert!(menu_aim_contains(
+            previous,
+            point(px(300.), px(100.)),
+            submenu
+        ));
+        assert!(menu_aim_contains(
+            previous,
+            point(px(300.), px(200.)),
+            submenu
+        ));
+        assert!(!menu_aim_contains(
+            previous,
+            point(px(450.), px(150.)),
+            submenu
+        ));
+        assert!(!menu_aim_contains(
+            previous,
+            point(px(300.), px(350.)),
+            submenu
+        ));
+    }
+
+    #[test]
+    fn top_bar_accepts_clicks_at_the_configured_viewports_right_edge() {
+        // A 2880-wide output can initially report 1440 logical pixels at integer
+        // scale 2, then configure a 1645-wide viewport at fractional scale 1.75.
+        let viewport = Size::new(px(1645.), px(1028.));
+        let region = top_bar_input_region(viewport);
+        assert!(region.contains(&point(px(1600.), px(12.))));
+        assert_eq!(region.size.width, viewport.width);
+        assert!(!region.contains(&point(px(1600.), px(100.))));
+    }
+
+    #[test]
     fn menu_height_accounts_for_compact_separators() {
         let entries = vec![
             TrayMenuItem {
@@ -856,5 +1060,26 @@ mod tests {
         ];
 
         assert_eq!(tray_menu_height(&entries), 16. + 30. + 9. + 30.);
+        let mut multiline = entries;
+        multiline[0].label = "venus.example.ts.net\naccount@example.com".into();
+        assert_eq!(tray_menu_row_height(&multiline[0]), 48.);
+        assert_eq!(tray_menu_height(&multiline), 16. + 48. + 9. + 30.);
+    }
+
+    #[test]
+    fn primary_click_activates_items_that_are_not_menus() {
+        let item = TrayItem {
+            key: "1Password_status_icon_1".into(),
+            service: ":1.702".into(),
+            object_path: "/StatusNotifierItem".into(),
+            title: String::new(),
+            status: "Active".into(),
+            icon_name: String::new(),
+            icon_pixmaps: Vec::new(),
+            item_is_menu: false,
+            menu_path: Some("/com/canonical/dbusmenu".into()),
+        };
+
+        assert_eq!(primary_tray_action(&item), PrimaryTrayAction::Activate);
     }
 }

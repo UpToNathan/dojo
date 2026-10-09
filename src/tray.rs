@@ -13,10 +13,13 @@ use zbus::message::Header;
 use zbus::object_server::SignalEmitter;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Structure, Value};
 
-const WATCHER_NAME: &str = "org.kde.StatusNotifierWatcher";
+const WATCHER_NAME: &str = "org.freedesktop.StatusNotifierWatcher";
+const KDE_WATCHER_NAME: &str = "org.kde.StatusNotifierWatcher";
 const WATCHER_PATH: &str = "/StatusNotifierWatcher";
-const WATCHER_INTERFACE: &str = "org.kde.StatusNotifierWatcher";
-const ITEM_INTERFACE: &str = "org.kde.StatusNotifierItem";
+const WATCHER_INTERFACE: &str = "org.freedesktop.StatusNotifierWatcher";
+const KDE_WATCHER_INTERFACE: &str = "org.kde.StatusNotifierWatcher";
+const ITEM_INTERFACE: &str = "org.freedesktop.StatusNotifierItem";
+const KDE_ITEM_INTERFACE: &str = "org.kde.StatusNotifierItem";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrayPixmap {
@@ -112,26 +115,22 @@ impl TrayHandle {
     }
 
     pub fn activate(&self, item: &TrayItem, action: TrayAction) {
-        if let Some(commands) = &self.commands {
-            let _ = commands.send(TrayCommand::Activate {
-                service: item.service.clone(),
-                object_path: item.object_path.clone(),
-                action,
-            });
-        }
+        self.send_command(TrayCommand::Activate {
+            service: item.service.clone(),
+            object_path: item.object_path.clone(),
+            action,
+        });
     }
 
     pub fn open_menu(&self, item: &TrayItem) {
         let Some(menu_path) = item.menu_path.as_ref() else {
             return;
         };
-        if let Some(commands) = &self.commands {
-            let _ = commands.send(TrayCommand::OpenMenu {
-                key: item.key.clone(),
-                service: item.service.clone(),
-                menu_path: menu_path.clone(),
-            });
-        }
+        self.send_command(TrayCommand::OpenMenu {
+            key: item.key.clone(),
+            service: item.service.clone(),
+            menu_path: menu_path.clone(),
+        });
     }
 
     pub fn menu(&self, key: &str) -> Option<TrayMenu> {
@@ -139,12 +138,18 @@ impl TrayHandle {
     }
 
     pub fn menu_event(&self, item: &TrayItem, id: i32) {
+        self.send_command(TrayCommand::MenuEvent {
+            service: item.service.clone(),
+            menu_path: item.menu_path.clone().unwrap_or_default(),
+            id,
+        });
+    }
+
+    fn send_command(&self, command: TrayCommand) {
         if let Some(commands) = &self.commands {
-            let _ = commands.send(TrayCommand::MenuEvent {
-                service: item.service.clone(),
-                menu_path: item.menu_path.clone().unwrap_or_default(),
-                id,
-            });
+            if let Err(error) = commands.send(command) {
+                eprintln!("Dojo could not queue systray command: {error}");
+            }
         }
     }
 }
@@ -234,24 +239,57 @@ struct ItemAddress {
     object_path: String,
 }
 
-struct StatusNotifierWatcher {
+#[derive(Clone)]
+struct WatcherState {
     registrations: Arc<Mutex<BTreeMap<String, ItemAddress>>>,
     hosts: Arc<Mutex<BTreeMap<String, ()>>>,
 }
 
-#[interface(name = "org.kde.StatusNotifierWatcher")]
-impl StatusNotifierWatcher {
-    #[zbus(property)]
-    fn registered_status_notifier_items(&self) -> Vec<String> {
+struct FreedesktopStatusNotifierWatcher(WatcherState);
+struct KdeStatusNotifierWatcher(WatcherState);
+
+impl WatcherState {
+    fn registered_items(&self) -> Vec<String> {
         self.registrations
             .lock()
             .map(|items| items.keys().cloned().collect())
             .unwrap_or_default()
     }
 
+    fn has_registered_host(&self) -> bool {
+        self.hosts.lock().is_ok_and(|hosts| !hosts.is_empty())
+    }
+
+    fn register_item(&self, service_or_path: String, sender: Option<&str>) -> fdo::Result<String> {
+        let address = parse_item_address(&service_or_path, sender)
+            .ok_or_else(|| fdo::Error::InvalidArgs("item service/path is invalid".into()))?;
+        let key = address.key.clone();
+        self.registrations
+            .lock()
+            .map_err(|_| fdo::Error::Failed("item registry lock poisoned".into()))?
+            .insert(key.clone(), address);
+        Ok(key)
+    }
+
+    fn register_host(&self, service: String) -> fdo::Result<()> {
+        self.hosts
+            .lock()
+            .map_err(|_| fdo::Error::Failed("host registry lock poisoned".into()))?
+            .insert(service, ());
+        Ok(())
+    }
+}
+
+#[interface(name = "org.freedesktop.StatusNotifierWatcher")]
+impl FreedesktopStatusNotifierWatcher {
+    #[zbus(property)]
+    fn registered_status_notifier_items(&self) -> Vec<String> {
+        self.0.registered_items()
+    }
+
     #[zbus(property)]
     fn is_status_notifier_host_registered(&self) -> bool {
-        self.hosts.lock().is_ok_and(|hosts| !hosts.is_empty())
+        self.0.has_registered_host()
     }
 
     #[zbus(property)]
@@ -265,14 +303,9 @@ impl StatusNotifierWatcher {
         #[zbus(header)] header: Header<'_>,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> fdo::Result<()> {
-        let address =
-            parse_item_address(&service_or_path, header.sender().map(|name| name.as_str()))
-                .ok_or_else(|| fdo::Error::InvalidArgs("item service/path is invalid".into()))?;
-        let key = address.key.clone();
-        self.registrations
-            .lock()
-            .map_err(|_| fdo::Error::Failed("item registry lock poisoned".into()))?
-            .insert(key.clone(), address);
+        let key = self
+            .0
+            .register_item(service_or_path, header.sender().map(|name| name.as_str()))?;
         Self::status_notifier_item_registered(emitter, key)
             .await
             .map_err(|error| fdo::Error::Failed(error.to_string()))?;
@@ -284,10 +317,67 @@ impl StatusNotifierWatcher {
         service: String,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> fdo::Result<()> {
-        self.hosts
-            .lock()
-            .map_err(|_| fdo::Error::Failed("host registry lock poisoned".into()))?
-            .insert(service, ());
+        self.0.register_host(service)?;
+        Self::status_notifier_host_registered(emitter)
+            .await
+            .map_err(|error| fdo::Error::Failed(error.to_string()))?;
+        Ok(())
+    }
+
+    #[zbus(signal)]
+    async fn status_notifier_item_registered(
+        emitter: SignalEmitter<'_>,
+        service: String,
+    ) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn status_notifier_item_unregistered(
+        emitter: SignalEmitter<'_>,
+        service: String,
+    ) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn status_notifier_host_registered(emitter: SignalEmitter<'_>) -> zbus::Result<()>;
+}
+
+#[interface(name = "org.kde.StatusNotifierWatcher")]
+impl KdeStatusNotifierWatcher {
+    #[zbus(property)]
+    fn registered_status_notifier_items(&self) -> Vec<String> {
+        self.0.registered_items()
+    }
+
+    #[zbus(property)]
+    fn is_status_notifier_host_registered(&self) -> bool {
+        self.0.has_registered_host()
+    }
+
+    #[zbus(property)]
+    fn protocol_version(&self) -> i32 {
+        0
+    }
+
+    async fn register_status_notifier_item(
+        &self,
+        service_or_path: String,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> fdo::Result<()> {
+        let key = self
+            .0
+            .register_item(service_or_path, header.sender().map(|name| name.as_str()))?;
+        Self::status_notifier_item_registered(emitter, key)
+            .await
+            .map_err(|error| fdo::Error::Failed(error.to_string()))?;
+        Ok(())
+    }
+
+    async fn register_status_notifier_host(
+        &self,
+        service: String,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> fdo::Result<()> {
+        self.0.register_host(service)?;
         Self::status_notifier_host_registered(emitter)
             .await
             .map_err(|error| fdo::Error::Failed(error.to_string()))?;
@@ -342,17 +432,20 @@ fn run_host(
         std::process::id()
     );
     let hosts = Arc::new(Mutex::new(BTreeMap::new()));
+    let watcher_state = WatcherState {
+        registrations: Arc::clone(&registrations),
+        hosts,
+    };
     let connection = ConnectionBuilder::session()?
         .method_timeout(Duration::from_secs(2))
         .name(WATCHER_NAME)?
+        .name(KDE_WATCHER_NAME)?
         .name(host_name.as_str())?
         .serve_at(
             WATCHER_PATH,
-            StatusNotifierWatcher {
-                registrations: Arc::clone(&registrations),
-                hosts: Arc::clone(&hosts),
-            },
+            FreedesktopStatusNotifierWatcher(watcher_state.clone()),
         )?
+        .serve_at(WATCHER_PATH, KdeStatusNotifierWatcher(watcher_state))?
         .build()
         .context("connecting the systray to the session bus")?;
 
@@ -438,14 +531,16 @@ fn refresh_items(
     if let Ok(mut registrations) = registrations.lock() {
         for key in disappeared {
             registrations.remove(&key);
-            if let Err(error) = connection.emit_signal(
-                None::<&str>,
-                WATCHER_PATH,
-                WATCHER_INTERFACE,
-                "StatusNotifierItemUnregistered",
-                &key,
-            ) {
-                eprintln!("Dojo could not announce removed systray item: {error}");
+            for interface in [WATCHER_INTERFACE, KDE_WATCHER_INTERFACE] {
+                if let Err(error) = connection.emit_signal(
+                    None::<&str>,
+                    WATCHER_PATH,
+                    interface,
+                    "StatusNotifierItemUnregistered",
+                    &key,
+                ) {
+                    eprintln!("Dojo could not announce removed systray item: {error}");
+                }
             }
         }
     }
@@ -454,8 +549,11 @@ fn refresh_items(
     }
 }
 
-fn read_item(connection: &Connection, address: &ItemAddress) -> anyhow::Result<Option<TrayItem>> {
-    let proxy = Proxy::new(
+fn connect_item<'a>(
+    connection: &'a Connection,
+    address: &'a ItemAddress,
+) -> anyhow::Result<(Proxy<'a>, String)> {
+    let canonical_proxy = Proxy::new(
         connection,
         address.service.as_str(),
         address.object_path.as_str(),
@@ -463,9 +561,27 @@ fn read_item(connection: &Connection, address: &ItemAddress) -> anyhow::Result<O
     )
     .with_context(|| format!("connecting to {}", address.key))?;
 
-    let id = proxy
-        .get_property::<String>("Id")
-        .with_context(|| format!("reading the required Id property from {}", address.key))?;
+    let (proxy, id) = match canonical_proxy.get_property::<String>("Id") {
+        Ok(id) => (canonical_proxy, id),
+        Err(_) => {
+            let proxy = Proxy::new(
+                connection,
+                address.service.as_str(),
+                address.object_path.as_str(),
+                KDE_ITEM_INTERFACE,
+            )
+            .with_context(|| format!("connecting to KDE-compatible item {}", address.key))?;
+            let id = proxy.get_property::<String>("Id").with_context(|| {
+                format!("reading the required Id property from {}", address.key)
+            })?;
+            (proxy, id)
+        }
+    };
+    Ok((proxy, id))
+}
+
+fn read_item(connection: &Connection, address: &ItemAddress) -> anyhow::Result<Option<TrayItem>> {
+    let (proxy, id) = connect_item(connection, address)?;
     let status = proxy
         .get_property::<String>("Status")
         .unwrap_or_else(|_| "Active".to_string());
@@ -508,6 +624,7 @@ fn read_item(connection: &Connection, address: &ItemAddress) -> anyhow::Result<O
 
 fn read_menu(connection: &Connection, service: &str, menu_path: &str) -> anyhow::Result<TrayMenu> {
     let proxy = Proxy::new(connection, service, menu_path, "com.canonical.dbusmenu")?;
+    let _: bool = proxy.call("AboutToShow", &(0i32,))?;
     let (revision, root) = read_menu_layout(&proxy, 0)?;
     Ok(TrayMenu {
         revision,
@@ -541,6 +658,7 @@ fn read_menu_layout(proxy: &Proxy<'_>, parent_id: i32) -> anyhow::Result<(u32, V
         let has_submenu =
             property_string(&properties, "children-display").as_deref() == Some("submenu");
         let children = if has_submenu {
+            let _: bool = proxy.call("AboutToShow", &(id,))?;
             read_menu_layout(proxy, id)?.1
         } else {
             Vec::new()
@@ -588,7 +706,7 @@ fn send_menu_event(
     id: i32,
 ) -> anyhow::Result<()> {
     let proxy = Proxy::new(connection, service, menu_path, "com.canonical.dbusmenu")?;
-    let _: () = proxy.call("Event", &(id, "clicked", Value::from(0i32), 0u32))?;
+    proxy.call_noreply("Event", &(id, "clicked", Value::from(0i32), 0u32))?;
     Ok(())
 }
 
@@ -598,8 +716,12 @@ fn activate_item(
     object_path: &str,
     action: TrayAction,
 ) -> anyhow::Result<()> {
-    let proxy = Proxy::new(connection, service, object_path, ITEM_INTERFACE)
-        .with_context(|| format!("connecting to systray item {service}"))?;
+    let address = ItemAddress {
+        key: service.to_string(),
+        service: service.to_string(),
+        object_path: object_path.to_string(),
+    };
+    let (proxy, _) = connect_item(connection, &address)?;
     let method = match action {
         TrayAction::Activate => "Activate",
         TrayAction::ContextMenu => "ContextMenu",
@@ -629,5 +751,72 @@ mod tests {
         assert_eq!(sender_path.service, ":1.42");
         assert_eq!(sender_path.object_path, "/Item");
         assert!(parse_item_address("/Item", None).is_none());
+    }
+
+    #[test]
+    fn watcher_interfaces_share_registration_state() -> anyhow::Result<()> {
+        let state = WatcherState {
+            registrations: Arc::default(),
+            hosts: Arc::default(),
+        };
+        let freedesktop = FreedesktopStatusNotifierWatcher(state.clone());
+        let kde = KdeStatusNotifierWatcher(state.clone());
+
+        assert_eq!(WATCHER_NAME, "org.freedesktop.StatusNotifierWatcher");
+        assert_eq!(KDE_WATCHER_NAME, "org.kde.StatusNotifierWatcher");
+        assert_eq!(
+            <FreedesktopStatusNotifierWatcher as zbus::object_server::Interface>::name().as_str(),
+            WATCHER_INTERFACE
+        );
+        assert_eq!(
+            <KdeStatusNotifierWatcher as zbus::object_server::Interface>::name().as_str(),
+            KDE_WATCHER_INTERFACE
+        );
+
+        let key = state.register_item("org.example.TrayItem".into(), None)?;
+        state.register_host("org.freedesktop.StatusNotifierHost-test".into())?;
+
+        assert_eq!(freedesktop.0.registered_items(), vec![key.clone()]);
+        assert_eq!(kde.0.registered_items(), vec![key]);
+        assert!(freedesktop.0.has_registered_host());
+        assert!(kde.0.has_registered_host());
+        Ok(())
+    }
+
+    #[test]
+    fn opening_a_tray_menu_queues_its_dbus_request() -> anyhow::Result<()> {
+        let (commands, queued) = mpsc::channel();
+        let handle = TrayHandle {
+            items: Arc::default(),
+            menus: Arc::default(),
+            commands: Some(commands),
+        };
+        let item = TrayItem {
+            key: ":1.702".into(),
+            service: ":1.702".into(),
+            object_path: "/StatusNotifierItem".into(),
+            title: String::new(),
+            status: "Active".into(),
+            icon_name: String::new(),
+            icon_pixmaps: Vec::new(),
+            item_is_menu: false,
+            menu_path: Some("/com/canonical/dbusmenu".into()),
+        };
+
+        handle.open_menu(&item);
+
+        match queued.try_recv()? {
+            TrayCommand::OpenMenu {
+                key,
+                service,
+                menu_path,
+            } => {
+                assert_eq!(key, item.key);
+                assert_eq!(service, item.service);
+                assert_eq!(menu_path, "/com/canonical/dbusmenu");
+            }
+            _ => return Err(anyhow::Error::msg("menu request was not queued")),
+        }
+        Ok(())
     }
 }
