@@ -1,0 +1,56 @@
+# yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
+inputs:
+  nixpkgs:
+    url: github:cachix/devenv-nixpkgs/rolling
+  home-manager:
+    url: github:nix-community/home-manager
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
+  bend:
+    url: github:bendlang/bend
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
+  zen-browser:
+    url: github:youwen5/zen-browser-flake
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
+  rush:
+    url: github:rockorager/rush
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
+  clipvault:
+    url: github:Rolv-Apneseth/clipvault
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
+  stasis:
+    url: github:saltnpepper97/stasis
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
+  utsushot:
+    url: github:xevrion/utsushot
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
+  vigiland:
+    url: github:Jappie3/vigiland
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
+  opencode:
+    url: github:anomalyco/opencode/v2.0.26
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
+nixpkgs:
+  permitted_unfree_packages:
+    - 1password-cli
+    - 1password
+    - 1password-gui
+    - 7zz
+    - uasm

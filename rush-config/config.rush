@@ -1,0 +1,18 @@
+# Prefer Mr Boxington's Cargo shim so Cargo builds share its cache.
+export PATH="/home/nathan/.local/bin:/home/nathan/.local/share/mbx/bin:/home/nathan/.cargo/bin:$PATH"
+
+# Yazi wrapper: change Rush's working directory to the directory Yazi exits in.
+y() {
+  local tmp cwd status
+  tmp="$(mktemp "${TMPDIR:-/tmp}/yazi-cwd.XXXXXX")" || return
+  command yazi "$@" --cwd-file="$tmp"
+  status=$?
+  # Yazi writes the cwd as a NUL-terminated path; remove the terminator before
+  # storing it in a shell variable (shell variables cannot contain NUL bytes).
+  cwd="$(tr -d '\000' < "$tmp")"
+  if [ -n "$cwd" ] && [ -d "$cwd" ] && [ "$cwd" != "$PWD" ]; then
+    cd "$cwd"
+  fi
+  command rm -f "$tmp"
+  return "$status"
+}

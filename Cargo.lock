@@ -1126,6 +1126,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dojo"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gpui",
+ "gpui_platform",
+ "image",
+ "serde",
+ "serde_json",
+ "toml 1.1.7+spec-1.1.0",
+ "zbus",
+]
+
+[[package]]
 name = "downcast-rs"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2464,17 +2478,6 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "khanda"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "gpui",
- "gpui_platform",
- "serde",
- "serde_json",
 ]
 
 [[package]]
