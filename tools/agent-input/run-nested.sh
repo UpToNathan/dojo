@@ -35,4 +35,9 @@ if [[ -z "$child_display" || -z "$child_socket" || ! -S "$child_socket" ]]; then
     exit 1
 fi
 printf 'WAYLAND_DISPLAY=%q\nNIRI_SOCKET=%q\n' "$child_display" "$child_socket" >"$run_directory/session.env"
-WAYLAND_DISPLAY="$child_display" NIRI_SOCKET="$child_socket" python3 "$repo_root/tools/agent-input/run.py" --log "$run_directory/events.jsonl" "$@"
+driver="$repo_root/tools/agent-input/run.py"
+if [[ "${1:-}" == --mcp ]]; then
+    shift
+    driver="$repo_root/tools/agent-input/run-mcp.py"
+fi
+WAYLAND_DISPLAY="$child_display" NIRI_SOCKET="$child_socket" python3 "$driver" --log "$run_directory/events.jsonl" "$@"

@@ -20,6 +20,8 @@ nucleo-matcher = "0.3"
 unicode-segmentation = "1"
 async-channel = "2"
 freedesktop-icons = "0.4"
+rmcp = { version = "3.5.1", default-features = false, features = ["server", "macros", "transport-io"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "signal"] }
 
 # Window creation compiles shader pipelines. Keep this work optimized even
 # while Dojo's own code retains a fast, debuggable development build.

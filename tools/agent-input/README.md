@@ -1,5 +1,19 @@
 # Agent input fixture
 
+To exercise the actual `dojo-agent` MCP subprocess, build it and run:
+
+```sh
+devenv shell -- cargo build --bin dojo-agent
+devenv shell -- tools/agent-input/run-nested.sh --mcp
+devenv shell -- tools/agent-input/run-nested.sh --mcp --gpui --recorder "$PWD/target/debug/examples/agent_seats"
+```
+
+The MCP scenario checks initialization, tool discovery, strict arguments, context
+queries, persistent seat ownership, clicks/keys/scroll delivery, independent
+server seats, failure cleanup, repeated release and held-key release on stdin
+EOF. It records Wayland or GPUI callbacks in the same evidence directory. See
+[client setup](../../docs/agent-input.md#connect-an-ai-client).
+
 This standalone Rust client creates two native Wayland windows, binds every seat,
 and logs input as JSON lines with its seat and target window. The Python runner
 keeps one agent IPC connection alive, selects the second window, sends pointer

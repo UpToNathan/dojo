@@ -70,6 +70,77 @@ Send one `AgentInput` command per line. For example, `{"Create":{"name":"assista
 creates the seat. Keep stdin open for subsequent commands. Separate one-shot
 `raw-request` invocations close their controller immediately.
 
+## Connect an AI client
+
+Build the desktop MCP server:
+
+```sh
+devenv shell -- cargo build --bin dojo-agent
+```
+
+Add a stdio server to your AI client's MCP configuration. Use the absolute path
+to the built executable:
+
+```json
+{
+  "mcpServers": {
+    "dojo-desktop": {
+      "command": "/home/nathan/Dojo/target/debug/dojo-agent",
+      "args": ["--name", "assistant"]
+    }
+  }
+}
+```
+
+The client must inherit `NIRI_SOCKET` from a session running the experimental
+compositor. For a nested session, pass `--socket /path/to/its/niri.sock` in
+`args`. The installed upstream compositor cannot execute these input tools.
+Do not launch through `devenv shell` in an MCP configuration: its startup output
+would mix with the protocol stream.
+
+The client discovers three tools:
+
+| Tool | Behavior |
+| --- | --- |
+| `desktop_context` | Lists windows, outputs and the current agent seat name. Creates no seat. |
+| `desktop_action` | Focuses, moves, clicks, injects keys, scrolls or resets the retained agent seat. |
+| `desktop_release` | Drops the seat and its cursor; safe to repeat. |
+
+Example `desktop_action` arguments:
+
+```json
+{"action":"focus","window_id":42}
+{"action":"move","output":"DP-1","x":400,"y":300}
+{"action":"click","button":"left"}
+{"action":"key","evdev":30,"state":"tap"}
+{"action":"scroll","horizontal":0,"vertical":40}
+{"action":"reset"}
+```
+
+Key states are `press`, `release` and `tap`. For a chord, press a modifier, tap
+the key, then release the modifier. Click buttons are `left`, `right` and
+`middle`. Key codes follow the compositor's current keyboard layout. There is
+no arbitrary Unicode text insertion.
+
+Each server process owns one seat. Calls execute serially, and input execution
+errors release its seat to clear held input. A later action creates a fresh
+seat; select a target again. Invalid arguments are rejected before input and
+leave the existing seat intact. Reset retains the seat, while release, stdin
+EOF and process exit close its controller socket.
+
+The server uses the [official Rust MCP SDK](https://github.com/modelcontextprotocol/rust-sdk)
+and [stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports).
+It supplies desktop tools to an existing AI client. It does not run a model,
+record voice, provide screenshots/accessibility observations, or add the
+planned agent UI. Use the client's own conversation and tool controls.
+
+Verify the actual MCP subprocess in a nested desktop:
+
+```sh
+devenv shell -- tools/agent-input/run-nested.sh --mcp
+devenv shell -- tools/agent-input/run-nested.sh --mcp --gpui --recorder "$PWD/target/debug/examples/agent_seats"
+```
+
 ## Experimental scope
 
 Agent input requires `DOJO_AGENT_INPUT=1` in the forked compositor's environment.
