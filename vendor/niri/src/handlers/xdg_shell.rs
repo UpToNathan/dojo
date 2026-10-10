@@ -68,7 +68,10 @@ impl XdgShellHandler for State {
         }
     }
 
-    fn move_request(&mut self, surface: ToplevelSurface, _seat: WlSeat, serial: Serial) {
+    fn move_request(&mut self, surface: ToplevelSurface, seat: WlSeat, serial: Serial) {
+        if !self.niri.seat.owns(&seat) {
+            return;
+        }
         let wl_surface = surface.wl_surface();
 
         let mut grab_start_data = None;
@@ -184,10 +187,13 @@ impl XdgShellHandler for State {
     fn resize_request(
         &mut self,
         surface: ToplevelSurface,
-        _seat: WlSeat,
+        seat: WlSeat,
         serial: Serial,
         edges: xdg_toplevel::ResizeEdge,
     ) {
+        if !self.niri.seat.owns(&seat) {
+            return;
+        }
         let wl_surface = surface.wl_surface();
 
         let mut grab_start_data = None;
@@ -323,7 +329,13 @@ impl XdgShellHandler for State {
         surface.send_repositioned(token);
     }
 
-    fn grab(&mut self, surface: PopupSurface, _seat: WlSeat, serial: Serial) {
+    fn grab(&mut self, surface: PopupSurface, seat: WlSeat, serial: Serial) {
+        if !self.niri.seat.owns(&seat) {
+            if let Ok(root) = find_popup_root_surface(&PopupKind::Xdg(surface.clone())) {
+                let _ = PopupManager::dismiss_popup(&root, &PopupKind::Xdg(surface));
+            }
+            return;
+        }
         let popup = PopupKind::Xdg(surface);
         let Ok(root) = find_popup_root_surface(&popup) else {
             trace!("ignoring popup grab because no root surface");

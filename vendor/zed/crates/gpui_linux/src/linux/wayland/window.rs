@@ -130,6 +130,7 @@ pub struct WaylandWindowState {
     client: WaylandClientStatePtr,
     handle: AnyWindowHandle,
     active: bool,
+    focused_seats: collections::FxHashSet<ObjectId>,
     hovered: bool,
     redraw_requested: bool,
     presentation: PresentationState,
@@ -632,6 +633,7 @@ impl WaylandWindowState {
             appearance,
             handle,
             active: false,
+            focused_seats: collections::FxHashSet::default(),
             hovered: false,
             redraw_requested: false,
             presentation: PresentationState::Unpresented,
@@ -1061,7 +1063,11 @@ impl WaylandWindowStatePtr {
 
     fn update_ime_enabled(&self) {
         let mut state = self.state.borrow_mut();
-        if !state.active {
+        if !state.active
+            || !state
+                .client
+                .is_primary_keyboard_focused(&state.surface.id())
+        {
             return;
         }
         let client = state.client.clone();
@@ -1599,7 +1605,18 @@ impl WaylandWindowStatePtr {
     }
 
     pub fn set_focused(&self, focus: bool) {
-        self.state.borrow_mut().active = focus;
+        let changed = {
+            let mut state = self.state.borrow_mut();
+            if state.active == focus {
+                false
+            } else {
+                state.active = focus;
+                true
+            }
+        };
+        if !changed {
+            return;
+        }
         let callback = self.callbacks.borrow_mut().active_status_change.take();
         if let Some(mut fun) = callback {
             fun(focus);
@@ -1608,6 +1625,21 @@ impl WaylandWindowStatePtr {
         if let Some(adapter) = self.state.borrow_mut().accesskit_adapter.as_mut() {
             adapter.update_window_focus_state(focus);
         }
+    }
+
+    /// Tracks keyboard focus independently for each Wayland seat while exposing
+    /// the existing window-level active state as the union of those seats.
+    pub fn set_seat_focused(&self, seat: ObjectId, focus: bool) {
+        let focused = {
+            let mut state = self.state.borrow_mut();
+            if focus {
+                state.focused_seats.insert(seat);
+            } else {
+                state.focused_seats.remove(&seat);
+            }
+            !state.focused_seats.is_empty()
+        };
+        self.set_focused(focused);
     }
 
     pub fn set_hovered(&self, focus: bool) {
@@ -1826,16 +1858,15 @@ impl PlatformWindow for WaylandWindow {
             .client
             .get_client()
             .borrow()
-            .mouse_location
-            .unwrap_or_default()
+            .event_mouse_position()
     }
 
     fn modifiers(&self) -> Modifiers {
-        self.borrow().client.get_client().borrow().modifiers
+        self.borrow().client.get_client().borrow().event_modifiers()
     }
 
     fn capslock(&self) -> Capslock {
-        self.borrow().client.get_client().borrow().capslock
+        self.borrow().client.get_client().borrow().event_capslock()
     }
 
     fn set_input_handler(&mut self, input_handler: PlatformInputHandler) {
@@ -1866,8 +1897,12 @@ impl PlatformWindow for WaylandWindow {
             let token = activation.get_activation_token(&state.globals.qh, ());
             // The serial isn't exactly important here, since the activation is probably going to be rejected anyway.
             let serial = state.client.get_serial(SerialKind::MousePress);
+            let seat = state
+                .client
+                .seat_for_event()
+                .unwrap_or_else(|| state.globals.seat.clone());
             token.set_app_id(app_id);
-            token.set_serial(serial.as_raw(), &state.globals.seat);
+            token.set_serial(serial.as_raw(), &seat);
             token.set_surface(&state.surface);
             token.commit();
         }
@@ -2072,9 +2107,13 @@ impl PlatformWindow for WaylandWindow {
     fn show_window_menu(&self, position: Point<Pixels>) {
         let state = self.borrow();
         let serial = state.client.get_serial(SerialKind::MousePress);
+        let seat = state
+            .client
+            .seat_for_event()
+            .unwrap_or_else(|| state.globals.seat.clone());
         if let Some(toplevel) = state.surface_state.toplevel() {
             toplevel.show_window_menu(
-                &state.globals.seat,
+                &seat,
                 serial.as_raw(),
                 f32::from(position.x) as i32,
                 f32::from(position.y) as i32,
@@ -2085,8 +2124,12 @@ impl PlatformWindow for WaylandWindow {
     fn start_window_move(&self) {
         let state = self.borrow();
         let serial = state.client.get_serial(SerialKind::MousePress);
+        let seat = state
+            .client
+            .seat_for_event()
+            .unwrap_or_else(|| state.globals.seat.clone());
         if let Some(toplevel) = state.surface_state.toplevel() {
-            toplevel._move(&state.globals.seat, serial.as_raw());
+            toplevel._move(&seat, serial.as_raw());
         }
     }
 
@@ -2102,8 +2145,12 @@ impl PlatformWindow for WaylandWindow {
     fn start_window_resize(&self, edge: gpui::ResizeEdge) {
         let state = self.borrow();
         if let Some(toplevel) = state.surface_state.toplevel() {
+            let seat = state
+                .client
+                .seat_for_event()
+                .unwrap_or_else(|| state.globals.seat.clone());
             toplevel.resize(
-                &state.globals.seat,
+                &seat,
                 state.client.get_serial(SerialKind::MousePress).as_raw(),
                 edge.to_xdg(),
             )
@@ -2209,7 +2256,11 @@ impl PlatformWindow for WaylandWindow {
 
     fn update_ime_position(&self, bounds: Bounds<Pixels>) {
         let state = self.borrow();
-        if !state.active {
+        if !state.active
+            || !state
+                .client
+                .is_primary_keyboard_focused(&state.surface.id())
+        {
             return;
         }
         state.client.update_ime_position(bounds);

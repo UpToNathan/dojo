@@ -28,11 +28,19 @@ impl Fixture {
         Self::with_config(Config::default())
     }
 
+    pub fn with_agent_input() -> Self {
+        Self::with_config_and_agent_input(Config::default(), true)
+    }
+
     pub fn with_config(config: Config) -> Self {
+        Self::with_config_and_agent_input(config, false)
+    }
+
+    fn with_config_and_agent_input(config: Config, agent_input_enabled: bool) -> Self {
         let event_loop = EventLoop::try_new().unwrap();
         let handle = event_loop.handle();
 
-        let server = Server::new(config);
+        let server = Server::new(config, agent_input_enabled);
         let fd = server.event_loop.as_fd().try_clone_to_owned().unwrap();
         let source = Generic::new(fd, Interest::READ, Mode::Level);
         handle

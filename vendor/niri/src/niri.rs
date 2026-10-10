@@ -341,6 +341,10 @@ pub struct Niri {
     pub single_pixel_buffer_state: SinglePixelBufferState,
 
     pub seat: Seat<State>,
+    pub agent_input_enabled: bool,
+    pub agent_seats: HashMap<u64, crate::agent_input::AgentSeat>,
+    pub agent_dispatch_state: Option<SeatState<State>>,
+    pub next_agent_peer: u64,
     /// Scancodes of the keys to suppress.
     pub suppressed_keys: HashSet<Keycode>,
     /// Button codes of the mouse buttons to suppress.
@@ -733,6 +737,7 @@ impl State {
         headless: bool,
         create_wayland_socket: bool,
         is_session_instance: bool,
+        agent_input_enabled: bool,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let _span = tracy_client::span!("State::new");
 
@@ -762,6 +767,7 @@ impl State {
             &backend,
             create_wayland_socket,
             is_session_instance,
+            agent_input_enabled,
         );
         backend.init(&mut niri);
 
@@ -824,6 +830,7 @@ impl State {
         self.notify_blocker_cleared();
 
         // These should be called periodically, before flushing the clients.
+        self.refresh_agents();
         self.niri.popups.cleanup();
         self.refresh_popup_grab();
         self.update_keyboard_focus();
@@ -2368,6 +2375,7 @@ impl Niri {
         backend: &Backend,
         create_wayland_socket: bool,
         is_session_instance: bool,
+        agent_input_enabled: bool,
     ) -> Self {
         let _span = tracy_client::span!("Niri::new");
 
@@ -2462,11 +2470,15 @@ impl Niri {
 
         let text_input_state = TextInputManagerState::new::<State>(&display_handle);
         let input_method_state =
-            InputMethodManagerState::new::<State, _>(&display_handle, client_is_unrestricted);
+            InputMethodManagerState::new::<State, _>(&display_handle, move |client| {
+                client_is_unrestricted(client) && !agent_input_enabled
+            });
         let keyboard_shortcuts_inhibit_state =
             KeyboardShortcutsInhibitState::new::<State>(&display_handle);
         let virtual_keyboard_state =
-            VirtualKeyboardManagerState::new::<State, _>(&display_handle, client_is_unrestricted);
+            VirtualKeyboardManagerState::new::<State, _>(&display_handle, move |client| {
+                client_is_unrestricted(client) && !agent_input_enabled
+            });
         let virtual_pointer_state =
             VirtualPointerManagerState::new::<State, _>(&display_handle, client_is_unrestricted);
         let foreign_toplevel_state =
@@ -2544,6 +2556,9 @@ impl Niri {
         seat.add_pointer();
 
         let cursor_shape_manager_state = CursorShapeManagerState::new::<State>(&display_handle);
+        if agent_input_enabled {
+            display_handle.remove_global::<State>(cursor_shape_manager_state.global());
+        }
         let cursor_manager =
             CursorManager::new(&config_.cursor.xcursor_theme, config_.cursor.xcursor_size);
 
@@ -2715,6 +2730,10 @@ impl Niri {
             single_pixel_buffer_state,
 
             seat,
+            agent_input_enabled,
+            agent_seats: HashMap::new(),
+            agent_dispatch_state: None,
+            next_agent_peer: 0,
             keyboard_focus: KeyboardFocus::Layout { surface: None },
             layer_shell_on_demand_focus: None,
             idle_inhibiting_surfaces: HashSet::new(),
@@ -4368,6 +4387,10 @@ impl Niri {
         } else {
             push
         };
+
+        if include_pointer {
+            self.render_agent_pointers(ctx.renderer, output, push);
+        }
 
         // The pointer goes on the top.
         if include_pointer && self.pointer_visibility.is_visible() {

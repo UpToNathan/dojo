@@ -114,6 +114,14 @@ pub enum Msg {
     Casts,
     /// Send a raw JSON request to the compositor, reading from stdin.
     RawRequest,
+    /// Keep one IPC connection open and send AgentInput JSON commands from stdin.
+    ///
+    /// Requires DOJO_AGENT_INPUT=1 on the compositor. This experimental mode disables
+    /// cursor shapes, virtual keyboards, and input methods for the entire nested compositor. Agent
+    /// popup grabs, interactive move/resize, drag-and-drop, and X11 are unsupported.
+    /// Each line is an AgentInput value, such as {"Create":{"name":"helper"}}.
+    /// End of stdin releases held input and removes the seat.
+    AgentInput,
 }
 
 #[derive(Clone, Debug, clap::ValueEnum)]

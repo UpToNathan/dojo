@@ -67,6 +67,8 @@ pub mod state;
 pub enum Request {
     /// Request the version string for the running niri instance.
     Version,
+    /// Control the agent seat owned by this persistent IPC connection.
+    AgentInput(AgentInput),
     /// Request information about connected outputs.
     Outputs,
     /// Request information about workspaces.
@@ -137,6 +139,11 @@ pub type Reply = Result<Response, String>;
 pub enum Response {
     /// A request that does not need a response was handled successfully.
     Handled,
+    /// An agent seat was created for this connection.
+    AgentInputCreated {
+        /// The advertised Wayland seat name.
+        seat_name: String,
+    },
     /// The version string for the running niri instance.
     Version(String),
     /// Information about connected outputs.
@@ -165,6 +172,66 @@ pub enum Response {
     OverviewState(Overview),
     /// Information about screencasts.
     Casts(Vec<Cast>),
+}
+
+/// Input commands for a connection-owned agent seat.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub enum AgentInput {
+    /// Create a seat. One seat may exist per persistent IPC connection.
+    Create {
+        /// A short ASCII name used in the advertised seat name.
+        name: String,
+    },
+    /// Select a mapped window without activating the human layout.
+    Focus {
+        /// The window ID returned by the Windows request.
+        window_id: u64,
+    },
+    /// Move the pointer in logical coordinates relative to an output.
+    Move {
+        /// The output name returned by the Outputs request.
+        output: String,
+        /// Horizontal logical coordinate within the output.
+        x: f64,
+        /// Vertical logical coordinate within the output.
+        y: f64,
+    },
+    /// Press or release a Linux pointer button.
+    Button {
+        /// Linux evdev button code, such as 272 for the left button.
+        button: u32,
+        /// Whether to press or release the button.
+        state: AgentInputState,
+    },
+    /// Press or release a keyboard key without compositor shortcuts.
+    Key {
+        /// Linux evdev keyboard code, without the XKB offset of eight.
+        evdev: u32,
+        /// Whether to press or release the key.
+        state: AgentInputState,
+    },
+    /// Send continuous scrolling in logical pixel units.
+    Axis {
+        /// Horizontal scrolling amount.
+        horizontal: f64,
+        /// Vertical scrolling amount.
+        vertical: f64,
+    },
+    /// Release held input, clear both focuses, and hide the cursor.
+    Reset,
+    /// Reset input and remove the seat global.
+    Destroy,
+}
+
+/// State of an agent key or pointer button.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub enum AgentInputState {
+    /// The key or button is pressed.
+    Pressed,
+    /// The key or button is released.
+    Released,
 }
 
 /// Overview information.

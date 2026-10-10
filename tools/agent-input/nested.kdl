@@ -1,0 +1,30 @@
+input {
+    keyboard {
+        xkb {
+            layout "us"
+        }
+    }
+}
+layout {
+    gaps 8
+    default-column-width { proportion 0.4; }
+    center-focused-column "never"
+}
+prefer-no-csd
+window-rule {
+    match app-id="^dojo-agent-input-fixture$" title="^Agent input fixture 1$"
+    open-floating true
+    default-column-width { fixed 260; }
+    default-window-height { fixed 200; }
+    default-floating-position x=20 y=60 relative-to="top-left"
+}
+window-rule {
+    match app-id="^dojo-agent-input-fixture$" title="^Agent input fixture 2$"
+    open-floating true
+    default-column-width { fixed 260; }
+    default-window-height { fixed 200; }
+    default-floating-position x=330 y=60 relative-to="top-left"
+}
+hotkey-overlay {
+    skip-at-startup
+}

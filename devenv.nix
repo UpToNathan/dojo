@@ -24,6 +24,14 @@
     pkgs.freetype.dev
     pkgs.wayland.dev
     pkgs.libxkbcommon.dev
+    pkgs.cairo.dev
+    pkgs.dbus.dev
+    pkgs.libdisplay-info_0_3
+    pkgs.libinput.dev
+    pkgs.seatd.dev
+    pkgs.libgbm
+    pkgs.pango.dev
+    pkgs.systemd.dev
     pkgs.libglvnd
     pkgs.vulkan-loader
     pkgs.mesa

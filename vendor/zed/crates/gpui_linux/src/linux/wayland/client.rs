@@ -356,7 +356,15 @@ pub(crate) struct WaylandClientState {
     globals: Globals,
     pub gpu_context: GpuContext,
     pub compositor_gpu: Option<CompositorGpuHint>,
-    wl_seat: wl_seat::WlSeat, // TODO: Multi seat support
+    wl_seat: wl_seat::WlSeat,
+    primary_seat_global: u32,
+    // Seats after the first remain bound for the lifetime of their registry
+    // globals. Input objects and focus are attached in the per-seat state.
+    additional_wl_seats: HashMap<u32, wl_seat::WlSeat>,
+    seat_input: HashMap<ObjectId, SeatInputState>,
+    hovered_windows_by_seat: HashMap<ObjectId, WaylandWindowStatePtr>,
+    current_event_seat: Option<ObjectId>,
+    primary_keyboard_surface: Option<ObjectId>,
     wl_pointer: Option<wl_pointer::WlPointer>,
     pinch_gesture: Option<zwp_pointer_gesture_pinch_v1::ZwpPointerGesturePinchV1>,
     pinch_scale: f32,
@@ -414,6 +422,72 @@ pub(crate) struct WaylandClientState {
     registrations: Vec<RegistrationToken>,
     pub common: Rc<RefCell<LinuxCommon>>,
     ime_enabled: Option<bool>,
+}
+
+/// Input state belonging to one Wayland seat. The first seat continues to use
+/// the legacy fields on `WaylandClientState` while consumers are migrated; all
+/// later seats keep their own protocol objects and focus state here.
+struct SeatInputState {
+    pointer: Option<wl_pointer::WlPointer>,
+    keyboard: Option<wl_keyboard::WlKeyboard>,
+    pointer_location: Option<Point<Pixels>>,
+    mouse_focused_window: Option<WaylandWindowStatePtr>,
+    keyboard_focused_window: Option<WaylandWindowStatePtr>,
+    modifiers: Modifiers,
+    capslock: Capslock,
+    keymap_state: Option<xkb::State>,
+    compose_state: Option<xkb::compose::State>,
+    pre_edit_text: Option<String>,
+    held_keys: HashMap<u32, Keystroke>,
+    repeat: KeyRepeat,
+    pressed_button: Option<MouseButton>,
+    serial_tracker: SerialTracker,
+    cursor_shape_device: Option<wp_cursor_shape_device_v1::WpCursorShapeDeviceV1>,
+    cursor: Option<Cursor>,
+    cursor_style: Option<CursorStyle>,
+    cursor_hidden_window: Option<WaylandWindowStatePtr>,
+    axis_source: Option<AxisSource>,
+    continuous_scroll_delta: Option<Point<Pixels>>,
+    discrete_scroll_delta: Option<Point<f32>>,
+}
+
+impl Default for SeatInputState {
+    fn default() -> Self {
+        Self {
+            pointer: None,
+            keyboard: None,
+            pointer_location: None,
+            mouse_focused_window: None,
+            keyboard_focused_window: None,
+            modifiers: Modifiers::default(),
+            capslock: Capslock::default(),
+            keymap_state: None,
+            compose_state: None,
+            pre_edit_text: None,
+            held_keys: HashMap::default(),
+            repeat: KeyRepeat::default(),
+            pressed_button: None,
+            axis_source: None,
+            continuous_scroll_delta: None,
+            discrete_scroll_delta: None,
+            serial_tracker: SerialTracker::new(),
+            cursor_shape_device: None,
+            cursor: None,
+            cursor_style: None,
+            cursor_hidden_window: None,
+        }
+    }
+}
+
+impl Default for KeyRepeat {
+    fn default() -> Self {
+        Self {
+            characters_per_second: 16,
+            delay: Duration::from_millis(500),
+            current_id: 0,
+            current_keycode: None,
+        }
+    }
 }
 
 struct DragState<DataOffer = wl_data_offer::WlDataOffer, Window = WaylandWindowStatePtr> {
@@ -578,6 +652,10 @@ impl WaylandClientStatePtr {
             .expect("The pointer should always be valid when dispatching in wayland")
     }
 
+    pub(crate) fn is_primary_keyboard_focused(&self, surface: &ObjectId) -> bool {
+        self.get_client().borrow().primary_keyboard_surface.as_ref() == Some(surface)
+    }
+
     /// Reports that the outputs may have changed. The client state and
     /// `LinuxCommon` must not be borrowed, since GPUI reads the displays while
     /// handling it.
@@ -654,7 +732,33 @@ impl WaylandClientStatePtr {
     }
 
     pub fn get_serial(&self, kind: SerialKind) -> Serial {
-        self.0.upgrade().unwrap().borrow().serial_tracker.get(kind)
+        let client = self.get_client();
+        let state = client.borrow();
+        if let Some(input) = state
+            .current_event_seat
+            .as_ref()
+            .and_then(|seat| state.seat_input.get(seat))
+        {
+            input.serial_tracker.get(kind)
+        } else {
+            state.serial_tracker.get(kind)
+        }
+    }
+
+    pub(crate) fn seat_for_event(&self) -> Option<wl_seat::WlSeat> {
+        let client = self.get_client();
+        let state = client.borrow();
+        state.current_event_seat.as_ref().and_then(|seat_id| {
+            if *seat_id == state.wl_seat.id() {
+                Some(state.wl_seat.clone())
+            } else {
+                state
+                    .additional_wl_seats
+                    .values()
+                    .find(|seat| seat.id() == *seat_id)
+                    .cloned()
+            }
+        })
     }
 
     pub fn start_external_drag(
@@ -664,6 +768,14 @@ impl WaylandClientStatePtr {
     ) -> bool {
         let client = self.get_client();
         let mut state = client.borrow_mut();
+
+        if state
+            .current_event_seat
+            .as_ref()
+            .is_some_and(|seat| *seat != state.wl_seat.id())
+        {
+            return false;
+        }
 
         let Some(window) = get_window(&mut state, &surface.id()) else {
             return false;
@@ -705,6 +817,13 @@ impl WaylandClientStatePtr {
     pub fn enable_ime(&self) {
         let client = self.get_client();
         let mut state = client.borrow_mut();
+        if state
+            .current_event_seat
+            .as_ref()
+            .is_some_and(|seat| *seat != state.wl_seat.id())
+        {
+            return;
+        }
         state.ime_enabled = Some(true);
         state.last_ime_cursor_rectangle = None;
         let Some(text_input) = state.text_input.take() else {
@@ -731,6 +850,13 @@ impl WaylandClientStatePtr {
     pub fn disable_ime(&self) {
         let client = self.get_client();
         let mut state = client.borrow_mut();
+        if state
+            .current_event_seat
+            .as_ref()
+            .is_some_and(|seat| *seat != state.wl_seat.id())
+        {
+            return;
+        }
         state.ime_enabled = Some(false);
         state.composing = false;
         if let Some(text_input) = &state.text_input {
@@ -747,6 +873,13 @@ impl WaylandClientStatePtr {
     pub fn update_ime_position(&self, bounds: Bounds<Pixels>) {
         let client = self.get_client();
         let mut state = client.borrow_mut();
+        if state
+            .current_event_seat
+            .as_ref()
+            .is_some_and(|seat| *seat != state.wl_seat.id())
+        {
+            return;
+        }
         if state.pre_edit_text.is_some() {
             return;
         }
@@ -813,6 +946,31 @@ impl WaylandClientStatePtr {
         {
             state.cursor_hidden_window = Some(window);
         }
+    }
+}
+
+impl WaylandClientState {
+    pub(crate) fn event_mouse_position(&self) -> Point<Pixels> {
+        self.current_event_seat
+            .as_ref()
+            .and_then(|seat| self.seat_input.get(seat))
+            .and_then(|input| input.pointer_location)
+            .or(self.mouse_location)
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn event_modifiers(&self) -> Modifiers {
+        self.current_event_seat
+            .as_ref()
+            .and_then(|seat| self.seat_input.get(seat))
+            .map_or(self.modifiers, |input| input.modifiers)
+    }
+
+    pub(crate) fn event_capslock(&self) -> Capslock {
+        self.current_event_seat
+            .as_ref()
+            .and_then(|seat| self.seat_input.get(seat))
+            .map_or(self.capslock, |input| input.capslock)
     }
 }
 
@@ -992,6 +1150,8 @@ impl WaylandConnection {
         let qh = event_queue.handle();
 
         let mut seat: Option<wl_seat::WlSeat> = None;
+        let mut primary_seat_global = None;
+        let mut additional_wl_seats = HashMap::default();
         #[allow(clippy::mutable_key_type)]
         let mut in_progress_outputs = HashMap::default();
         #[allow(clippy::mutable_key_type)]
@@ -1002,12 +1162,23 @@ impl WaylandConnection {
             for global in list {
                 match &global.interface[..] {
                     "wl_seat" => {
-                        seat = Some(globals.registry().bind::<wl_seat::WlSeat, _, _>(
-                            global.name,
-                            wl_seat_version(global.version)?,
-                            &qh,
-                            (),
-                        ));
+                        if seat.is_none() {
+                            primary_seat_global = Some(global.name);
+                            seat = Some(globals.registry().bind::<wl_seat::WlSeat, _, _>(
+                                global.name,
+                                wl_seat_version(global.version)?,
+                                &qh,
+                                (),
+                            ));
+                        } else {
+                            let additional = globals.registry().bind::<wl_seat::WlSeat, _, _>(
+                                global.name,
+                                wl_seat_version(global.version)?,
+                                &qh,
+                                (),
+                            );
+                            additional_wl_seats.insert(global.name, additional);
+                        }
                     }
                     "wl_output" => {
                         let output = globals.registry().bind::<wl_output::WlOutput, _, _>(
@@ -1061,6 +1232,12 @@ impl WaylandConnection {
             gpu_context,
             compositor_gpu,
             wl_seat: seat,
+            primary_seat_global: primary_seat_global.expect("primary seat was bound"),
+            additional_wl_seats,
+            seat_input: HashMap::default(),
+            hovered_windows_by_seat: HashMap::default(),
+            current_event_seat: None,
+            primary_keyboard_surface: None,
             wl_pointer: None,
             wl_keyboard: None,
             pinch_gesture: None,
@@ -1300,16 +1477,46 @@ impl WaylandConnection {
                 // immediately dismisses the popup, so use the most recent press serial, or no
                 // grab before any press.
                 let popup_grab = options.grab.then(|| {
-                    let serial = state
-                        .serial_tracker
-                        .get(SerialKind::MousePress)
-                        .as_raw()
-                        .max(state.serial_tracker.get(SerialKind::KeyPress).as_raw());
-                    (serial != 0).then(|| (serial, state.wl_seat.clone()))
+                    let (serial, seat) = state
+                        .current_event_seat
+                        .as_ref()
+                        .and_then(|seat_id| {
+                            state.seat_input.get(seat_id).map(|input| {
+                                let serial = input
+                                    .serial_tracker
+                                    .get(SerialKind::MousePress)
+                                    .as_raw()
+                                    .max(input.serial_tracker.get(SerialKind::KeyPress).as_raw());
+                                let seat = state
+                                    .additional_wl_seats
+                                    .values()
+                                    .find(|seat| seat.id() == *seat_id)
+                                    .cloned();
+                                (serial, seat)
+                            })
+                        })
+                        .and_then(|(serial, seat)| seat.map(|seat| (serial, seat)))
+                        .unwrap_or_else(|| {
+                            let serial = state
+                                .serial_tracker
+                                .get(SerialKind::MousePress)
+                                .as_raw()
+                                .max(state.serial_tracker.get(SerialKind::KeyPress).as_raw());
+                            (serial, state.wl_seat.clone())
+                        });
+                    (serial != 0).then(|| (serial, seat))
                 });
                 (Some(parent), popup_grab.flatten())
             }
-            _ => (state.keyboard_focused_window.clone(), None),
+            _ => {
+                let focused = state
+                    .current_event_seat
+                    .as_ref()
+                    .and_then(|seat| state.seat_input.get(seat))
+                    .and_then(|input| input.keyboard_focused_window.clone())
+                    .or_else(|| state.keyboard_focused_window.clone());
+                (focused, None)
+            }
         };
 
         let target_output = params.display_id.and_then(|display_id| {
@@ -1347,6 +1554,45 @@ impl WaylandConnection {
 
     pub(crate) fn set_cursor_style(&self, style: CursorStyle) {
         let mut state = self.0.borrow_mut();
+        if let Some(seat_id) = state.current_event_seat.clone()
+            && seat_id != state.wl_seat.id()
+        {
+            let (needs_update, hidden, serial, pointer, shape_device, focused_window) = {
+                let Some(input) = state.seat_input.get_mut(&seat_id) else {
+                    return;
+                };
+                let needs_update = input.cursor_style != Some(style)
+                    && input
+                        .mouse_focused_window
+                        .as_ref()
+                        .is_none_or(|window| !window.is_blocked());
+                input.cursor_style = Some(style);
+                (
+                    needs_update,
+                    input.cursor_hidden_window.is_some(),
+                    input.serial_tracker.get(SerialKind::MouseEnter).as_raw(),
+                    input.pointer.clone(),
+                    input.cursor_shape_device.clone(),
+                    input.mouse_focused_window.clone(),
+                )
+            };
+            if !needs_update || hidden {
+                return;
+            }
+            if let Some(device) = shape_device {
+                device.set_shape(serial, to_shape(style));
+            } else if let (Some(pointer), Some(window)) = (pointer, focused_window) {
+                let scale = window.primary_output_scale();
+                if let Some(cursor) = state
+                    .seat_input
+                    .get_mut(&seat_id)
+                    .and_then(|input| input.cursor.as_mut())
+                {
+                    cursor.set_icon(&pointer, serial, cursor_style_to_icon_names(style), scale);
+                }
+            }
+            return;
+        }
 
         let need_update = state.cursor_style != Some(style)
             && (state.mouse_focused_window.is_none()
@@ -1386,11 +1632,40 @@ impl WaylandConnection {
     }
 
     pub(crate) fn hide_cursor_until_mouse_moves(&self) {
-        self.0.borrow_mut().hide_cursor_until_mouse_moves();
+        let mut state = self.0.borrow_mut();
+        if let Some(seat_id) = state.current_event_seat.clone()
+            && seat_id != state.wl_seat.id()
+        {
+            let Some(input) = state.seat_input.get_mut(&seat_id) else {
+                return;
+            };
+            if input.cursor_hidden_window.is_some() {
+                return;
+            }
+            let (Some(window), Some(pointer)) =
+                (input.mouse_focused_window.clone(), input.pointer.clone())
+            else {
+                return;
+            };
+            let serial = input.serial_tracker.get(SerialKind::MouseEnter).as_raw();
+            pointer.set_cursor(serial, None, 0, 0);
+            input.cursor_hidden_window = Some(window);
+            return;
+        }
+        state.hide_cursor_until_mouse_moves();
     }
 
     pub(crate) fn is_cursor_visible(&self) -> bool {
-        self.0.borrow().cursor_hidden_window.is_none()
+        let state = self.0.borrow();
+        if let Some(seat) = state.current_event_seat.as_ref()
+            && *seat != state.wl_seat.id()
+        {
+            return state
+                .seat_input
+                .get(seat)
+                .is_none_or(|input| input.cursor_hidden_window.is_none());
+        }
+        state.cursor_hidden_window.is_none()
     }
 
     pub(crate) fn open_uri(&self, uri: &str) {
@@ -1608,14 +1883,15 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for WaylandClientStat
                         log::error!("ignoring wl_seat below the required version");
                         return;
                     };
-                    if let Some(wl_pointer) = state.wl_pointer.take() {
-                        wl_pointer.release();
+                    // Keep the original seat stable. Replacing it here discarded
+                    // the human's pointer and keyboard whenever another seat was
+                    // announced.
+                    if state.primary_seat_global != name
+                        && !state.additional_wl_seats.contains_key(&name)
+                    {
+                        let seat = registry.bind::<wl_seat::WlSeat, _, _>(name, version, qh, ());
+                        state.additional_wl_seats.insert(name, seat);
                     }
-                    if let Some(wl_keyboard) = state.wl_keyboard.take() {
-                        wl_keyboard.release();
-                    }
-                    state.wl_seat.release();
-                    state.wl_seat = registry.bind::<wl_seat::WlSeat, _, _>(name, version, qh, ());
                 }
                 "wl_output" => {
                     let Ok(version) = wl_output_version(version) else {
@@ -1633,6 +1909,84 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for WaylandClientStat
                 _ => {}
             },
             wl_registry::Event::GlobalRemove { name } => {
+                if let Some(seat) = state.additional_wl_seats.remove(&name) {
+                    let seat_id = seat.id();
+                    if let Some(mut input) = state.seat_input.remove(&seat_id) {
+                        if let Some(pointer) = input.pointer.take() {
+                            pointer.release();
+                        }
+                        if let Some(device) = input.cursor_shape_device.take() {
+                            device.destroy();
+                        }
+                        if let Some(keyboard) = input.keyboard.take() {
+                            keyboard.release();
+                        }
+                        let mouse_window = input.mouse_focused_window.take();
+                        let keyboard_window = input.keyboard_focused_window.take();
+                        let held_keys = std::mem::take(&mut input.held_keys)
+                            .into_values()
+                            .collect::<Vec<_>>();
+                        let position = input.pointer_location.unwrap_or_default();
+                        let pressed_button = input.pressed_button.take();
+                        let modifiers = input.modifiers;
+                        let mouse_exit = mouse_window.map(|window| (window, position, modifiers));
+                        let hover_changes = update_seat_hover(&mut state, seat_id.clone(), None);
+                        drop(state);
+                        if let Some((window, position, modifiers)) = mouse_exit {
+                            if let Some(button) = pressed_button {
+                                handle_input_for_seat(
+                                    &client,
+                                    &seat_id,
+                                    &window,
+                                    PlatformInput::MouseUp(MouseUpEvent {
+                                        button,
+                                        position,
+                                        modifiers,
+                                        click_count: 1,
+                                    }),
+                                );
+                            }
+                            handle_input_for_seat(
+                                &client,
+                                &seat_id,
+                                &window,
+                                PlatformInput::MouseExited(MouseExitEvent {
+                                    position,
+                                    pressed_button: None,
+                                    modifiers,
+                                }),
+                            );
+                        }
+                        for (window, hovered) in hover_changes {
+                            window.set_hovered(hovered);
+                        }
+                        if let Some(window) = keyboard_window {
+                            for keystroke in held_keys {
+                                handle_input_for_seat(
+                                    &client,
+                                    &seat_id,
+                                    &window,
+                                    PlatformInput::KeyUp(KeyUpEvent { keystroke }),
+                                );
+                            }
+                            handle_input_for_seat(
+                                &client,
+                                &seat_id,
+                                &window,
+                                PlatformInput::ModifiersChanged(ModifiersChangedEvent {
+                                    modifiers: Modifiers::default(),
+                                    capslock: Capslock::default(),
+                                }),
+                            );
+                            handle_ime_for_seat(&client, &seat_id, &window, ImeInput::DeleteText);
+                            window.set_seat_focused(seat_id.clone(), false);
+                        }
+                        seat.release();
+                        return;
+                    }
+                    seat.release();
+                    return;
+                }
                 let Some(id) = state.output_globals.remove(&name) else {
                     return;
                 };
@@ -1736,6 +2090,71 @@ pub(crate) fn get_window(
     surface_id: &ObjectId,
 ) -> Option<WaylandWindowStatePtr> {
     state.windows.get(surface_id).cloned()
+}
+
+fn update_seat_hover(
+    state: &mut WaylandClientState,
+    seat_id: ObjectId,
+    next: Option<WaylandWindowStatePtr>,
+) -> Vec<(WaylandWindowStatePtr, bool)> {
+    let previous = state.hovered_windows_by_seat.remove(&seat_id);
+    if previous
+        .as_ref()
+        .zip(next.as_ref())
+        .is_some_and(|(a, b)| a.ptr_eq(b))
+    {
+        state.hovered_windows_by_seat.insert(seat_id, next.unwrap());
+        return Vec::new();
+    }
+    let mut changes = Vec::new();
+    if let Some(previous) = previous {
+        if !state
+            .hovered_windows_by_seat
+            .values()
+            .any(|window| window.ptr_eq(&previous))
+        {
+            changes.push((previous, false));
+        }
+    }
+    if let Some(next) = next {
+        let already_hovered = state
+            .hovered_windows_by_seat
+            .values()
+            .any(|window| window.ptr_eq(&next));
+        state.hovered_windows_by_seat.insert(seat_id, next.clone());
+        if !already_hovered {
+            changes.push((next, true));
+        }
+    }
+    changes
+}
+
+fn handle_input_for_seat(
+    client: &Rc<RefCell<WaylandClientState>>,
+    seat_id: &ObjectId,
+    window: &WaylandWindowStatePtr,
+    input: PlatformInput,
+) {
+    let previous = client
+        .borrow_mut()
+        .current_event_seat
+        .replace(seat_id.clone());
+    window.handle_input(input);
+    client.borrow_mut().current_event_seat = previous;
+}
+
+fn handle_ime_for_seat(
+    client: &Rc<RefCell<WaylandClientState>>,
+    seat_id: &ObjectId,
+    window: &WaylandWindowStatePtr,
+    input: ImeInput,
+) {
+    let previous = client
+        .borrow_mut()
+        .current_event_seat
+        .replace(seat_id.clone());
+    window.handle_ime(input);
+    client.borrow_mut().current_event_seat = previous;
 }
 
 impl Dispatch<wl_surface::WlSurface, ()> for WaylandClientStatePtr {
@@ -1975,7 +2394,7 @@ impl Dispatch<wl_seat::WlSeat, ()> for WaylandClientStatePtr {
         seat: &wl_seat::WlSeat,
         event: wl_seat::Event,
         _: &(),
-        _: &Connection,
+        connection: &Connection,
         qh: &QueueHandle<Self>,
     ) {
         if let wl_seat::Event::Capabilities {
@@ -1984,66 +2403,215 @@ impl Dispatch<wl_seat::WlSeat, ()> for WaylandClientStatePtr {
         {
             let client = state.get_client();
             let mut state = client.borrow_mut();
+            let is_primary_seat = seat.id() == state.wl_seat.id();
+            let seat_id = seat.id();
+            if !is_primary_seat {
+                state.seat_input.entry(seat_id.clone()).or_default();
+            }
             if capabilities.contains(wl_seat::Capability::Keyboard) {
-                let keyboard = seat.get_keyboard(qh, ());
+                let keyboard = seat.get_keyboard(qh, seat_id.clone());
 
-                if let Some(text_input) = state.text_input.take() {
-                    text_input.destroy();
-                    state.ime_pre_edit = None;
-                    state.composing = false;
+                if !is_primary_seat {
+                    let input = state.seat_input.entry(seat_id.clone()).or_default();
+                    if let Some(old) = input.keyboard.replace(keyboard) {
+                        old.release();
+                    }
+                } else {
+                    if let Some(text_input) = state.text_input.take() {
+                        text_input.destroy();
+                        state.ime_pre_edit = None;
+                        state.composing = false;
+                    }
+
+                    state.text_input = state
+                        .globals
+                        .text_input_manager
+                        .as_ref()
+                        .map(|text_input_manager| text_input_manager.get_text_input(seat, qh, ()));
+
+                    if let Some(wl_keyboard) = &state.wl_keyboard {
+                        wl_keyboard.release();
+                    }
+
+                    state.wl_keyboard = Some(keyboard);
                 }
-
-                state.text_input = state
-                    .globals
-                    .text_input_manager
-                    .as_ref()
-                    .map(|text_input_manager| text_input_manager.get_text_input(seat, qh, ()));
-
-                if let Some(wl_keyboard) = &state.wl_keyboard {
-                    wl_keyboard.release();
-                }
-
-                state.wl_keyboard = Some(keyboard);
             }
             if capabilities.contains(wl_seat::Capability::Pointer) {
-                let pointer = seat.get_pointer(qh, ());
+                let pointer = seat.get_pointer(qh, seat_id.clone());
 
-                if let Some(cursor_shape_device) = state.cursor_shape_device.take() {
-                    cursor_shape_device.destroy();
+                if !is_primary_seat {
+                    let cursor_shape_manager = state.globals.cursor_shape_manager.clone();
+                    let globals = state.globals.clone();
+                    let input = state.seat_input.entry(seat_id.clone()).or_default();
+                    if let Some(old) = input.pointer.replace(pointer) {
+                        old.release();
+                    }
+                    if let Some(device) = input.cursor_shape_device.take() {
+                        device.destroy();
+                    }
+                    input.cursor_shape_device = cursor_shape_manager.as_ref().and_then(|manager| {
+                        input
+                            .pointer
+                            .as_ref()
+                            .map(|pointer| manager.get_pointer(pointer, qh, ()))
+                    });
+                    input.cursor = Some(Cursor::new(connection, &globals, 24));
+                } else {
+                    if let Some(cursor_shape_device) = state.cursor_shape_device.take() {
+                        cursor_shape_device.destroy();
+                    }
+
+                    state.cursor_shape_device =
+                        state
+                            .globals
+                            .cursor_shape_manager
+                            .as_ref()
+                            .map(|cursor_shape_manager| {
+                                cursor_shape_manager.get_pointer(&pointer, qh, ())
+                            });
+
+                    state.pinch_gesture = state.globals.gesture_manager.as_ref().map(
+                        |gesture_manager: &zwp_pointer_gestures_v1::ZwpPointerGesturesV1| {
+                            gesture_manager.get_pinch_gesture(&pointer, qh, ())
+                        },
+                    );
+
+                    if let Some(wl_pointer) = &state.wl_pointer {
+                        wl_pointer.release();
+                    }
+
+                    state.wl_pointer = Some(pointer);
                 }
-
-                state.cursor_shape_device = state
-                    .globals
-                    .cursor_shape_manager
-                    .as_ref()
-                    .map(|cursor_shape_manager| cursor_shape_manager.get_pointer(&pointer, qh, ()));
-
-                state.pinch_gesture = state.globals.gesture_manager.as_ref().map(
-                    |gesture_manager: &zwp_pointer_gestures_v1::ZwpPointerGesturesV1| {
-                        gesture_manager.get_pinch_gesture(&pointer, qh, ())
-                    },
-                );
-
-                if let Some(wl_pointer) = &state.wl_pointer {
-                    wl_pointer.release();
+            }
+            if !is_primary_seat {
+                if !capabilities.contains(wl_seat::Capability::Pointer) {
+                    if let Some(input) = state.seat_input.get_mut(&seat_id) {
+                        if let Some(pointer) = input.pointer.take() {
+                            pointer.release();
+                        }
+                        if let Some(device) = input.cursor_shape_device.take() {
+                            device.destroy();
+                        }
+                        if let Some(window) = input.mouse_focused_window.take() {
+                            let position = input.pointer_location.take().unwrap_or_default();
+                            let pressed_button = input.pressed_button.take();
+                            let modifiers = input.modifiers;
+                            let hover_changes =
+                                update_seat_hover(&mut state, seat_id.clone(), None);
+                            drop(state);
+                            if let Some(button) = pressed_button {
+                                handle_input_for_seat(
+                                    &client,
+                                    &seat_id,
+                                    &window,
+                                    PlatformInput::MouseUp(MouseUpEvent {
+                                        button,
+                                        position,
+                                        modifiers,
+                                        click_count: 1,
+                                    }),
+                                );
+                            }
+                            handle_input_for_seat(
+                                &client,
+                                &seat_id,
+                                &window,
+                                PlatformInput::MouseExited(MouseExitEvent {
+                                    position,
+                                    pressed_button: None,
+                                    modifiers,
+                                }),
+                            );
+                            for (window, hovered) in hover_changes {
+                                window.set_hovered(hovered);
+                            }
+                            state = client.borrow_mut();
+                        }
+                    }
                 }
-
-                state.wl_pointer = Some(pointer);
+                if !capabilities.contains(wl_seat::Capability::Keyboard) {
+                    let cleanup = if let Some(input) = state.seat_input.get_mut(&seat_id) {
+                        if let Some(keyboard) = input.keyboard.take() {
+                            keyboard.release();
+                        }
+                        input.repeat.current_id += 1;
+                        input.repeat.current_keycode = None;
+                        input.modifiers = Modifiers::default();
+                        let window = input.keyboard_focused_window.take();
+                        let held = std::mem::take(&mut input.held_keys)
+                            .into_values()
+                            .collect::<Vec<_>>();
+                        window.map(|window| (window, held))
+                    } else {
+                        None
+                    };
+                    if let Some((window, held)) = cleanup {
+                        drop(state);
+                        for keystroke in held {
+                            handle_input_for_seat(
+                                &client,
+                                &seat_id,
+                                &window,
+                                PlatformInput::KeyUp(KeyUpEvent { keystroke }),
+                            );
+                        }
+                        handle_input_for_seat(
+                            &client,
+                            &seat_id,
+                            &window,
+                            PlatformInput::ModifiersChanged(ModifiersChangedEvent {
+                                modifiers: Modifiers::default(),
+                                capslock: Capslock::default(),
+                            }),
+                        );
+                        window.set_seat_focused(seat_id.clone(), false);
+                    }
+                }
             }
         }
     }
 }
 
-impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
+impl Dispatch<wl_keyboard::WlKeyboard, ObjectId> for WaylandClientStatePtr {
     fn event(
         this: &mut Self,
-        _: &wl_keyboard::WlKeyboard,
+        keyboard: &wl_keyboard::WlKeyboard,
         event: wl_keyboard::Event,
-        _: &(),
+        seat_id: &ObjectId,
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
         let client = this.get_client();
+        let dispatch = {
+            let state = client.borrow();
+            if let Some(input) = state.seat_input.get(seat_id) {
+                if input
+                    .keyboard
+                    .as_ref()
+                    .is_some_and(|stored| stored.id() == keyboard.id())
+                {
+                    1
+                } else {
+                    0
+                }
+            } else if *seat_id == state.wl_seat.id()
+                && state
+                    .wl_keyboard
+                    .as_ref()
+                    .is_some_and(|stored| stored.id() == keyboard.id())
+            {
+                2
+            } else {
+                0
+            }
+        };
+        if dispatch == 0 {
+            return;
+        }
+        if dispatch == 1 {
+            handle_additional_keyboard_event(this, seat_id, event);
+            return;
+        }
         let mut state = client.borrow_mut();
         match event {
             wl_keyboard::Event::RepeatInfo { rate, delay } => {
@@ -2086,17 +2654,19 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                 this.handle_keyboard_layout_change();
             }
             wl_keyboard::Event::Enter { surface, .. } => {
+                state.primary_keyboard_surface = Some(surface.id());
                 state.keyboard_focused_window = get_window(&mut state, &surface.id());
                 state.enter_token = Some(());
 
                 if let Some(window) = state.keyboard_focused_window.clone() {
                     drop(state);
-                    window.set_focused(true);
+                    window.set_seat_focused(seat_id.clone(), true);
                 }
             }
             wl_keyboard::Event::Leave { surface, .. } => {
                 let keyboard_focused_window = get_window(&mut state, &surface.id());
                 state.keyboard_focused_window = None;
+                state.primary_keyboard_surface = None;
                 state.enter_token.take();
                 // Prevent keyboard events from repeating after opening e.g. a file chooser and closing it quickly
                 state.repeat.current_id += 1;
@@ -2109,7 +2679,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                     state.pre_edit_text.take();
                     drop(state);
                     window.handle_ime(ImeInput::DeleteText);
-                    window.set_focused(false);
+                    window.set_seat_focused(seat_id.clone(), false);
                 }
             }
             wl_keyboard::Event::Modifiers {
@@ -2374,16 +2944,578 @@ fn linux_button_to_gpui(button: u32) -> Option<MouseButton> {
     })
 }
 
-impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+fn handle_additional_pointer_event(
+    client_ptr: &WaylandClientStatePtr,
+    pointer: &wl_pointer::WlPointer,
+    seat_id: &ObjectId,
+    event: wl_pointer::Event,
+) {
+    let client = client_ptr.get_client();
+    let mut state = client.borrow_mut();
+    match event {
+        wl_pointer::Event::Enter {
+            serial,
+            surface,
+            surface_x,
+            surface_y,
+            ..
+        } => {
+            let position = point(px(surface_x as f32), px(surface_y as f32));
+            let window = get_window(&mut state, &surface.id());
+            let Some(window) = window else { return };
+            let Some(input) = state.seat_input.get_mut(seat_id) else {
+                return;
+            };
+            input.pointer_location = Some(position);
+            input.mouse_focused_window = Some(window.clone());
+            let modifiers = input.modifiers;
+            input.serial_tracker.update(SerialKind::MouseEnter, serial);
+            let cursor_style = input.cursor_style.unwrap_or(CursorStyle::Arrow);
+            if let Some(device) = input.cursor_shape_device.as_ref() {
+                device.set_shape(serial, to_shape(cursor_style));
+            } else if let Some(cursor) = input.cursor.as_mut() {
+                cursor.set_icon(
+                    pointer,
+                    serial,
+                    cursor_style_to_icon_names(cursor_style),
+                    window.primary_output_scale(),
+                );
+            }
+            let hover_changes =
+                update_seat_hover(&mut state, seat_id.clone(), Some(window.clone()));
+            drop(state);
+            for (window, hovered) in hover_changes {
+                window.set_hovered(hovered);
+            }
+            handle_input_for_seat(
+                &client,
+                seat_id,
+                &window,
+                PlatformInput::MouseMove(MouseMoveEvent {
+                    position,
+                    pressed_button: None,
+                    modifiers,
+                }),
+            );
+        }
+        wl_pointer::Event::Leave { .. } => {
+            let Some(input) = state.seat_input.get_mut(seat_id) else {
+                return;
+            };
+            let Some(window) = input.mouse_focused_window.take() else {
+                return;
+            };
+            let position = input.pointer_location.take().unwrap_or_default();
+            let pressed_button = input.pressed_button.take();
+            let modifiers = input.modifiers;
+            let hover_changes = update_seat_hover(&mut state, seat_id.clone(), None);
+            drop(state);
+            handle_input_for_seat(
+                &client,
+                seat_id,
+                &window,
+                PlatformInput::MouseExited(MouseExitEvent {
+                    position,
+                    pressed_button,
+                    modifiers,
+                }),
+            );
+            for (window, hovered) in hover_changes {
+                window.set_hovered(hovered);
+            }
+        }
+        wl_pointer::Event::Motion {
+            surface_x,
+            surface_y,
+            ..
+        } => {
+            let position = point(px(surface_x as f32), px(surface_y as f32));
+            let Some(input) = state.seat_input.get_mut(seat_id) else {
+                return;
+            };
+            input.pointer_location = Some(position);
+            let Some(window) = input.mouse_focused_window.clone() else {
+                return;
+            };
+            let modifiers = input.modifiers;
+            let pressed_button = input.pressed_button;
+            let restore_cursor = input.cursor_hidden_window.take().map(|_| {
+                (
+                    input.cursor_style.unwrap_or(CursorStyle::Arrow),
+                    input.serial_tracker.get(SerialKind::MouseEnter).as_raw(),
+                    input.cursor_shape_device.clone(),
+                    input.pointer.clone(),
+                )
+            });
+            let scale = window.primary_output_scale();
+            if let Some((style, serial, shape_device, pointer)) = restore_cursor {
+                if let Some(device) = shape_device {
+                    device.set_shape(serial, to_shape(style));
+                } else if let Some(pointer) = pointer {
+                    if let Some(cursor) = state
+                        .seat_input
+                        .get_mut(seat_id)
+                        .and_then(|input| input.cursor.as_mut())
+                    {
+                        cursor.set_icon(&pointer, serial, cursor_style_to_icon_names(style), scale);
+                    }
+                }
+            }
+            drop(state);
+            handle_input_for_seat(
+                &client,
+                seat_id,
+                &window,
+                PlatformInput::MouseMove(MouseMoveEvent {
+                    position,
+                    pressed_button,
+                    modifiers,
+                }),
+            );
+        }
+        wl_pointer::Event::Button {
+            serial,
+            button,
+            state: WEnum::Value(button_state),
+            ..
+        } => {
+            let Some(button) = linux_button_to_gpui(button) else {
+                return;
+            };
+            let Some(input) = state.seat_input.get_mut(seat_id) else {
+                return;
+            };
+            let Some(window) = input.mouse_focused_window.clone() else {
+                return;
+            };
+            let position = input.pointer_location.unwrap_or_default();
+            let modifiers = input.modifiers;
+            match button_state {
+                wl_pointer::ButtonState::Pressed => {
+                    input.pressed_button = Some(button);
+                    input.serial_tracker.update(SerialKind::MousePress, serial);
+                    drop(state);
+                    handle_input_for_seat(
+                        &client,
+                        seat_id,
+                        &window,
+                        PlatformInput::MouseDown(MouseDownEvent {
+                            button,
+                            position,
+                            modifiers,
+                            click_count: 1,
+                            first_mouse: false,
+                        }),
+                    );
+                }
+                wl_pointer::ButtonState::Released => {
+                    input.pressed_button = None;
+                    drop(state);
+                    handle_input_for_seat(
+                        &client,
+                        seat_id,
+                        &window,
+                        PlatformInput::MouseUp(MouseUpEvent {
+                            button,
+                            position,
+                            modifiers,
+                            click_count: 1,
+                        }),
+                    );
+                }
+                _ => {}
+            }
+        }
+        wl_pointer::Event::AxisSource {
+            axis_source: WEnum::Value(source),
+        } => {
+            if let Some(input) = state.seat_input.get_mut(seat_id) {
+                input.axis_source = Some(source);
+            }
+        }
+        wl_pointer::Event::Axis {
+            axis: WEnum::Value(axis),
+            value,
+            ..
+        } => {
+            let Some(input) = state.seat_input.get_mut(seat_id) else {
+                return;
+            };
+            if input.axis_source == Some(AxisSource::Wheel) {
+                return;
+            }
+            let axis = if input.modifiers.shift {
+                wl_pointer::Axis::HorizontalScroll
+            } else {
+                axis
+            };
+            let delta = input
+                .continuous_scroll_delta
+                .get_or_insert(point(px(0.0), px(0.0)));
+            match axis {
+                wl_pointer::Axis::VerticalScroll => delta.y -= px(value as f32 * 3.0),
+                wl_pointer::Axis::HorizontalScroll => delta.x -= px(value as f32 * 3.0),
+                _ => return,
+            }
+        }
+        wl_pointer::Event::AxisDiscrete {
+            axis: WEnum::Value(axis),
+            discrete,
+        } => {
+            let Some(input) = state.seat_input.get_mut(seat_id) else {
+                return;
+            };
+            let axis = if input.modifiers.shift {
+                wl_pointer::Axis::HorizontalScroll
+            } else {
+                axis
+            };
+            let delta = input.discrete_scroll_delta.get_or_insert(point(0.0, 0.0));
+            match axis {
+                wl_pointer::Axis::VerticalScroll => delta.y -= discrete as f32 * SCROLL_LINES,
+                wl_pointer::Axis::HorizontalScroll => delta.x -= discrete as f32 * SCROLL_LINES,
+                _ => return,
+            }
+        }
+        wl_pointer::Event::AxisValue120 {
+            axis: WEnum::Value(axis),
+            value120,
+        } => {
+            let Some(input) = state.seat_input.get_mut(seat_id) else {
+                return;
+            };
+            let axis = if input.modifiers.shift {
+                wl_pointer::Axis::HorizontalScroll
+            } else {
+                axis
+            };
+            let delta = input.discrete_scroll_delta.get_or_insert(point(0.0, 0.0));
+            let value = value120 as f32 / 120.0 * SCROLL_LINES;
+            match axis {
+                wl_pointer::Axis::VerticalScroll => delta.y -= value,
+                wl_pointer::Axis::HorizontalScroll => delta.x -= value,
+                _ => return,
+            }
+        }
+        wl_pointer::Event::Frame => {
+            let Some(input) = state.seat_input.get_mut(seat_id) else {
+                return;
+            };
+            let Some(window) = input.mouse_focused_window.clone() else {
+                return;
+            };
+            let position = input.pointer_location.unwrap_or_default();
+            let modifiers = input.modifiers;
+            let continuous = input.continuous_scroll_delta.take();
+            let discrete = input.discrete_scroll_delta.take();
+            drop(state);
+            if let Some(delta) = continuous {
+                handle_input_for_seat(
+                    &client,
+                    seat_id,
+                    &window,
+                    PlatformInput::ScrollWheel(ScrollWheelEvent {
+                        position,
+                        delta: ScrollDelta::Pixels(delta),
+                        modifiers,
+                        touch_phase: TouchPhase::Moved,
+                    }),
+                );
+            }
+            if let Some(delta) = discrete {
+                handle_input_for_seat(
+                    &client,
+                    seat_id,
+                    &window,
+                    PlatformInput::ScrollWheel(ScrollWheelEvent {
+                        position,
+                        delta: ScrollDelta::Lines(delta),
+                        modifiers,
+                        touch_phase: TouchPhase::Moved,
+                    }),
+                );
+            }
+        }
+        _ => {
+            let _ = pointer;
+        }
+    }
+}
+
+fn handle_additional_keyboard_event(
+    client_ptr: &WaylandClientStatePtr,
+    seat_id: &ObjectId,
+    event: wl_keyboard::Event,
+) {
+    let client = client_ptr.get_client();
+    let mut state = client.borrow_mut();
+    match event {
+        wl_keyboard::Event::RepeatInfo { rate, delay } => {
+            let Some(input) = state.seat_input.get_mut(seat_id) else {
+                return;
+            };
+            input.repeat.characters_per_second = rate.max(0) as u32;
+            input.repeat.delay = Duration::from_millis(delay.max(0) as u64);
+        }
+        wl_keyboard::Event::Keymap { format, fd, size } => {
+            if format != WEnum::Value(wl_keyboard::KeymapFormat::XkbV1) {
+                return;
+            }
+            let Ok(xkb_context) = new_xkb_context() else {
+                return;
+            };
+            let keymap = unsafe {
+                xkb::Keymap::new_from_fd(
+                    &xkb_context,
+                    fd,
+                    size as usize,
+                    XKB_KEYMAP_FORMAT_TEXT_V1,
+                    KEYMAP_COMPILE_NO_FLAGS,
+                )
+            }
+            .log_err()
+            .flatten();
+            let Some(input) = state.seat_input.get_mut(seat_id) else {
+                return;
+            };
+            if let Some(keymap) = keymap {
+                input.keymap_state = Some(xkb::State::new(&keymap));
+                input.compose_state = get_xkb_compose_state(&xkb_context);
+            }
+        }
+        wl_keyboard::Event::Enter { surface, .. } => {
+            let window = get_window(&mut state, &surface.id());
+            let Some(input) = state.seat_input.get_mut(seat_id) else {
+                return;
+            };
+            input.keyboard_focused_window = window;
+            if let Some(window) = input.keyboard_focused_window.clone() {
+                drop(state);
+                window.set_seat_focused(seat_id.clone(), true);
+            }
+        }
+        wl_keyboard::Event::Leave { .. } => {
+            let Some(input) = state.seat_input.get_mut(seat_id) else {
+                return;
+            };
+            let window = input.keyboard_focused_window.take();
+            input.repeat.current_id += 1;
+            let held = std::mem::take(&mut input.held_keys)
+                .into_values()
+                .collect::<Vec<_>>();
+            input.modifiers = Modifiers::default();
+            if let Some(compose) = input.compose_state.as_mut() {
+                compose.reset();
+            }
+            input.pre_edit_text = None;
+            if let Some(window) = window {
+                drop(state);
+                for keystroke in held {
+                    handle_input_for_seat(
+                        &client,
+                        seat_id,
+                        &window,
+                        PlatformInput::KeyUp(KeyUpEvent { keystroke }),
+                    );
+                }
+                handle_input_for_seat(
+                    &client,
+                    seat_id,
+                    &window,
+                    PlatformInput::ModifiersChanged(ModifiersChangedEvent {
+                        modifiers: Modifiers::default(),
+                        capslock: Capslock::default(),
+                    }),
+                );
+                handle_ime_for_seat(&client, seat_id, &window, ImeInput::DeleteText);
+                window.set_seat_focused(seat_id.clone(), false);
+            }
+        }
+        wl_keyboard::Event::Modifiers {
+            mods_depressed,
+            mods_latched,
+            mods_locked,
+            group,
+            ..
+        } => {
+            let Some(input) = state.seat_input.get_mut(seat_id) else {
+                return;
+            };
+            let Some(keymap) = input.keymap_state.as_mut() else {
+                return;
+            };
+            keymap.update_mask(mods_depressed, mods_latched, mods_locked, 0, 0, group);
+            input.modifiers = modifiers_from_xkb(keymap);
+            input.capslock = capslock_from_xkb(keymap);
+            let window = input.keyboard_focused_window.clone();
+            let event = PlatformInput::ModifiersChanged(ModifiersChangedEvent {
+                modifiers: input.modifiers,
+                capslock: input.capslock,
+            });
+            drop(state);
+            if let Some(window) = window {
+                handle_input_for_seat(&client, seat_id, &window, event);
+            }
+        }
+        wl_keyboard::Event::Key {
+            serial,
+            key,
+            state: WEnum::Value(key_state),
+            ..
+        } => {
+            let Some(input) = state.seat_input.get_mut(seat_id) else {
+                return;
+            };
+            if key_state == wl_keyboard::KeyState::Pressed {
+                input.serial_tracker.update(SerialKind::KeyPress, serial);
+            }
+            let Some(window) = input.keyboard_focused_window.clone() else {
+                return;
+            };
+            let Some(keymap) = input.keymap_state.as_ref() else {
+                return;
+            };
+            let keycode = Keycode::new(key + 8);
+            let keysym = keymap.key_get_one_sym(keycode);
+            if keysym.is_modifier_key() {
+                return;
+            }
+            let mut keystroke = keystroke_from_xkb(keymap, input.modifiers, keycode);
+            let mut ime_update = None;
+            if key_state == wl_keyboard::KeyState::Pressed {
+                if let Some(compose) = input.compose_state.as_mut() {
+                    compose.feed(keysym);
+                    match compose.status() {
+                        xkb::Status::Composing => {
+                            keystroke.key_char = None;
+                            let preedit = compose.utf8().or(keystroke_underlying_dead_key(keysym));
+                            input.pre_edit_text = preedit.clone();
+                            ime_update = Some(ImeInput::SetMarkedText(preedit.unwrap_or_default()));
+                        }
+                        xkb::Status::Composed => {
+                            input.pre_edit_text = None;
+                            keystroke.key_char = compose.utf8();
+                            if let Some(composed_keysym) = compose.keysym() {
+                                keystroke.key = xkb::keysym_get_name(composed_keysym);
+                            }
+                            ime_update = Some(ImeInput::DeleteText);
+                        }
+                        xkb::Status::Cancelled => {
+                            input.pre_edit_text = None;
+                            ime_update = Some(ImeInput::DeleteText);
+                        }
+                        xkb::Status::Nothing => {}
+                    }
+                }
+            }
+            let event = match key_state {
+                wl_keyboard::KeyState::Pressed => {
+                    input.held_keys.insert(key, keystroke.clone());
+                    input.repeat.current_id += 1;
+                    input.repeat.current_keycode = Some(keycode);
+                    let repeat_id = input.repeat.current_id;
+                    let rate = input.repeat.characters_per_second;
+                    let interval = Duration::from_secs(1) / rate.max(1);
+                    let delay = input.repeat.delay;
+                    let repeated = PlatformInput::KeyDown(KeyDownEvent {
+                        keystroke: keystroke.clone(),
+                        is_held: true,
+                        prefer_character_input: false,
+                    });
+                    let this = client_ptr.clone();
+                    state
+                        .loop_handle
+                        .insert_source(Timer::from_duration(delay), {
+                            let seat_id = seat_id.clone();
+                            move |timestamp, _, _| {
+                                let Some(client) = this.0.upgrade() else {
+                                    return TimeoutAction::Drop;
+                                };
+                                let state = client.borrow();
+                                let Some(input) = state.seat_input.get(&seat_id) else {
+                                    return TimeoutAction::Drop;
+                                };
+                                if input.repeat.current_id != repeat_id
+                                    || input.repeat.current_keycode.is_none()
+                                    || rate == 0
+                                {
+                                    return TimeoutAction::Drop;
+                                }
+                                let Some(window) = input.keyboard_focused_window.clone() else {
+                                    return TimeoutAction::Drop;
+                                };
+                                drop(state);
+                                handle_input_for_seat(&client, &seat_id, &window, repeated.clone());
+                                TimeoutAction::ToInstant(timestamp + interval)
+                            }
+                        })
+                        .ok();
+                    PlatformInput::KeyDown(KeyDownEvent {
+                        keystroke,
+                        is_held: false,
+                        prefer_character_input: false,
+                    })
+                }
+                wl_keyboard::KeyState::Released => {
+                    input.held_keys.remove(&key);
+                    if input.repeat.current_keycode == Some(keycode) {
+                        input.repeat.current_keycode = None;
+                        input.repeat.current_id += 1;
+                    }
+                    PlatformInput::KeyUp(KeyUpEvent { keystroke })
+                }
+                _ => return,
+            };
+            drop(state);
+            if let Some(ime_update) = ime_update {
+                handle_ime_for_seat(&client, seat_id, &window, ime_update);
+            }
+            handle_input_for_seat(&client, seat_id, &window, event);
+        }
+        _ => {}
+    }
+}
+
+impl Dispatch<wl_pointer::WlPointer, ObjectId> for WaylandClientStatePtr {
     fn event(
         this: &mut Self,
         wl_pointer: &wl_pointer::WlPointer,
         event: wl_pointer::Event,
-        _: &(),
+        seat_id: &ObjectId,
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
         let client = this.get_client();
+        let dispatch = {
+            let state = client.borrow();
+            if let Some(input) = state.seat_input.get(seat_id) {
+                if input
+                    .pointer
+                    .as_ref()
+                    .is_some_and(|stored| stored.id() == wl_pointer.id())
+                {
+                    1
+                } else {
+                    0
+                }
+            } else if *seat_id == state.wl_seat.id()
+                && state
+                    .wl_pointer
+                    .as_ref()
+                    .is_some_and(|stored| stored.id() == wl_pointer.id())
+            {
+                2
+            } else {
+                0
+            }
+        };
+        if dispatch == 0 {
+            return;
+        }
+        if dispatch == 1 {
+            handle_additional_pointer_event(this, wl_pointer, seat_id, event);
+            return;
+        }
         let mut state = client.borrow_mut();
 
         match event {
@@ -2420,8 +3552,13 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                         }
                     }
                     let modifiers = state.modifiers;
+                    let primary_seat_id = state.wl_seat.id();
+                    let hover_changes =
+                        update_seat_hover(&mut state, primary_seat_id, Some(window.clone()));
                     drop(state);
-                    window.set_hovered(true);
+                    for (window, hovered) in hover_changes {
+                        window.set_hovered(hovered);
+                    }
                     // No Motion follows Enter unless the pointer keeps moving, so synthesize
                     // a MouseMove to establish hover at the entry position.
                     window.handle_input(PlatformInput::MouseMove(MouseMoveEvent {
@@ -2442,10 +3579,14 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                     state.mouse_location = None;
                     state.button_pressed = None;
                     state.cursor_hidden_window = None;
+                    let primary_seat_id = state.wl_seat.id();
+                    let hover_changes = update_seat_hover(&mut state, primary_seat_id, None);
 
                     drop(state);
                     focused_window.handle_input(input);
-                    focused_window.set_hovered(false);
+                    for (window, hovered) in hover_changes {
+                        window.set_hovered(hovered);
+                    }
                 }
             }
             wl_pointer::Event::Motion {

@@ -16,6 +16,10 @@ use crate::cli::Msg;
 use crate::utils::version;
 
 pub fn handle_msg(mut msg: Msg, json: bool, print_request: bool) -> anyhow::Result<()> {
+    if matches!(msg, Msg::AgentInput) {
+        return stream_agent_input();
+    }
+
     // For actions taking paths, prepend the niri CLI's working directory.
     if let Msg::Action {
         action:
@@ -49,6 +53,7 @@ pub fn handle_msg(mut msg: Msg, json: bool, print_request: bool) -> anyhow::Resu
         Msg::RequestError => Request::ReturnError,
         Msg::OverviewState => Request::OverviewState,
         Msg::Casts => Request::Casts,
+        Msg::AgentInput => unreachable!(),
         Msg::RawRequest => {
             let mut buf = Vec::new();
             let mut stdin = std::io::stdin().lock();
@@ -127,6 +132,7 @@ pub fn handle_msg(mut msg: Msg, json: bool, print_request: bool) -> anyhow::Resu
     let response = reply.map_err(|err_msg| anyhow!(err_msg).context("niri returned an error"))?;
 
     match msg {
+        Msg::AgentInput => unreachable!(),
         Msg::RequestError => {
             bail!("unexpected response: expected an error, got {response:?}");
         }
@@ -847,4 +853,22 @@ mod tests {
         assert_snapshot!(fmt_rounded(2.006), @"2.01");
         assert_snapshot!(fmt_rounded(2.1), @"2.10");
     }
+}
+
+fn stream_agent_input() -> anyhow::Result<()> {
+    use std::io::Write as _;
+
+    let mut socket = Socket::connect().context("error connecting to the niri socket")?;
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout().lock();
+    for line in stdin.lock().lines() {
+        let line = line.context("error reading agent command")?;
+        let command: niri_ipc::AgentInput =
+            serde_json::from_str(&line).context("error parsing AgentInput JSON")?;
+        let reply = socket.send(Request::AgentInput(command))?;
+        serde_json::to_writer(&mut stdout, &reply)?;
+        writeln!(stdout)?;
+        stdout.flush()?;
+    }
+    Ok(())
 }

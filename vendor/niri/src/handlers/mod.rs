@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::drm::DrmNode;
-use smithay::backend::input::{InputEvent, TabletToolDescriptor};
+use smithay::backend::input::{Event as _, InputEvent, TabletToolDescriptor};
 use smithay::desktop::{PopupKind, PopupManager};
 use smithay::input::dnd::{self, DnDGrab, DndGrabHandler, DndTarget};
 use smithay::input::pointer::{self, CursorIcon, CursorImageStatus, Focus, PointerHandle};
@@ -94,10 +94,16 @@ impl SeatHandler for State {
     type TouchFocus = WlSurface;
 
     fn seat_state(&mut self) -> &mut SeatState<State> {
-        &mut self.niri.seat_state
+        self.niri
+            .agent_dispatch_state
+            .as_mut()
+            .unwrap_or(&mut self.niri.seat_state)
     }
 
-    fn cursor_image(&mut self, _seat: &Seat<Self>, mut image: CursorImageStatus) {
+    fn cursor_image(&mut self, seat: &Seat<Self>, mut image: CursorImageStatus) {
+        if seat != &self.niri.seat {
+            return;
+        }
         // FIXME: this hack should be removable once the screenshot UI is tracked with a
         // PointerFocus properly.
         if self.niri.screenshot_ui.is_open() {
@@ -115,7 +121,10 @@ impl SeatHandler for State {
         set_primary_focus(dh, seat, client);
     }
 
-    fn led_state_changed(&mut self, _seat: &Seat<Self>, led_state: keyboard::LedState) {
+    fn led_state_changed(&mut self, seat: &Seat<Self>, led_state: keyboard::LedState) {
+        if seat != &self.niri.seat {
+            return;
+        }
         let keyboards = self
             .niri
             .devices
@@ -148,7 +157,10 @@ impl TabletSeatHandler for State {
 }
 
 impl PointerConstraintsHandler for State {
-    fn new_constraint(&mut self, _surface: &WlSurface, _pointer: &PointerHandle<Self>) {
+    fn new_constraint(&mut self, _surface: &WlSurface, pointer: &PointerHandle<Self>) {
+        if Some(pointer.clone()) != self.niri.seat.get_pointer() {
+            return;
+        }
         // Pointer constraints track pointer focus internally, so make sure it's up to date before
         // activating a new one.
         self.refresh_pointer_contents();
@@ -162,6 +174,9 @@ impl PointerConstraintsHandler for State {
         pointer: &PointerHandle<Self>,
         location: Point<f64, Logical>,
     ) {
+        if Some(pointer.clone()) != self.niri.seat.get_pointer() {
+            return;
+        }
         let is_constraint_active = with_pointer_constraint(surface, pointer, |constraint| {
             constraint.is_some_and(|c| c.is_active())
         });
@@ -210,6 +225,9 @@ impl PointerConstraintsHandler for State {
         pointer: &PointerHandle<Self>,
         reason: ConstraintRemove,
     ) {
+        if Some(pointer.clone()) != self.niri.seat.get_pointer() {
+            return;
+        }
         // Since a pointer constraint is broken when a surface loses pointer focus, and one surface
         // can only have a single pointer constraint at once, assume there can be only one
         // constraint active at once, and therefore the global position hint should come from that
@@ -337,6 +355,9 @@ impl WaylandDndGrabHandler for State {
         serial: Serial,
         type_: dnd::GrabType,
     ) {
+        if seat != self.niri.seat {
+            return;
+        }
         self.niri.dnd_icon = icon.map(|surface| DndIcon {
             surface,
             offset: Point::new(0, 0),
@@ -465,6 +486,7 @@ impl SessionLockHandler for State {
     }
 
     fn lock(&mut self, confirmation: SessionLocker) {
+        self.reset_all_agents();
         self.niri.lock(confirmation);
     }
 
@@ -665,20 +687,48 @@ impl VirtualPointerHandler for State {
     }
 
     fn on_virtual_pointer_motion(&mut self, event: VirtualPointerMotionEvent) {
+        if event
+            .device()
+            .seat()
+            .is_some_and(|seat| !self.niri.seat.owns(seat))
+        {
+            return;
+        }
         self.process_input_event(InputEvent::<VirtualPointerInputBackend>::PointerMotion { event });
     }
 
     fn on_virtual_pointer_motion_absolute(&mut self, event: VirtualPointerMotionAbsoluteEvent) {
+        if event
+            .device()
+            .seat()
+            .is_some_and(|seat| !self.niri.seat.owns(seat))
+        {
+            return;
+        }
         self.process_input_event(
             InputEvent::<VirtualPointerInputBackend>::PointerMotionAbsolute { event },
         );
     }
 
     fn on_virtual_pointer_button(&mut self, event: VirtualPointerButtonEvent) {
+        if event
+            .device()
+            .seat()
+            .is_some_and(|seat| !self.niri.seat.owns(seat))
+        {
+            return;
+        }
         self.process_input_event(InputEvent::<VirtualPointerInputBackend>::PointerButton { event });
     }
 
     fn on_virtual_pointer_axis(&mut self, event: VirtualPointerAxisEvent) {
+        if event
+            .device()
+            .seat()
+            .is_some_and(|seat| !self.niri.seat.owns(seat))
+        {
+            return;
+        }
         self.process_input_event(InputEvent::<VirtualPointerInputBackend>::PointerAxis { event });
     }
 }
@@ -778,6 +828,10 @@ impl XdgActivationHandler for State {
         let Some(seat) = Seat::<State>::from_resource(&seat) else {
             return false;
         };
+
+        if seat != self.niri.seat {
+            return false;
+        }
 
         // Widely-used clients such as Discord and Telegram make new tokens (with invalid serials)
         // upon clicking on their tray icon or on their notification. This debug flag makes that

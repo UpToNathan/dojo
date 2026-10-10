@@ -52,11 +52,20 @@ pub struct IpcServer {
 }
 
 struct ClientCtx {
+    peer: u64,
     event_loop: LoopHandle<'static, State>,
     scheduler: Scheduler<()>,
     ipc_outputs: Arc<Mutex<IpcOutputMap>>,
     event_streams: Rc<RefCell<Vec<EventStreamSender>>>,
     event_stream_state: Rc<RefCell<EventStreamState>>,
+}
+
+impl Drop for ClientCtx {
+    fn drop(&mut self) {
+        let peer = self.peer;
+        self.event_loop
+            .insert_idle(move |state| state.destroy_agent(peer));
+    }
 }
 
 struct EventStreamClient {
@@ -167,7 +176,9 @@ fn on_new_ipc_client(state: &mut State, stream: UnixStream) {
 
     let ipc_server = state.niri.ipc_server.as_ref().unwrap();
 
+    state.niri.next_agent_peer += 1;
     let ctx = ClientCtx {
+        peer: state.niri.next_agent_peer,
         event_loop: state.niri.event_loop.clone(),
         scheduler: state.niri.scheduler.clone(),
         ipc_outputs: state.backend.ipc_outputs(),
@@ -273,6 +284,18 @@ async fn process(ctx: &ClientCtx, request: Request) -> Reply {
     let response = match request {
         Request::ReturnError => return Err(String::from("example compositor error")),
         Request::Version => Response::Version(version()),
+        Request::AgentInput(command) => {
+            let (tx, rx) = async_channel::bounded(1);
+            let peer = ctx.peer;
+            ctx.event_loop.insert_idle(move |state| {
+                let result = state.apply_agent_input(peer, command);
+                let _ = tx.send_blocking(result);
+            });
+            return rx
+                .recv()
+                .await
+                .map_err(|_| "agent dispatcher stopped".to_string())?;
+        }
         Request::Outputs => {
             let ipc_outputs = ctx.ipc_outputs.lock().unwrap().clone();
             let outputs = ipc_outputs.values().cloned().map(|o| (o.name.clone(), o));

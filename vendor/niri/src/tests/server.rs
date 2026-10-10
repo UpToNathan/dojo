@@ -12,7 +12,7 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: Config, agent_input_enabled: bool) -> Self {
         let event_loop = EventLoop::try_new().unwrap();
         let handle = event_loop.handle();
         let display = Display::new().unwrap();
@@ -24,6 +24,7 @@ impl Server {
             true,
             false,
             false,
+            agent_input_enabled,
         )
         .unwrap();
 

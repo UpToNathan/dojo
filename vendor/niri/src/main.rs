@@ -191,6 +191,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         false,
         true,
         cli.session,
+        niri::agent_input::enabled(),
     )
     .unwrap();
 

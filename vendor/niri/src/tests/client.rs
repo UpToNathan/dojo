@@ -1,3 +1,5 @@
+use smithay::reexports::wayland_protocols::ext::session_lock::v1::client::ext_session_lock_manager_v1::ExtSessionLockManagerV1;
+use smithay::reexports::wayland_protocols::ext::session_lock::v1::client::ext_session_lock_v1::ExtSessionLockV1;
 use std::cmp::min;
 use std::collections::HashMap;
 use std::fmt;
@@ -34,6 +36,7 @@ use wayland_client::protocol::wl_compositor::WlCompositor;
 use wayland_client::protocol::wl_display::WlDisplay;
 use wayland_client::protocol::wl_keyboard::{self, WlKeyboard};
 use wayland_client::protocol::wl_output::{self, WlOutput};
+use wayland_client::protocol::wl_pointer::{self, WlPointer};
 use wayland_client::protocol::wl_registry::{self, WlRegistry};
 use wayland_client::protocol::wl_seat::{self, WlSeat};
 use wayland_client::protocol::wl_surface::{self, WlSurface};
@@ -57,6 +60,7 @@ pub struct State {
     pub outputs: HashMap<WlOutput, String>,
     pub surfaces: HashMap<WlSurface, Surface>,
     pub seats: HashMap<WlSeat, Seat>,
+    pub pointer_events: Vec<PointerEvent>,
 
     pub compositor: Option<WlCompositor>,
     pub xdg_wm_base: Option<XdgWmBase>,
@@ -65,6 +69,7 @@ pub struct State {
     pub spbm: Option<WpSinglePixelBufferManagerV1>,
     pub viewporter: Option<WpViewporter>,
     pub ksim: Option<ZwpKeyboardShortcutsInhibitManagerV1>,
+    pub session_lock_manager: Option<ExtSessionLockManagerV1>,
 
     pub windows: Vec<Window>,
     pub layers: Vec<LayerSurface>,
@@ -101,6 +106,17 @@ pub struct LayerSurface {
 #[derive(Debug, Default)]
 pub struct Seat {
     pub keyboard: Option<Keyboard>,
+    pub pointer: Option<WlPointer>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum PointerEvent {
+    Button {
+        button: u32,
+        state: wl_pointer::ButtonState,
+    },
+    Frame,
+    Leave,
 }
 
 #[derive(Debug)]
@@ -258,6 +274,7 @@ impl Client {
             outputs: HashMap::new(),
             surfaces: HashMap::new(),
             seats: HashMap::new(),
+            pointer_events: Vec::new(),
             compositor: None,
             xdg_wm_base: None,
             layer_shell: None,
@@ -265,6 +282,7 @@ impl Client {
             spbm: None,
             viewporter: None,
             ksim: None,
+            session_lock_manager: None,
             windows: Vec::new(),
             layers: Vec::new(),
         };
@@ -649,6 +667,8 @@ impl Dispatch<WlRegistry, ()> for State {
                     state
                         .seats
                         .insert(registry.bind(name, version, qh, ()), Seat::default());
+                } else if interface == ExtSessionLockManagerV1::interface().name {
+                    state.session_lock_manager = Some(registry.bind(name, 1, qh, ()));
                 } else if interface == ZwpKeyboardShortcutsInhibitManagerV1::interface().name {
                     let version = min(
                         version,
@@ -707,6 +727,14 @@ impl Dispatch<WlSeat, ()> for State {
                 let capabilities = capabilities.into_result().unwrap();
                 let data = state.seats.get_mut(seat).unwrap();
 
+                if capabilities.contains(wl_seat::Capability::Pointer) {
+                    if data.pointer.is_none() {
+                        data.pointer = Some(seat.get_pointer(qh, seat.clone()));
+                    }
+                } else if let Some(pointer) = data.pointer.take() {
+                    pointer.release();
+                }
+
                 if capabilities.contains(wl_seat::Capability::Keyboard) {
                     if data.keyboard.is_none() {
                         let keyboard = Keyboard {
@@ -724,6 +752,28 @@ impl Dispatch<WlSeat, ()> for State {
             wl_seat::Event::Name { .. } => (),
             _ => unreachable!(),
         }
+    }
+}
+
+impl Dispatch<WlPointer, WlSeat> for State {
+    fn event(
+        state: &mut Self,
+        _pointer: &WlPointer,
+        event: <WlPointer as wayland_client::Proxy>::Event,
+        _seat: &WlSeat,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        let event = match event {
+            wl_pointer::Event::Button { button, state, .. } => PointerEvent::Button {
+                button,
+                state: state.into_result().unwrap(),
+            },
+            wl_pointer::Event::Frame => PointerEvent::Frame,
+            wl_pointer::Event::Leave { .. } => PointerEvent::Leave,
+            _ => return,
+        };
+        state.pointer_events.push(event);
     }
 }
 
@@ -1042,3 +1092,6 @@ impl Dispatch<ZwpKeyboardShortcutsInhibitorV1, ()> for State {
         }
     }
 }
+
+wayland_client::delegate_noop!(State: ignore ExtSessionLockManagerV1);
+wayland_client::delegate_noop!(State: ignore ExtSessionLockV1);

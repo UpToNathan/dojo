@@ -27,6 +27,29 @@ is unchanged. To verify in a live Wayland session, run
 Dojo is a Niri desktop shell implemented with GPUI. Build and test it with
 `cargo check` and `cargo test` inside devenv.
 
+### Forked desktop dependencies
+
+`vendor/niri` contains the pinned compositor fork. `vendor/zed` contains the
+pinned GPUI source and its workspace dependencies. Dojo imports GPUI from local
+paths, so changes to the fork are compiled directly. `vendor/keywork` and
+`vendor/keywork-compositor` are reference subtrees for independent agent input.
+See [the input analysis](docs/agent-input-analysis.md) and
+[the implementation spec](.scratch/agent-input/spec.md). The
+[agent input guide](docs/agent-input.md) covers the controller API and nested
+demonstration.
+
+Build the compositor inside the same development environment:
+
+```sh
+devenv shell -- cargo build --manifest-path vendor/niri/Cargo.toml --no-default-features
+```
+
+This development build uses Niri's nested Wayland backend when launched inside
+an existing Wayland session. It does not change the installed Niri package.
+Agent input is experimental and requires `DOJO_AGENT_INPUT=1` in the compositor
+environment. The controller holds a persistent IPC connection; separate
+one-shot requests cannot preserve the controller's seat.
+
 Development builds optimize the shader/pipeline dependencies (`naga`,
 `wgpu-core`, and `gpui_wgpu`) because unoptimized window initialization can
 dominate launcher opening time. Dojo's own code stays in the normal debug profile.
