@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 9 ]]; then
+    echo "usage: package-release VERSION TARGET OPTIMIZE COMPOSITOR LICENSE README BUILD_ZON WAYLAND_LICENSE OUTPUT_DIR" >&2
+    exit 2
+fi
+
+version=$1
+target=$2
+optimize=$3
+compositor=$4
+license=$5
+readme=$6
+build_zon=$7
+wayland_license=$8
+output=$9
+
+if [[ "$optimize" != ReleaseSafe ]]; then
+    echo "release packages require -Doptimize=ReleaseSafe" >&2
+    exit 1
+fi
+
+zon_version="$(sed -n 's/^[[:space:]]*\.version = "\([^"]*\)",/\1/p' "$build_zon" | head -n 1)"
+if [[ "$zon_version" != "$version" ]]; then
+    printf 'release version mismatch: build=%s zon=%s\n' "$version" "$zon_version" >&2
+    exit 1
+fi
+
+temporary="$(mktemp -d)"
+trap 'rm -rf "$temporary"' EXIT
+mkdir -p "$output"
+
+bundle_name="keywork-$version-$target"
+mkdir -p "$temporary/$bundle_name/bin"
+mkdir -p "$temporary/$bundle_name/LICENSES"
+install -m0755 "$compositor" "$temporary/$bundle_name/bin/keywork-compositor"
+install -m0644 "$license" "$temporary/$bundle_name/LICENSE"
+install -m0644 "$wayland_license" "$temporary/$bundle_name/LICENSES/wayland.txt"
+install -m0644 "$readme" "$temporary/$bundle_name/README.md"
+
+archive() {
+    local name=$1
+    TZ=UTC tar \
+        --sort=name \
+        --mtime='@0' \
+        --owner=0 \
+        --group=0 \
+        --numeric-owner \
+        -cf - \
+        -C "$temporary" \
+        "$name" | gzip -n >"$output/$name.tar.gz"
+}
+
+archive "$bundle_name"
+
+(
+    cd "$output"
+    export LC_ALL=C
+    sha256sum -- *.tar.gz >SHA256SUMS
+)
