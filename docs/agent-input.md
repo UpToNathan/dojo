@@ -138,9 +138,9 @@ The client discovers three tools:
 
 | Tool | Behavior |
 | --- | --- |
-| `desktop_context` | Lists windows, outputs and the current agent seat name. Creates no seat. |
-| `desktop_action` | Focuses, moves, clicks, injects keys, scrolls or resets the retained agent seat. |
-| `desktop_release` | Drops the seat and its cursor; safe to repeat. |
+| `desktop_context` | Lists windows, outputs, the current agent seat and worker PID. Starts no worker. |
+| `desktop_action` | Starts a worker on demand, then focuses, moves, clicks, injects keys, scrolls or resets its seat. |
+| `desktop_release` | Stops the worker and drops its seat and cursor; safe to repeat. |
 
 Example `desktop_action` arguments:
 
@@ -158,11 +158,29 @@ the key, then release the modifier. Click buttons are `left`, `right` and
 `middle`. Key codes follow the compositor's current keyboard layout. There is
 no arbitrary Unicode text insertion.
 
-Each server process owns one seat. Calls execute serially, and input execution
-errors release its seat to clear held input. A later action creates a fresh
-seat; select a target again. Invalid arguments are rejected before input and
-leave the existing seat intact. Reset retains the seat, while release, stdin
-EOF and process exit close its controller socket.
+The stdio MCP process is a small adapter. Its desktop worker starts on the first
+valid input action and owns one seat. At rest there is no worker, controller
+connection, cursor or per-agent animation loop. Context, reset and release calls
+do not start an idle worker. Context reports `worker_pid` and `seat_name` as null
+when the worker is absent.
+
+After 60 seconds without an input action, the worker closes its controller and
+exits. Context traffic does not renew that deadline. Set
+`--idle-timeout-seconds SECONDS` in the MCP server arguments to choose another
+timeout (1 through 86400 seconds). Release immediately stops the worker. Use it
+when an agent task finishes; the timeout catches abandoned sessions. The adapter
+reaps children through exit notifications, with no periodic idle polling.
+
+Calls execute serially. Input execution errors stop the worker and release held
+input. Adapter EOF, normal exit or crash also stop the worker and remove its
+seat. A later action starts a fresh worker; select a target again before typing.
+Failed actions are never automatically replayed. Invalid arguments leave the
+existing worker intact. Reset releases held input and focus while retaining an
+active seat.
+
+Reopen T3 Code or reload its provider session after rebuilding `dojo-agent` to
+replace an already-running adapter. The compositor and Dojo shell need no restart
+for worker lifecycle changes.
 
 The server uses the [official Rust MCP SDK](https://github.com/modelcontextprotocol/rust-sdk)
 and [stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports).
@@ -175,13 +193,15 @@ Verify the actual MCP subprocess in a nested desktop:
 ```sh
 devenv shell -- tools/agent-input/run-nested.sh --mcp
 devenv shell -- tools/agent-input/run-nested.sh --mcp --gpui --recorder "$PWD/target/debug/examples/agent_seats"
+devenv shell -- tools/agent-input/run-nested.sh --mcp --lifecycle
+devenv shell -- tools/agent-input/run-nested.sh --mcp --gpui --lifecycle --recorder "$PWD/target/debug/examples/agent_seats"
 ```
 
 ## Experimental scope
 
 Agent input requires `DOJO_AGENT_INPUT=1` in the forked compositor's environment.
-The nested runner sets it. The normal installed desktop is not replaced by these
-builds.
+The nested runner and installed Dojo session wrapper set it. Building alone does
+not replace the installed desktop; use the session installer to select a build.
 
 Agent window move/resize, popup grabs, drag-and-drop and layout activation are
 disabled. The cursor is a compositor-owned arrow. Native Wayland clients must
@@ -190,7 +210,7 @@ bind multiple seats; XWayland support has not been established.
 In experimental mode, the virtual-keyboard and input-method globals are hidden
 because their current Smithay handlers bypass the controller's input gate.
 The cursor-shape global is also hidden; the human cursor uses the normal surface
-cursor protocol. These restrictions apply to the whole nested session. Normal
+cursor protocol. These restrictions apply to the whole enabled session. Normal
 mode retains the upstream behavior.
 
 GPUI routes additional-seat keys, direct composition, repeat, modifiers, pointer

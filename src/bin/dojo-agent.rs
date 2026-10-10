@@ -1,5 +1,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
+
+#[path = "dojo-agent/worker.rs"]
+mod worker;
+use worker::ActiveWorker;
 
 use anyhow::{Context, Result, bail};
 use dojo::agent_input::{AgentController, InputState};
@@ -10,11 +15,11 @@ use rmcp::{
     model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerConfig},
     schemars, tool, tool_handler, tool_router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 #[schemars(transform = action_object_schema)]
 enum DesktopAction {
@@ -30,7 +35,7 @@ fn action_object_schema(schema: &mut schemars::Schema) {
     schema.insert("type".into(), json!("object"));
 }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 enum MouseButton {
     Left,
@@ -38,7 +43,7 @@ enum MouseButton {
     Middle,
 }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 enum KeyState {
     Press,
@@ -107,30 +112,6 @@ struct DesktopSession {
 }
 
 impl DesktopSession {
-    fn context(&self) -> Result<Value> {
-        let mut socket = match &self.socket {
-            Some(path) => Socket::connect_to(path),
-            None => Socket::connect(),
-        }
-        .context("connect to Niri for desktop context")?;
-        let Response::Windows(windows) =
-            socket.send(Request::Windows)?.map_err(anyhow::Error::msg)?
-        else {
-            bail!("unexpected windows response");
-        };
-        let Response::Outputs(outputs) =
-            socket.send(Request::Outputs)?.map_err(anyhow::Error::msg)?
-        else {
-            bail!("unexpected outputs response");
-        };
-        Ok(json!({
-            "windows": windows,
-            "outputs": outputs,
-            "seat_name": self.controller.as_ref().map(AgentController::seat_name),
-            "coordinate_system": "logical pixels relative to the named output",
-        }))
-    }
-
     fn action(&mut self, action: DesktopAction) -> Result<Value> {
         action.validate()?;
         if matches!(action, DesktopAction::Reset {}) && self.controller.is_none() {
@@ -154,26 +135,96 @@ impl DesktopSession {
     }
 }
 
+struct DesktopAdapter {
+    socket: Option<PathBuf>,
+    name: String,
+    idle_timeout: Duration,
+    worker: Option<ActiveWorker>,
+}
+
+impl DesktopAdapter {
+    fn reap_worker(&mut self) -> Result<()> {
+        if let Some(worker) = &mut self.worker {
+            if worker.exited()? {
+                self.worker = None;
+            }
+        }
+        Ok(())
+    }
+
+    fn context(&mut self) -> Result<Value> {
+        self.reap_worker()?;
+        let mut socket = match &self.socket {
+            Some(path) => Socket::connect_to(path),
+            None => Socket::connect(),
+        }
+        .context("connect to Niri for desktop context")?;
+        let Response::Windows(windows) =
+            socket.send(Request::Windows)?.map_err(anyhow::Error::msg)?
+        else {
+            bail!("unexpected windows response");
+        };
+        let Response::Outputs(outputs) =
+            socket.send(Request::Outputs)?.map_err(anyhow::Error::msg)?
+        else {
+            bail!("unexpected outputs response");
+        };
+        Ok(json!({
+            "windows": windows,
+            "outputs": outputs,
+            "seat_name": self.worker.as_ref().and_then(|worker| worker.seat_name.as_deref()),
+            "worker_pid": self.worker.as_ref().map(ActiveWorker::pid),
+            "idle_timeout_seconds": self.idle_timeout.as_secs(),
+            "coordinate_system": "logical pixels relative to the named output",
+        }))
+    }
+
+    fn action(&mut self, action: DesktopAction) -> Result<Value> {
+        action.validate()?;
+        self.reap_worker()?;
+        if matches!(action, DesktopAction::Reset {}) && self.worker.is_none() {
+            return Ok(json!({"seat_name": null, "handled": true}));
+        }
+        if self.worker.is_none() {
+            self.worker = Some(ActiveWorker::spawn(
+                self.socket.as_deref(),
+                &self.name,
+                self.idle_timeout,
+            )?);
+        }
+        let result = self
+            .worker
+            .as_mut()
+            .context("desktop worker unavailable")?
+            .action(&action);
+        if result.is_err() {
+            self.worker = None;
+        }
+        result
+    }
+}
+
 #[derive(Clone)]
 struct DesktopServer {
-    session: Arc<Mutex<DesktopSession>>,
+    session: Arc<Mutex<DesktopAdapter>>,
 }
 
 #[tool_router]
 impl DesktopServer {
-    fn new(socket: Option<PathBuf>, name: String) -> Self {
+    fn new(socket: Option<PathBuf>, name: String, idle_timeout: Duration) -> Self {
         Self {
-            session: Arc::new(Mutex::new(DesktopSession {
+            session: Arc::new(Mutex::new(DesktopAdapter {
                 socket,
                 name,
-                controller: None,
+                idle_timeout,
+                worker: None,
             })),
         }
     }
 
     async fn execute(
         &self,
-        operation: impl FnOnce(&mut DesktopSession) -> Result<Value> + Send + 'static,
+        operation: impl FnOnce(&mut DesktopAdapter) -> Result<Value> + Send + 'static,
     ) -> CallToolResult {
         let session = self.session.clone();
         let result =
@@ -188,14 +239,14 @@ impl DesktopServer {
     }
 
     #[tool(
-        description = "List Niri windows and outputs with IDs, layout and logical dimensions. Does not create an agent seat. Window/output snapshots are separate queries and may change between calls."
+        description = "List Niri windows and outputs with IDs, layout and logical dimensions. Does not start a worker or create an agent seat. Reports worker_pid and seat_name as null while idle. Window/output snapshots are separate queries and may change between calls."
     )]
     async fn desktop_context(&self) -> CallToolResult {
         self.execute(|session| session.context()).await
     }
 
     #[tool(
-        description = "Act using your independent cursor and keyboard seat. Focus a window before keys, or move then click to select it. Coordinates are logical pixels relative to output. Keys use Linux evdev codes: A=30, Enter=28, Shift=42. Use press/release for chords and tap for a single key. Scroll uses pixel deltas. Reset releases held input and clears focus. Errors release the seat; select a fresh target afterward. Human Niri focus is unchanged. Clipboard, Unicode text insertion and window management are unavailable."
+        description = "Act using your independent cursor and keyboard seat. Focus a window before keys, or move then click to select it. Coordinates are logical pixels relative to output. Keys use Linux evdev codes: A=30, Enter=28, Shift=42. Use press/release for chords and tap for a single key. Scroll uses pixel deltas. Reset releases held input and clears focus. Errors release the seat; select a fresh target afterward. Human Niri focus is unchanged. After the idle timeout the worker exits and loses its target; focus or click again before typing. Clipboard, Unicode text insertion and window management are unavailable."
     )]
     async fn desktop_action(
         &self,
@@ -205,11 +256,11 @@ impl DesktopServer {
     }
 
     #[tool(
-        description = "Release this agent's seat, cursor and held input. Safe to repeat. A later action creates a new seat."
+        description = "Stop the desktop worker and release this agent's seat, cursor and held input. Safe to repeat. A later action creates a new seat."
     )]
     async fn desktop_release(&self) -> CallToolResult {
         self.execute(|session| {
-            session.controller = None;
+            session.worker = None;
             Ok(json!({"released": true}))
         })
         .await
@@ -225,11 +276,12 @@ impl ServerHandler for DesktopServer {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let mut arguments = std::env::args().skip(1);
     let mut socket = None;
     let mut name = "assistant".to_string();
+    let mut idle_timeout = Duration::from_secs(60);
+    let mut is_worker = false;
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--socket" => {
@@ -238,9 +290,20 @@ async fn main() -> Result<()> {
                 ))
             }
             "--name" => name = arguments.next().context("--name requires a name")?,
+            "--idle-timeout-seconds" => {
+                let seconds: u64 = arguments
+                    .next()
+                    .context("--idle-timeout-seconds requires a value")?
+                    .parse()?;
+                if !(1..=86400).contains(&seconds) {
+                    bail!("idle timeout must be between 1 and 86400 seconds");
+                }
+                idle_timeout = Duration::from_secs(seconds);
+            }
+            "--worker" => is_worker = true,
             "--help" | "-h" => {
                 eprintln!(
-                    "Usage: dojo-agent [--socket PATH] [--name NAME]\nLocal stdio MCP server for independent desktop input. Defaults to NIRI_SOCKET."
+                    "Usage: dojo-agent [--socket PATH] [--name NAME] [--idle-timeout-seconds SECONDS]\nLocal stdio MCP adapter for on-demand desktop input. Defaults to NIRI_SOCKET and 60 seconds idle timeout."
                 );
                 return Ok(());
             }
@@ -255,14 +318,33 @@ async fn main() -> Result<()> {
     {
         bail!("name must contain 1..32 ASCII letters, digits, hyphens or underscores");
     }
-    let server = DesktopServer::new(socket, name);
+    if is_worker {
+        return worker::run(socket, name, idle_timeout);
+    }
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .thread_keep_alive(Duration::from_secs(1))
+        .build()?
+        .block_on(serve(socket, name, idle_timeout))
+}
+
+async fn serve(socket: Option<PathBuf>, name: String, idle_timeout: Duration) -> Result<()> {
+    let mut child_exits = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())?;
+    let server = DesktopServer::new(socket, name, idle_timeout);
     let cleanup = server.session.clone();
     let service = server.serve(rmcp::transport::stdio()).await?;
-    tokio::select! {
-        result = service.waiting() => { result?; }
-        result = tokio::signal::ctrl_c() => { result?; }
+    let waiting = service.waiting();
+    tokio::pin!(waiting);
+    let interrupt = tokio::signal::ctrl_c();
+    tokio::pin!(interrupt);
+    loop {
+        tokio::select! {
+            result = &mut waiting => { result?; break; }
+            result = &mut interrupt => { result?; break; }
+            _ = child_exits.recv() => { cleanup.lock().await.reap_worker()?; }
+        }
     }
-    cleanup.lock().await.controller = None;
+    cleanup.lock().await.worker = None;
     Ok(())
 }
 
@@ -294,10 +376,11 @@ mod tests {
 
     #[test]
     fn idle_reset_and_invalid_action_do_not_connect() {
-        let mut session = DesktopSession {
+        let mut session = DesktopAdapter {
             socket: Some(PathBuf::from("/missing-dojo-agent-test.sock")),
             name: "test".into(),
-            controller: None,
+            idle_timeout: Duration::from_secs(60),
+            worker: None,
         };
         assert_eq!(
             session.action(DesktopAction::Reset {}).unwrap(),
@@ -311,6 +394,6 @@ mod tests {
                 })
                 .is_err()
         );
-        assert!(session.controller.is_none());
+        assert!(session.worker.is_none());
     }
 }

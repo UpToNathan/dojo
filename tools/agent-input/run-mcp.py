@@ -5,16 +5,17 @@ import json
 import os
 from pathlib import Path
 import select
+import signal
 import subprocess
 import time
 
-from run import Peer, events, focused_id, wait_for
+from run import Peer, changed_pixels, events, focused_id, screenshot, wait_for
 
 
 class Mcp:
-    def __init__(self, binary, socket, name, stderr):
+    def __init__(self, binary, socket, name, stderr, idle_timeout=60):
         self.process = subprocess.Popen(
-            [binary, "--socket", socket, "--name", name],
+            [binary, "--socket", socket, "--name", name, "--idle-timeout-seconds", str(idle_timeout)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr, bufsize=0,
         )
         self.next_id = 0
@@ -73,7 +74,117 @@ class Mcp:
                 self.process.wait()
                 raise AssertionError("MCP did not exit on stdin EOF")
         self.process.stdout.close()
-        assert self.process.returncode == 0, self.process.returncode
+        assert self.process.returncode in (0, -signal.SIGKILL), self.process.returncode
+
+
+def children(process):
+    found = set()
+    for path in Path(f"/proc/{process.pid}/task").glob("*/children"):
+        try:
+            found.update(int(child) for child in path.read_text().split())
+        except FileNotFoundError:
+            pass
+    return found
+
+
+def alive(pid):
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().split(")", 1)[1].split()[0] != "Z"
+    except FileNotFoundError:
+        return False
+
+
+def lifecycle(args, query, human, target, stderr, servers, output, x, y):
+    server = Mcp(args.server, args.socket, "mcp-idle", stderr, idle_timeout=2)
+    servers.append(server)
+    assert not children(server.process)
+    server.action("reset")
+    server.tool("desktop_release")
+    assert server.tool("desktop_context")["worker_pid"] is None
+    assert not children(server.process)
+
+    def start():
+        seat = server.action("focus", window_id=target)["seat_name"]
+        context = server.tool("desktop_context")
+        pid = context["worker_pid"]
+        assert children(server.process) == {pid}
+        assert context["seat_name"] == seat
+        return seat, pid
+
+    def held_release(before):
+        return any(e.get("window") == 2 and (
+            e.get("event") == "key_up" and e.get("key") == "t" or
+            e.get("event") == "key" and e.get("key") == 20 and "Released" in e.get("state", "")
+        ) for e in events(args.log)[before:])
+
+    seat, pid = start()
+    server.tool("desktop_action", {"action": "key", "evdev": 0, "state": "tap"}, error=True)
+    assert server.tool("desktop_context")["worker_pid"] == pid
+    server.action("move", output=output, x=x, y=y)
+    server.action("click", button="left")
+    server.action("key", evdev=20, state="press")
+    wait_for(lambda: any(e.get("window") == 2 and e.get("key") in (20, "t") for e in events(args.log)), "held key before idle")
+    before = len(events(args.log))
+    # Poll only /proc: no MCP request may help expiry or reaping happen.
+    wait_for(lambda: not Path(f"/proc/{pid}").exists(), "idle worker exit and reap")
+    wait_for(lambda: held_release(before), "held key release on idle expiry")
+    if not args.gpui:
+        seat_id = next(e["seat"] for e in events(args.log) if e.get("name") == seat)
+        wait_for(lambda: any(e.get("event") == "seat_removed" and e.get("seat") == seat_id for e in events(args.log)), "idle seat removal")
+    assert not children(server.process)
+    assert server.tool("desktop_context")["seat_name"] is None
+    assert server.tool("desktop_context")["worker_pid"] is None
+
+    # Keep the cursor crop clear of fixture text and the human cursor.
+    logical = server.tool("desktop_context")["outputs"][output]["logical"]
+    cursor_x, cursor_y = logical["width"] - 70, logical["height"] - 70
+    directory = Path(args.log).parent
+    baseline = screenshot(query, str(directory / "idle-cursor-baseline.png"))
+    server.action("move", output=output, x=cursor_x, y=cursor_y)
+    pid = server.tool("desktop_context")["worker_pid"]
+    visible = screenshot(query, str(directory / "idle-cursor-visible.png"))
+    assert changed_pixels(baseline, visible, cursor_x, cursor_y, logical["scale"]) > 0
+    wait_for(lambda: not Path(f"/proc/{pid}").exists(), "visible cursor worker expiry")
+    removed = screenshot(query, str(directory / "idle-cursor-removed.png"))
+    assert changed_pixels(baseline, removed, cursor_x, cursor_y, logical["scale"]) == 0
+
+    # Context traffic must not renew the input lease.
+    second_seat, pid = start()
+    assert second_seat != seat
+    deadline = time.monotonic() + 4
+    while alive(pid) and time.monotonic() < deadline:
+        server.tool("desktop_context")
+        time.sleep(0.1)
+    wait_for(lambda: not Path(f"/proc/{pid}").exists(), "expiry despite context traffic")
+
+    _, pid = start()
+    server.action("key", evdev=20, state="press")
+    time.sleep(0.1)
+    before = len(events(args.log))
+    os.kill(pid, signal.SIGKILL)
+    wait_for(lambda: not Path(f"/proc/{pid}").exists(), "crashed worker reap")
+    wait_for(lambda: held_release(before), "held key release on worker crash")
+    assert server.tool("desktop_context")["worker_pid"] is None
+
+    _, pid = start()
+    server.tool("desktop_release")
+    server.tool("desktop_release")
+    wait_for(lambda: not Path(f"/proc/{pid}").exists(), "explicit worker release")
+
+    server.close()
+    server = Mcp(args.server, args.socket, "mcp-crash", stderr, idle_timeout=60)
+    servers.append(server)
+    _, pid = start()
+    server.action("key", evdev=20, state="press")
+    time.sleep(0.1)
+    before = len(events(args.log))
+    disconnected = time.monotonic()
+    server.process.kill()
+    server.process.wait(timeout=5)
+    wait_for(lambda: not alive(pid), "worker exit after adapter crash")
+    assert time.monotonic() - disconnected < 1, "Worker waited for idle expiry after adapter crash"
+    wait_for(lambda: held_release(before), "held key release on adapter crash")
+    assert focused_id(query) == human
 
 
 def main():
@@ -83,6 +194,7 @@ def main():
     parser.add_argument("--server", default=str(root / "target/debug/dojo-agent"))
     parser.add_argument("--recorder", default=str(Path(__file__).parent / "target/debug/dojo-agent-input-fixture"))
     parser.add_argument("--gpui", action="store_true")
+    parser.add_argument("--lifecycle", action="store_true")
     parser.add_argument("--log", required=True)
     args = parser.parse_args()
     query = Peer(args.socket)
@@ -113,12 +225,15 @@ def main():
             servers.append(server)
             context = server.tool("desktop_context")
             assert context["seat_name"] is None
+            assert context["worker_pid"] is None
+            assert not children(server.process)
             assert {human, target} <= {w["id"] for w in context["windows"]}
             assert context["outputs"]
             invalid = server.rpc("tools/call", {"name": "desktop_action", "arguments": {"action": "key", "evdev": 30, "state": "typo"}})
             assert "error" in invalid or invalid["result"].get("isError"), invalid
             server.tool("desktop_action", {"action": "key", "evdev": 0, "state": "tap"}, error=True)
             assert server.tool("desktop_context")["seat_name"] is None
+            assert not children(server.process)
             seat = server.action("focus", window_id=target)["seat_name"]
             assert server.tool("desktop_context")["seat_name"] == seat
             window = next(w for w in windows() if w["id"] == target)
@@ -160,13 +275,19 @@ def main():
             server.action("key", evdev=20, state="press")
             wait_for(lambda: any(e.get("event") in ("key", "key_down") and e.get("window") == 2 and e.get("key") in (20, "t") for e in events(args.log)), "held key before EOF")
             before = len(events(args.log))
+            worker_pid = server.tool("desktop_context")["worker_pid"]
             server.close()
+            wait_for(lambda: not Path(f"/proc/{worker_pid}").exists(), "worker reaped on MCP EOF")
             wait_for(lambda: any(e.get("window") == 2 and (
                 e.get("event") == "key_up" and e.get("key") == "t" or
                 e.get("event") == "key" and e.get("key") == 20 and "Released" in e.get("state", "")
             ) for e in events(args.log)[before:]), "held key release on MCP EOF")
             assert focused_id(query) == human
-            print(json.dumps({"passed": True, "transport": "MCP stdio", "gpui": args.gpui, "events": args.log}))
+            if args.lifecycle:
+                lifecycle(args, query, human, target, stderr, servers,
+                          workspace["output"], tile_x + offset_x + width / 2,
+                          tile_y + offset_y + height / 2)
+            print(json.dumps({"passed": True, "transport": "MCP stdio", "gpui": args.gpui, "lifecycle": args.lifecycle, "events": args.log}))
         finally:
             for server in servers:
                 server.close()
