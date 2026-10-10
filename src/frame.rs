@@ -29,6 +29,7 @@ struct FrameView {
     last_menu_pointer: Option<gpui::Point<gpui::Pixels>>,
     last_power_update: Instant,
     launcher_hovered: bool,
+    wlsunset_hovered: bool,
     theme_hovered: bool,
 }
 
@@ -337,6 +338,24 @@ fn tray_menu_height(items: &[TrayMenuItem]) -> f32 {
         .sum::<f32>()
 }
 
+fn toggle_wlsunset() {
+    let result = std::thread::Builder::new()
+        .name("dojo-wlsunset-toggle".into())
+        .spawn(
+            || match std::process::Command::new("toggle-wlsunset").output() {
+                Ok(output) if output.status.success() => {}
+                Ok(output) => eprintln!(
+                    "Dojo could not toggle wlsunset: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ),
+                Err(error) => eprintln!("Dojo could not start the wlsunset toggle: {error}"),
+            },
+        );
+    if let Err(error) = result {
+        eprintln!("Dojo could not start the wlsunset toggle thread: {error}");
+    }
+}
+
 fn tray_menu_row_height(item: &TrayMenuItem) -> f32 {
     if item.separator {
         9.
@@ -474,6 +493,7 @@ impl FrameView {
             last_menu_pointer: None,
             last_power_update: Instant::now(),
             launcher_hovered: false,
+            wlsunset_hovered: false,
             theme_hovered: false,
             tray,
         }
@@ -683,6 +703,7 @@ impl Render for FrameView {
         let top_bar_input = [top_bar_input_region(viewport)];
         let launcher_bounds = launcher_button_bounds(viewport);
         let launcher_hovered = self.launcher_hovered && window.is_window_hovered();
+        let wlsunset_hovered = self.wlsunset_hovered && window.is_window_hovered();
         let theme_hovered = self.theme_hovered && window.is_window_hovered();
 
         let battery_glyph =
@@ -765,9 +786,9 @@ impl Render for FrameView {
 
         let tray_count = tray_icons.len();
         let top_bar_width = if tray_count == 0 {
-            98.
+            124.
         } else {
-            103. + tray_count as f32 * 21.
+            129. + tray_count as f32 * 21.
         };
         let tray_group = div().flex().items_center().gap(px(3.)).children(tray_icons);
 
@@ -782,6 +803,43 @@ impl Render for FrameView {
             .justify_end()
             .gap(px(8.))
             .text_color(colors.foreground.rgb())
+            .child(
+                div()
+                    .id("wlsunset-button")
+                    .aria_label("Toggle wlsunset eye-comfort filter")
+                    .w(px(18.))
+                    .h(px(18.))
+                    .flex_shrink_0()
+                    .rounded(px(3.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .text_size(px(18.5))
+                    .bg(if wlsunset_hovered {
+                        colors.background_highlight.rgb().opacity(0.35)
+                    } else {
+                        colors.background.rgb()
+                    })
+                    .text_color(colors.foreground.rgb())
+                    .on_hover(cx.listener(|this, hovered, _, cx| {
+                        if this.wlsunset_hovered != *hovered {
+                            this.wlsunset_hovered = *hovered;
+                            cx.notify();
+                        }
+                    }))
+                    .child("\u{f2a8}")
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.wlsunset_hovered = false;
+                            this.close_tray_menu(cx);
+                            cx.notify();
+                            cx.stop_propagation();
+                            toggle_wlsunset();
+                        }),
+                    ),
+            )
             .child(
                 div()
                     .id("theme-picker-button")

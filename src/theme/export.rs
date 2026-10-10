@@ -42,6 +42,7 @@ pub(super) fn render(
     );
     add("kitty.conf", kitty(p).into_bytes());
     add("ghostty.conf", ghostty(p).into_bytes());
+    add("niri.kdl", niri(p).into_bytes());
     add("opencode.json", json_bytes(&opencode(theme)?)?);
     add("pi.json", json_bytes(&pi(p))?);
     add(
@@ -60,6 +61,13 @@ pub(super) fn render(
     add("yazi.toml", yazi(p).into_bytes());
     add("tmtheme.xml", textmate(p).into_bytes());
     add("zen.json", json_bytes(&zen(p))?);
+    add(
+        "helium.json",
+        json_bytes(&json!({
+            "BrowserThemeColor": p.color("background"),
+            "BrowserColorScheme": "system"
+        }))?,
+    );
     add("gtk-3.0.css", gtk(p, 3).into_bytes());
     add("gtk-4.0.css", gtk(p, 4).into_bytes());
     add("qt5.conf", qt(p, 21).into_bytes());
@@ -110,6 +118,14 @@ fn ghostty(p: &SemanticPalette) -> String {
         output.push_str(&format!("palette = {index}={color}\n"));
     }
     output
+}
+
+fn niri(p: &SemanticPalette) -> String {
+    format!(
+        "layout {{\n    focus-ring {{\n        active-color \"{}\"\n        inactive-color \"{}\"\n    }}\n}}\n",
+        p.color("primary"),
+        p.color("border")
+    )
 }
 
 fn opencode(theme: &Theme) -> anyhow::Result<Value> {
@@ -858,6 +874,13 @@ mod tests {
         );
         assert!(kitty(&theme.dark).contains("color15 "));
         assert!(ghostty(&theme.dark).contains("palette = 15="));
+        assert!(
+            niri(&theme.dark)
+                .contains(&format!("active-color \"{}\"", theme.dark.color("primary")))
+        );
+        let helium: Value = serde_json::from_slice(&outputs["helium.json"])?;
+        assert_eq!(helium["BrowserThemeColor"], theme.dark.color("background"));
+        assert_eq!(helium["BrowserColorScheme"], "system");
         Ok(())
     }
 }

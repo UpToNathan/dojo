@@ -21,12 +21,54 @@ User services **can remain running across suspend** and can receive resume/lock 
 3. If the process is present but the tray item is missing, diagnose the desktop environment's tray/status notifier separately; process supervision alone cannot guarantee icon presentation.
 4. Use 1Password's documented unlock and auto-lock settings for unlock behavior. Do not use an autostart/restart mechanism as a way to bypass the app's lock state.
 
+## CLI integration on Niri
+
+On venus (Arch Linux with Niri), `op account list` returned `connection reset`
+even though the 1Password app was running, its CLI socket existed, and restarting
+the app did not help. PolKit was installed and active, but there was no user
+authentication-agent process. The 1Password Linux CLI integration requires both
+PolKit and an agent; the daemon alone is not enough. After enabling the agent,
+the reset persisted. The Nix-store `op` binary was `root:root` mode `0555`, and
+the `onepassword-cli` group did not exist. 1Password's Linux CLI setup requires
+an `op` executable owned by that group with setgid enabled, which cannot be set
+on a binary inside the read-only Nix store.
+
+Enable Home Manager's `services.polkit-gnome` module so the agent runs in the
+graphical session:
+
+```nix
+services.polkit-gnome.enable = true;
+```
+
+The Dojo configuration uses the existing `graphical-session.target`. Home
+Manager no longer installs `_1password-cli`, so this native executable won't be
+shadowed by the Nix profile. Install the already-verified Nix CLI binary at a
+mutable system path with the permissions 1Password requires:
+
+```sh
+sudo groupadd --force onepassword-cli
+sudo install --owner=root --group=onepassword-cli --mode=2755 \
+  "$(readlink -f "$HOME/.nix-profile/bin/op")" /usr/local/bin/op
+```
+
+Then activate Home Manager with `devenv machines deploy venus`, open a new
+terminal, and verify `command -v op` reports `/usr/local/bin/op` before retrying
+`op account list`. The PolKit agent itself is user-managed; the `sudo` commands
+are only for creating the CLI group and installing its setgid executable. The
+manual `/usr/local/bin/op` copy does not receive future Nix updates; upgrade it
+from a verified CLI release while preserving `root:onepassword-cli` ownership
+and mode `2755`, or switch to Arch's `1password-cli` AUR package. Do not add the
+Nix CLI back to `home.packages`, or it will shadow the setgid executable.
+
 ## Primary sources
 
 - 1Password Support, [Install 1Password for Linux](https://support.1password.com/install-linux/) — supported Linux installation methods.
 - 1Password Support, [Manage your unlock and auto-lock settings](https://support.1password.com/unlock-auto-lock/) — app lock/unlock and auto-lock settings.
 - 1Password Support, [Use system authentication to unlock 1Password on Linux](https://support.1password.com/system-authentication-linux/) — Linux unlock behavior and cases requiring account-password unlock.
 - 1Password Support, [Get to know Quick Access](https://support.1password.com/quick-access/) — Linux system-tray icon and Quick Access.
+- 1Password Developer, [Use the desktop app to sign in to CLI](https://www.1password.dev/cli/app-integration) — Linux PolKit requirement and connection-reset troubleshooting.
+- 1Password Developer, [Get started with CLI](https://www.1password.dev/cli/get-started) — manual Linux CLI installation's `onepassword-cli` group and setgid requirements.
+- Home Manager, [`services.polkit-gnome`](https://github.com/nix-community/home-manager/blob/master/modules/services/polkit-gnome.nix) — user service tied to `graphical-session.target`.
 - systemd upstream, [systemd.service(5)](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html) — semantics of `Restart=always` and restart exceptions.
 - systemd upstream, [Inhibitor Locks](https://systemd.io/INHIBITOR_LOCKS/) — `PrepareForSleep` protocol and example handling before/after sleep.
 - systemd upstream, [org.freedesktop.login1(5)](https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.login1.html) — logind manager sleep signals and session Lock/Unlock signals; session-manager responsibility.

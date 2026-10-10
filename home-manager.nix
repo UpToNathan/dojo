@@ -1,11 +1,35 @@
 { pkgs, lib, config, inputs }:
+let
+  homeDirectory = "/home/nathan";
+  heliumVersion = "0.19.2.1";
+  heliumAppImage = pkgs.fetchurl {
+    url = "https://github.com/imputnet/helium-linux/releases/download/${heliumVersion}/helium-${heliumVersion}-x86_64.AppImage";
+    hash = "sha256-oEVQo8fHC9rTrNOkQw7ajSr8C/cXOpxYpAP+q5UXCH8=";
+  };
+  helium = pkgs.appimageTools.wrapType2 {
+    pname = "helium";
+    version = heliumVersion;
+    src = heliumAppImage;
+    # Chromium policies are outside the AppImage; expose Helium's shared,
+    # system-managed policy directory read-only inside the FHS wrapper.
+    extraBwrapArgs = [
+      "--dir /etc/chromium"
+      "--ro-bind-try /etc/chromium/policies /etc/chromium/policies"
+    ];
+  };
+  heliumContents = pkgs.appimageTools.extractType2 {
+    pname = "helium";
+    version = heliumVersion;
+    src = heliumAppImage;
+  };
+in
 {
       imports = [
         inputs.stasis.homeModules.default
         ./theme-home-manager.nix
       ];
       home.username = "nathan";
-      home.homeDirectory = "/home/nathan";
+      home.homeDirectory = homeDirectory;
       home.stateVersion = "26.05";
       targets.genericLinux.enable = true;
       dojo.themeIntegrations.enable = true;
@@ -16,9 +40,15 @@
           "1password-gui"
           "1password"
         ];
+      # _1password-cli is installed at /usr/local/bin/op with the required
+      # onepassword-cli setgid group; a Nix-store binary cannot carry that bit.
       home.packages = with pkgs; [
-        _1password-cli
         _1password-gui
+        legcord
+        helium
+        (pkgs.writeShellScriptBin "dojo-chromium-theme-policy" ''
+          exec /usr/bin/sudo -n /usr/local/bin/dojo-chromium-theme-policy "$@"
+        '')
         brightnessctl
         wlsunset
         pkgs.git
@@ -62,12 +92,20 @@
         pkgs.wl-screenrec
         pkgs.procps
         pkgs.xdg-utils
+        pkgs.speechd # Speech Dispatcher, including spd-say for browser speech synthesis
         (pkgs.writeShellScriptBin "toggle-vigiland" ''
           if ${pkgs.procps}/bin/pgrep -u "$UID" -x vigiland >/dev/null; then
             ${pkgs.procps}/bin/pkill -u "$UID" -x vigiland
           else
             ${inputs.vigiland.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/vigiland \
               >/dev/null 2>&1 </dev/null &
+          fi
+        '')
+        (pkgs.writeShellScriptBin "toggle-wlsunset" ''
+          if ${pkgs.systemd}/bin/systemctl --user is-active --quiet wlsunset.service; then
+            exec ${pkgs.systemd}/bin/systemctl --user stop wlsunset.service
+          else
+            exec ${pkgs.systemd}/bin/systemctl --user start wlsunset.service
           fi
         '')
         inputs.clipvault.packages.${pkgs.stdenv.hostPlatform.system}.default
@@ -126,6 +164,31 @@
             };
         })
       ];
+      xdg.desktopEntries.helium = {
+        name = "Helium";
+        genericName = "Web Browser";
+        exec = "helium %U";
+        icon = "${heliumContents}/helium.png";
+        terminal = false;
+        startupNotify = true;
+        categories = [ "Network" "WebBrowser" ];
+        mimeType = [
+          "application/pdf"
+          "application/rdf+xml"
+          "application/rss+xml"
+          "application/xhtml+xml"
+          "application/xhtml_xml"
+          "application/xml"
+          "image/gif"
+          "image/jpeg"
+          "image/png"
+          "image/webp"
+          "text/html"
+          "text/xml"
+          "x-scheme-handler/http"
+          "x-scheme-handler/https"
+        ];
+      };
       fonts.fontconfig.enable = true;
       xdg.configFile."nvim".source = ./nvim-config;
       xdg.configFile."rush/config.rush".source = ./rush-config/config.rush;
@@ -175,6 +238,10 @@
         '';
       };
 
+      # 1Password's Linux CLI integration requires a PolKit authentication
+      # agent in the graphical session; polkitd alone is not sufficient.
+      services.polkit-gnome.enable = true;
+
       services.gnome-keyring = {
         enable = true;
         components = [ "secrets" ];
@@ -197,6 +264,56 @@
         xdg-desktop-portal-gnome
       ];
 
+      systemd.user.sockets.speech-dispatcher = {
+        Unit.Description = "Speech Dispatcher socket";
+        Socket.ListenStream = "%t/speech-dispatcher/speechd.sock";
+        Install.WantedBy = [ "sockets.target" ];
+      };
+      systemd.user.services.speech-dispatcher = {
+        Unit = {
+          Description = "Speech Dispatcher daemon";
+          Requires = [ "speech-dispatcher.socket" ];
+        };
+        Service = {
+          Type = "simple";
+          ExecStart = "${pkgs.speechd}/bin/speech-dispatcher -s -t 0";
+        };
+      };
+      systemd.user.services.wlsunset = {
+        Unit = {
+          Description = "Warm screen color temperature adjustment";
+          After = [ "graphical-session.target" ];
+          PartOf = [ "graphical-session.target" ];
+          ConditionEnvironment = "WAYLAND_DISPLAY";
+        };
+        Service = {
+          ExecStart = "${pkgs.wlsunset}/bin/wlsunset -t 1000 -T 6500";
+          Restart = "on-failure";
+        };
+      };
+
+      xdg.configFile."speech-dispatcher/speechd.conf".text = ''
+        AddModule "espeak-ng" "${pkgs.speechd}/libexec/speech-dispatcher-modules/sd_espeak-ng" "espeak-ng.conf"
+        DefaultModule espeak-ng
+      '';
+      xdg.configFile."speech-dispatcher/espeak-ng.conf".source = "${pkgs.speechd}/etc/speech-dispatcher/modules/espeak-ng.conf";
+
+      # History stores past entries, but does not keep the active Wayland
+      # selection alive when its source application exits.
+      systemd.user.services.wl-clip-persist = {
+        Unit = {
+          Description = "Keep the Wayland clipboard after its source exits";
+          After = [ "graphical-session.target" ];
+          PartOf = [ "graphical-session.target" ];
+          ConditionEnvironment = "WAYLAND_DISPLAY";
+        };
+        Service = {
+          ExecStart = "${pkgs.wl-clip-persist}/bin/wl-clip-persist --clipboard regular";
+          Restart = "on-failure";
+        };
+        Install.WantedBy = [ "graphical-session.target" ];
+      };
+
       systemd.user.services.clipvault-history = {
         Unit = {
           Description = "Store Wayland clipboard entries in Clipvault history";
@@ -214,6 +331,13 @@
       programs.yazi = {
         enable = true;
         package = pkgs.yazi.override { _7zz = pkgs._7zz-rar; };
+        settings.opener.edit = [
+          {
+            run = "nvim %s";
+            block = true;
+            for = "unix";
+          }
+        ];
         extraPackages = with pkgs; [
           file
           ffmpeg
@@ -252,6 +376,8 @@
           tab_bar_style = "hidden";
           confirm_os_window_close = 0;
           window_padding_width = "3 8";
+          # launch --location=vsplit/hsplit only applies in Kitty's splits layout.
+          enabled_layouts = "splits";
         };
         shellIntegration.mode = "enabled";
         keybindings = {
@@ -330,7 +456,16 @@
       '';
       home.sessionVariables.NPM_CONFIG_PREFIX = "/home/nathan/.local/npm";
       home.sessionVariables.SSH_AUTH_SOCK = "/home/nathan/.1password/agent.sock";
+      home.sessionVariables.BROWSER = "helium";
+      home.sessionVariables.EDITOR = "nvim";
+      home.sessionVariables.VISUAL = "nvim";
       home.sessionVariables.TERMINAL = "kitty";
+      systemd.user.sessionVariables = {
+        BROWSER = "helium";
+        EDITOR = "nvim";
+        VISUAL = "nvim";
+        TERMINAL = "kitty";
+      };
       home.sessionPath = [ "/home/nathan/.local/share/mbx/bin" "/home/nathan/.nix-profile/bin" "/home/nathan/.local/npm/bin" "/home/nathan/.cargo/bin" "/home/nathan/.local/bin" ];
       home.file.".local/bin/codelldb".source = "${pkgs.vscode-extensions.vadimcn.vscode-lldb}/share/vscode/extensions/vadimcn.vscode-lldb/adapter/codelldb";
       wayland.windowManager.niri = {
@@ -339,6 +474,10 @@
 	settings.binds."Mod+T" = {
 	  _props.hotkey-overlay-title = "Open a Terminal: kitty";
 	  spawn = [ "kitty" "--single-instance" ];
+	};
+	settings.binds."Mod+B" = {
+	  _props.hotkey-overlay-title = "Open Helium";
+	  spawn = [ "uwsm" "app" "-t" "service" "-d" "Helium" "--" "helium" ];
 	};
 	settings.binds."Mod+Shift+P" = {
 	  _props.hotkey-overlay-title = "Toggle Dojo launcher";
@@ -383,15 +522,19 @@
 	settings.binds."XF86KbdBrightnessDown" = {
 	  spawn = [ "brightnessctl" "--device" "tpacpi::kbd_backlight" "set" "1-" ];
 	};
-	settings.layout = {
-	  gaps = 16;
-	  focus-ring = {
-	    width = 3;
-	    active-color = "#cba6f7"; # catppuccin mauve
-	    inactive-color = "#45475a";
-	  };
-	};
-	# Rounded corners on tiled windows
+      settings.layout = {
+        gaps = 16;
+        focus-ring = {
+          width = 3;
+          # Fallback until Dojo has published a theme-specific focus ring.
+          active-color = "#cba6f7"; # catppuccin mauve
+          inactive-color = "#45475a";
+        };
+      };
+      extraConfig = lib.mkAfter ''
+        include optional=true "${homeDirectory}/.local/state/dojo/themes/niri.kdl"
+      '';
+      # Rounded corners on tiled windows
 	settings."window-rule" = {
 	  geometry-corner-radius = 12;
 	  clip-to-geometry = true;

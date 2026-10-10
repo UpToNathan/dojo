@@ -323,6 +323,25 @@ mod tests {
             for appearance in [Appearance::Light, Appearance::Dark] {
                 let outputs = theme.outputs(appearance)?;
                 assert!(!outputs.is_empty());
+                let helium: serde_json::Value = serde_json::from_slice(&outputs["helium.json"])?;
+                assert_eq!(
+                    helium["BrowserThemeColor"],
+                    theme.palette(appearance).color("background"),
+                    "{} ({}) must export its authored {} browser seed",
+                    preset.id,
+                    preset.name,
+                    appearance.name()
+                );
+                assert_eq!(helium["BrowserColorScheme"], "system");
+                let niri = std::str::from_utf8(&outputs["niri.kdl"])?;
+                assert!(niri.contains(&format!(
+                    "active-color \"{}\"",
+                    theme.palette(appearance).color("primary")
+                )));
+                assert!(niri.contains(&format!(
+                    "inactive-color \"{}\"",
+                    theme.palette(appearance).color("border")
+                )));
                 for (name, bytes) in outputs {
                     if name.ends_with(".json") {
                         serde_json::from_slice::<serde_json::Value>(&bytes)?;

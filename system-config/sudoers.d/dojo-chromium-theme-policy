@@ -1,0 +1,1 @@
+nathan ALL=(root) NOPASSWD: /usr/local/bin/dojo-chromium-theme-policy

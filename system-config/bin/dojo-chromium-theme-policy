@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PATH=/usr/bin:/bin
+
+fail() {
+    printf 'dojo-chromium-theme-policy: %s\n' "$1" >&2
+    exit 1
+}
+
+[[ $EUID -eq 0 ]] || fail 'must be run as root'
+[[ $# -eq 1 ]] || fail 'expected one #RRGGBB color'
+
+color=${1,,}
+[[ $color =~ ^#[0-9a-f]{6}$ ]] || fail 'expected one #RRGGBB color'
+
+for directory in /etc/chromium /etc/chromium/policies /etc/chromium/policies/managed; do
+    if [[ -L $directory || ( -e $directory && ! -d $directory ) ]]; then
+        fail "refusing unsafe policy directory $directory"
+    fi
+    if [[ ! -e $directory ]]; then
+        /usr/bin/install -d -m 0755 -o root -g root -- "$directory"
+    fi
+    [[ $(/usr/bin/stat -c '%U:%G %a' -- "$directory") == 'root:root 755' ]] ||
+        fail "policy directory must be root:root mode 0755: $directory"
+done
+
+policy_dir=/etc/chromium/policies/managed
+policy_file=$policy_dir/dojo-theme.json
+
+if [[ -e $policy_file || -L $policy_file ]]; then
+    [[ -f $policy_file && ! -L $policy_file ]] ||
+        fail "refusing to replace non-regular policy file $policy_file"
+    [[ $(/usr/bin/stat -c '%U:%G %a' -- "$policy_file") == 'root:root 644' ]] ||
+        fail "policy file must be root:root mode 0644: $policy_file"
+    /usr/bin/grep -Eq '^\{"BrowserThemeColor": "#[0-9a-f]{6}", "BrowserColorScheme": "system"\}$' "$policy_file" ||
+        fail "refusing to replace policy file not owned by Dojo: $policy_file"
+fi
+
+shopt -s nullglob
+for other in "$policy_dir"/*.json; do
+    [[ $other == "$policy_file" ]] && continue
+    [[ -f $other && ! -L $other ]] || fail "refusing unsafe managed policy file $other"
+    if /usr/bin/grep -Eq '"BrowserThemeColor"[[:space:]]*:|"BrowserColorScheme"[[:space:]]*:' "$other"; then
+        fail "another managed policy already sets browser theme colors: $other"
+    fi
+done
+
+temporary=$(/usr/bin/mktemp "$policy_dir/.dojo-theme.XXXXXX")
+cleanup() {
+    [[ -z ${temporary:-} ]] || /usr/bin/rm -f -- "$temporary"
+}
+trap cleanup EXIT
+
+/usr/bin/printf '{"BrowserThemeColor": "%s", "BrowserColorScheme": "system"}\n' "$color" >"$temporary"
+/usr/bin/chown root:root -- "$temporary"
+/usr/bin/chmod 0644 -- "$temporary"
+/usr/bin/mv -fT -- "$temporary" "$policy_file"
+temporary=

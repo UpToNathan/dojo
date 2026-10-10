@@ -15,8 +15,8 @@ use super::store::{read_json_optional, write_atomic};
 use super::{Appearance, Selection, ThemeStore};
 
 pub const TARGETS: &[&str] = &[
-    "dojo", "kitty", "ghostty", "nvim", "opencode", "pi", "t3code", "zed", "yazi", "zen", "gtk",
-    "qt", "delta",
+    "dojo", "niri", "kitty", "ghostty", "nvim", "opencode", "pi", "t3code", "zed", "yazi", "zen",
+    "helium", "gtk", "qt", "delta",
 ];
 
 #[derive(Debug, Serialize)]
@@ -65,6 +65,10 @@ fn publish(path: &Path, bytes: &[u8], registry: &mut Published) -> anyhow::Resul
 }
 
 fn command(program: &str, args: &[&str]) -> anyhow::Result<String> {
+    command_with_timeout(program, args, Duration::from_secs(3))
+}
+
+fn command_with_timeout(program: &str, args: &[&str], timeout: Duration) -> anyhow::Result<String> {
     let mut child = Command::new(program)
         .args(args)
         .stdout(Stdio::piped())
@@ -76,7 +80,7 @@ fn command(program: &str, args: &[&str]) -> anyhow::Result<String> {
         if child.try_wait()?.is_some() {
             break;
         }
-        if start.elapsed() > Duration::from_secs(3) {
+        if start.elapsed() > timeout {
             child.kill()?;
             child.wait()?;
             anyhow::bail!("{program} timed out");
@@ -392,6 +396,12 @@ fn publish_target(
     };
     match target {
         "dojo"=>Ok(("published","running surfaces observe the selected palette; user config is untouched".into())),
+        "niri"=>{
+            let path = paths.root.join("niri.kdl");
+            put("niri.kdl",&path,registry)?;
+            command("niri",&["msg","action","load-config-file"])?;
+            Ok(("reload_requested","Niri reloaded the Dojo focus-ring colors from the active theme".into()))
+        },
         "kitty"=>{
             let config=fs::read_to_string(paths.config.join("kitty/kitty.conf"))?;
             anyhow::ensure!(config.contains(&current.join("kitty.conf").to_string_lossy().to_string()),"Kitty needs the Dojo include from Home Manager before reload");
@@ -445,6 +455,17 @@ fn publish_target(
             let ack=runtime.join("dojo-zen-ack.json");
             let value:Option<serde_json::Value>=read_json_optional(&ack)?;
             Ok((if value.is_some() {"published"} else {"needs_setup"},"browser.theme.update payload available at current/zen.json; extension/native host must be installed once; last acknowledgement is not proof of this apply".into()))
+        },
+        "helium"=>{
+            let policy: serde_json::Value = serde_json::from_slice(
+                outputs.get("helium.json").context("missing Helium policy exporter")?,
+            )?;
+            let color = policy
+                .get("BrowserThemeColor")
+                .and_then(serde_json::Value::as_str)
+                .context("missing Helium BrowserThemeColor")?;
+            command("dojo-chromium-theme-policy", &[color])?;
+            Ok(("published","Chromium managed BrowserThemeColor policy updated; Helium watches the shared policy directory and should update within about five seconds. Chromium derives the chrome color from this seed; some internal pages may retain stock colors.".into()))
         },
         "gtk"=>{
             let name=format!("dojo-{}-{}",selection.generation,selection.appearance.name());

@@ -16,6 +16,12 @@ Run `devenv shell` or `devenv eval ...` from this directory. Run
 place; it preserves replaced files as timestamped backups. See
 `system-config/README.md` for tracked inputs versus generated runtime state.
 
+Clipboard history and persistence are separate services: Clipvault stores past
+entries, while `wl-clip-persist` retains the regular clipboard in memory after
+the source app closes. Both run with the graphical session; primary selection
+is unchanged. To verify in a live Wayland session, run
+`python3 scripts/check-clipboard-persistence.py` (replaces the current clipboard).
+
 ## Project
 
 Dojo is a Niri desktop shell implemented with GPUI. Build and test it with
