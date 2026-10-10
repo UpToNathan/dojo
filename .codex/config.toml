@@ -1,0 +1,7 @@
+[mcp_servers.dojo-desktop]
+command = "/home/nathan/Dojo/target/debug/dojo-agent"
+args = ["--name", "t3code"]
+env_vars = ["NIRI_SOCKET"]
+enabled_tools = ["desktop_context", "desktop_action", "desktop_release"]
+startup_timeout_sec = 10
+tool_timeout_sec = 15

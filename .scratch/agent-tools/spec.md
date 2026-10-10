@@ -17,6 +17,10 @@ Expose Dojo's independent input controller to an AI client through a local stdio
 
 The server owns an optional `AgentController` behind a mutex. Blocking IPC executes on Tokio's blocking pool. `desktop_context` queries Niri separately; `desktop_action` operates the retained seat; `desktop_release` drops it. The AI client's own UI supplies conversation and approval controls.
 
+## Initial client
+
+T3 Code is the first client, using its active Codex provider. Register through this trusted project's `.codex/config.toml` and forward `NIRI_SOCKET`. Verify discovery with T3's thread-level `mcp_servers` override present. pi-durable is a future client choice; retain the standard MCP interface rather than introducing T3-specific behavior in the server.
+
 ## Verification
 
 Test argument parsing, MCP initialization/discovery, persistent seat ownership, errors and EOF. Drive the actual binary against a nested compositor and recorded Wayland windows. Confirm key and pointer delivery and cleanup, preserving human focus.

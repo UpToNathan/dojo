@@ -72,6 +72,41 @@ creates the seat. Keep stdin open for subsequent commands. Separate one-shot
 
 ## Connect an AI client
 
+### T3 Code on this machine
+
+T3 Code's active Codex provider is configured through this project's
+[`.codex/config.toml`](../.codex/config.toml). It starts the built `dojo-agent`
+executable and explicitly forwards `NIRI_SOCKET`. The executable path matches
+this checkout; update it if the repository moves. Codex loads project MCP
+configuration for trusted projects, as described in the
+[official OpenAI documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
+
+The Dojo repository is marked trusted in the local Codex user configuration.
+The previous user config was preserved before adding that entry. Existing T3
+provider sessions need to reload before their tool catalog includes the new
+server. Use T3 Code with its Codex provider for this integration; other provider
+configurations are separate.
+
+Verify the registration without running a model or creating an input seat:
+
+```sh
+codex mcp get dojo-desktop --json
+python3 tools/agent-input/check-codex.py
+```
+
+The check creates an ephemeral Codex app-server session, applies the same
+whole-table MCP override shape as the installed T3 bundle, discovers the three
+Dojo tools, and calls `desktop_context`. It stops its own app-server afterward.
+It verifies provider discovery and socket forwarding; the nested scenarios
+below verify actual input. Your current upstream Niri session can supply context
+but rejects independent-seat actions. Input needs the experimental fork.
+
+T3 is the initial client. The server and controller do not depend on T3; a future
+pi-durable adapter can use the same desktop interface. pi-durable integration
+has not been implemented or verified.
+
+### Other MCP clients
+
 Build the desktop MCP server:
 
 ```sh
