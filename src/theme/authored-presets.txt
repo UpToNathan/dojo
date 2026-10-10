@@ -1,0 +1,12 @@
+# Roles follow this header; named editor roles are independent of ANSI colors.
+# Catppuccin palette 07d02aa110ef9eb7e7427afca5c73ba9cf7f8ebd.
+# Tokyo Night colors.setup defaults, cdc07ac78467a233fd62c493de29a17e0cf2b2b6.
+background surface surface_raised foreground foreground_muted border background_highlight primary secondary error success warning info primary_foreground selection_foreground diff_added_background diff_removed_background syntax_comment syntax_keyword syntax_function syntax_variable syntax_string syntax_number syntax_type syntax_operator syntax_punctuation diff_added_foreground diff_removed_foreground
+catppuccin-latte|eff1f5 e6e9ef ccd0da 4c4f69 6c6f85 9ca0b0 bcc0cc 1e66f5 8839ef d20f39 40a02b df8e1d 04a5e5 eff1f5 4c4f69 d5e5d7 ebcfd9 9ca0b0 8839ef 1e66f5 4c4f69 40a02b fe640b df8e1d 04a5e5 7c7f93 40a02b d20f39
+catppuccin-frappe|303446 292c3c 414559 c6d0f5 a5adce 737994 51576d 8caaee ca9ee6 e78284 a6d189 e5c890 99d1db 303446 c6d0f5 424c50 4b404f 737994 ca9ee6 8caaee c6d0f5 a6d189 ef9f76 e5c890 99d1db 949cbb a6d189 e78284
+catppuccin-macchiato|24273a 1e2030 363a4f cad3f5 a5adcb 6e738d 494d64 8aadf4 c6a0f6 ed8796 a6da95 eed49f 91d7e3 24273a cad3f5 384248 423548 6e738d c6a0f6 8aadf4 cad3f5 a6da95 f5a97f eed49f 91d7e3 939ab7 a6da95 ed8796
+catppuccin-mocha|1e1e2e 181825 313244 cdd6f4 a6adc8 6c7086 45475a 89b4fa cba6f7 f38ba8 a6e3a1 f9e2af 89dceb 1e1e2e cdd6f4 323c3f 3e2e40 6c7086 cba6f7 89b4fa cdd6f4 a6e3a1 fab387 f9e2af 89dceb 9399b2 a6e3a1 f38ba8
+tokyo-night-night|1a1b26 16161e 292e42 c0caf5 a9b1d6 15161e 283457 7aa2f7 bb9af7 db4b4b 9ece6a e0af68 0db9d7 1a1b26 c0caf5 243e4a 4a272f 565f89 7dcfff 7aa2f7 c0caf5 9ece6a ff9e64 2ac3de 89ddff 737aa2 449dab 914c54
+tokyo-night-storm|24283b 1f2335 292e42 c0caf5 a9b1d6 1d202f 2e3c64 7aa2f7 bb9af7 db4b4b 9ece6a e0af68 0db9d7 24283b c0caf5 2b485a 52313f 565f89 7dcfff 7aa2f7 c0caf5 9ece6a ff9e64 2ac3de 89ddff 737aa2 449dab 914c54
+tokyo-night-moon|222436 1e2030 2f334d c8d3f5 828bb8 1b1d2b 2d3f76 82aaff c099ff c53b53 c3e88d ffc777 0db9d7 222436 c8d3f5 2a4556 4b2a3d 636da6 86e1fc 82aaff c8d3f5 c3e88d ff966c 65bcff 89ddff 737aa2 b8db87 e26a75
+tokyo-night-day|e1e2e7 d0d5e3 c4c8da 3760bf 6172b0 b4b5b9 b7c1e3 2e7de9 9854f1 c64343 587539 8c6c3e 07879d e1e2e7 3760bf b7ced5 dababe 848cb5 007197 2e7de9 3760bf 587539 b15c00 188092 006a83 68709a 4197a4 c47981

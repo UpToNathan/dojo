@@ -5,15 +5,16 @@ use anyhow::Context as _;
 use gpui::{
     AnyElement, App, Bounds, Context, DisplayId, FillOptions, FillRule, FontFeatures, ImageSource,
     MouseButton, PathBuilder, PathStyle, Size, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowKind, WindowOptions, div, img, layer_shell::Anchor, point, prelude::*, px, rgb,
+    WindowKind, WindowOptions, div, img, layer_shell::Anchor, point, prelude::*, px,
 };
 
+use crate::config::ThemeColors;
 use crate::geometry::{BOTTOM_INSET, LEFT_PANEL_WIDTH, RIGHT_INSET, TOP_BAR_HEIGHT};
 use crate::power::{self, PowerStatus};
 use crate::tray::{TrayAction, TrayHandle, TrayItem, TrayMenu, TrayMenuItem};
 
 const CORNER_RADIUS: f32 = 28.;
-const SHELL_SURFACE: u32 = 0x1e1e2e;
+const LAUNCHER_BUTTON_SIZE: f32 = 36.;
 
 struct FrameView {
     power: PowerStatus,
@@ -27,6 +28,8 @@ struct FrameView {
     submenu_bounds: Option<Bounds<gpui::Pixels>>,
     last_menu_pointer: Option<gpui::Point<gpui::Pixels>>,
     last_power_update: Instant,
+    launcher_hovered: bool,
+    theme_hovered: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -342,7 +345,7 @@ fn tray_menu_row_height(item: &TrayMenuItem) -> f32 {
     }
 }
 
-fn tray_menu_width(items: &[TrayMenuItem], window: &Window) -> f32 {
+fn tray_menu_width(items: &[TrayMenuItem], window: &Window, colors: ThemeColors) -> f32 {
     let text_system = window.text_system();
     let widest = items
         .iter()
@@ -353,7 +356,7 @@ fn tray_menu_width(items: &[TrayMenuItem], window: &Window) -> f32 {
             let run = gpui::TextRun {
                 len: label.len(),
                 font: gpui::font(power::FONT_FAMILY),
-                color: rgb(0xcdd6f4).into(),
+                color: colors.foreground.rgb().into(),
                 background_color: None,
                 underline: None,
                 strikethrough: None,
@@ -382,6 +385,16 @@ fn top_bar_input_region(viewport: Size<gpui::Pixels>) -> Bounds<gpui::Pixels> {
     Bounds {
         origin: point(px(0.), px(0.)),
         size: Size::new(viewport.width, px(TOP_BAR_HEIGHT as f32)),
+    }
+}
+
+fn launcher_button_bounds(viewport: Size<gpui::Pixels>) -> Bounds<gpui::Pixels> {
+    Bounds {
+        origin: point(
+            px((LEFT_PANEL_WIDTH as f32 - LAUNCHER_BUTTON_SIZE) / 2. - 1.),
+            viewport.height - px(BOTTOM_INSET as f32 + 6. + LAUNCHER_BUTTON_SIZE),
+        ),
+        size: Size::new(px(LAUNCHER_BUTTON_SIZE), px(LAUNCHER_BUTTON_SIZE)),
     }
 }
 
@@ -460,6 +473,8 @@ impl FrameView {
             submenu_bounds: None,
             last_menu_pointer: None,
             last_power_update: Instant::now(),
+            launcher_hovered: false,
+            theme_hovered: false,
             tray,
         }
     }
@@ -528,6 +543,7 @@ impl FrameView {
         is_submenu: bool,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
+        let colors = *cx.global::<ThemeColors>();
         items
             .iter()
             .filter(|item| item.visible)
@@ -537,7 +553,7 @@ impl FrameView {
                         .mx(px(10.))
                         .my(px(4.))
                         .h(px(1.))
-                        .bg(rgb(0x585b70))
+                        .bg(colors.border.rgb())
                         .into_any_element();
                 }
 
@@ -557,14 +573,14 @@ impl FrameView {
                         .text_size(px(12.))
                         .rounded(px(15.))
                         .bg(if self.hovered_menu_item == Some(item_id) {
-                            rgb(0x45475a)
+                            colors.background_highlight.rgb()
                         } else {
-                            rgb(SHELL_SURFACE)
+                            colors.background.rgb()
                         })
                         .text_color(if enabled {
-                            rgb(0xcdd6f4)
+                            colors.foreground.rgb()
                         } else {
-                            rgb(0x6c7086)
+                            colors.foreground_muted.rgb()
                         })
                         .child(div().flex().flex_col().children(item.label.split('\n').map(
                             |line| {
@@ -662,8 +678,12 @@ impl FrameView {
 
 impl Render for FrameView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let colors = *cx.global::<ThemeColors>();
         let viewport = window.viewport_size();
         let top_bar_input = [top_bar_input_region(viewport)];
+        let launcher_bounds = launcher_button_bounds(viewport);
+        let launcher_hovered = self.launcher_hovered && window.is_window_hovered();
+        let theme_hovered = self.theme_hovered && window.is_window_hovered();
 
         let battery_glyph =
             power::battery_glyph(self.power.capacity, self.power.battery_status.as_deref());
@@ -745,9 +765,9 @@ impl Render for FrameView {
 
         let tray_count = tray_icons.len();
         let top_bar_width = if tray_count == 0 {
-            72.
+            98.
         } else {
-            77. + tray_count as f32 * 21.
+            103. + tray_count as f32 * 21.
         };
         let tray_group = div().flex().items_center().gap(px(3.)).children(tray_icons);
 
@@ -761,7 +781,47 @@ impl Render for FrameView {
             .items_center()
             .justify_end()
             .gap(px(8.))
-            .text_color(rgb(0xcdd6f4));
+            .text_color(colors.foreground.rgb())
+            .child(
+                div()
+                    .id("theme-picker-button")
+                    .aria_label("Choose theme")
+                    .w(px(18.))
+                    .h(px(18.))
+                    .flex_shrink_0()
+                    .rounded(px(3.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .text_size(px(18.5))
+                    .bg(if theme_hovered {
+                        colors.background_highlight.rgb().opacity(0.35)
+                    } else {
+                        colors.background.rgb()
+                    })
+                    .text_color(colors.foreground.rgb())
+                    .on_hover(cx.listener(|this, hovered, _, cx| {
+                        if this.theme_hovered != *hovered {
+                            this.theme_hovered = *hovered;
+                            cx.notify();
+                        }
+                    }))
+                    .child("\u{f1fc}")
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| {
+                            this.theme_hovered = false;
+                            this.close_tray_menu(cx);
+                            cx.notify();
+                            cx.stop_propagation();
+                            window.dispatch_action(
+                                Box::new(crate::theme_picker::ToggleThemePicker),
+                                cx,
+                            );
+                        }),
+                    ),
+            );
 
         if tray_count > 0 {
             top_bar = top_bar.child(tray_group);
@@ -793,7 +853,7 @@ impl Render for FrameView {
         let active_item = self.open_menu.as_ref().map(|(_, item)| item);
         let active_menu = self.menu_data.as_ref();
         let menu_width = active_menu
-            .map_or(224., |menu| tray_menu_width(&menu.items, window))
+            .map_or(224., |menu| tray_menu_width(&menu.items, window, colors))
             .min((f32::from(viewport.width) - RIGHT_INSET as f32 * 2.).max(1.));
         let menu_height = active_menu.map_or(46., |menu| tray_menu_height(&menu.items));
         let menu_right = active_item.map(|_| RIGHT_INSET as f32);
@@ -835,7 +895,7 @@ impl Render for FrameView {
             {
                 let submenu_height = tray_menu_height(&submenu.children);
                 let submenu_right = right + menu_width - 2.;
-                let submenu_width = tray_menu_width(&submenu.children, window)
+                let submenu_width = tray_menu_width(&submenu.children, window, colors)
                     .min((f32::from(viewport.width) - submenu_right).max(1.));
                 let submenu_rows =
                     self.render_menu_items(&submenu.children, owner, submenu_width, true, cx);
@@ -875,7 +935,7 @@ impl Render for FrameView {
                 size: window.viewport_size(),
             }]));
         } else {
-            window.set_input_region(Some(&top_bar_input));
+            window.set_input_region(Some(&[top_bar_input[0], launcher_bounds]));
         }
 
         let mut shell = div()
@@ -910,7 +970,7 @@ impl Render for FrameView {
                         }
 
                         match builder.build() {
-                            Ok(path) => window.paint_path(path, rgb(SHELL_SURFACE)),
+                            Ok(path) => window.paint_path(path, colors.background.rgb()),
                             Err(error) => {
                                 eprintln!("Failed to render Dojo's desktop surround: {error}")
                             }
@@ -919,7 +979,91 @@ impl Render for FrameView {
                 )
                 .size_full(),
             )
-            .child(top_bar);
+            .child(top_bar)
+            .child(
+                div()
+                    .absolute()
+                    .left(px(-1.))
+                    .top(launcher_bounds.origin.y)
+                    .w(px(LEFT_PANEL_WIDTH as f32))
+                    .h(px(LAUNCHER_BUTTON_SIZE))
+                    .flex()
+                    .justify_center()
+                    .child(
+                        div()
+                            .id("open-launcher")
+                            .aria_label("Open application launcher")
+                            .size(px(LAUNCHER_BUTTON_SIZE))
+                            .rounded(px(LAUNCHER_BUTTON_SIZE / 2.))
+                            .text_color(colors.primary.rgb())
+                            .text_size(px(32.))
+                            .line_height(px(LAUNCHER_BUTTON_SIZE))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .cursor_pointer()
+                            .bg(if launcher_hovered {
+                                colors.background_highlight.rgb().opacity(0.35)
+                            } else {
+                                colors.background.rgb()
+                            })
+                            .on_hover(cx.listener(|this, hovered, _, cx| {
+                                if this.launcher_hovered != *hovered {
+                                    this.launcher_hovered = *hovered;
+                                    cx.notify();
+                                }
+                            }))
+                            .child(
+                                gpui::canvas(
+                                    |_, _, _| (),
+                                    move |bounds, (), window, cx| {
+                                        let text: gpui::SharedString = "\u{f303}".into();
+                                        let run = gpui::TextRun {
+                                            len: text.len(),
+                                            font: window.text_style().font(),
+                                            color: colors.primary.rgb().into(),
+                                            background_color: None,
+                                            underline: None,
+                                            strikethrough: None,
+                                        };
+                                        let line = window.text_system().shape_line(
+                                            text,
+                                            px(32.),
+                                            &[run],
+                                            None,
+                                        );
+                                        // Compensate for the circle's leftward offset without
+                                        // shifting the icon's screen position.
+                                        if let Err(error) = line.paint(
+                                            point(bounds.origin.x + px(1.), bounds.origin.y),
+                                            bounds.size.height,
+                                            gpui::TextAlign::Center,
+                                            Some(bounds.size.width),
+                                            window,
+                                            cx,
+                                        ) {
+                                            eprintln!(
+                                                "Dojo could not paint launcher icon: {error}"
+                                            );
+                                        }
+                                    },
+                                )
+                                .size_full(),
+                            )
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, _, window, cx| {
+                                    this.launcher_hovered = false;
+                                    this.close_tray_menu(cx);
+                                    window.dispatch_action(
+                                        Box::new(crate::launcher::ToggleLauncher),
+                                        cx,
+                                    );
+                                    cx.stop_propagation();
+                                }),
+                            ),
+                    ),
+            );
         if let Some((menu_key, _)) = &self.open_menu {
             let menu_key = menu_key.clone();
             let hit_bounds = menu_hit_bounds.clone();
@@ -976,6 +1120,21 @@ impl Render for ReservationView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn launcher_button_has_an_input_target_inside_the_left_reserved_edge() {
+        let viewport = Size::new(px(1645.), px(1028.));
+        let bounds = launcher_button_bounds(viewport);
+        assert!(bounds.left() >= px(0.));
+        assert!(bounds.right() <= px(LEFT_PANEL_WIDTH as f32));
+        assert_eq!(
+            bounds.left() + bounds.size.width / 2.,
+            px(LEFT_PANEL_WIDTH as f32 / 2. - 1.)
+        );
+        assert!(bounds.bottom() < viewport.height);
+        assert!(bounds.contains(&point(px(32.), px(988.))));
+        assert!(!bounds.contains(&point(px(100.), px(988.))));
+    }
 
     #[test]
     fn hovering_a_submenu_leaf_keeps_its_parent_open() {

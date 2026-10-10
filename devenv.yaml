@@ -7,6 +7,11 @@ inputs:
     inputs:
       nixpkgs:
         follows: nixpkgs
+  delta:
+    url: github:zed-industries/delta-nix
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
   bend:
     url: github:bendlang/bend
     inputs:
@@ -44,6 +49,11 @@ inputs:
         follows: nixpkgs
   opencode:
     url: github:anomalyco/opencode/v2.0.26
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
+  pi:
+    url: github:earendil-works/pi/stable
     inputs:
       nixpkgs:
         follows: nixpkgs

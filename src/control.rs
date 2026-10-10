@@ -4,11 +4,11 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Sender;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use anyhow::{Context as _, bail};
+use async_channel::Sender;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ControlCommand {
@@ -16,6 +16,8 @@ pub enum ControlCommand {
     Enable,
     Disable,
     Quit,
+    Launcher,
+    Theme,
 }
 
 impl ControlCommand {
@@ -25,6 +27,8 @@ impl ControlCommand {
             Self::Enable => "enable",
             Self::Disable => "disable",
             Self::Quit => "quit",
+            Self::Launcher => "launcher",
+            Self::Theme => "theme",
         }
     }
 
@@ -34,6 +38,8 @@ impl ControlCommand {
             "enable" => Some(Self::Enable),
             "disable" => Some(Self::Disable),
             "quit" => Some(Self::Quit),
+            "launcher" => Some(Self::Launcher),
+            "theme" => Some(Self::Theme),
             _ => None,
         }
     }
@@ -101,15 +107,16 @@ impl ControlServer {
 
         let listener = UnixListener::bind(&path)
             .with_context(|| format!("binding Dojo control socket {}", path.display()))?;
-        listener.set_nonblocking(true)?;
         let shutdown = Arc::new(AtomicBool::new(false));
         let thread_shutdown = shutdown.clone();
         let thread = thread::spawn(move || {
             while !thread_shutdown.load(Ordering::Relaxed) {
                 match listener.accept() {
-                    Ok((stream, _)) => handle_client(stream, &sender),
-                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                        thread::sleep(Duration::from_millis(30));
+                    Ok((stream, _)) => {
+                        if thread_shutdown.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        handle_client(stream, &sender);
                     }
                     Err(error) => {
                         eprintln!("Dojo control socket failed: {error}");
@@ -149,11 +156,15 @@ impl Drop for ControlServer {
 }
 
 fn handle_client(mut stream: UnixStream, sender: &Sender<ControlCommand>) {
+    if let Err(error) = stream.set_read_timeout(Some(Duration::from_secs(1))) {
+        eprintln!("Failed to set Dojo control timeout: {error}");
+        return;
+    }
     let mut command = String::new();
     let result = BufReader::new(&mut stream).read_line(&mut command);
     let response = match result {
         Ok(_) => match ControlCommand::parse(command.trim()) {
-            Some(command) if sender.send(command).is_ok() => "queued\n",
+            Some(command) if sender.try_send(command).is_ok() => "queued\n",
             Some(_) => "stopping\n",
             None => "invalid\n",
         },
@@ -175,4 +186,22 @@ fn socket_path() -> anyhow::Result<PathBuf> {
         bail!("XDG_RUNTIME_DIR must be absolute");
     }
     Ok(runtime_dir.join("dojo.sock"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn launcher_command_is_delivered_and_acknowledged() -> anyhow::Result<()> {
+        let (sender, receiver) = async_channel::bounded(1);
+        let (server, mut client) = UnixStream::pair()?;
+        client.write_all(b"launcher\n")?;
+        handle_client(server, &sender);
+        assert_eq!(receiver.try_recv()?, ControlCommand::Launcher);
+        let mut response = String::new();
+        BufReader::new(client).read_line(&mut response)?;
+        assert_eq!(response, "queued\n");
+        Ok(())
+    }
 }

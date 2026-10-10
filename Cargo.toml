@@ -2,13 +2,31 @@
 name = "dojo"
 version = "0.1.0"
 edition = "2024"
+default-run = "dojo"
 
 [dependencies]
 gpui = { git = "https://github.com/zed-industries/zed", rev = "9ab0715969e9854f2efe61a9d782e7698e5fe6d2", default-features = false }
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "9ab0715969e9854f2efe61a9d782e7698e5fe6d2", default-features = false, features = ["wayland"] }
 anyhow = "1"
-image = { version = "0.25", default-features = false }
+sha2 = "0.10"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "1"
 zbus = "5.19"
+freedesktop-desktop-entry = { version = "0.8", default-features = false }
+nucleo-matcher = "0.3"
+unicode-segmentation = "1"
+async-channel = "2"
+freedesktop-icons = "0.4"
+
+# Window creation compiles shader pipelines. Keep this work optimized even
+# while Dojo's own code retains a fast, debuggable development build.
+[profile.dev.package.naga]
+opt-level = 3
+
+[profile.dev.package.wgpu-core]
+opt-level = 3
+
+[profile.dev.package.gpui_wgpu]
+opt-level = 3

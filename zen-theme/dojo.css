@@ -1,0 +1,11 @@
+/* Stable bridge: colors change through browser.theme.update, not rewritten CSS. */
+:root {
+  --zen-primary-color: var(--lwt-toolbar-field-border-focus) !important;
+  --zen-main-browser-background: var(--lwt-accent-color) !important;
+  --zen-colors-primary: var(--toolbar-bgcolor) !important;
+  --zen-colors-secondary: var(--toolbar-field-background-color) !important;
+  --zen-colors-tertiary: var(--toolbar-bgcolor) !important;
+  --zen-colors-border: var(--toolbar-field-border-color) !important;
+  --zen-colors-input-bg: var(--toolbar-field-background-color) !important;
+  --zen-colors-input-text: var(--toolbar-field-color) !important;
+}

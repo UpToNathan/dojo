@@ -2,11 +2,13 @@
 {
       imports = [
         inputs.stasis.homeModules.default
+        ./theme-home-manager.nix
       ];
       home.username = "nathan";
       home.homeDirectory = "/home/nathan";
       home.stateVersion = "26.05";
       targets.genericLinux.enable = true;
+      dojo.themeIntegrations.enable = true;
       nixpkgs.config.allowUnfreePredicate =
         pkg:
         builtins.elem (lib.getName pkg) [
@@ -20,6 +22,8 @@
         brightnessctl
         wlsunset
         pkgs.git
+        pkgs.zed-editor
+        inputs.delta.packages.${pkgs.stdenv.hostPlatform.system}.delta
         pkgs.openssh
         pkgs.neovim
         pkgs.cargo
@@ -70,6 +74,7 @@
         inputs.utsushot.packages.${pkgs.stdenv.hostPlatform.system}.default
         inputs.vigiland.packages.${pkgs.stdenv.hostPlatform.system}.default
         inputs.opencode.packages.${pkgs.stdenv.hostPlatform.system}.default
+        inputs.pi.packages.${pkgs.stdenv.hostPlatform.system}.default
         pkgs.xdg-desktop-portal
         pkgs.xdg-desktop-portal-gtk
         pkgs.xdg-desktop-portal-gnome
@@ -127,6 +132,9 @@
 
       services.wluma = {
         enable = true;
+        package = pkgs.wluma.overrideAttrs (old: {
+          patches = (old.patches or []) ++ [ ./system-config/patches/wluma-no-reply.patch ];
+        });
         systemd.target = "graphical-session.target";
         # No IIO/ALS hardware on venus; without this wluma panics trying to
         # enumerate IIO devices. It still learns from screen contents + your
@@ -165,6 +173,11 @@
             ignore_remote_media true
           end
         '';
+      };
+
+      services.gnome-keyring = {
+        enable = true;
+        components = [ "secrets" ];
       };
 
       xdg.configFile."xdg-desktop-portal/niri-portals.conf".text = ''
@@ -223,7 +236,7 @@
         settings = {
           font_family = "family=\"Victor Mono\" features=\"+ss01\"";
           font_size = 10;
-          background_opacity = 0.87;
+          background_opacity = 1.0;
           cursor_shape = "beam";
           mouse_hide_wait = -1;
           url_style = "straight";
@@ -260,7 +273,7 @@
           edge = "center-sized";
           lines = 30;
           columns = 100;
-          background_opacity = 0.87;
+          background_opacity = 1.0;
           hide_on_focus_loss = false;
           start_as_hidden = false;
         };
@@ -269,7 +282,7 @@
       # home-manager's settings attrset can't express)
       xdg.configFile."ghostty/config".text = ''
         window-decoration = false
-        background-opacity = 0.87
+        background-opacity = 1.0
         cursor-style = bar
         mouse-hide-while-typing = true
         link-url = true
@@ -323,6 +336,10 @@
 	  _props.hotkey-overlay-title = "Open a Terminal: kitty";
 	  spawn = [ "kitty" "--single-instance" ];
 	};
+	settings.binds."Mod+Shift+P" = {
+	  _props.hotkey-overlay-title = "Toggle Dojo launcher";
+	  spawn = [ "/home/nathan/Dojo/target/debug/dojo" "--launcher" ];
+	};
 	settings.binds."Ctrl+F11" = {
 	  _props.hotkey-overlay-title = "Toggle quick-access terminal";
 	  spawn = [ "kitten" "quick-access-terminal" ];
@@ -374,6 +391,7 @@
 	settings."window-rule" = {
 	  geometry-corner-radius = 12;
 	  clip-to-geometry = true;
+	  draw-border-with-background = false;
 	};
 	# Run btrbg with the wallpaper on login
   settings."spawn-at-startup" = [ "btrbg" "/home/nathan/Dojo/astro.jpg" ];

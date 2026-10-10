@@ -1,0 +1,38 @@
+# Family|Variant|Appearance|Background|Foreground|Selection|ANSI 0–15
+# Source: mbadolato/iTerm2-Color-Schemes, ghostty/, c02052159ff9a1c438ff419b7451cd33f9ab4934
+Catppuccin|Latte|light|eff1f5|4c4f69|dc8a78|bcc0cc d20f39 40a02b df8e1d 1e66f5 ea76cb 179299 5c5f77 acb0be e7103f 46b02f e49931 3878f6 ef95d7 19a1a8 6c6f85
+Catppuccin|Frappé|dark|303446|c6d0f5|f2d5cf|51576d e78284 a6d189 e5c890 8caaee f4b8e4 81c8be b5bfe2 626880 eda0a2 b9dba2 ecd7ae adc2f3 f38ed8 98d2ca a5adce
+Catppuccin|Macchiato|dark|24273a|cad3f5|f4dbd6|494d64 ed8796 a6da95 eed49f 8aadf4 f5bde6 8bd5ca b8c0e0 5b6078 f2a7b2 bde3b0 f4e3c1 adc5f7 f493da a5ded6 a5adcb
+Catppuccin|Mocha|dark|1e1e2e|cdd6f4|f5e0dc|45475a f38ba8 a6e3a1 f9e2af 89b4fa f5c2e7 94e2d5 bac2de 585b70 f7aec2 c2ecbf fcd682 aeccfc f398da b1eae1 a6adc8
+Tokyo Night|Day|light|e1e2e7|3760bf|99a7df|e9e9ed f52a65 587539 8c6c3e 2e7de9 9854f1 007197 6172b0 a1a6c5 f52a65 587539 8c6c3e 2e7de9 9854f1 007197 3760bf
+Tokyo Night|Night|dark|1a1b26|c0caf5|283457|15161e f7768e 9ece6a e0af68 7aa2f7 bb9af7 7dcfff a9b1d6 414868 f7768e 9ece6a e0af68 7aa2f7 bb9af7 7dcfff c0caf5
+Tokyo Night|Storm|dark|24283b|c0caf5|364a82|1d202f f7768e 9ece6a e0af68 7aa2f7 bb9af7 7dcfff a9b1d6 4e5575 f7768e 9ece6a e0af68 7aa2f7 bb9af7 7dcfff c0caf5
+Tokyo Night|Moon|dark|222436|c8d3f5|2d3f76|1b1d2b ff757f c3e88d ffc777 82aaff c099ff 86e1fc 828bb8 444a73 ff757f c3e88d ffc777 82aaff c099ff 86e1fc c8d3f5
+Rosé Pine|Dawn|light|faf4ed|575279|dfdad9|f2e9e1 b4637a 286983 ea9d34 56949f 907aa9 d7827e 575279 9893a5 b4637a 286983 ea9d34 56949f 907aa9 d7827e 575279
+Rosé Pine|Main|dark|191724|e0def4|403d52|26233a eb6f92 31748f f6c177 9ccfd8 c4a7e7 ebbcba e0def4 6e6a86 eb6f92 31748f f6c177 9ccfd8 c4a7e7 ebbcba e0def4
+Rosé Pine|Moon|dark|232136|e0def4|44415a|393552 eb6f92 3e8fb0 f6c177 9ccfd8 c4a7e7 ea9a97 e0def4 6e6a86 eb6f92 3e8fb0 f6c177 9ccfd8 c4a7e7 ea9a97 e0def4
+Kanagawa|Lotus|light|f2ecbc|545464|545464|1f1f28 c84053 6f894e 77713f 4d699b b35b79 597b75 545464 8a8980 d7474b 6e915f 836f4a 6693bf 624c83 5e857a 43436c
+Kanagawa|Wave|dark|1f1f28|dcd7ba|dcd7ba|090618 c34043 76946a c0a36e 7e9cd8 957fb8 6a9589 c8c093 727169 e82424 98bb6c e6c384 7fb4ca 938aa9 7aa89f dcd7ba
+Kanagawa|Dragon|dark|181616|c5c9c5|c5c9c5|0d0c0c c4746e 8a9a7b c4b28a 8ba4b0 a292a3 8ea4a2 c8c093 a6a69c e46876 87a987 e6c384 7fb4ca 938aa9 7aa89f c5c9c5
+Gruvbox|Light|light|fbf1c7|3c3836|3c3836|fbf1c7 cc241d 98971a d79921 458588 b16286 689d6a 7c6f64 928374 9d0006 79740e b57614 076678 8f3f71 427b58 3c3836
+Gruvbox|Dark|dark|282828|ebdbb2|665c54|282828 cc241d 98971a d79921 458588 b16286 689d6a a89984 928374 fb4934 b8bb26 fabd2f 83a598 d3869b 8ec07c ebdbb2
+Everforest|Light|light|efebd4|5c6a72|eaedc8|7a8478 e67e80 9ab373 c1a266 7fbbb3 d699b6 83c092 b2af9f a6b0a0 f85552 8da101 dfa000 3a94c5 df69ba 35a77c fffbef
+Everforest|Dark|dark|232a2e|d3c6aa|543a48|7a8478 e67e80 a7c080 dbbc7f 7fbbb3 d699b6 83c092 f2efdf a6b0a0 f85552 8da101 dfa000 3a94c5 df69ba 35a77c fffbef
+Solarized|Light|light|fdf6e3|657b83|eee8d5|073642 dc322f 859900 b58900 268bd2 d33682 2aa198 bbb5a2 002b36 cb4b16 586e75 657b83 839496 6c71c4 93a1a1 fdf6e3
+Solarized|Dark|dark|002b36|839496|073642|073642 dc322f 859900 b58900 268bd2 d33682 2aa198 eee8d5 335e69 cb4b16 586e75 657b83 839496 6c71c4 93a1a1 fdf6e3
+One|Light|light|f9f9f9|2a2c33|d0dffc|000000 de3e35 3f953a d2b67c 2f5af3 950095 3f953a bbbbbb 000000 de3e35 3f953a d2b67c 2f5af3 a00095 3f953a ffffff
+One|Dark|dark|21252b|abb2bf|323844|21252b e06c75 98c379 e5c07b 61afef c678dd 56b6c2 abb2bf 767676 e06c75 98c379 e5c07b 61afef c678dd 56b6c2 abb2bf
+Nord|Nord|dark|2e3440|d8dee9|eceff4|3b4252 bf616a a3be8c ebcb8b 81a1c1 b48ead 88c0d0 e5e9f0 596377 bf616a a3be8c ebcb8b 81a1c1 b48ead 8fbcbb eceff4
+Dracula|Dracula|dark|282a36|f8f8f2|44475a|21222c ff5555 50fa7b f1fa8c bd93f9 ff79c6 8be9fd f8f8f2 6272a4 ff6e6e 69ff94 ffffa5 d6acff ff92df a4ffff ffffff
+Ayu|Light|light|f8f9fa|5c6166|035bd6|000000 ea6c6d 6cbf43 eca944 3199e1 9e75c7 46ba94 bababa 686868 f07171 86b300 f2ae49 399ee6 a37acc 4cbf99 d1d1d1
+Ayu|Dark|dark|0b0e14|bfbdb6|409fff|11151c ea6c73 7fd962 f9af4f 53bdfa cda1fa 90e1c6 c7c7c7 686868 f07178 aad94c ffb454 59c2ff d2a6ff 95e6cb ffffff
+Ayu|Mirage|dark|1f2430|cccac2|409fff|171b24 ed8274 87d96c facc6e 6dcbfa dabafa 90e1c6 c7c7c7 686868 f28779 d5ff80 ffd173 73d0ff dfbfff 95e6cb ffffff
+GitHub|Light|light|ffffff|1f2328|1f2328|24292f cf222e 116329 4d2d00 0969da 8250df 1b7c83 6e7781 57606a a40e26 1a7f37 633c01 218bff a475f9 3192aa 8c959f
+GitHub|Dark|dark|0d1117|e6edf3|e6edf3|484f58 ff7b72 3fb950 d29922 58a6ff bc8cff 39c5cf b1bac4 6e7681 ffa198 56d364 e3b341 79c0ff d2a8ff 56d4dd ffffff
+Nightfox|Dayfox|light|f6f2ee|3d2b5a|e7d2be|352c24 a5222f 396847 ac5402 2848a9 6e33ce 287980 bfb6ae 534c45 b3434e 577f63 b86e28 4863b6 8452d5 488d93 f4ece6
+Nightfox|Dawnfox|light|faf4ed|575279|d0d8d8|575279 b4637a 618774 ea9d34 286983 907aa9 56949f b2b6bd 5f5695 c26d85 629f81 eea846 2d81a3 9a80b9 5ca7b4 e6ebf3
+Nightfox|Nightfox|dark|192330|cdcecf|2b3b51|393b44 c94f6d 81b29a dbc074 719cd6 9d79d6 63cdcf dfdfe0 575860 d16983 8ebaa4 e0c989 86abdc baa1e2 7ad5d6 e4e4e5
+Nightfox|Duskfox|dark|232136|e0def4|433c59|393552 eb6f92 a3be8c f6c177 569fba c4a7e7 9ccfd8 e0def4 544d8a f083a2 b1d196 f9cb8c 65b1cd ccb1ed a6dae3 e2e0f7
+Nightfox|Carbonfox|dark|161616|f2f4f8|2a2a2a|282828 ee5396 25be6a 08bdba 78a9ff be95ff 33b1ff dfdfe0 484848 f16da6 46c880 2dc7c4 8cb6ff c8a5ff 52bdff e4e4e5
+Monokai Pro|Classic|dark|2d2a2e|fcfcfa|5b595c|2d2a2e ff6188 a9dc76 ffd866 fc9867 ab9df2 78dce8 fcfcfa 727072 ff6188 a9dc76 ffd866 fc9867 ab9df2 78dce8 fcfcfa
+Poimandres|Poimandres|dark|1a1e28|a6accd|a6accd|1a1e28 d0679d 5de4c7 fffac2 89ddff fcc5e9 add7ff ffffff a6accd d0679d 5de4c7 fffac2 add7ff fae4fc 89ddff ffffff

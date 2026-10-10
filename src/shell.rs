@@ -1,15 +1,16 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::mpsc::{self, TryRecvError};
 use std::time::Duration;
 
 use anyhow::{Context as _, bail};
 use gpui::{App, AppContext, DisplayChanges, DisplayEvent, DisplayId, QuitMode, Subscription};
 use gpui_platform::application;
 
+use crate::config::{ConfigStore, ThemeColors};
 use crate::control::{ControlCommand, ControlServer};
 use crate::frame::DisplayFrame;
+use crate::launcher::Launcher;
 use crate::niri_layout::NiriLayout;
 use crate::state::{Preferences, StateStore};
 use crate::tray::{TrayHandle, TrayService};
@@ -22,10 +23,12 @@ struct ShellController {
     display_subscription: Option<Subscription>,
     tray_service: Option<TrayService>,
     display_generation: u64,
+    launcher: Launcher,
+    theme_picker: crate::theme_picker::ThemePicker,
 }
 
 impl ShellController {
-    fn new(state: StateStore, niri_layout: Rc<RefCell<NiriLayout>>) -> Self {
+    fn new(state: StateStore, niri_layout: Rc<RefCell<NiriLayout>>, launcher: Launcher) -> Self {
         Self {
             enabled: false,
             state,
@@ -34,6 +37,8 @@ impl ShellController {
             display_subscription: None,
             tray_service: None,
             display_generation: 0,
+            launcher,
+            theme_picker: crate::theme_picker::ThemePicker::default(),
         }
     }
 
@@ -263,6 +268,25 @@ fn close_displays(displays: HashMap<DisplayId, DisplayFrame>, cx: &mut App) {
 }
 
 pub fn run(force_enabled: Option<bool>) -> anyhow::Result<()> {
+    run_with_launcher(force_enabled, false)
+}
+
+pub fn run_with_launcher(force_enabled: Option<bool>, show_launcher: bool) -> anyhow::Result<()> {
+    run_with_surfaces(force_enabled, show_launcher, false)
+}
+
+pub fn run_with_theme_picker(force_enabled: Option<bool>) -> anyhow::Result<()> {
+    run_with_surfaces(force_enabled, false, true)
+}
+
+fn run_with_surfaces(
+    force_enabled: Option<bool>,
+    show_launcher: bool,
+    show_theme: bool,
+) -> anyhow::Result<()> {
+    let launcher = Launcher::new()?;
+    let mut config_store = ConfigStore::user_default()?;
+    let initial_colors = config_store.load()?.context("loading initial Dojo theme")?;
     let state = StateStore::user_default()?;
     let initial_enabled = match force_enabled {
         Some(enabled) => enabled,
@@ -272,7 +296,7 @@ pub fn run(force_enabled: Option<bool>) -> anyhow::Result<()> {
     };
     let niri_layout = Rc::new(RefCell::new(NiriLayout::default()));
     let niri_layout_for_exit = Rc::clone(&niri_layout);
-    let (command_sender, command_receiver) = mpsc::channel();
+    let (command_sender, command_receiver) = async_channel::bounded(32);
     let mut control_server = ControlServer::start(command_sender)?;
     let startup_error = Rc::new(RefCell::new(None::<String>));
     let startup_error_for_run = Rc::clone(&startup_error);
@@ -280,6 +304,49 @@ pub fn run(force_enabled: Option<bool>) -> anyhow::Result<()> {
     application()
         .with_quit_mode(QuitMode::Explicit)
         .run(move |cx: &mut App| {
+            cx.set_global(initial_colors);
+            if let Err(error) = crate::wallpaper::start(cx) {
+                eprintln!("Dojo could not start its wallpaper surfaces: {error:#}");
+            }
+            cx.spawn(async move |cx| {
+                loop {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(500))
+                        .await;
+                    let (store, result) = cx
+                        .background_executor()
+                        .spawn(async move {
+                            match dojo::theme::Paths::user_default() {
+                                Ok(paths) => {
+                                    let theme_store = dojo::theme::ThemeStore::new(paths);
+                                    if let Err(error) = dojo::theme::refresh_system(&theme_store) {
+                                        eprintln!(
+                                            "Dojo could not propagate appearance change: {error:#}"
+                                        );
+                                    }
+                                }
+                                Err(error) => {
+                                    eprintln!("Dojo could not resolve theme state: {error:#}")
+                                }
+                            }
+                            let result = config_store.load();
+                            (config_store, result)
+                        })
+                        .await;
+                    config_store = store;
+                    match result {
+                        Ok(Some(colors)) => cx.update(|cx| {
+                            if *cx.global::<ThemeColors>() != colors {
+                                cx.set_global(colors);
+                                cx.refresh_windows();
+                            }
+                        }),
+                        Ok(None) => {}
+                        Err(error) => eprintln!("Dojo kept its previous theme: {error:#}"),
+                    }
+                }
+            })
+            .detach();
             if let Err(error) = crate::power::register_font(cx) {
                 let error = format!("Failed to load Dojo's bundled battery icon font: {error:#}");
                 eprintln!("{error}");
@@ -288,7 +355,8 @@ pub fn run(force_enabled: Option<bool>) -> anyhow::Result<()> {
                 return;
             }
 
-            let controller = cx.new(|_| ShellController::new(state, Rc::clone(&niri_layout)));
+            let controller =
+                cx.new(|_| ShellController::new(state, Rc::clone(&niri_layout), launcher));
             if let Err(error) = controller.update(cx, |controller, cx| {
                 controller.initialize(initial_enabled, cx)
             }) {
@@ -298,6 +366,43 @@ pub fn run(force_enabled: Option<bool>) -> anyhow::Result<()> {
                 cx.quit();
                 return;
             }
+
+            if show_launcher {
+                if let Err(error) =
+                    controller.update(cx, |controller, cx| controller.launcher.toggle(cx))
+                {
+                    eprintln!("Dojo could not open launcher: {error:#}");
+                }
+            }
+            if show_theme {
+                if let Err(error) =
+                    controller.update(cx, |controller, cx| controller.theme_picker.toggle(cx))
+                {
+                    eprintln!("Dojo could not open theme picker: {error:#}");
+                }
+            }
+
+            let controller_for_theme = controller.downgrade();
+            cx.on_action(move |_: &crate::theme_picker::ToggleThemePicker, cx| {
+                if let Err(error) = controller_for_theme
+                    .update(cx, |controller, cx| controller.theme_picker.toggle(cx))
+                    .and_then(|result| result)
+                {
+                    eprintln!("Dojo could not toggle theme picker: {error:#}");
+                }
+            });
+
+            let controller_for_launcher = controller.downgrade();
+            cx.on_action(move |_: &crate::launcher::ToggleLauncher, cx| {
+                match controller_for_launcher
+                    .update(cx, |controller, cx| controller.launcher.toggle(cx))
+                {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) | Err(error) => {
+                        eprintln!("Dojo could not open launcher: {error:#}")
+                    }
+                }
+            });
 
             let controller_for_display_events = controller.downgrade();
             let display_subscription = cx.observe_displays(move |event, cx| {
@@ -335,41 +440,33 @@ pub fn run(force_enabled: Option<bool>) -> anyhow::Result<()> {
 
             let controller_for_commands = controller.clone();
             cx.spawn(async move |cx| {
-                loop {
-                    loop {
-                        let command = match command_receiver.try_recv() {
-                            Ok(command) => command,
-                            Err(TryRecvError::Empty) => break,
-                            Err(TryRecvError::Disconnected) => return,
-                        };
-                        let quit = command == ControlCommand::Quit;
-                        let result =
-                            controller_for_commands.update(cx, |controller, cx| match command {
-                                ControlCommand::Toggle => {
-                                    controller.set_enabled(!controller.enabled, cx)
-                                }
-                                ControlCommand::Enable => controller.set_enabled(true, cx),
-                                ControlCommand::Disable => controller.set_enabled(false, cx),
-                                ControlCommand::Quit => controller.quit(cx),
-                            });
-                        match result {
-                            Ok(()) if quit => {
+                while let Ok(command) = command_receiver.recv().await {
+                    let quit = command == ControlCommand::Quit;
+                    let result =
+                        controller_for_commands.update(cx, |controller, cx| match command {
+                            ControlCommand::Toggle => {
+                                controller.set_enabled(!controller.enabled, cx)
+                            }
+                            ControlCommand::Enable => controller.set_enabled(true, cx),
+                            ControlCommand::Disable => controller.set_enabled(false, cx),
+                            ControlCommand::Quit => controller.quit(cx),
+                            ControlCommand::Launcher => controller.launcher.toggle(cx),
+                            ControlCommand::Theme => controller.theme_picker.toggle(cx),
+                        });
+                    match result {
+                        Ok(()) if quit => {
+                            cx.update(|cx| cx.quit());
+                            return;
+                        }
+                        Ok(()) => {}
+                        Err(error) => {
+                            eprintln!("Dojo control target is unavailable: {error:#}");
+                            if quit {
                                 cx.update(|cx| cx.quit());
                                 return;
                             }
-                            Ok(()) => {}
-                            Err(error) => {
-                                eprintln!("Dojo control target is unavailable: {error:#}");
-                                if quit {
-                                    cx.update(|cx| cx.quit());
-                                    return;
-                                }
-                            }
                         }
                     }
-                    cx.background_executor()
-                        .timer(Duration::from_millis(50))
-                        .await;
                 }
             })
             .detach();
