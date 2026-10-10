@@ -179,6 +179,10 @@
         enable = true;
         components = [ "secrets" ];
       };
+      xdg.dataFile."dbus-1/services/org.gnome.keyring.SystemPrompter.service".source =
+        "${pkgs.gcr_3}/share/dbus-1/services/org.gnome.keyring.SystemPrompter.service";
+      xdg.dataFile."dbus-1/services/org.gnome.keyring.PrivatePrompter.service".source =
+        "${pkgs.gcr_3}/share/dbus-1/services/org.gnome.keyring.PrivatePrompter.service";
 
       xdg.configFile."xdg-desktop-portal/niri-portals.conf".text = ''
         [preferred]

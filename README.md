@@ -81,6 +81,9 @@ GNOME Keyring's Secret Service component is started with the graphical session
 for applications such as Zed and Delta. They discover `org.freedesktop.secrets`
 on the user session bus; no extra secrets-provider CLI argument is required.
 Starting the daemon does not bypass keyring locking or unlock prompts.
+GCR's SystemPrompter and PrivatePrompter D-Bus activation files are also
+provisioned: the daemon alone cannot create or unlock a keyring if its prompt
+service is absent. Enter keyring passwords only in the native dialog.
 
 Use `dojo-theme preview IMAGE OUTPUT.html` before choosing and applying a palette.
 The paintbrush beside the system tray (or `dojo --theme`) opens Wallpaper,
