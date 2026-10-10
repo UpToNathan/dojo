@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test on Debian 13
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    container:
+      image: debian:13
+      # The event loop exercises io_uring, which Docker's default profile blocks.
+      options: --security-opt seccomp=unconfined
+
+    steps:
+      - name: Bootstrap checkout tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git sudo
+
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: .agents/setup
+
+      - name: Run repository tests
+        run: dbus-run-session -- zig build test -Doptimize=ReleaseSafe
+
+      - name: Check release script
+        run: bash -n scripts/package-release
+
+      - name: Build release packages
+        run: zig build release -Doptimize=ReleaseSafe -Dcpu=baseline
+
+      - name: Verify release packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          bundles=(zig-out/release/keywork-*-linux-x86_64.tar.gz)
+          test "${#bundles[@]}" -eq 1
+          test "$(find zig-out/release -maxdepth 1 -type f | wc -l)" -eq 2
+          (cd zig-out/release && sha256sum -c SHA256SUMS)
+
+          temporary="$(mktemp -d)"
+          trap 'rm -rf "$temporary"' EXIT
+          tar -xzf "${bundles[0]}" -C "$temporary"
+          bundle="$(find "$temporary" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          "$bundle/bin/keywork-compositor" --version
+          ! readelf -d "$bundle/bin/keywork-compositor" | grep -q 'NEEDED.*libwayland'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keywork-release-linux-x86_64
+          path: zig-out/release/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  debian-runtime-smoke:
+    name: Smoke release on stock Debian 13
+    needs: build-and-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container:
+      image: debian:13
+
+    steps:
+      - name: Install runtime dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates \
+            libdisplay-info2 libdrm2 libffi8 libgbm1 libinput10 liblcms2-2 \
+            libpixman-1-0 libseat1 libsystemd0 libudev1 \
+            libxkbcommon0 libxcb-composite0 libxcb-icccm4 libxcb-res0 \
+            libxcb-xfixes0 libxcb1 libxcursor1
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: keywork-release-linux-x86_64
+          path: release
+
+      - name: Start the released compositor
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          bundles=(release/keywork-*-linux-x86_64.tar.gz)
+          test "${#bundles[@]}" -eq 1
+
+          temporary="$(mktemp -d)"
+          compositor_pid=
+          cleanup() {
+            if [[ -n "$compositor_pid" ]]; then kill "$compositor_pid" 2>/dev/null || true; fi
+            if [[ -n "$compositor_pid" ]]; then wait "$compositor_pid" 2>/dev/null || true; fi
+            rm -rf "$temporary"
+          }
+          trap cleanup EXIT
+
+          tar -xzf "${bundles[0]}" -C "$temporary"
+          bundle="$(find "$temporary" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          ! ldd "$bundle/bin/keywork-compositor" | grep -q 'not found'
+          "$bundle/bin/keywork-compositor" --version
+
+          export XDG_RUNTIME_DIR="$temporary/runtime"
+          mkdir -m 700 "$XDG_RUNTIME_DIR"
+          compositor_log="$temporary/compositor.log"
+          "$bundle/bin/keywork-compositor" \
+            --output headless \
+            --renderer cpu \
+            --headless-size 640x360 \
+            --headless-refresh 30 \
+            --log-level warning \
+            >"$compositor_log" 2>&1 &
+          compositor_pid=$!
+
+          for _ in $(seq 1 200); do
+            grep -q '^WAYLAND_DISPLAY=' "$compositor_log" && break
+            kill -0 "$compositor_pid" 2>/dev/null || {
+              cat "$compositor_log"
+              exit 1
+            }
+            sleep 0.05
+          done
+          WAYLAND_DISPLAY="$(sed -n 's/^WAYLAND_DISPLAY=//p' "$compositor_log" | tail -n 1)"
+          test -n "$WAYLAND_DISPLAY" || {
+            cat "$compositor_log"
+            exit 1
+          }
+          sleep 1
+          kill -0 "$compositor_pid"

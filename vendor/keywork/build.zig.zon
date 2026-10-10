@@ -1,0 +1,64 @@
+.{
+    .name = .keywork,
+    .version = "0.1.0-dev.0",
+    .fingerprint = 0xca2c6caa434d7af2,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .wayland = .{
+            .url = "git+https://codeberg.org/ifreund/zig-wayland#a8e10e87e5ebb49ce518ac3d2198909c87ee615a",
+            .hash = "wayland-0.7.0-dev-lQa1kjT8AQDBstL61Gy3WCMtGwVaMN1p6w5wGfdDvP15",
+        },
+        .wayland_source = .{
+            .url = "https://distfiles.alpinelinux.org/distfiles/edge/wayland-1.26.0.tar.xz",
+            .hash = "N-V-__8AAA46JQABKU7sa-6xGUAN44uFsYSUS_w79UVuu7qo",
+        },
+        .wayland_protocols = .{
+            .url = "https://distfiles.alpinelinux.org/distfiles/edge/wayland-protocols-1.49.tar.xz",
+            .hash = "N-V-__8AAOTNEADZkChhsSciYizE4kIbZsozjDZXVeG5R_uY",
+        },
+        .uucode = .{
+            .url = "git+https://github.com/jacobsandlund/uucode#2826a37a4562284fdacd8fa029d49509cc9bffcd",
+            .hash = "uucode-0.2.0-ZZjBPlK5VADj7fdoq7G8LIHzD5o6FSkcBXXrRWr4jnrA",
+        },
+        .runtime_vulkan = .{
+            .url = "git+https://github.com/Snektron/vulkan-zig?ref=zig-0.16-compat#b496a6a561ffbbeb530b0f9ed4e059f88c0723a5",
+            .hash = "vulkan-0.0.0-r7Ytx7N9AwD7IZt5_XNHtkJ4G9qY0pCH-cpcOsbL8wzD",
+        },
+        .runtime_vulkan_headers = .{
+            .url = "git+https://github.com/KhronosGroup/Vulkan-Headers#8d6039a455a7ecc7d2a592ff97f62db4e59b70bf",
+            .hash = "N-V-__8AAPdJewI-Ti5p45KnTAAngGBG3aURyXJXXTKmPvKW",
+        },
+        .compositor_vulkan = .{
+            .url = "git+https://github.com/Snektron/vulkan-zig#6d77ac2a9b25c8940d493b2f7739c639c4842482",
+            .hash = "vulkan-0.0.0-r7Ytx7l9AwCsebml5bToJyyr67VASs0-7UszmWKVXNb7",
+        },
+        .compositor_vulkan_headers = .{
+            .url = "git+https://github.com/KhronosGroup/Vulkan-Headers#vulkan-sdk-1.4.321.0",
+            .hash = "N-V-__8AAI7-AQIsx0GGCNZVZDEQ-EhVjVd915WjwOOiSSA-",
+        },
+        .z2d = .{
+            .url = "git+https://github.com/vancluever/z2d?ref=v0.11.0#5184a79622dce6b885c45ef6666f8c92385bed10",
+            .hash = "z2d-0.11.0-j5P_HtLzDwBGyQt49DrT0v4BuVqI_SRs6CXsuj7eBVhR",
+        },
+        .fluent_icons = .{
+            .url = "https://registry.npmjs.org/@fluentui/svg-icons/-/svg-icons-1.1.334.tgz",
+            .hash = "N-V-__8AAG3xyQDWvODUXOkvonjQyz--gr32nZXy027iXeWd",
+        },
+        .stb = .{
+            .url = "git+https://github.com/nothings/stb#31c1ad37456438565541f4919958214b6e762fb4",
+            .hash = "N-V-__8AAN1DTgAKvlSQnjJwSg4ZY2JP5OHmzKOcA4BewA4Y",
+        },
+        .luajit = .{
+            .url = "https://github.com/LuaJIT/LuaJIT/archive/acb223497d84c65139a7eaaac395b42f112249ac.tar.gz",
+            .hash = "N-V-__8AACf1QgAgaRdqNy2Hj7p6JdoTh2teD6EX4Kvi24BC",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "build",
+        "protocols",
+        "scripts",
+        "src",
+    },
+}
