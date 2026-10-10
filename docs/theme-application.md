@@ -30,15 +30,18 @@ surfaces and ANSI swatches. It analyzes the image once, writes a new local HTML
 file, and does not select/apply a theme or alter application settings.
 
 Open the native mode picker with `dojo --theme` or the small paintbrush to the
-left of the system tray. It has three independent tabs:
+left of the system tray. It opens on Wallpaper and orders its independent tabs
+as Wallpaper, Presets, then Derive:
 
 - **Wallpaper**: browse folders and JPEG/PNG/WebP files, preview an image, then
   explicitly **Apply wallpaper**. This preserves the existing palette, preset,
   appearance policy and targets without calling darkman. With no selected theme,
   the current config colors are retained rather than running extraction.
-- **Derive**: all 23 extraction modes with dark/light previews, using the image
-  chosen in Wallpaper (or the existing wallpaper if that step is skipped).
 - **Presets**: 36 authored variants grouped by family.
+- **Derive**: optional extraction attempts with dark/light previews, using the
+  image chosen in Wallpaper (or the existing wallpaper if that step is skipped).
+  The existing 23 modes are computed only when this tab is opened. Browsing and
+  loading wallpapers do not require successful palette extraction.
 
 The wallpaper browser starts in `~/Pictures` when present, otherwise the home
 directory. Parent-folder navigation allows choosing images elsewhere. Selection
@@ -121,12 +124,12 @@ Terminal includes stay declaratively owned; mutable fragments stay outside Nix.
 | Target | Implementation / acceptance status |
 | --- | --- |
 | Dojo | Full existing color roles, native live wallpaper loading and a three-tab picker. Theme Apply attempts every scoped target and shows individual results. |
-| Niri | The Home Manager config optionally includes a mutable Dojo KDL fragment. Theme Apply maps the active palette's primary/border roles to the focus-ring colors and reloads Niri via IPC; wallpaper-derived themes and static presets share this exporter. The declarative colors remain a fallback before a theme is applied. |
+| Niri | The Home Manager config optionally includes a mutable Dojo KDL fragment. Theme Apply maps the active palette's primary/border roles to focus-ring colors at 20% opacity and reloads Niri via IPC; wallpaper-derived themes and static presets share this exporter. The declarative fallback also uses 20% opacity. Palette RGB values are preserved. |
 | Kitty/Ghostty | Stable includes are installed. Color fragments and existing-instance reload signals handle Nix-wrapped executables, not truncated `comm` names. Opacity has the separate Kitty limitation below. |
 | Neovim | `colors/dojo.lua` observes selected state. Tokyo Night/Catppuccin static variants use their real upstream Neovim plugins via declarative paths in `dojo/nvim-presets.json`; derived themes use Dojo's own role mapping. Core highlights are checked headlessly. Already-open editors need a one-time config/plugin reload after this loader deployment; they are never killed or modified through external Lua RPC. |
 | OpenCode | Native V2 token trees preserve explicit background/text/syntax roles without V1 migration. CLI mode is pinned to Dojo's selected appearance and republished on darkman transitions. SIGUSR2 refreshes custom theme discovery in the installed V2 TUI; server/non-TUI commands are excluded. |
 | Pi | Complete 51-token theme, active user-theme publication and settings selection. Existing sessions need one initial selection of `dojo`; installed-version validation remains necessary. |
-| T3 Code | Regular watched JSON with all 61 roles and paired variants. Select Dojo once in the app; do not symlink published JSON. |
+| T3 Code | Regular watched JSON with all 61 roles and paired variants. When the desktop's bundled `~/.t3/bin/t3` CLI exists, Apply calls `theme set dojo` with the configured T3 data directory so connected clients select Dojo. Without that CLI, select Dojo once in the app. Selection failures are reported separately from publication; do not symlink published JSON. |
 | Zed | Paired resource plus theme-name-keyed overrides for Zed 1.19.2. Settings observation triggers theme reload without app restart. Unrelated named overrides and syntax font styles are preserved; only unchanged old Dojo flat overrides are migrated. Accent/tinted controls use explicit `info.background`/border colors rather than the default bright blue. |
 | Yazi | Flavor + TextMate palette use current 26.9.1 sections and `url`/`mime` filetype selectors. The stable DDS subscriber receives `ya pub-to 0 dojo-theme --str reload` → `app:theme`; existing sessions must have loaded it. Actual installed-parser validation uses a disposable PTY, not only a TOML syntax check. |
 | Delta (Zed Industries app) | Explicitly `unsupported`, not a fake successful exporter. No verified external custom-palette/live-reload interface is available. Current official docs describe synced settings with an encrypted local cache and instruct using the Settings Editor. No cache, database, account data or Git-pager configuration is touched. |

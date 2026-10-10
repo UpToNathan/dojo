@@ -1,9 +1,8 @@
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
 use gpui::{
-    AnyElement, App, Bounds, Context, DisplayId, FillOptions, FillRule, FontFeatures, ImageSource,
+    AnyElement, App, Bounds, Context, DisplayId, FillOptions, FillRule, ImageSource,
     MouseButton, PathBuilder, PathStyle, Size, Window, WindowBackgroundAppearance, WindowBounds,
     WindowKind, WindowOptions, div, img, layer_shell::Anchor, point, prelude::*, px,
 };
@@ -15,6 +14,8 @@ use crate::tray::{TrayAction, TrayHandle, TrayItem, TrayMenu, TrayMenuItem};
 
 const CORNER_RADIUS: f32 = 28.;
 const LAUNCHER_BUTTON_SIZE: f32 = 36.;
+const TOP_BAR_GAP: f32 = 3.;
+const TOP_BAR_BUTTON_WIDTH: f32 = 14.;
 
 struct FrameView {
     power: PowerStatus,
@@ -374,7 +375,7 @@ fn tray_menu_width(items: &[TrayMenuItem], window: &Window, colors: ThemeColors)
             let label = line.replace('_', "");
             let run = gpui::TextRun {
                 len: label.len(),
-                font: gpui::font(power::FONT_FAMILY),
+                font: power::font(),
                 color: colors.foreground.rgb().into(),
                 background_color: None,
                 underline: None,
@@ -573,7 +574,7 @@ impl FrameView {
                         .mx(px(10.))
                         .my(px(4.))
                         .h(px(1.))
-                        .bg(colors.border.rgb())
+                        .bg(colors.border.rgb().opacity(crate::design::BORDER_OPACITY))
                         .into_any_element();
                 }
 
@@ -739,7 +740,7 @@ impl Render for FrameView {
                 } else {
                     item.title.clone()
                 })
-                .w(px(18.))
+                .w(px(TOP_BAR_BUTTON_WIDTH))
                 .h(px(18.))
                 .flex()
                 .items_center()
@@ -785,12 +786,12 @@ impl Render for FrameView {
         }
 
         let tray_count = tray_icons.len();
-        let top_bar_width = if tray_count == 0 {
-            124.
-        } else {
-            129. + tray_count as f32 * 21.
-        };
-        let tray_group = div().flex().items_center().gap(px(3.)).children(tray_icons);
+        let top_bar_width = 124. + tray_count as f32 * (TOP_BAR_BUTTON_WIDTH + TOP_BAR_GAP);
+        let tray_group = div()
+            .flex()
+            .items_center()
+            .gap(px(TOP_BAR_GAP))
+            .children(tray_icons);
 
         let mut top_bar = div()
             .absolute()
@@ -801,16 +802,16 @@ impl Render for FrameView {
             .flex()
             .items_center()
             .justify_end()
-            .gap(px(8.))
+            .gap(px(TOP_BAR_GAP))
             .text_color(colors.foreground.rgb())
             .child(
                 div()
                     .id("wlsunset-button")
                     .aria_label("Toggle wlsunset eye-comfort filter")
-                    .w(px(18.))
+                    .w(px(TOP_BAR_BUTTON_WIDTH))
                     .h(px(18.))
                     .flex_shrink_0()
-                    .rounded(px(3.))
+                    .rounded(px(crate::design::PILL_RADIUS))
                     .flex()
                     .items_center()
                     .justify_center()
@@ -844,10 +845,10 @@ impl Render for FrameView {
                 div()
                     .id("theme-picker-button")
                     .aria_label("Choose theme")
-                    .w(px(18.))
+                    .w(px(TOP_BAR_BUTTON_WIDTH))
                     .h(px(18.))
                     .flex_shrink_0()
-                    .rounded(px(3.))
+                    .rounded(px(crate::design::PILL_RADIUS))
                     .flex()
                     .items_center()
                     .justify_center()
@@ -896,7 +897,8 @@ impl Render for FrameView {
                 )
                 .flex()
                 .items_center()
-                .gap(px(2.))
+                .ml(px(2.))
+                .gap(px(TOP_BAR_GAP))
                 .text_size(px(11.))
                 .child(
                     div()
@@ -999,7 +1001,7 @@ impl Render for FrameView {
         let mut shell = div()
             .size_full()
             .font_family(power::FONT_FAMILY)
-            .font_features(FontFeatures(Arc::new(vec![("ss01".to_string(), 1)])))
+            .font_features(power::font_features())
             .child(
                 gpui::canvas(
                     |_, _, _| (),

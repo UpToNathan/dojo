@@ -653,7 +653,7 @@ impl Render for LauncherView {
             .rounded(px(12.))
             .bg(colors.background.rgb())
             .border_1()
-            .border_color(colors.border.rgb())
+            .border_color(colors.border.rgb().opacity(crate::design::BORDER_OPACITY))
             .flex()
             .flex_col()
             .gap(px(8.))
@@ -687,7 +687,7 @@ impl Render for LauncherView {
                 scrim
             })
             .font_family(crate::power::FONT_FAMILY)
-            .font_features(gpui::FontFeatures(Arc::new(vec![("ss01".to_string(), 1)])))
+            .font_features(crate::power::font_features())
             .text_size(px(13.))
             .text_color(colors.foreground.rgb())
             .flex()

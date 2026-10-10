@@ -12,6 +12,7 @@ mod tray;
 mod wallpaper;
 
 use anyhow::bail;
+use dojo::design;
 use control::ControlCommand;
 
 fn main() {

@@ -122,9 +122,11 @@ fn ghostty(p: &SemanticPalette) -> String {
 
 fn niri(p: &SemanticPalette) -> String {
     format!(
-        "layout {{\n    focus-ring {{\n        active-color \"{}\"\n        inactive-color \"{}\"\n    }}\n}}\n",
+        "layout {{\n    focus-ring {{\n        active-color \"{}{:02x}\"\n        inactive-color \"{}{:02x}\"\n    }}\n}}\n",
         p.color("primary"),
-        p.color("border")
+        crate::design::BORDER_ALPHA,
+        p.color("border"),
+        crate::design::BORDER_ALPHA,
     )
 }
 
@@ -798,6 +800,21 @@ mod tests {
     use crate::extraction::{Mode, Palette, Rgb};
 
     #[test]
+    fn niri_ring_uses_twenty_percent_opacity_without_recoloring_the_preset() -> anyhow::Result<()> {
+        let preset = super::super::presets()?
+            .into_iter()
+            .find(|preset| preset.id == "tokyo-night-night")
+            .expect("bundled Tokyo Night Night");
+        assert_eq!(
+            niri(&preset.palette),
+            "layout {\n    focus-ring {\n        active-color \"#7aa2f733\"\n        inactive-color \"#15161e33\"\n    }\n}\n"
+        );
+        assert_eq!(preset.palette.color("primary"), "#7aa2f7");
+        assert_eq!(preset.palette.color("border"), "#15161e");
+        Ok(())
+    }
+
+    #[test]
     fn yazi_rules_use_current_url_selectors_and_supported_sections() -> anyhow::Result<()> {
         let palette = SemanticPalette::derive(
             &Palette {
@@ -876,7 +893,7 @@ mod tests {
         assert!(ghostty(&theme.dark).contains("palette = 15="));
         assert!(
             niri(&theme.dark)
-                .contains(&format!("active-color \"{}\"", theme.dark.color("primary")))
+                .contains(&format!("active-color \"{}33\"", theme.dark.color("primary")))
         );
         let helium: Value = serde_json::from_slice(&outputs["helium.json"])?;
         assert_eq!(helium["BrowserThemeColor"], theme.dark.color("background"));

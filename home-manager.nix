@@ -527,8 +527,8 @@ in
         focus-ring = {
           width = 3;
           # Fallback until Dojo has published a theme-specific focus ring.
-          active-color = "#cba6f7"; # catppuccin mauve
-          inactive-color = "#45475a";
+          active-color = "#cba6f733"; # catppuccin mauve, 20% opacity
+          inactive-color = "#45475a33";
         };
       };
       extraConfig = lib.mkAfter ''

@@ -64,6 +64,45 @@ fn publish(path: &Path, bytes: &[u8], registry: &mut Published) -> anyhow::Resul
     Ok(())
 }
 
+fn publish_t3_theme(
+    home: &Path,
+    root: &Path,
+    bytes: &[u8],
+    registry: &mut Published,
+) -> anyhow::Result<(&'static str, String)> {
+    publish(&root.join("userdata/themes/dojo.json"), bytes, registry)?;
+    let cli = home.join(".t3/bin/t3");
+    if !cli.is_file() {
+        return Ok((
+            "needs_selection",
+            "regular watched JSON published; select Dojo in T3 Code or install its bundled t3 CLI"
+                .into(),
+        ));
+    }
+    let result = command_with_timeout(
+        cli.to_str().context("T3 CLI path is not UTF-8")?,
+        &[
+            "theme",
+            "set",
+            "dojo",
+            "--base-dir",
+            root.to_str().context("T3 home path is not UTF-8")?,
+        ],
+        Duration::from_secs(10),
+    );
+    match result {
+        Ok(_) => Ok((
+            "reload_requested",
+            "regular watched JSON published; bundled t3 CLI selected Dojo for connected clients"
+                .into(),
+        )),
+        Err(error) => Ok((
+            "reload_failed",
+            format!("theme JSON published, but selecting Dojo failed: {error:#}"),
+        )),
+    }
+}
+
 fn command(program: &str, args: &[&str]) -> anyhow::Result<String> {
     command_with_timeout(program, args, Duration::from_secs(3))
 }
@@ -426,8 +465,7 @@ fn publish_target(
         },
         "t3code"=>{
             let root=std::env::var_os("T3CODE_HOME").map(PathBuf::from).unwrap_or_else(||paths.home.join(".t3"));
-            put("t3code.json",&root.join("userdata/themes/dojo.json"),registry)?;
-            Ok(("needs_selection","regular watched JSON published; select Dojo once in T3 Code".into()))
+            publish_t3_theme(&paths.home,&root,outputs.get("t3code.json").context("missing T3 exporter")?,registry)
         },
         "zed"=>{
             put("zed.json",&paths.config.join("zed/themes/dojo.json"),registry)?;
@@ -529,6 +567,39 @@ pub fn watch(store: &ThemeStore) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn t3_publication_selects_the_theme_in_the_configured_home() -> anyhow::Result<()> {
+        use std::os::unix::fs::PermissionsExt as _;
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let home = std::env::temp_dir().join(format!(
+            "dojo-t3-selection-{}",
+            SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+        ));
+        let root = home.join("custom-t3-home");
+        let cli = home.join(".t3/bin/t3");
+        fs::create_dir_all(cli.parent().context("CLI directory")?)?;
+        fs::write(
+            &cli,
+            "#!/bin/sh\nset -eu\n[ \"$1\" = theme ]\n[ \"$2\" = set ]\n[ \"$4\" = --base-dir ]\n[ -f \"$5/userdata/themes/$3.json\" ]\n[ ! -L \"$5/userdata/themes/$3.json\" ]\nprintf '%s' \"$3\" > \"$5/selected-theme\"\n",
+        )?;
+        fs::set_permissions(&cli, fs::Permissions::from_mode(0o755))?;
+        let bytes = br##"{"name":"Dojo","appearance":"dark","canvas":"#1e1e2e"}"##;
+        let mut registry = Published::default();
+        let (status, _) = publish_t3_theme(&home, &root, bytes, &mut registry)?;
+        assert_eq!(status, "reload_requested");
+        assert_eq!(fs::read_to_string(root.join("selected-theme"))?, "dojo");
+        assert_eq!(fs::read(root.join("userdata/themes/dojo.json"))?, bytes);
+        fs::write(&cli, "#!/bin/sh\nexit 1\n")?;
+        let (status, detail) = publish_t3_theme(&home, &root, bytes, &mut registry)?;
+        assert_eq!(status, "reload_failed");
+        assert!(detail.contains("theme JSON published"));
+        fs::remove_file(cli)?;
+        let (status, _) = publish_t3_theme(&home, &root, bytes, &mut registry)?;
+        assert_eq!(status, "needs_selection");
+        fs::remove_dir_all(home)?;
+        Ok(())
+    }
+
     #[test]
     fn zed_live_overrides_are_named_and_preserve_unrelated_settings() -> anyhow::Result<()> {
         let root = std::env::temp_dir().join(format!(

@@ -61,20 +61,35 @@ fn analyze_image(path: PathBuf) -> anyhow::Result<Analysis> {
         .take(50 * 1024 * 1024 + 1)
         .read_to_end(&mut bytes)?;
     anyhow::ensure!(bytes.len() <= 50 * 1024 * 1024, "wallpaper exceeds 50 MiB");
-    let candidates = dojo::extraction::extract_all_pairs(&bytes)?
-        .into_iter()
-        .map(|(mode, dark, light)| Candidate {
-            mode,
-            dark: SemanticPalette::derive(&dark, Appearance::Dark),
-            light: SemanticPalette::derive(&light, Appearance::Light),
-        })
-        .collect();
+    let reader = image::ImageReader::new(std::io::Cursor::new(&bytes)).with_guessed_format()?;
+    anyhow::ensure!(
+        matches!(reader.format(), Some(image::ImageFormat::Jpeg | image::ImageFormat::Png | image::ImageFormat::WebP)),
+        "wallpaper must be JPEG, PNG, or WebP"
+    );
+    let (width, height) = reader.into_dimensions()?;
+    anyhow::ensure!(
+        width <= 16_384 && height <= 16_384 && u64::from(width) * u64::from(height) <= 40_000_000,
+        "wallpaper exceeds image dimension limits"
+    );
     Ok(Analysis {
         path,
         bytes: Arc::new(bytes),
-        candidates,
+        candidates: Vec::new(),
         appearance: dojo::theme::system_appearance().unwrap_or(Appearance::Dark),
     })
+}
+
+fn derive_candidates(bytes: &[u8]) -> anyhow::Result<Vec<Candidate>> {
+    dojo::extraction::extract_all_pairs(bytes)?
+        .into_iter()
+        .map(|(mode, dark, light)| {
+            let dark = SemanticPalette::derive(&dark, Appearance::Dark);
+            let light = SemanticPalette::derive(&light, Appearance::Light);
+            dark.validate()?;
+            light.validate()?;
+            Ok(Candidate { mode, dark, light })
+        })
+        .collect()
 }
 
 fn wallpaper_entries(directory: &std::path::Path) -> anyhow::Result<Vec<(PathBuf, bool)>> {
@@ -163,7 +178,7 @@ impl ThemePicker {
                     window.focus(&focus, cx);
                     cx.spawn_in(window, async move |this, cx| {
                         let result = cx.background_executor().spawn(async { analyze() }).await;
-                        if let Err(error) = this.update_in(cx, |view: &mut PickerView, _, cx| {
+                        if let Err(error) = this.update_in(cx, |view: &mut PickerView, window, cx| {
                             if view.analysis_revision != 0 {
                                 return;
                             }
@@ -174,8 +189,11 @@ impl ThemePicker {
                                         view.appearance = analysis.appearance;
                                     }
                                     view.analysis = Some(Arc::new(analysis));
-                                    view.message =
-                                        "Choose a theme. No desktop changes until Apply.".into();
+                                    if view.show_wallpaper {
+                                        view.message = "Choose an image, or keep the current wallpaper. Derivation is optional.".into();
+                                    } else if !view.show_presets {
+                                        view.derive(window, cx);
+                                    }
                                 }
                                 Err(error) => view.message = format!("{error:#}"),
                             }
@@ -185,23 +203,25 @@ impl ThemePicker {
                         }
                     })
                     .detach();
-                    PickerView {
+                    let mut view = PickerView {
                         focus,
                         analysis: None,
                         selected: None,
                         presets,
-                        show_presets: true,
+                        show_presets: false,
                         appearance: Appearance::Dark,
                         loading: true,
                         applying: false,
-                        message: "Choose a preset, or derive colors from wallpaper.".into(),
+                        message: "Choose a wallpaper. No desktop changes until Apply.".into(),
                         panel: None,
-                        show_wallpaper: false,
+                        show_wallpaper: true,
                         directory,
                         entries: Vec::new(),
                         browsing: false,
                         analysis_revision: 0,
-                    }
+                    };
+                    view.browse(view.directory.clone(), window, cx);
+                    view
                 })
             },
         )?);
@@ -292,6 +312,52 @@ fn theme_content_row() -> gpui::Div {
 }
 
 impl PickerView {
+    fn derive(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.loading || self.applying {
+            return;
+        }
+        let Some(analysis) = self.analysis.clone() else {
+            return;
+        };
+        if !analysis.candidates.is_empty() {
+            return;
+        }
+        self.analysis_revision += 1;
+        let revision = self.analysis_revision;
+        self.loading = true;
+        self.message = "Preparing derivation previews. Nothing is applied.".into();
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let bytes = analysis.bytes.clone();
+            let result = cx.background_executor().spawn(async move {
+                derive_candidates(bytes.as_ref())
+            }).await;
+            if let Err(error) = this.update_in(cx, |view, _, cx| {
+                if view.analysis_revision != revision {
+                    return;
+                }
+                view.loading = false;
+                match result {
+                    Ok(candidates) => {
+                        view.analysis = Some(Arc::new(Analysis {
+                            path: analysis.path.clone(),
+                            bytes: analysis.bytes.clone(),
+                            candidates,
+                            appearance: analysis.appearance,
+                        }));
+                        if !view.show_wallpaper && !view.show_presets {
+                            view.message = "Choose a derivation attempt to preview. Nothing is applied.".into();
+                        }
+                    }
+                    Err(error) => view.message = format!("Could not derive a palette: {error:#}"),
+                }
+                cx.notify();
+            }) {
+                eprintln!("Theme picker closed during derivation: {error:#}");
+            }
+        }).detach();
+    }
+
     fn browse(&mut self, directory: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         if self.applying || self.browsing {
             return;
@@ -329,15 +395,21 @@ impl PickerView {
         let revision = self.analysis_revision;
         self.loading = true;
         self.selected = None;
-        self.message = "Loading image and preparing derivation previews…".into();
+        self.message = "Loading wallpaper preview…".into();
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
             let result = cx.background_executor().spawn(async move {analyze_image(path)}).await;
-            if let Err(error) = this.update_in(cx, |view, _, cx| {
+            if let Err(error) = this.update_in(cx, |view, window, cx| {
                 if view.analysis_revision != revision {return;}
                 view.loading = false;
                 match result {
-                    Ok(analysis) => {view.analysis=Some(Arc::new(analysis));view.message="Preview only. Apply wallpaper keeps your theme; Derive creates a new palette.".into();},
+                    Ok(analysis) => {
+                        view.analysis=Some(Arc::new(analysis));
+                        view.message="Preview only. Apply wallpaper keeps your theme; Derive attempts a new palette.".into();
+                        if !view.show_wallpaper && !view.show_presets {
+                            view.derive(window, cx);
+                        }
+                    },
                     Err(error) => view.message=format!("Could not load wallpaper: {error:#}"),
                 }
                 cx.notify();
@@ -744,7 +816,7 @@ impl Render for PickerView {
                     .id(format!("theme-preview-{}", appearance.name()))
                     .px(px(12.))
                     .py(px(7.))
-                    .rounded(px(6.))
+                    .rounded(px(crate::design::PILL_RADIUS))
                     .bg(colors.background_highlight.rgb())
                     .text_color(button_label(colors.background_highlight.rgb()))
                     .child(format!("{} preview", appearance.name()))
@@ -768,7 +840,7 @@ impl Render for PickerView {
                 if self.show_presets {
                     self.presets.len()
                 } else {
-                    Mode::ALL.len()
+                    self.analysis.as_ref().map_or(0, |analysis| analysis.candidates.len())
                 },
                 !self.show_presets && self.loading,
                 self.applying,
@@ -777,8 +849,8 @@ impl Render for PickerView {
         let mut source_buttons = div().flex().gap(px(8.));
         for (show_wallpaper, show_presets, label) in [
             (true, false, "Wallpaper"),
-            (false, false, "Derive · 23 modes"),
             (false, true, "Presets · 36 themes"),
+            (false, false, "Derive"),
         ] {
             source_buttons = source_buttons.child(
                 div()
@@ -789,7 +861,7 @@ impl Render for PickerView {
                     })
                     .px(px(12.))
                     .py(px(8.))
-                    .rounded(px(6.))
+                    .rounded(px(crate::design::PILL_RADIUS))
                     .cursor_pointer()
                     .bg(if self.show_presets == show_presets && self.show_wallpaper == show_wallpaper {
                         colors.background_highlight.rgb()
@@ -815,6 +887,8 @@ impl Render for PickerView {
                             if show_wallpaper {
                                 view.message = "Choose an image, or keep the current wallpaper. Derivation is optional.".into();
                                 view.browse(view.directory.clone(),window,cx);
+                            } else if !show_presets {
+                                view.derive(window, cx);
                             }
                             cx.notify();
                         }),
@@ -829,7 +903,7 @@ impl Render for PickerView {
             .rounded(px(18.))
             .bg(colors.background.rgb())
             .border_1()
-            .border_color(colors.border.rgb())
+            .border_color(colors.border.rgb().opacity(crate::design::BORDER_OPACITY))
             .flex()
             .flex_col()
             .gap(px(14.))
@@ -875,7 +949,7 @@ impl Render for PickerView {
                             .id("apply-theme-mode")
                             .px(px(18.))
                             .py(px(10.))
-                            .rounded(px(8.))
+                            .rounded(px(crate::design::PILL_RADIUS))
                             .bg(if ready {
                                 colors.primary.rgb()
                             } else {
@@ -912,6 +986,7 @@ impl Render for PickerView {
             .size_full()
             .bg(scrim)
             .font_family(crate::power::FONT_FAMILY)
+            .font_features(crate::power::font_features())
             .text_size(px(12.))
             .text_color(colors.foreground.rgb())
             .flex()
@@ -945,6 +1020,24 @@ impl Render for PickerView {
 mod tests {
     use super::{button_label, confirmable, theme_content_row};
     use gpui::{Styled, px};
+
+    #[test]
+    fn wallpaper_preview_loads_without_requiring_a_derivable_palette() -> anyhow::Result<()> {
+        let path = std::env::temp_dir().join(format!(
+            "dojo-wallpaper-preview-{}-{}.png",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos()
+        ));
+        image::RgbImage::from_pixel(1, 1, image::Rgb([200, 30, 50])).save(&path)?;
+        let preview = super::analyze_image(path.clone())?;
+        assert_eq!(preview.path, path.canonicalize()?);
+        let image = image::load_from_memory(preview.bytes.as_ref())?.to_rgb8();
+        assert_eq!(image.get_pixel(0, 0).0, [200, 30, 50]);
+        assert!(preview.candidates.is_empty());
+        assert!(super::derive_candidates(preview.bytes.as_ref()).is_err());
+        std::fs::remove_file(path)?;
+        Ok(())
+    }
 
     #[test]
     fn picker_apply_includes_all_scoped_apps_not_just_dojo() {

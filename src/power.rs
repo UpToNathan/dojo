@@ -7,6 +7,17 @@ use gpui::App;
 
 pub const FONT_FAMILY: &str = "VictorMono Nerd Font Mono";
 
+pub fn font_features() -> gpui::FontFeatures {
+    gpui::FontFeatures(std::sync::Arc::new(vec![("ss01".into(), 1)]))
+}
+
+pub fn font() -> gpui::Font {
+    gpui::Font {
+        features: font_features(),
+        ..gpui::font(FONT_FAMILY)
+    }
+}
+
 pub fn register_font(cx: &App) -> anyhow::Result<()> {
     let font: &'static [u8] = include_bytes!("../assets/fonts/VictorMonoNerdFontMono-Regular.ttf");
     cx.text_system()

@@ -335,11 +335,11 @@ mod tests {
                 assert_eq!(helium["BrowserColorScheme"], "system");
                 let niri = std::str::from_utf8(&outputs["niri.kdl"])?;
                 assert!(niri.contains(&format!(
-                    "active-color \"{}\"",
+                    "active-color \"{}33\"",
                     theme.palette(appearance).color("primary")
                 )));
                 assert!(niri.contains(&format!(
-                    "inactive-color \"{}\"",
+                    "inactive-color \"{}33\"",
                     theme.palette(appearance).color("border")
                 )));
                 for (name, bytes) in outputs {
