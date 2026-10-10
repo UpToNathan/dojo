@@ -21,7 +21,7 @@ integration. Read the relevant feature recipe before driving Dojo.
 ## Proof standards
 
 - Compare before and after screenshots from the same output.
-- Verify all four reservation surfaces and the full-output frame overlay in Niri IPC.
+- Verify all four reservation surfaces and the full-output top-layer frame in Niri IPC.
 - Verify each saved tiled column is reduced by 76 logical pixels without changing
   its workspace or scrolling column index.
 - Mark pointer pass-through unverified if it was not exercised by a real pointer click.

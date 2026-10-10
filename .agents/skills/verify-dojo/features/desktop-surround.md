@@ -29,7 +29,7 @@ Preconditions:
 - **Start.** Run the documented foreground `devenv shell -- cargo run` command.
   The launch terminal remains attached and reports any renderer or layer-shell error.
 - **Layer mapping.** Run `niri msg layers`. Each active output lists one
-  `dojo-frame-*` overlay and four `dojo-reservation-*` top-layer surfaces.
+  `dojo-frame-*` top-layer frame and four `dojo-reservation-*` top-layer surfaces.
 - **Visual result.** Run `grim -o OUTPUT "$EVIDENCE/frame.png"`. The screenshot
   shows a dark outside surround, a transparent rounded desktop opening, and no
   gray outline.
@@ -44,5 +44,7 @@ Preconditions:
   reservations; it must keep `exclusive_zone = -1`.
 - Transparent pixels show the compositor contents underneath; they do not dim
   or blur the desktop.
+- The frame uses the Top layer so fullscreen clients cover it. The Overlay
+  layer would keep the surround above fullscreen windows.
 - Niri layer rules and output hotplug can change where surfaces appear. Check
   each active output instead of assuming the primary display.

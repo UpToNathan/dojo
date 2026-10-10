@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+data_home=${XDG_DATA_HOME:-"$HOME/.local/share"}
+installation="$data_home/dojo/niri/current"
+if [[ ! -x "$installation/niri" || ! -f "$installation/environment.sh" ]]; then
+    printf 'Dojo Niri is not installed. Run scripts/install-niri-fork.sh from devenv.\n' >&2
+    exit 1
+fi
+source "$installation/environment.sh"
+export DOJO_AGENT_INPUT=1
+exec "$installation/niri" --session "$@"

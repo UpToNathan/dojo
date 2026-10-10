@@ -39,5 +39,8 @@ driver="$repo_root/tools/agent-input/run.py"
 if [[ "${1:-}" == --mcp ]]; then
     shift
     driver="$repo_root/tools/agent-input/run-mcp.py"
+elif [[ "${1:-}" == --fullscreen ]]; then
+    shift
+    driver="$repo_root/tools/agent-input/run-fullscreen.py"
 fi
 WAYLAND_DISPLAY="$child_display" NIRI_SOCKET="$child_socket" python3 "$driver" --log "$run_directory/events.jsonl" "$@"

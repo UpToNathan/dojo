@@ -9,6 +9,7 @@
 {
   # https://devenv.sh/basics/
   env.GREET = "devenv";
+  env.LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
   env.LD_LIBRARY_PATH = lib.makeLibraryPath [
     pkgs.libglvnd
     pkgs.vulkan-loader
@@ -32,6 +33,7 @@
     pkgs.libgbm
     pkgs.pango.dev
     pkgs.systemd.dev
+    pkgs.pipewire.dev
     pkgs.libglvnd
     pkgs.vulkan-loader
     pkgs.mesa

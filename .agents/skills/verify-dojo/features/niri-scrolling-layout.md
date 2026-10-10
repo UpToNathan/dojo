@@ -27,7 +27,7 @@ Preconditions:
 - Record `niri msg --json windows` before launch.
 
 - **Reservation.** Start Dojo and run `niri msg layers`. Each output has four
-  Dojo reservations; the visual frame is a separate overlay surface.
+  Dojo reservations; the visual frame is a separate top-layer surface.
 - **Width change.** Run `scripts/layout-widths.sh check WIDTHS.json` inside devenv. Every
   saved tiled column is 76 logical pixels narrower.
 - **Scroll behavior.** Compare `pos_in_scrolling_layout` from `niri msg --json

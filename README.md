@@ -55,6 +55,14 @@ Agent input is experimental and requires `DOJO_AGENT_INPUT=1` in the compositor
 environment. The controller holds a persistent IPC connection; separate
 one-shot requests cannot preserve the controller's seat.
 
+To install the full release compositor for the next UWSM Niri login, follow
+[the session switch guide](docs/niri-session.md). The installer preserves the
+current session and keeps the upstream package available for rollback.
+
+The desktop frame uses the Top layer so fullscreen applications cover it.
+`devenv shell -- tools/agent-input/run-nested.sh --fullscreen` checks rendered
+fullscreen edges and frame restoration in an isolated session.
+
 Development builds optimize the shader/pipeline dependencies (`naga`,
 `wgpu-core`, and `gpui_wgpu`) because unoptimized window initialization can
 dominate launcher opening time. Dojo's own code stays in the normal debug profile.

@@ -2,9 +2,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
 use gpui::{
-    AnyElement, App, Bounds, Context, DisplayId, FillOptions, FillRule, ImageSource,
-    MouseButton, PathBuilder, PathStyle, Size, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowKind, WindowOptions, div, img, layer_shell::Anchor, point, prelude::*, px,
+    AnyElement, App, Bounds, Context, DisplayId, FillOptions, FillRule, ImageSource, MouseButton,
+    PathBuilder, PathStyle, Size, Window, WindowBackgroundAppearance, WindowBounds, WindowKind,
+    WindowOptions, div, img, layer_shell::Anchor, point, prelude::*, px,
 };
 
 use crate::config::ThemeColors;
@@ -138,7 +138,7 @@ impl DisplayFrame {
                 window_background: WindowBackgroundAppearance::Transparent,
                 kind: WindowKind::LayerShell(gpui::layer_shell::LayerShellOptions {
                     namespace: format!("dojo-frame-{}", u64::from(display_id)),
-                    layer: gpui::layer_shell::Layer::Overlay,
+                    layer: gpui::layer_shell::Layer::Top,
                     anchor: Anchor::TOP | Anchor::RIGHT | Anchor::BOTTOM | Anchor::LEFT,
                     exclusive_zone: Some(px(-1.)),
                     keyboard_interactivity: gpui::layer_shell::KeyboardInteractivity::None,
@@ -157,7 +157,7 @@ impl DisplayFrame {
                         errors.join("; ")
                     );
                 }
-                return Err(error).context("opening full-screen frame overlay");
+                return Err(error).context("opening desktop frame surface");
             }
         };
 

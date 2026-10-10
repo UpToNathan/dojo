@@ -43,7 +43,7 @@ outside that environment.
    ```
 
 The command records the process-group ID and log under `$EVIDENCE`. The
-`dojo-frame-*` overlay and four `dojo-reservation-*` surfaces in
+`dojo-frame-*` top-layer frame and four `dojo-reservation-*` surfaces in
 `niri msg layers` indicate that the layer-shell surfaces have mapped. Dojo's
 CLI toggle is `cargo run --manifest-path /home/nathan/Dojo/Cargo.toml --
 --toggle` inside devenv; no Niri keybinding is configured yet.
@@ -54,7 +54,7 @@ Before driving, confirm all of the following:
 
 - `niri msg outputs` shows the target output as active.
 - `pgrep -a -x dojo` reports exactly one process.
-- `niri msg layers` shows one `dojo-frame-*` overlay and four
+- `niri msg layers` shows one `dojo-frame-*` top-layer frame and four
   `dojo-reservation-*` top-layer surfaces for each active display.
 - `layout-widths.sh check "$EVIDENCE/window-widths.json"` inside devenv reports
   every saved tiled column 76 logical pixels narrower.
@@ -69,6 +69,18 @@ See the feature map first:
 
 - [Desktop surround](features/desktop-surround.md)
 - [Niri scrolling layout](features/niri-scrolling-layout.md)
+
+After frame-layer changes, run the isolated fullscreen regression inside devenv:
+
+```sh
+devenv shell -- tools/agent-input/run-nested.sh --fullscreen
+```
+
+It creates a separate nested compositor and an isolated Dojo control socket and
+state directory. It requires all eight fullscreen edge crops to match the
+frameless screenshot, then requires the frame to return after exiting
+fullscreen. The nested shell changes only its own compositor's layout; the
+host shell can remain running. Retain the printed evidence directory.
 
 Use actual user-visible output, not internal setters, as evidence. With Dojo
 running, capture the result:

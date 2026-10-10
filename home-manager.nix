@@ -468,6 +468,8 @@ in
       };
       home.sessionPath = [ "/home/nathan/.local/share/mbx/bin" "/home/nathan/.nix-profile/bin" "/home/nathan/.local/npm/bin" "/home/nathan/.cargo/bin" "/home/nathan/.local/bin" ];
       home.file.".local/bin/codelldb".source = "${pkgs.vscode-extensions.vadimcn.vscode-lldb}/share/vscode/extensions/vadimcn.vscode-lldb/adapter/codelldb";
+      home.file.".local/bin/dojo-niri-session".source = ./scripts/dojo-niri-session;
+      xdg.configFile."systemd/user/wayland-wm@niri\\x2dsession.service.d/90-dojo-niri.conf".source = ./session-config/90-dojo-niri.conf;
       wayland.windowManager.niri = {
         enable = true;
 	enableDefaultConfig = true;

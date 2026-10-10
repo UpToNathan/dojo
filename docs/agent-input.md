@@ -98,8 +98,9 @@ The check creates an ephemeral Codex app-server session, applies the same
 whole-table MCP override shape as the installed T3 bundle, discovers the three
 Dojo tools, and calls `desktop_context`. It stops its own app-server afterward.
 It verifies provider discovery and socket forwarding; the nested scenarios
-below verify actual input. Your current upstream Niri session can supply context
-but rejects independent-seat actions. Input needs the experimental fork.
+below verify actual input. Upstream Niri can supply context but rejects
+independent-seat actions. Input needs the experimental fork; see
+[the desktop session switch guide](niri-session.md).
 
 T3 is the initial client. The server and controller do not depend on T3; a future
 pi-durable adapter can use the same desktop interface. pi-durable integration
