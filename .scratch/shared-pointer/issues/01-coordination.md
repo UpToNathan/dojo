@@ -56,3 +56,19 @@ restarted.
 Decision model and cost research is recorded separately in
 [decision-models.md](../decision-models.md) and [clef-cost.md](../clef-cost.md).
 No hosted inference requests were made.
+
+## Live desktop confirmation
+
+After login into the installed fork, the T3-connected desktop tools successfully
+closed and reopened T3's actual sidebar at output-local coordinates `(107, 60)`.
+The user moved their mouse onto the desktop frame before the clicks. Entering
+T3 again changed ownership from revision 12 with no owned windows to revision
+13 with window 2 human-owned. The stale action paused, and a fresh focus request
+also paused with `human owns this application`.
+
+The cyan cursor remained visible at `(850, 480)` after takeover, with 632 matching
+pixels both before and after. Releasing the desktop seat stopped worker PID
+138366; desktop context then reported both worker and seat as null. Evidence is
+`/tmp/dojo-live-coordination-136452`, including sidebar, takeover and release
+screenshots. Capture with Niri's `show_pointer` option when checking cursors;
+plain grim screenshots omit cursors.

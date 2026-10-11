@@ -26,5 +26,6 @@ and a mapped frame. The current compositor remained running throughout.
 
 Logs are `/tmp/dojo-autostart-plan.log` and `/tmp/dojo-autostart-apply.log`.
 Session evidence is `/tmp/opencode/dojo-verification/login-130800`.
-The corrected startup command has been exercised in the current session;
-a second full logout/login has not been performed.
+After another full logout/login, the generated autostart service started Dojo
+without manual intervention. The checker passed with PID 136512 and a mapped
+frame in Niri session 136452.
