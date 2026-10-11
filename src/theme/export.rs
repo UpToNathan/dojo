@@ -122,11 +122,12 @@ fn ghostty(p: &SemanticPalette) -> String {
 
 fn niri(p: &SemanticPalette) -> String {
     format!(
-        "layout {{\n    focus-ring {{\n        active-color \"{}{:02x}\"\n        inactive-color \"{}{:02x}\"\n    }}\n}}\n",
+        "layout {{\n    focus-ring {{\n        active-color \"{}{:02x}\"\n        inactive-color \"{}{:02x}\"\n    }}\n}}\ncursor {{\n    agent-color \"{}\"\n}}\n",
         p.color("primary"),
         crate::design::BORDER_ALPHA,
         p.color("border"),
         crate::design::BORDER_ALPHA,
+        p.color("primary"),
     )
 }
 
@@ -807,7 +808,7 @@ mod tests {
             .expect("bundled Tokyo Night Night");
         assert_eq!(
             niri(&preset.palette),
-            "layout {\n    focus-ring {\n        active-color \"#7aa2f733\"\n        inactive-color \"#15161e33\"\n    }\n}\n"
+            "layout {\n    focus-ring {\n        active-color \"#7aa2f733\"\n        inactive-color \"#15161e33\"\n    }\n}\ncursor {\n    agent-color \"#7aa2f7\"\n}\n"
         );
         assert_eq!(preset.palette.color("primary"), "#7aa2f7");
         assert_eq!(preset.palette.color("border"), "#15161e");

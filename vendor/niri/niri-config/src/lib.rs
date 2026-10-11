@@ -1512,6 +1512,12 @@ mod tests {
             cursor: Cursor {
                 xcursor_theme: "breeze_cursors",
                 xcursor_size: 16,
+                agent_color: Color {
+                    r: 0.79607844,
+                    g: 0.6509804,
+                    b: 0.96862745,
+                    a: 1.0,
+                },
                 hide_when_typing: true,
                 hide_after_inactive_ms: Some(
                     3000,

@@ -19,6 +19,7 @@
 
   # https://devenv.sh/packages/
   packages = [
+    (pkgs.callPackage ./nix/rift.nix { })
     inputs.bend.packages.${pkgs.stdenv.hostPlatform.system}.default
     pkgs.pkg-config
     pkgs.fontconfig.dev

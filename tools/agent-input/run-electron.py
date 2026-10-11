@@ -150,7 +150,7 @@ try:
     def agent_pixels(path):
         command = ["tools/agent-input/target/debug/pixel-diff", "--color", str(path),
                    str(round(150 * logical["scale"])), str(round(150 * logical["scale"])),
-                   str(round(48 * logical["scale"])), "40", "200", "240"]
+                   str(round(48 * logical["scale"])), "122", "162", "247"]
         return json.loads(subprocess.check_output(command, text=True))["matching_pixels"]
 
     assert agent_pixels(baseline) == 0

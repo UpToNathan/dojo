@@ -1612,6 +1612,9 @@ impl State {
         let mut cursor_inactivity_timeout_changed = false;
         let mut recent_windows_changed = false;
         let mut xwls_changed = false;
+        if config.cursor.agent_color != self.niri.config.borrow().cursor.agent_color {
+            self.recolor_agent_cursors(config.cursor.agent_color);
+        }
         let mut old_config = self.niri.config.borrow_mut();
 
         // Reload the cursor.
@@ -2560,6 +2563,7 @@ impl Niri {
         let cursor_shape_manager_state = CursorShapeManagerState::new::<State>(&display_handle);
         if agent_input_enabled {
             display_handle.remove_global::<State>(cursor_shape_manager_state.global());
+            crate::protocols::cursor_shape::register(&display_handle);
         }
         let cursor_manager =
             CursorManager::new(&config_.cursor.xcursor_theme, config_.cursor.xcursor_size);

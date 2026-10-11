@@ -1,6 +1,6 @@
 //! IPC-controlled logical seats. Each controller owns its seat state; dispatch selects that
 //! state synchronously so Smithay can resolve handles without retaining retired seats forever.
-//! DOJO_AGENT_INPUT=1 disables cursor shapes, virtual keyboards, and input methods;
+//! DOJO_AGENT_INPUT=1 disables virtual keyboards and input methods;
 //! agent input has no client cursors, popup grabs, interactive move/resize, DnD, or X11 support.
 
 use std::collections::HashSet;
@@ -99,6 +99,16 @@ fn validate(command: &AgentInput) -> Result<(), String> {
 }
 
 impl State {
+    pub(crate) fn recolor_agent_cursors(&mut self, color: niri_config::Color) {
+        for agent in self.niri.agent_seats.values_mut() {
+            match font_pointer_buffer(color) {
+                Ok(cursor) => agent.cursor = cursor,
+                Err(error) => warn!("cannot recolor agent cursor: {error:#}"),
+            }
+        }
+        self.niri.queue_redraw_all();
+    }
+
     pub fn apply_agent_input(
         &mut self,
         peer: u64,
@@ -119,7 +129,7 @@ impl State {
             if self.niri.agent_seats.len() >= 16 {
                 return Err("too many live agent controllers".into());
             }
-            let cursor = font_pointer_buffer()
+            let cursor = font_pointer_buffer(self.niri.config.borrow().cursor.agent_color)
                 .map_err(|error| format!("cannot load agent pointer icon: {error:#}"))?;
             let seat_name = format!("dojo-agent-{peer}-{name}");
             let mut state = SeatState::new();
@@ -232,7 +242,7 @@ impl State {
         let _ = reply.try_send(result);
     }
 
-    fn with_agent<T>(
+    pub(crate) fn with_agent<T>(
         &mut self,
         peer: u64,
         apply: impl FnOnce(&mut Self, &mut AgentSeat) -> T,
@@ -729,7 +739,7 @@ impl Niri {
     }
 }
 
-fn font_pointer_pixels() -> anyhow::Result<(Vec<u8>, (i32, i32))> {
+fn font_pointer_pixels(color: niri_config::Color) -> anyhow::Result<(Vec<u8>, (i32, i32))> {
     let decoder = png::Decoder::new(Cursor::new(include_bytes!(
         "../resources/agent-pointer.png"
     )));
@@ -747,7 +757,9 @@ fn font_pointer_pixels() -> anyhow::Result<(Vec<u8>, (i32, i32))> {
     );
     pixels.truncate(info.buffer_size());
     for pixel in pixels.chunks_exact_mut(4) {
-        let [red, green, blue, alpha] = [pixel[0], pixel[1], pixel[2], pixel[3]];
+        let channel = |value: f32| (value * 255.).round() as u8;
+        let [red, green, blue] = [color.r, color.g, color.b].map(channel);
+        let alpha = (f32::from(pixel[3]) * color.a).round() as u8;
         let premultiply = |channel: u8| (u16::from(channel) * u16::from(alpha) / 255) as u8;
         pixel.copy_from_slice(&[
             premultiply(blue),
@@ -759,8 +771,8 @@ fn font_pointer_pixels() -> anyhow::Result<(Vec<u8>, (i32, i32))> {
     Ok((pixels, (info.width.try_into()?, info.height.try_into()?)))
 }
 
-fn font_pointer_buffer() -> anyhow::Result<MemoryRenderBuffer> {
-    let (pixels, dimensions) = font_pointer_pixels()?;
+fn font_pointer_buffer(color: niri_config::Color) -> anyhow::Result<MemoryRenderBuffer> {
+    let (pixels, dimensions) = font_pointer_pixels(color)?;
     Ok(MemoryRenderBuffer::from_slice(
         &pixels,
         Fourcc::Argb8888,
@@ -777,20 +789,21 @@ mod cursor_tests {
 
     #[test]
     fn nerd_font_pointer_has_transparency_and_premultiplied_color() {
-        let (pixels, (width, height)) = font_pointer_pixels().unwrap();
+        let color = niri_config::Color::from_rgba8_unpremul(122, 162, 247, 255);
+        let (pixels, (width, height)) = font_pointer_pixels(color).unwrap();
         assert_eq!(height, 96);
         assert!(width > 0 && width < height);
         assert_eq!(pixels.len(), (width * height * 4) as usize);
         assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] == 0));
         assert!(pixels
             .chunks_exact(4)
-            .any(|pixel| pixel == [240, 200, 40, 255]));
+            .any(|pixel| pixel == [247, 162, 122, 255]));
         assert!(pixels
             .chunks_exact(4)
             .any(|pixel| (1..255).contains(&pixel[3])));
         assert!(pixels
             .chunks_exact(4)
             .all(|pixel| pixel[..3].iter().all(|channel| *channel <= pixel[3])));
-        font_pointer_buffer().unwrap();
+        font_pointer_buffer(color).unwrap();
     }
 }

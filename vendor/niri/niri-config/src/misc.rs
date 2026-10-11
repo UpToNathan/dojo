@@ -18,6 +18,7 @@ pub struct SpawnShAtStartup {
 pub struct Cursor {
     pub xcursor_theme: String,
     pub xcursor_size: u8,
+    pub agent_color: Color,
     pub hide_when_typing: bool,
     pub hide_after_inactive_ms: Option<u32>,
 }
@@ -27,6 +28,7 @@ impl Default for Cursor {
         Self {
             xcursor_theme: String::from("default"),
             xcursor_size: 24,
+            agent_color: Color::from_rgba8_unpremul(203, 166, 247, 255),
             hide_when_typing: false,
             hide_after_inactive_ms: None,
         }
@@ -40,6 +42,8 @@ pub struct CursorPart {
     #[knuffel(child, unwrap(argument))]
     pub xcursor_size: Option<u8>,
     #[knuffel(child)]
+    pub agent_color: Option<Color>,
+    #[knuffel(child)]
     pub hide_when_typing: Option<Flag>,
     #[knuffel(child, unwrap(argument))]
     pub hide_after_inactive_ms: Option<u32>,
@@ -47,7 +51,7 @@ pub struct CursorPart {
 
 impl MergeWith<CursorPart> for Cursor {
     fn merge_with(&mut self, part: &CursorPart) {
-        merge_clone!((self, part), xcursor_theme, xcursor_size);
+        merge_clone!((self, part), xcursor_theme, xcursor_size, agent_color);
         merge!((self, part), hide_when_typing);
         merge_clone_opt!((self, part), hide_after_inactive_ms);
     }

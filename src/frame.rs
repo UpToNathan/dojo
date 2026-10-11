@@ -30,6 +30,7 @@ struct FrameView {
     last_menu_pointer: Option<gpui::Point<gpui::Pixels>>,
     last_power_update: Instant,
     launcher_hovered: bool,
+    vigiland_running: bool,
     wlsunset_hovered: bool,
     theme_hovered: bool,
 }
@@ -456,13 +457,30 @@ fn submenu_hover_target(
     }
 }
 
+fn vigiland_running() -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    let Ok(metadata) = std::fs::metadata("/proc/self") else {
+        return false;
+    };
+    std::process::Command::new("pgrep")
+        .args(["-u", &metadata.uid().to_string(), "-x", "vigiland"])
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
 impl FrameView {
     fn new(tray: TrayHandle, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let tray_for_updates = tray.clone();
         cx.spawn_in(window, async move |this, cx| {
             loop {
+                let vigiland_running = cx
+                    .background_executor()
+                    .spawn(async { vigiland_running() })
+                    .await;
                 if this
                     .update_in(cx, |this, _window, cx| {
+                        this.vigiland_running = vigiland_running;
                         if this.last_power_update.elapsed() >= Duration::from_secs(1) {
                             this.power = power::read_status();
                             this.last_power_update = Instant::now();
@@ -494,6 +512,7 @@ impl FrameView {
             last_menu_pointer: None,
             last_power_update: Instant::now(),
             launcher_hovered: false,
+            vigiland_running: false,
             wlsunset_hovered: false,
             theme_hovered: false,
             tray,
@@ -786,7 +805,9 @@ impl Render for FrameView {
         }
 
         let tray_count = tray_icons.len();
-        let top_bar_width = 124. + tray_count as f32 * (TOP_BAR_BUTTON_WIDTH + TOP_BAR_GAP);
+        let indicator_count = usize::from(self.vigiland_running);
+        let top_bar_width =
+            124. + (tray_count + indicator_count) as f32 * (TOP_BAR_BUTTON_WIDTH + TOP_BAR_GAP);
         let tray_group = div()
             .flex()
             .items_center()
@@ -804,6 +825,21 @@ impl Render for FrameView {
             .justify_end()
             .gap(px(TOP_BAR_GAP))
             .text_color(colors.foreground.rgb())
+            .when(self.vigiland_running, |bar| {
+                bar.child(
+                    div()
+                        .id("vigiland-indicator")
+                        .aria_label("Vigiland is inhibiting idle")
+                        .w(px(TOP_BAR_BUTTON_WIDTH))
+                        .h(px(18.))
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_size(px(18.5))
+                        .child("\u{f05e2}"),
+                )
+            })
             .child(
                 div()
                     .id("wlsunset-button")

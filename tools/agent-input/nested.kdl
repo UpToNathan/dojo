@@ -28,3 +28,7 @@ window-rule {
 hotkey-overlay {
     skip-at-startup
 }
+
+cursor {
+    agent-color "#7aa2f7"
+}

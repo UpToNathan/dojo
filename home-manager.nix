@@ -50,6 +50,8 @@ in
       imports = [
         inputs.stasis.homeModules.default
         ./theme-home-manager.nix
+        ./t3-home-manager.nix
+        ./rift-home-manager.nix
       ];
       home.username = "nathan";
       home.homeDirectory = homeDirectory;

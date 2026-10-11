@@ -21,6 +21,11 @@ Run `devenv shell` or `devenv eval ...` from this directory. Run
 place; it preserves replaced files as timestamped backups. See
 `system-config/README.md` for tracked inputs versus generated runtime state.
 
+Home Manager also installs T3's bundled CLI and a freedesktop autostart entry
+for its standalone backend. See [T3 server setup](docs/t3-server.md) for the
+desktop client handoff. [Rift workspaces](docs/rift.md) describes the pinned
+CLI and OpenCode workspace plugin installed through Home Manager and devenv.
+
 Clipboard history and persistence are separate services: Clipvault stores past
 entries, while `wl-clip-persist` retains the regular clipboard in memory after
 the source app closes. Both run with the graphical session; primary selection

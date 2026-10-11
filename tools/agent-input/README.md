@@ -138,8 +138,8 @@ must receive an agent click, Shift+A, scrolling and release of a held B.
 The `human-pointer` helper injects primary-seat motion into the nested session.
 The runner checks ownership notifications, blocked and stale actions, held-key
 cleanup, a working human click, the retained agent cursor and recovery after the
-human leaves. Screenshots require cyan cursor pixels before and after takeover,
-and no cyan pixels after release. The MCP adapter executable is removed before
+human leaves. The nested configuration uses the primary accent `#7aa2f7`. Screenshots require
+that cursor color before and after takeover, and its absence after release. The MCP adapter executable is removed before
 its first action to exercise service startup during binary replacement.
 An additional raw controller holds a mouse button while the human takes over;
 the page must receive its release before subsequent human input.

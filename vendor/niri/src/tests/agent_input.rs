@@ -341,8 +341,10 @@ fn experimental_seats_hide_incompatible_protocol_globals() {
         .unwrap();
     experimental.double_roundtrip(client);
     let globals = &experimental.client(client).state.globals;
+    assert!(globals
+        .iter()
+        .any(|global| global.interface == "wp_cursor_shape_manager_v1"));
     for interface in [
-        "wp_cursor_shape_manager_v1",
         "zwp_virtual_keyboard_manager_v1",
         "zwp_input_method_manager_v2",
     ] {

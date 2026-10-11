@@ -54,6 +54,6 @@ and system login entry are unchanged. To keep this rollback across future Home
 Manager activations, remove the corresponding `xdg.configFile` entry from
 `home-manager.nix` too.
 
-The experimental session currently hides virtual-keyboard, input-method and
-cursor-shape globals. Clipboard/IME and client support limits are described in
+The experimental session currently hides virtual-keyboard and input-method
+globals. Clipboard/IME and client support limits are described in
 [the agent input guide](agent-input.md#experimental-scope).

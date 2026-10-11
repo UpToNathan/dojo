@@ -315,15 +315,17 @@ not replace the installed desktop; use the session installer to select a build.
 
 Agent window move/resize, popup grabs, drag-and-drop and layout activation are
 disabled. The cursor is the cyan `nf-fa-mouse_pointer` Nerd Font glyph, rendered
-at 24 logical pixels high from an embedded high resolution asset. Its buffer
+at 24 logical pixels high from an embedded high resolution asset. Its color
+follows Dojo's primary accent through the Niri `cursor.agent-color` theme export,
+including cursors already visible when the theme changes. Its buffer
 exists only while the agent seat exists. Native Wayland clients must
 bind multiple seats; XWayland support has not been established.
 
 In experimental mode, the virtual-keyboard and input-method globals are hidden
 because their current Smithay handlers bypass the controller's input gate.
-The cursor-shape global is also hidden; the human cursor uses the normal surface
-cursor protocol. These restrictions apply to the whole enabled session. Normal
-mode retains the upstream behavior.
+These restrictions apply to the whole enabled session. Cursor-shape requests
+resolve the matching live seat; retired pointers remain inert. Only the human
+seat can change the human cursor. Normal mode retains the upstream behavior.
 
 GPUI routes additional-seat keys, direct composition, repeat, modifiers, pointer
 events and scrolling independently. Clipboard and primary selection still use

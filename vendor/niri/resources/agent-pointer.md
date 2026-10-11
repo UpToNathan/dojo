@@ -2,11 +2,11 @@
 
 `agent-pointer.png` is the actual `nf-fa-mouse_pointer` glyph, U+F245, exported
 from Dojo's bundled `VictorMonoNerdFontMono-Regular.ttf`. Its cmap names the glyph
-`fa-mouse_pointer`. The glyph is cropped to its ink bounds, colored cyan and
-stored at 4x resolution. Niri uses buffer scale 4, giving a 24 logical pixel high
+`fa-mouse_pointer`. The glyph is cropped to its ink bounds, stored at 4x resolution. The embedded RGB is unused: Niri applies
+`cursor.agent-color` to its alpha mask, supplied by Dojo's primary theme accent. Niri uses buffer scale 4, giving a 24 logical pixel high
 cursor. The top-left tip is the pointer hotspot. There is no hand-drawn arrow.
 
-The PNG is embedded in Niri, so installed fonts and Fontconfig do not affect the
+Theme reload recolors existing agent cursors. The PNG is embedded in Niri, so installed fonts and Fontconfig do not affect the
 cursor. Its buffer exists only while the agent seat exists. Fractional outputs
 resample the high resolution glyph through Smithay's existing cursor renderer.
 
