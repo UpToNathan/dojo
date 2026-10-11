@@ -49,6 +49,9 @@ pub struct EventStreamState {
 
     /// State of screencasts.
     pub casts: CastsState,
+
+    /// Ownership of shared application input.
+    pub input_coordination: crate::InputCoordination,
 }
 
 /// The workspaces state communicated over the event stream.
@@ -102,6 +105,7 @@ impl EventStreamStatePart for EventStreamState {
         events.extend(self.overview.replicate());
         events.extend(self.config.replicate());
         events.extend(self.casts.replicate());
+        events.extend(self.input_coordination.replicate());
         events
     }
 
@@ -112,6 +116,7 @@ impl EventStreamStatePart for EventStreamState {
         let event = self.overview.apply(event)?;
         let event = self.config.apply(event)?;
         let event = self.casts.apply(event)?;
+        let event = self.input_coordination.apply(event)?;
         Some(event)
     }
 }
@@ -319,5 +324,21 @@ impl EventStreamStatePart for CastsState {
             event => return Some(event),
         }
         None
+    }
+}
+
+impl EventStreamStatePart for crate::InputCoordination {
+    fn replicate(&self) -> Vec<Event> {
+        vec![Event::InputCoordinationChanged {
+            coordination: self.clone(),
+        }]
+    }
+    fn apply(&mut self, event: Event) -> Option<Event> {
+        if let Event::InputCoordinationChanged { coordination } = event {
+            *self = coordination;
+            None
+        } else {
+            Some(event)
+        }
     }
 }

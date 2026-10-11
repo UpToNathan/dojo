@@ -122,6 +122,15 @@ impl IpcServer {
         })
     }
 
+    pub(crate) fn send_input_coordination(&self, coordination: niri_ipc::InputCoordination) {
+        if self.event_stream_state.borrow().input_coordination == coordination {
+            return;
+        }
+        let event = Event::InputCoordinationChanged { coordination };
+        self.event_stream_state.borrow_mut().apply(event.clone());
+        self.send_event(event);
+    }
+
     fn send_event(&self, event: Event) {
         let mut streams = self.event_streams.borrow_mut();
         let mut to_remove = Vec::new();
@@ -294,6 +303,18 @@ async fn process(ctx: &ClientCtx, request: Request) -> Reply {
                 .recv()
                 .await
                 .map_err(|_| "agent dispatcher stopped".to_string())?;
+        }
+        Request::InputCoordination => {
+            let (tx, rx) = async_channel::bounded(1);
+            ctx.event_loop.insert_idle(move |state| {
+                let _ = tx.try_send(Response::InputCoordination(
+                    state.input_coordination_snapshot(),
+                ));
+            });
+            return rx
+                .recv()
+                .await
+                .map_err(|_| "coordination dispatcher stopped".to_string());
         }
         Request::Outputs => {
             let ipc_outputs = ctx.ipc_outputs.lock().unwrap().clone();
@@ -606,6 +627,7 @@ impl State {
     pub fn ipc_refresh_layout(&mut self) {
         self.ipc_refresh_workspaces();
         self.ipc_refresh_windows();
+        self.publish_input_coordination();
         self.ipc_refresh_overview();
     }
 

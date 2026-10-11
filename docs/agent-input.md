@@ -6,16 +6,45 @@ select that seat's keyboard target without activating the human's Niri layout.
 
 ## Application compatibility
 
-Clients must bind the additional Wayland seat to receive independent agent input.
-Dojo's GPUI fork does this. T3's Electron 44.4.2 / Chromium 152.0.7977.130 binds
-only the original seat, so the independent cursor renders but T3 ignores its
-clicks and keys. This was reproduced with the same Electron runtime in an
-isolated compositor and confirmed in its protocol trace.
+Clients that bind an agent's Wayland pointer and keyboard receive native seat
+input. For clients that bind only the primary seat, including T3's Electron,
+Niri sends agent events through that client's existing resources. The human's
+compositor pointer position and layout keyboard focus remain independent.
 
-The current `handled` response acknowledges compositor dispatch and does not
-prove that an application received the event. Verify an actual UI response.
-[The compatibility bug](../.scratch/agent-input/issues/04-chromium-seat-compatibility.md)
-records the evidence and required follow-up. It remains unresolved.
+Human pointer interaction inside an application or typing in its focused window
+takes ownership before input delivery. Niri cancels conflicting agent movement,
+releases held keys and buttons, restores human protocol focus and modifiers,
+and keeps the agent cursor visible. Ownership covers the client connection,
+including its other windows. Pointer ownership ends when the human leaves;
+keyboard ownership ends on pointer interaction after held keys are released.
+Held agent input on the shared primary resources prevents another agent from
+taking over that pipeline. Native seats retain independent held input.
+
+`handled` confirms that input was sent to a bound resource. It does not prove
+that the application performed the intended action. Verify the UI result.
+Clicks, keys and scrolling fail if no usable resource exists. Interactive window
+move/resize, client pointer grabs, drag and drop, and X11 remain unsupported.
+
+## Ownership protocol
+
+`Request::InputCoordination` returns the current revision and
+`human_owned_windows`. Niri's event stream emits `InputCoordinationChanged` and
+includes the current snapshot when a subscriber connects. Window membership is
+expanded from client connection ownership.
+
+Wrap raw commands in `Coordinated { revision, command }` to reject actions based
+on stale ownership. The SDK does this automatically, including arrival waits.
+Reset and destruction remain unguarded cleanup operations. Human takeover or a
+conflicting held interaction returns `AgentInputPaused` with a reason and fresh
+snapshot. The SDK returns `InputPaused`; it updates its revision without
+retrying the action.
+
+MCP `desktop_context` includes `coordination`. A paused `desktop_action` returns
+`handled: false`, `paused: true`, the reason and snapshot, while retaining its
+seat and worker. The agent must inspect the situation and choose its next action.
+MCP supplies this information through tool responses; a runtime needing immediate
+notifications can subscribe to Niri's event stream. No observer worker runs while
+the adapter is idle. The updated SDK requires the updated compositor fork.
 
 ## Build
 

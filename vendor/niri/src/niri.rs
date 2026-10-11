@@ -342,6 +342,7 @@ pub struct Niri {
 
     pub seat: Seat<State>,
     pub agent_input_enabled: bool,
+    pub(crate) input_coordination: crate::agent_input::Coordination,
     pub agent_seats: HashMap<u64, crate::agent_input::AgentSeat>,
     pub agent_dispatch_state: Option<SeatState<State>>,
     pub next_agent_peer: u64,
@@ -1215,6 +1216,7 @@ impl State {
             }
         }
 
+        self.human_pointer_focus_changed(under.surface.as_ref().map(|(s, _)| s.clone()));
         self.niri.pointer_contents.clone_from(&under);
 
         pointer.motion(
@@ -2731,6 +2733,7 @@ impl Niri {
 
             seat,
             agent_input_enabled,
+            input_coordination: Default::default(),
             agent_seats: HashMap::new(),
             agent_dispatch_state: None,
             next_agent_peer: 0,

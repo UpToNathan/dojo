@@ -17,6 +17,28 @@ fn read(path: &str) -> Result<(u32, u32, usize, Vec<u8>), Box<dyn std::error::Er
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().collect();
+    if args.len() == 9 && args[1] == "--color" {
+        let image = read(&args[2])?;
+        let x: i32 = args[3].parse()?;
+        let y: i32 = args[4].parse()?;
+        let radius: i32 = args[5].parse()?;
+        let color = [args[6].parse::<u8>()?, args[7].parse()?, args[8].parse()?];
+        let mut matching = 0;
+        for row in (y - radius).max(0)..(y + radius).min(image.1 as i32) {
+            for column in (x - radius).max(0)..(x + radius).min(image.0 as i32) {
+                let offset = (row as usize * image.0 as usize + column as usize) * image.2;
+                if image.3[offset..offset + 3]
+                    .iter()
+                    .zip(color)
+                    .all(|(&channel, wanted)| channel.abs_diff(wanted) <= 8)
+                {
+                    matching += 1;
+                }
+            }
+        }
+        println!("{{\"matching_pixels\":{matching}}}");
+        return Ok(());
+    }
     if args.len() != 6 {
         return Err("Usage: pixel-diff BEFORE AFTER X Y RADIUS".into());
     }

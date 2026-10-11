@@ -414,6 +414,7 @@ impl State {
         event: I::KeyboardKeyEvent,
         consumed_by_a11y: &mut bool,
     ) {
+        self.human_keyboard_activity();
         let mod_key = self.backend.mod_key(&self.niri.config.borrow());
 
         let serial = SERIAL_COUNTER.next_serial();
@@ -2496,9 +2497,11 @@ impl State {
 
             // If the pointer is locked, only send relative motion.
             if pointer_locked {
+                let focus = under.clone();
+                self.human_pointer_activity(pointer.current_focus());
                 pointer.relative_motion(
                     self,
-                    Some(under.clone()),
+                    Some(focus),
                     &RelativeMotionEvent {
                         delta: event.delta(),
                         delta_unaccel: event.delta_unaccel(),
@@ -2607,6 +2610,7 @@ impl State {
             }
 
             if prevent {
+                self.human_pointer_activity(Some(focus_surface.0.clone()));
                 pointer.relative_motion(
                     self,
                     Some(focus_surface),
@@ -2623,6 +2627,7 @@ impl State {
             }
         }
 
+        self.human_pointer_activity(under.surface.as_ref().map(|(s, _)| s.clone()));
         self.niri.handle_focus_follows_mouse(&under);
 
         self.niri.pointer_contents.clone_from(&under);
@@ -2724,6 +2729,7 @@ impl State {
 
         let under = self.niri.contents_under(pos);
 
+        self.human_pointer_activity(under.surface.as_ref().map(|(s, _)| s.clone()));
         self.niri.handle_focus_follows_mouse(&under);
 
         self.niri.pointer_contents.clone_from(&under);
@@ -2782,6 +2788,7 @@ impl State {
     }
 
     fn on_pointer_button<I: InputBackend>(&mut self, event: I::PointerButtonEvent) {
+        self.human_pointer_activity(self.niri.seat.get_pointer().unwrap().current_focus());
         let pointer = self.niri.seat.get_pointer().unwrap();
 
         let serial = SERIAL_COUNTER.next_serial();
@@ -3107,6 +3114,7 @@ impl State {
     }
 
     fn on_pointer_axis<I: InputBackend>(&mut self, event: I::PointerAxisEvent) {
+        self.human_pointer_activity(self.niri.seat.get_pointer().unwrap().current_focus());
         let pointer = &self.niri.seat.get_pointer().unwrap();
 
         let source = event.source();

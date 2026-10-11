@@ -18,7 +18,7 @@ pub(super) struct ActiveWorker {
 
 impl ActiveWorker {
     pub(super) fn spawn(socket: Option<&Path>, name: &str, idle_timeout: Duration) -> Result<Self> {
-        let mut command = Command::new(std::env::current_exe()?);
+        let mut command = Command::new(format!("/proc/{}/exe", std::process::id()));
         command
             .args(["--worker", "--name", name, "--idle-timeout-seconds"])
             .arg(idle_timeout.as_secs().to_string())

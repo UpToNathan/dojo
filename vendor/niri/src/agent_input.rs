@@ -24,7 +24,10 @@ use smithay::reexports::wayland_server::backend::GlobalId;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Scale, Transform, SERIAL_COUNTER};
 
+mod coordination;
+pub(crate) use coordination::Coordination;
 mod motion;
+mod shared;
 use motion::Motion;
 
 use crate::niri::{LockState, Niri, OutputRenderElements, State};
@@ -32,6 +35,7 @@ use crate::render_helpers::renderer::NiriRenderer;
 use crate::utils::get_monotonic_time;
 
 pub struct AgentSeat {
+    peer: u64,
     pub seat: Seat<State>,
     state: SeatState<State>,
     target: Option<WlSurface>,
@@ -42,6 +46,8 @@ pub struct AgentSeat {
     cursor: MemoryRenderBuffer,
     motion: Option<Motion>,
     arrival: Option<Arrival>,
+    shared_pointer: Option<(WlSurface, Point<f64, Logical>)>,
+    shared_keyboard: Option<WlSurface>,
 }
 
 struct Arrival {
@@ -55,6 +61,7 @@ pub fn enabled() -> bool {
 
 fn validate(command: &AgentInput) -> Result<(), String> {
     match command {
+        AgentInput::Coordinated { command, .. } => return validate(command),
         AgentInput::Create { name } => {
             if name.is_empty()
                 || name.len() > 32
@@ -97,6 +104,12 @@ impl State {
         peer: u64,
         command: AgentInput,
     ) -> Result<Response, String> {
+        if let AgentInput::Coordinated { revision, command } = command {
+            if revision != self.niri.input_coordination.revision {
+                return self.agent_input_failure("paused: input ownership changed".into());
+            }
+            return self.apply_agent_input(peer, *command);
+        }
         self.check_agent_input(&command)?;
         self.refresh_agents();
         if let AgentInput::Create { name } = command {
@@ -127,6 +140,7 @@ impl State {
             self.niri.agent_seats.insert(
                 peer,
                 AgentSeat {
+                    peer,
                     seat,
                     state,
                     target: None,
@@ -137,6 +151,8 @@ impl State {
                     cursor,
                     motion: None,
                     arrival: None,
+                    shared_pointer: None,
+                    shared_keyboard: None,
                 },
             );
             return Ok(Response::AgentInputCreated { seat_name });
@@ -146,7 +162,10 @@ impl State {
             return Ok(Response::Handled);
         }
         let moving = matches!(command, AgentInput::Move { .. });
-        self.with_agent(peer, |this, agent| this.dispatch_agent(agent, command))??;
+        let result = self.with_agent(peer, |this, agent| this.dispatch_agent(agent, command))?;
+        if let Err(reason) = result {
+            return self.agent_input_failure(reason);
+        }
         if moving && self.niri.agent_seats[&peer].motion.is_some() {
             Ok(Response::AgentInputMoving)
         } else {
@@ -173,10 +192,14 @@ impl State {
         command: AgentInput,
         reply: async_channel::Sender<niri_ipc::Reply>,
     ) {
-        if matches!(
-            command,
-            AgentInput::Wait | AgentInput::Button { .. } | AgentInput::Axis { .. }
-        ) {
+        fn deferred(command: &AgentInput) -> bool {
+            match command {
+                AgentInput::Coordinated { command, .. } => deferred(command),
+                AgentInput::Wait | AgentInput::Button { .. } | AgentInput::Axis { .. } => true,
+                _ => false,
+            }
+        }
+        if deferred(&command) {
             if let Err(error) = self.check_agent_input(&command) {
                 let _ = reply.try_send(Err(error));
                 return;
@@ -230,6 +253,12 @@ impl State {
         let pointer = agent.seat.get_pointer().unwrap();
         let keyboard = agent.seat.get_keyboard().unwrap();
         match command {
+            AgentInput::Coordinated { revision, command } => {
+                if revision != self.niri.input_coordination.revision {
+                    return Err("paused: input ownership changed".into());
+                }
+                return self.dispatch_agent(agent, *command);
+            }
             AgentInput::Focus { window_id } => {
                 let mut target = None;
                 self.niri.layout.with_windows(|mapped, output, _, _| {
@@ -238,7 +267,9 @@ impl State {
                     }
                 });
                 let target = target.ok_or_else(|| "no mapped window with that ID".to_string())?;
+                self.require_agent_client(agent, &target)?;
                 agent.set_target(self, target);
+                agent.shared_keyboard_focus(self)?;
             }
             AgentInput::Move { output, x, y } => {
                 let output = self
@@ -288,6 +319,13 @@ impl State {
             AgentInput::Button { button, state } => {
                 let pressed = state == AgentInputState::Pressed;
                 if pressed {
+                    let surface = agent
+                        .contents
+                        .as_ref()
+                        .map(|(surface, _)| surface)
+                        .ok_or("move the agent pointer onto a client surface first")?;
+                    self.require_agent_client(agent, surface)?;
+                    agent.shared_pointer_motion(self, pointer.current_location())?;
                     if !agent.visible || pointer.current_focus().is_none() {
                         return Err("move the agent pointer onto a client surface first".into());
                     }
@@ -303,20 +341,22 @@ impl State {
                 } else if !agent.buttons.remove(&button) {
                     return Ok(());
                 }
-                pointer.button(
-                    self,
-                    &ButtonEvent {
-                        button,
-                        state: if pressed {
-                            ButtonState::Pressed
-                        } else {
-                            ButtonState::Released
+                if !agent.shared_button(self, button, pressed)? {
+                    pointer.button(
+                        self,
+                        &ButtonEvent {
+                            button,
+                            state: if pressed {
+                                ButtonState::Pressed
+                            } else {
+                                ButtonState::Released
+                            },
+                            serial: SERIAL_COUNTER.next_serial(),
+                            time: InputTime::now(),
                         },
-                        serial: SERIAL_COUNTER.next_serial(),
-                        time: InputTime::now(),
-                    },
-                );
-                pointer.frame(self);
+                    );
+                    pointer.frame(self);
+                }
             }
             AgentInput::Key { evdev, state } => {
                 if agent.target.as_ref().is_none_or(|surface| {
@@ -329,6 +369,10 @@ impl State {
                     return Err("focus a mapped window before typing".into());
                 }
                 let pressed = state == AgentInputState::Pressed;
+                if pressed {
+                    self.require_agent_client(agent, agent.target.as_ref().unwrap())?;
+                }
+                let shared = agent.shared_keyboard_focus(self)?;
                 if pressed {
                     if !agent.keys.insert(evdev) {
                         return Ok(());
@@ -346,8 +390,17 @@ impl State {
                     },
                     SERIAL_COUNTER.next_serial(),
                     InputTime::now(),
-                    |_, _, _| FilterResult::Forward,
+                    |_, _, _| {
+                        if shared {
+                            FilterResult::Intercept(())
+                        } else {
+                            FilterResult::Forward
+                        }
+                    },
                 );
+                if shared {
+                    agent.shared_key(self, evdev, pressed)?;
+                }
             }
             AgentInput::Axis {
                 horizontal,
@@ -356,14 +409,23 @@ impl State {
                 if !agent.visible || pointer.current_focus().is_none() {
                     return Err("move the agent pointer onto a client surface first".into());
                 }
-                pointer.axis(
-                    self,
-                    AxisFrame::new(InputTime::now())
-                        .source(AxisSource::Continuous)
-                        .value(Axis::Horizontal, horizontal)
-                        .value(Axis::Vertical, vertical),
-                );
-                pointer.frame(self);
+                let surface = agent
+                    .contents
+                    .as_ref()
+                    .map(|(surface, _)| surface)
+                    .ok_or("move the agent pointer onto a client surface first")?;
+                self.require_agent_client(agent, surface)?;
+                agent.shared_pointer_motion(self, pointer.current_location())?;
+                if !agent.shared_axis(self, horizontal, vertical)? {
+                    pointer.axis(
+                        self,
+                        AxisFrame::new(InputTime::now())
+                            .source(AxisSource::Continuous)
+                            .value(Axis::Horizontal, horizontal)
+                            .value(Axis::Vertical, vertical),
+                    );
+                    pointer.frame(self);
+                }
             }
             AgentInput::Wait => {}
             AgentInput::Reset => agent.reset(self),
@@ -444,6 +506,8 @@ impl State {
                                 let result = this
                                     .dispatch_agent(agent, arrival.command)
                                     .map(|()| Response::Handled);
+                                let result =
+                                    result.or_else(|reason| this.agent_input_failure(reason));
                                 let _ = arrival.reply.try_send(result);
                             }
                         }
@@ -469,17 +533,7 @@ impl State {
                     if agent.contents == under.surface {
                         return;
                     }
-                    agent.contents = under.surface.clone();
-                    pointer.motion(
-                        this,
-                        under.surface,
-                        &MotionEvent {
-                            location,
-                            serial: SERIAL_COUNTER.next_serial(),
-                            time: InputTime::now(),
-                        },
-                    );
-                    pointer.frame(this);
+                    agent.move_to(this, location);
                 }
             });
         }
@@ -511,9 +565,13 @@ impl AgentSeat {
         let under = state.niri.contents_under(location);
         self.contents = under.surface.clone();
         let pointer = self.seat.get_pointer().unwrap();
+        let allowed = under
+            .surface
+            .as_ref()
+            .is_some_and(|(surface, _)| state.require_agent_client(self, surface).is_ok());
         pointer.motion(
             state,
-            under.surface,
+            if allowed { under.surface } else { None },
             &MotionEvent {
                 location,
                 serial: SERIAL_COUNTER.next_serial(),
@@ -521,6 +579,11 @@ impl AgentSeat {
             },
         );
         pointer.frame(state);
+        if allowed {
+            let _ = self.shared_pointer_motion(state, location);
+        } else {
+            self.release_shared_pointer(state);
+        }
     }
 
     fn set_target(&mut self, state: &mut State, target: WlSurface) {
@@ -528,6 +591,7 @@ impl AgentSeat {
             return;
         }
         self.release_keys(state);
+        self.release_shared_keyboard(state);
         self.target = Some(target.clone());
         self.seat.get_keyboard().unwrap().set_focus(
             state,
@@ -538,19 +602,32 @@ impl AgentSeat {
 
     fn release_keys(&mut self, state: &mut State) {
         let keyboard = self.seat.get_keyboard().unwrap();
-        for evdev in self.keys.drain() {
+        let shared = self.shared_keyboard.is_some();
+        for evdev in std::mem::take(&mut self.keys) {
             keyboard.input::<(), _>(
                 state,
                 Keycode::from(evdev + 8),
                 KeyState::Released,
                 SERIAL_COUNTER.next_serial(),
                 InputTime::now(),
-                |_, _, _| FilterResult::Forward,
+                |_, _, _| {
+                    if shared {
+                        FilterResult::Intercept(())
+                    } else {
+                        FilterResult::Forward
+                    }
+                },
             );
+            if shared {
+                let _ = self.shared_key(state, evdev, false);
+            }
         }
     }
 
     fn reset(&mut self, state: &mut State) {
+        let shared_pointer = self.shared_pointer.is_some();
+        self.release_keys(state);
+        self.release_shared(state);
         self.motion = None;
         if let Some(arrival) = self.arrival.take() {
             let _ = arrival
@@ -565,9 +642,11 @@ impl AgentSeat {
         {
             return;
         }
-        self.release_keys(state);
         let pointer = self.seat.get_pointer().unwrap();
         for button in self.buttons.drain() {
+            if shared_pointer {
+                continue;
+            }
             pointer.button(
                 state,
                 &ButtonEvent {

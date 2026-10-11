@@ -61,6 +61,7 @@ pub struct State {
     pub surfaces: HashMap<WlSurface, Surface>,
     pub seats: HashMap<WlSeat, Seat>,
     pub pointer_events: Vec<PointerEvent>,
+    pub primary_seat_only: bool,
 
     pub compositor: Option<WlCompositor>,
     pub xdg_wm_base: Option<XdgWmBase>,
@@ -275,6 +276,7 @@ impl Client {
             surfaces: HashMap::new(),
             seats: HashMap::new(),
             pointer_events: Vec::new(),
+            primary_seat_only: false,
             compositor: None,
             xdg_wm_base: None,
             layer_shell: None,
@@ -663,6 +665,7 @@ impl Dispatch<WlRegistry, ()> for State {
                     let output = registry.bind(name, version, qh, ());
                     state.outputs.insert(output, String::new());
                 } else if interface == WlSeat::interface().name {
+                    if state.primary_seat_only && !state.seats.is_empty() { return; }
                     let version = min(version, WlSeat::interface().version);
                     state
                         .seats

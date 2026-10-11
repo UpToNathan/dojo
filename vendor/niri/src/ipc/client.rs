@@ -450,6 +450,9 @@ pub fn handle_msg(mut msg: Msg, json: bool, print_request: bool) -> anyhow::Resu
                 }
 
                 match event {
+                    Event::InputCoordinationChanged { coordination } => {
+                        println!("Input coordination changed: {coordination:?}");
+                    }
                     Event::WorkspacesChanged { workspaces } => {
                         println!("Workspaces changed: {workspaces:?}");
                     }

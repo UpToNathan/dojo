@@ -11,6 +11,7 @@ pub use niri_ipc::AgentInputState as InputState;
 pub struct AgentController {
     socket: Socket,
     seat_name: String,
+    revision: u64,
 }
 
 impl AgentController {
@@ -32,7 +33,17 @@ impl AgentController {
         let Response::AgentInputCreated { seat_name } = response else {
             bail!("Niri did not acknowledge agent seat creation: {response:?}");
         };
-        Ok(Self { socket, seat_name })
+        let Response::InputCoordination(coordination) = socket
+            .send(Request::InputCoordination)?
+            .map_err(anyhow::Error::msg)?
+        else {
+            bail!("Niri did not report input coordination");
+        };
+        Ok(Self {
+            socket,
+            seat_name,
+            revision: coordination.revision,
+        })
     }
 
     pub fn seat_name(&self) -> &str {
@@ -44,15 +55,11 @@ impl AgentController {
     }
 
     pub fn move_pointer(&mut self, output: &str, x: f64, y: f64) -> Result<()> {
-        let response = self
-            .socket
-            .send(Request::AgentInput(AgentInput::Move {
-                output: output.into(),
-                x,
-                y,
-            }))
-            .context("move agent pointer")?
-            .map_err(anyhow::Error::msg)?;
+        let response = self.send(AgentInput::Move {
+            output: output.into(),
+            x,
+            y,
+        })?;
         match response {
             Response::AgentInputMoving => self.command(AgentInput::Wait),
             Response::Handled => Ok(()),
@@ -83,18 +90,53 @@ impl AgentController {
         self.command(AgentInput::Destroy)
     }
 
-    fn command(&mut self, command: AgentInput) -> Result<()> {
+    fn send(&mut self, command: AgentInput) -> Result<Response> {
+        let command = if matches!(command, AgentInput::Reset | AgentInput::Destroy) {
+            command
+        } else {
+            AgentInput::Coordinated {
+                revision: self.revision,
+                command: Box::new(command),
+            }
+        };
         let response = self
             .socket
-            .send(Request::AgentInput(command))
-            .context("send agent input")?
+            .send(Request::AgentInput(command))?
             .map_err(anyhow::Error::msg)?;
-        match response {
+        if let Response::AgentInputPaused {
+            reason,
+            coordination,
+        } = response
+        {
+            self.revision = coordination.revision;
+            return Err(InputPaused {
+                reason,
+                coordination,
+            }
+            .into());
+        }
+        Ok(response)
+    }
+
+    fn command(&mut self, command: AgentInput) -> Result<()> {
+        match self.send(command)? {
             Response::Handled => Ok(()),
             response => bail!("unexpected agent input response: {response:?}"),
         }
     }
 }
+
+#[derive(Debug)]
+pub struct InputPaused {
+    pub reason: String,
+    pub coordination: niri_ipc::InputCoordination,
+}
+impl std::fmt::Display for InputPaused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "agent paused: {}", self.reason)
+    }
+}
+impl std::error::Error for InputPaused {}
 
 #[cfg(test)]
 mod tests {
@@ -124,8 +166,12 @@ mod tests {
                 let value: serde_json::Value = serde_json::from_str(&line).unwrap();
                 let reply = if requests.is_empty() {
                     "{\"Ok\":{\"AgentInputCreated\":{\"seat_name\":\"dojo-agent-test\"}}}\n"
+                } else if value == serde_json::json!("InputCoordination") {
+                    "{\"Ok\":{\"InputCoordination\":{\"revision\":7,\"human_owned_windows\":[]}}}\n"
                 } else if value
                     .get("AgentInput")
+                    .and_then(|v| v.get("Coordinated"))
+                    .and_then(|v| v.get("command"))
                     .and_then(|v| v.get("Move"))
                     .is_some()
                 {
@@ -147,18 +193,26 @@ mod tests {
             controller.key(30, InputState::Released).unwrap();
             controller.reset().unwrap();
         }
+        let requests = server.join().unwrap();
         assert_eq!(
-            server.join().unwrap(),
-            vec![
-                serde_json::json!({"AgentInput":{"Create":{"name":"test"}}}),
-                serde_json::json!({"AgentInput":{"Focus":{"window_id":42}}}),
-                serde_json::json!({"AgentInput":{"Move":{"output":"test-output","x":100.0,"y":200.0}}}),
-                serde_json::json!({"AgentInput":"Wait"}),
-                serde_json::json!({"AgentInput":{"Key":{"evdev":30,"state":"Pressed"}}}),
-                serde_json::json!({"AgentInput":{"Key":{"evdev":30,"state":"Released"}}}),
-                serde_json::json!({"AgentInput":"Reset"}),
-            ]
+            requests[0],
+            serde_json::json!({"AgentInput":{"Create":{"name":"test"}}})
         );
+        assert_eq!(requests[1], serde_json::json!("InputCoordination"));
+        let commands = vec![
+            serde_json::json!({"Focus":{"window_id":42}}),
+            serde_json::json!({"Move":{"output":"test-output","x":100.0,"y":200.0}}),
+            serde_json::json!("Wait"),
+            serde_json::json!({"Key":{"evdev":30,"state":"Pressed"}}),
+            serde_json::json!({"Key":{"evdev":30,"state":"Released"}}),
+        ];
+        for (request, command) in requests[2..7].iter().zip(commands) {
+            assert_eq!(
+                *request,
+                serde_json::json!({"AgentInput":{"Coordinated":{"revision":7,"command":command}}})
+            );
+        }
+        assert_eq!(requests[7], serde_json::json!({"AgentInput":"Reset"}));
         std::fs::remove_dir_all(directory).unwrap();
     }
 }

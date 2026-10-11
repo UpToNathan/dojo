@@ -1,9 +1,9 @@
 use fixture::Fixture;
 
 mod client;
-mod fixture;
+pub(crate) mod fixture;
 mod server;
-mod test_input_backend;
+pub(crate) mod test_input_backend;
 
 mod agent_input;
 mod animations;

@@ -530,3 +530,392 @@ fn agent_click_waits_for_arrival_and_reset_cancels_wait() {
     f.niri_state().destroy_agent(1);
     assert!(f.niri().agent_seats.is_empty());
 }
+
+#[test]
+fn shared_client_receives_input_and_human_takeover_releases_it() {
+    let mut f = Fixture::with_agent_input();
+    f.niri().clock.set_complete_instantly(true);
+    f.add_output(1, (1920, 1080));
+    let (client, surface, target) = window(&mut f);
+    f.client(client).state.primary_seat_only = true;
+    let window = f.client(client).window(&surface);
+    window.set_size(1000, 1000);
+    window.commit();
+    f.double_roundtrip(client);
+    let primary_location = f.niri().seat.get_pointer().unwrap().current_location();
+    let primary_focus = f.niri().seat.get_keyboard().unwrap().current_focus();
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Create {
+                name: "shared".into(),
+            },
+        )
+        .unwrap();
+    f.double_roundtrip(client);
+    assert_eq!(f.client(client).state.seats.len(), 1);
+    f.niri_state()
+        .apply_agent_input(1, AgentInput::Focus { window_id: target })
+        .unwrap();
+    f.double_roundtrip(client);
+    let _ = keys(&mut f, client, &surface);
+    let output = f.niri_output(1).name();
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Move {
+                output,
+                x: 500.,
+                y: 500.,
+            },
+        )
+        .unwrap();
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Button {
+                button: 272,
+                state: AgentInputState::Pressed,
+            },
+        )
+        .unwrap();
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Key {
+                evdev: 42,
+                state: AgentInputState::Pressed,
+            },
+        )
+        .unwrap();
+    f.double_roundtrip(client);
+    assert_eq!(
+        keys(&mut f, client, &surface),
+        vec![(42, wl_keyboard::KeyState::Pressed)]
+    );
+    assert!(f
+        .client(client)
+        .state
+        .pointer_events
+        .contains(&PointerEvent::Button {
+            button: 272,
+            state: wayland_client::protocol::wl_pointer::ButtonState::Pressed
+        }));
+    assert_eq!(
+        f.niri().seat.get_pointer().unwrap().current_location(),
+        primary_location
+    );
+    assert_eq!(
+        f.niri().seat.get_keyboard().unwrap().current_focus(),
+        primary_focus
+    );
+    f.client(client).state.pointer_events.clear();
+    // Entering this application transfers its input before any human event is delivered.
+    f.niri_state()
+        .process_input_event(InputEvent::<TestInputBackend>::PointerMotionAbsolute {
+            event: super::test_input_backend::TestPointerMotionAbsoluteEvent { x: 500., y: 500. },
+        });
+    f.double_roundtrip(client);
+    assert_eq!(
+        keys(&mut f, client, &surface),
+        vec![(42, wl_keyboard::KeyState::Released)]
+    );
+    assert!(f
+        .client(client)
+        .state
+        .pointer_events
+        .contains(&PointerEvent::Button {
+            button: 272,
+            state: wayland_client::protocol::wl_pointer::ButtonState::Released
+        }));
+    assert!(f.client(client).state.pointer_events.starts_with(&[
+        PointerEvent::Button {
+            button: 272,
+            state: wayland_client::protocol::wl_pointer::ButtonState::Released
+        },
+        PointerEvent::Frame,
+        PointerEvent::Leave,
+        PointerEvent::Frame,
+    ]));
+    assert!(f.niri().agent_seats[&1]
+        .seat
+        .get_pointer()
+        .unwrap()
+        .current_focus()
+        .is_none());
+    let snapshot = f.niri_state().input_coordination_snapshot();
+    assert_eq!(snapshot.revision, 1);
+    assert_eq!(snapshot.human_owned_windows, vec![target]);
+    assert!(matches!(
+        f.niri_state()
+            .apply_agent_input(1, AgentInput::Focus { window_id: target })
+            .unwrap(),
+        niri_ipc::Response::AgentInputPaused { .. }
+    ));
+    assert!(matches!(
+        f.niri_state()
+            .apply_agent_input(
+                1,
+                AgentInput::Coordinated {
+                    revision: 0,
+                    command: Box::new(AgentInput::Wait)
+                }
+            )
+            .unwrap(),
+        niri_ipc::Response::AgentInputPaused { .. }
+    ));
+    f.niri_state()
+        .process_input_event(InputEvent::<TestInputBackend>::PointerMotionAbsolute {
+            event: super::test_input_backend::TestPointerMotionAbsoluteEvent { x: 1910., y: 1070. },
+        });
+    assert_eq!(f.niri_state().input_coordination_snapshot().revision, 2);
+    f.niri_state()
+        .apply_agent_input(1, AgentInput::Focus { window_id: target })
+        .unwrap();
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Key {
+                evdev: 30,
+                state: AgentInputState::Pressed,
+            },
+        )
+        .unwrap();
+    f.niri_state().destroy_agent(1);
+    f.double_roundtrip(client);
+    assert_eq!(
+        keys(&mut f, client, &surface),
+        vec![
+            (30, wl_keyboard::KeyState::Pressed),
+            (30, wl_keyboard::KeyState::Released)
+        ]
+    );
+}
+
+#[test]
+fn stationary_human_pointer_releases_ownership_when_window_unmaps() {
+    let mut f = Fixture::with_agent_input();
+    f.niri().clock.set_complete_instantly(true);
+    f.add_output(1, (1920, 1080));
+    let (client, surface, target) = window(&mut f);
+    let window = f.client(client).window(&surface);
+    window.set_size(1000, 1000);
+    window.commit();
+    f.double_roundtrip(client);
+    f.niri_state()
+        .process_input_event(InputEvent::<TestInputBackend>::PointerMotionAbsolute {
+            event: super::test_input_backend::TestPointerMotionAbsoluteEvent { x: 500., y: 500. },
+        });
+    let before = f.niri_state().input_coordination_snapshot();
+    assert_eq!(before.human_owned_windows, vec![target]);
+    let location = f.niri().seat.get_pointer().unwrap().current_location();
+
+    surface.attach(None, 0, 0);
+    surface.commit();
+    f.double_roundtrip(client);
+    f.niri_state().update_pointer_contents();
+
+    assert_eq!(
+        f.niri().seat.get_pointer().unwrap().current_location(),
+        location
+    );
+    assert!(f.niri().input_coordination.pointer.is_none());
+    let after = f.niri_state().input_coordination_snapshot();
+    assert_eq!(after.revision, before.revision + 1);
+    assert!(after.human_owned_windows.is_empty());
+}
+
+#[test]
+fn native_seats_keep_independent_held_keys_in_one_client() {
+    let mut f = Fixture::with_agent_input();
+    f.add_output(1, (1920, 1080));
+    let (client, _, target) = window(&mut f);
+    for peer in [1, 2] {
+        f.niri_state()
+            .apply_agent_input(
+                peer,
+                AgentInput::Create {
+                    name: format!("native-{peer}"),
+                },
+            )
+            .unwrap();
+        f.double_roundtrip(client);
+        f.niri_state()
+            .apply_agent_input(peer, AgentInput::Focus { window_id: target })
+            .unwrap();
+        f.double_roundtrip(client);
+    }
+    for (peer, evdev) in [(1, 42), (2, 48)] {
+        let response = f
+            .niri_state()
+            .apply_agent_input(
+                peer,
+                AgentInput::Key {
+                    evdev,
+                    state: AgentInputState::Pressed,
+                },
+            )
+            .unwrap();
+        assert!(
+            matches!(response, niri_ipc::Response::Handled),
+            "peer {peer}: {response:?}"
+        );
+    }
+    assert_ne!(
+        f.niri().agent_seats[&1]
+            .seat
+            .get_keyboard()
+            .unwrap()
+            .modifier_state()
+            .serialized
+            .depressed,
+        0
+    );
+    assert_eq!(
+        f.niri().agent_seats[&2]
+            .seat
+            .get_keyboard()
+            .unwrap()
+            .modifier_state()
+            .serialized
+            .depressed,
+        0
+    );
+}
+
+#[test]
+fn agents_serialize_held_input_in_one_application() {
+    let mut f = Fixture::with_agent_input();
+    f.add_output(1, (1920, 1080));
+    let (client, _, target) = window(&mut f);
+    for peer in [1, 2] {
+        f.niri_state()
+            .apply_agent_input(
+                peer,
+                AgentInput::Create {
+                    name: format!("agent{peer}"),
+                },
+            )
+            .unwrap();
+    }
+    f.double_roundtrip(client);
+    f.niri_state()
+        .apply_agent_input(1, AgentInput::Focus { window_id: target })
+        .unwrap();
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Key {
+                evdev: 30,
+                state: AgentInputState::Pressed,
+            },
+        )
+        .unwrap();
+    assert!(matches!(
+        f.niri_state()
+            .apply_agent_input(2, AgentInput::Focus { window_id: target })
+            .unwrap(),
+        niri_ipc::Response::AgentInputPaused { .. }
+    ));
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Key {
+                evdev: 30,
+                state: AgentInputState::Released,
+            },
+        )
+        .unwrap();
+    assert!(matches!(
+        f.niri_state()
+            .apply_agent_input(2, AgentInput::Focus { window_id: target })
+            .unwrap(),
+        niri_ipc::Response::Handled
+    ));
+}
+
+#[test]
+fn human_typing_takes_over_and_held_keys_preserve_ownership() {
+    let mut f = Fixture::with_agent_input();
+    f.add_output(1, (1920, 1080));
+    let (client, surface, target) = window(&mut f);
+    f.client(client).state.primary_seat_only = true;
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Create {
+                name: "typing".into(),
+            },
+        )
+        .unwrap();
+    f.double_roundtrip(client);
+    f.niri_state()
+        .apply_agent_input(1, AgentInput::Focus { window_id: target })
+        .unwrap();
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Key {
+                evdev: 42,
+                state: AgentInputState::Pressed,
+            },
+        )
+        .unwrap();
+    f.double_roundtrip(client);
+    let _ = keys(&mut f, client, &surface);
+    f.niri_state()
+        .process_input_event(InputEvent::<TestInputBackend>::Keyboard {
+            event: TestKeyboardKeyEvent {
+                time: InputTime::now(),
+                code: Keycode::from(48_u32 + 8),
+                state: KeyState::Pressed,
+                count: 1,
+            },
+        });
+    f.double_roundtrip(client);
+    assert_eq!(
+        keys(&mut f, client, &surface),
+        vec![
+            (42, wl_keyboard::KeyState::Released),
+            (48, wl_keyboard::KeyState::Pressed)
+        ]
+    );
+    assert_eq!(
+        f.niri()
+            .seat
+            .get_keyboard()
+            .unwrap()
+            .modifier_state()
+            .serialized
+            .depressed,
+        0
+    );
+    f.niri_state()
+        .process_input_event(InputEvent::<TestInputBackend>::PointerMotionAbsolute {
+            event: super::test_input_backend::TestPointerMotionAbsoluteEvent { x: 1910., y: 1070. },
+        });
+    assert_eq!(
+        f.niri_state()
+            .input_coordination_snapshot()
+            .human_owned_windows,
+        vec![target]
+    );
+    f.niri_state()
+        .process_input_event(InputEvent::<TestInputBackend>::Keyboard {
+            event: TestKeyboardKeyEvent {
+                time: InputTime::now(),
+                code: Keycode::from(48_u32 + 8),
+                state: KeyState::Released,
+                count: 0,
+            },
+        });
+    f.niri_state()
+        .process_input_event(InputEvent::<TestInputBackend>::PointerMotionAbsolute {
+            event: super::test_input_backend::TestPointerMotionAbsoluteEvent { x: 1910., y: 1070. },
+        });
+    assert!(f
+        .niri_state()
+        .input_coordination_snapshot()
+        .human_owned_windows
+        .is_empty());
+}

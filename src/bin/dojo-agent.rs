@@ -128,6 +128,12 @@ impl DesktopSession {
             .as_mut()
             .context("agent seat is unavailable")?;
         if let Err(error) = action.apply(controller) {
+            if let Some(paused) = error.downcast_ref::<dojo::agent_input::InputPaused>() {
+                return Ok(
+                    json!({"seat_name": controller.seat_name(), "handled": false, "paused": true,
+                    "reason": paused.reason, "coordination": paused.coordination}),
+                );
+            }
             self.controller = None;
             return Err(error.context("input failed; agent seat released, select a fresh target"));
         }
@@ -169,7 +175,15 @@ impl DesktopAdapter {
         else {
             bail!("unexpected outputs response");
         };
+        let coordination = match socket
+            .send(Request::InputCoordination)?
+            .map_err(anyhow::Error::msg)?
+        {
+            Response::InputCoordination(coordination) => coordination,
+            _ => bail!("unexpected input coordination response"),
+        };
         Ok(json!({
+            "coordination": coordination,
             "windows": windows,
             "outputs": outputs,
             "seat_name": self.worker.as_ref().and_then(|worker| worker.seat_name.as_deref()),
@@ -239,14 +253,14 @@ impl DesktopServer {
     }
 
     #[tool(
-        description = "List Niri windows and outputs with IDs, layout and logical dimensions. Does not start a worker or create an agent seat. Reports worker_pid and seat_name as null while idle. Window/output snapshots are separate queries and may change between calls."
+        description = "List Niri windows, outputs and input coordination with human_owned_windows and revision. Does not start a worker or create an agent seat. Reports worker_pid and seat_name as null while idle. Window/output snapshots are separate queries and may change between calls."
     )]
     async fn desktop_context(&self) -> CallToolResult {
         self.execute(|session| session.context()).await
     }
 
     #[tool(
-        description = "Act using your independent cursor and keyboard seat. Focus a window before keys, or move then click to select it. Coordinates are logical pixels relative to output. Keys use Linux evdev codes: A=30, Enter=28, Shift=42. Use press/release for chords and tap for a single key. Scroll uses pixel deltas. Reset releases held input and clears focus. Errors release the seat; select a fresh target afterward. Human Niri focus is unchanged. After the idle timeout the worker exits and loses its target; focus or click again before typing. Clipboard, Unicode text insertion and window management are unavailable."
+        description = "Act using your independent cursor and keyboard seat. Focus a window before keys, or move then click to select it. Coordinates are logical pixels relative to output. Keys use Linux evdev codes: A=30, Enter=28, Shift=42. Use press/release for chords and tap for a single key. Scroll uses pixel deltas. Reset releases held input and clears focus. Paused results retain the seat and report human ownership or stale state; inspect context and choose a new action without automatically retrying. Errors release the seat; select a fresh target afterward. Human Niri focus is unchanged. After the idle timeout the worker exits and loses its target; focus or click again before typing. Clipboard, Unicode text insertion and window management are unavailable."
     )]
     async fn desktop_action(
         &self,
@@ -372,6 +386,59 @@ mod tests {
         let invalid: DesktopAction =
             serde_json::from_value(json!({"action":"key", "evdev":256, "state":"tap"})).unwrap();
         assert!(invalid.validate().is_err());
+    }
+
+    #[test]
+    fn paused_action_retains_seat_and_updates_revision() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::os::unix::net::UnixListener;
+        let path = std::env::temp_dir().join(format!("dojo-paused-{}.sock", std::process::id()));
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut stream = BufReader::new(stream);
+            let replies = [
+                json!({"Ok":{"AgentInputCreated":{"seat_name":"dojo-agent-paused"}}}),
+                json!({"Ok":{"InputCoordination":{"revision":0,"human_owned_windows":[]}}}),
+                json!({"Ok":{"AgentInputPaused":{"reason":"input ownership changed","coordination":{"revision":1,"human_owned_windows":[42]}}}}),
+                json!({"Ok":"Handled"}),
+            ];
+            let mut requests = Vec::new();
+            for reply in replies {
+                let mut line = String::new();
+                stream.read_line(&mut line).unwrap();
+                requests.push(serde_json::from_str::<Value>(&line).unwrap());
+                writeln!(stream.get_mut(), "{reply}").unwrap();
+            }
+            requests
+        });
+        let mut session = DesktopSession {
+            socket: Some(path.clone()),
+            name: "paused".into(),
+            controller: None,
+        };
+        let paused = session
+            .action(DesktopAction::Focus { window_id: 42 })
+            .unwrap();
+        assert_eq!(
+            paused,
+            json!({"seat_name":"dojo-agent-paused","handled":false,"paused":true,
+            "reason":"input ownership changed","coordination":{"revision":1,"human_owned_windows":[42]}})
+        );
+        assert!(session.controller.is_some());
+        assert_eq!(
+            session
+                .action(DesktopAction::Focus { window_id: 43 })
+                .unwrap()["handled"],
+            true
+        );
+        let requests = server.join().unwrap();
+        assert_eq!(requests[2]["AgentInput"]["Coordinated"]["revision"], 0);
+        assert_eq!(requests[3]["AgentInput"]["Coordinated"]["revision"], 1);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

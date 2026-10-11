@@ -1,7 +1,7 @@
 # Chromium ignores the independent agent seat
 
 Type: bug
-Status: needs-triage
+Status: resolved
 
 ## Symptom
 
@@ -36,7 +36,7 @@ No pointer or keyboard resource exists for the agent seat on that client, so
 Smithay cannot send the agent's input to it. GPUI's fork binds every seat, which
 explains why the same compositor path works in Dojo and the GPUI fixtures.
 
-The compositor currently checks its internal pointer focus before a press but
+At reproduction, the compositor checked its internal pointer focus before a press but
 does not check whether the target client bound that pointer. Consequently
 `Handled` acknowledges internal dispatch even when no client can receive it.
 
@@ -52,5 +52,24 @@ does not check whether the target client bound that pointer. Consequently
 - Verify actual application state changes. An IPC acknowledgement is not a
   delivery assertion.
 
-This issue remains open. Cursor graphics or movement interpolation cannot fix
-an unbound client input resource.
+## Resolution
+
+The [shared pointer coordination layer](../../shared-pointer/spec.md) delivers
+agent events through the primary resources already bound by single-seat clients.
+It preserves the human compositor pointer position and keyboard layout focus.
+Human interaction cancels conflicting held agent input, restores human protocol
+focus and modifiers, and leaves the separate agent cursor visible. Missing input
+resources produce an error rather than a handled response.
+
+The maintained fixture is `tools/agent-input/run-electron.py`. It runs an isolated
+copy of T3's installed Electron binary, confirms that only the primary seat was
+bound, and checks page events for clicks, typing, modifiers, scrolling and held
+input release. It also checks ownership events, stale-action rejection, worker
+retention, recovery and cursor visibility. The user's T3 is not restarted.
+
+The final release fixture passed on October 10, 2026. Evidence is
+`/tmp/dojo-electron-coordination.gt9a9b5m`, including protocol and page event logs,
+ownership notifications and screenshots. The takeover screenshot retains 632
+cyan cursor pixels while the human cursor operates the same app. The final
+native and GPUI checks also passed; see
+[the coordination issue](../../shared-pointer/issues/01-coordination.md).

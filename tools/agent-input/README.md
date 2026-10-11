@@ -117,3 +117,30 @@ intermediate Wayland motion events, arrival before a raw click, redirection and
 reset cancellation. The evidence directory includes screenshots at the start,
 during movement, at arrival and after reset. The normal input and lifecycle
 scenarios wait for cursor arrival before inspecting its destination.
+
+## Shared pointer coordination in Electron
+
+Build the compositor, MCP adapter and fixture tools, then run the installed
+Electron runtime in an isolated app and profile:
+
+```sh
+devenv shell -- cargo build --release --locked --manifest-path vendor/niri/Cargo.toml
+devenv shell -- cargo build --bin dojo-agent
+devenv shell -- cargo build --locked --manifest-path tools/agent-input/Cargo.toml
+devenv shell -- python3 tools/agent-input/run-electron.py --electron /path/to/t3code
+```
+
+The runner copies the executable, links its runtime dependencies and replaces
+only the copied app resources. It leaves the running T3 application alone. The
+protocol trace must show that Electron bound only the primary seat. The page
+must receive an agent click, Shift+A, scrolling and release of a held B.
+
+The `human-pointer` helper injects primary-seat motion into the nested session.
+The runner checks ownership notifications, blocked and stale actions, held-key
+cleanup, a working human click, the retained agent cursor and recovery after the
+human leaves. Screenshots require cyan cursor pixels before and after takeover,
+and no cyan pixels after release. The MCP adapter executable is removed before
+its first action to exercise worker startup during binary replacement.
+An additional raw controller holds a mouse button while the human takes over;
+the page must receive its release before subsequent human input.
+Evidence remains in the printed `/tmp/dojo-electron-coordination.*` directory.

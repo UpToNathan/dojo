@@ -25,7 +25,7 @@ impl InputBackend for TestInputBackend {
     type PointerAxisEvent = UnusedEvent;
     type PointerButtonEvent = UnusedEvent;
     type PointerMotionEvent = UnusedEvent;
-    type PointerMotionAbsoluteEvent = UnusedEvent;
+    type PointerMotionAbsoluteEvent = TestPointerMotionAbsoluteEvent;
 
     type GestureSwipeBeginEvent = UnusedEvent;
     type GestureSwipeUpdateEvent = UnusedEvent;
@@ -101,4 +101,37 @@ impl KeyboardKeyEvent<TestInputBackend> for TestKeyboardKeyEvent {
     fn count(&self) -> u32 {
         self.count
     }
+}
+
+pub struct TestPointerMotionAbsoluteEvent {
+    pub x: f64,
+    pub y: f64,
+}
+impl Event<TestInputBackend> for TestPointerMotionAbsoluteEvent {
+    fn time(&self) -> InputTime {
+        InputTime::now()
+    }
+    fn device(&self) -> TestInputDevice {
+        TestInputDevice
+    }
+}
+impl smithay::backend::input::AbsolutePositionEvent<TestInputBackend>
+    for TestPointerMotionAbsoluteEvent
+{
+    fn x(&self) -> f64 {
+        self.x
+    }
+    fn y(&self) -> f64 {
+        self.y
+    }
+    fn x_transformed(&self, _width: i32) -> f64 {
+        self.x
+    }
+    fn y_transformed(&self, _height: i32) -> f64 {
+        self.y
+    }
+}
+impl smithay::backend::input::PointerMotionAbsoluteEvent<TestInputBackend>
+    for TestPointerMotionAbsoluteEvent
+{
 }

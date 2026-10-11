@@ -69,6 +69,8 @@ pub enum Request {
     Version,
     /// Control the agent seat owned by this persistent IPC connection.
     AgentInput(AgentInput),
+    /// Inspect human ownership without creating an agent seat.
+    InputCoordination,
     /// Request information about connected outputs.
     Outputs,
     /// Request information about workspaces.
@@ -141,6 +143,15 @@ pub enum Response {
     Handled,
     /// The pointer started moving. Send AgentInput::Wait before acting at its destination.
     AgentInputMoving,
+    /// Human ownership or another held interaction prevented delivery.
+    AgentInputPaused {
+        /// Why the command paused.
+        reason: String,
+        /// Current human ownership.
+        coordination: InputCoordination,
+    },
+    /// Current shared input ownership.
+    InputCoordination(InputCoordination),
     /// An agent seat was created for this connection.
     AgentInputCreated {
         /// The advertised Wayland seat name.
@@ -180,6 +191,13 @@ pub enum Response {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 pub enum AgentInput {
+    /// Reject a stale action before it can affect client state.
+    Coordinated {
+        /// Ownership revision observed by the controller.
+        revision: u64,
+        /// Command to run only if ownership is unchanged.
+        command: Box<AgentInput>,
+    },
     /// Create a seat. One seat may exist per persistent IPC connection.
     Create {
         /// A short ASCII name used in the advertised seat name.
@@ -226,6 +244,16 @@ pub enum AgentInput {
     Reset,
     /// Reset input and remove the seat global.
     Destroy,
+}
+
+/// Shared input ownership snapshot. A window list is expanded from client scope.
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct InputCoordination {
+    /// Changes whenever human ownership changes.
+    pub revision: u64,
+    /// Windows on client connections currently owned by human interaction.
+    pub human_owned_windows: Vec<u64>,
 }
 
 /// State of an agent key or pointer button.
@@ -1681,6 +1709,11 @@ pub enum CastTarget {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 pub enum Event {
+    /// Human input ownership changed.
+    InputCoordinationChanged {
+        /// Current human ownership.
+        coordination: InputCoordination,
+    },
     /// The workspace configuration has changed.
     WorkspacesChanged {
         /// The new workspace configuration.
