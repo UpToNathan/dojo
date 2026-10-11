@@ -11,6 +11,11 @@ Home Manager module, Neovim and Rush configs, wallpaper, and custom PAM, Nix,
 symlinks to maintained files here; its `.devenv` directory is local generated
 cache/state and is not part of the source configuration.
 
+Home Manager autostarts Dojo through a wrapper that supplies devenv's graphics
+and Wayland library paths. The desktop binary must already be built. Run
+`devenv shell -- scripts/check-dojo-autostart.sh` after login to check the actual
+autostart service, its process and the mapped desktop frame.
+
 Run `devenv shell` or `devenv eval ...` from this directory. Run
 `scripts/install-system-config.sh` to link the maintained system files into
 place; it preserves replaced files as timestamped backups. See

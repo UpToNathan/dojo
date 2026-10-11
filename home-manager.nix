@@ -22,6 +22,10 @@ let
     version = heliumVersion;
     src = heliumAppImage;
   };
+  dojoAutostart = pkgs.writeShellScript "dojo-autostart" ''
+    export LD_LIBRARY_PATH=${lib.escapeShellArg config.env.LD_LIBRARY_PATH}
+    exec ${homeDirectory}/Dojo/target/debug/dojo --enable
+  '';
 in
 {
       imports = [
@@ -257,6 +261,16 @@ in
         org.freedesktop.impl.portal.Settings=darkman
         org.freedesktop.impl.portal.ScreenCast=gnome
         org.freedesktop.impl.portal.Screenshot=gnome
+      '';
+      xdg.configFile."autostart/dojo.desktop".text = ''
+        [Desktop Entry]
+        Name=Dojo
+        Comment=Dojo desktop shell and system tray host
+        Exec=${dojoAutostart}
+        Terminal=false
+        Type=Application
+        StartupNotify=false
+        X-GNOME-Autostart-enabled=true
       '';
       systemd.user.packages = with pkgs; [
         xdg-desktop-portal
