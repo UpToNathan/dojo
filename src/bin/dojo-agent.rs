@@ -2,9 +2,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-#[path = "dojo-agent/worker.rs"]
-mod worker;
-use worker::ActiveWorker;
+#[path = "dojo-agent/service.rs"]
+mod service;
+use service::ActiveSession;
 
 use anyhow::{Context, Result, bail};
 use dojo::agent_input::{AgentController, InputState};
@@ -145,21 +145,21 @@ struct DesktopAdapter {
     socket: Option<PathBuf>,
     name: String,
     idle_timeout: Duration,
-    worker: Option<ActiveWorker>,
+    connection: Option<ActiveSession>,
 }
 
 impl DesktopAdapter {
-    fn reap_worker(&mut self) -> Result<()> {
-        if let Some(worker) = &mut self.worker {
-            if worker.exited()? {
-                self.worker = None;
+    fn refresh_connection(&mut self) -> Result<()> {
+        if let Some(connection) = &mut self.connection {
+            if connection.inactive()? {
+                self.connection = None;
             }
         }
         Ok(())
     }
 
     fn context(&mut self) -> Result<Value> {
-        self.reap_worker()?;
+        self.refresh_connection()?;
         let mut socket = match &self.socket {
             Some(path) => Socket::connect_to(path),
             None => Socket::connect(),
@@ -186,8 +186,8 @@ impl DesktopAdapter {
             "coordination": coordination,
             "windows": windows,
             "outputs": outputs,
-            "seat_name": self.worker.as_ref().and_then(|worker| worker.seat_name.as_deref()),
-            "worker_pid": self.worker.as_ref().map(ActiveWorker::pid),
+            "seat_name": self.connection.as_ref().and_then(|connection| connection.seat_name.as_deref()),
+            "worker_pid": self.connection.as_ref().map(ActiveSession::pid),
             "idle_timeout_seconds": self.idle_timeout.as_secs(),
             "coordinate_system": "logical pixels relative to the named output",
         }))
@@ -195,24 +195,24 @@ impl DesktopAdapter {
 
     fn action(&mut self, action: DesktopAction) -> Result<Value> {
         action.validate()?;
-        self.reap_worker()?;
-        if matches!(action, DesktopAction::Reset {}) && self.worker.is_none() {
+        self.refresh_connection()?;
+        if matches!(action, DesktopAction::Reset {}) && self.connection.is_none() {
             return Ok(json!({"seat_name": null, "handled": true}));
         }
-        if self.worker.is_none() {
-            self.worker = Some(ActiveWorker::spawn(
+        if self.connection.is_none() {
+            self.connection = Some(ActiveSession::spawn(
                 self.socket.as_deref(),
                 &self.name,
                 self.idle_timeout,
             )?);
         }
         let result = self
-            .worker
+            .connection
             .as_mut()
-            .context("desktop worker unavailable")?
-            .action(&action);
+            .context("desktop service unavailable")?
+            .action(action);
         if result.is_err() {
-            self.worker = None;
+            self.connection = None;
         }
         result
     }
@@ -231,7 +231,7 @@ impl DesktopServer {
                 socket,
                 name,
                 idle_timeout,
-                worker: None,
+                connection: None,
             })),
         }
     }
@@ -247,20 +247,20 @@ impl DesktopServer {
             Ok(Ok(value)) => CallToolResult::success(vec![ContentBlock::text(value.to_string())]),
             Ok(Err(error)) => CallToolResult::error(vec![ContentBlock::text(format!("{error:#}"))]),
             Err(error) => CallToolResult::error(vec![ContentBlock::text(format!(
-                "desktop worker failed: {error}"
+                "desktop service failed: {error}"
             ))]),
         }
     }
 
     #[tool(
-        description = "List Niri windows, outputs and input coordination with human_owned_windows and revision. Does not start a worker or create an agent seat. Reports worker_pid and seat_name as null while idle. Window/output snapshots are separate queries and may change between calls."
+        description = "List Niri windows, outputs and input coordination with human_owned_windows and revision. Does not start the shared service or create an agent seat. Reports worker_pid as the shared service PID for an active seat; both fields are null while idle. Window/output snapshots are separate queries and may change between calls."
     )]
     async fn desktop_context(&self) -> CallToolResult {
         self.execute(|session| session.context()).await
     }
 
     #[tool(
-        description = "Act using your independent cursor and keyboard seat. Focus a window before keys, or move then click to select it. Coordinates are logical pixels relative to output. Keys use Linux evdev codes: A=30, Enter=28, Shift=42. Use press/release for chords and tap for a single key. Scroll uses pixel deltas. Reset releases held input and clears focus. Paused results retain the seat and report human ownership or stale state; inspect context and choose a new action without automatically retrying. Errors release the seat; select a fresh target afterward. Human Niri focus is unchanged. After the idle timeout the worker exits and loses its target; focus or click again before typing. Clipboard, Unicode text insertion and window management are unavailable."
+        description = "Act using your independent cursor and keyboard seat. Focus a window before keys, or move then click to select it. Coordinates are logical pixels relative to output. Keys use Linux evdev codes: A=30, Enter=28, Shift=42. Use press/release for chords and tap for a single key. Scroll uses pixel deltas. Reset releases held input and clears focus. Paused results retain the seat and report human ownership or stale state; inspect context and choose a new action without automatically retrying. Errors release the seat; select a fresh target afterward. Human Niri focus is unchanged. After the idle timeout the session releases its seat and loses its target; focus or click again before typing. Clipboard, Unicode text insertion and window management are unavailable."
     )]
     async fn desktop_action(
         &self,
@@ -270,11 +270,13 @@ impl DesktopServer {
     }
 
     #[tool(
-        description = "Stop the desktop worker and release this agent's seat, cursor and held input. Safe to repeat. A later action creates a new seat."
+        description = "Release this agent's seat, cursor and held input. Safe to repeat. A later action creates a new seat."
     )]
     async fn desktop_release(&self) -> CallToolResult {
         self.execute(|session| {
-            session.worker = None;
+            if let Some(connection) = session.connection.take() {
+                connection.release();
+            }
             Ok(json!({"released": true}))
         })
         .await
@@ -290,12 +292,33 @@ impl ServerHandler for DesktopServer {
     }
 }
 
+fn validate_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || name.len() > 32
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    {
+        bail!("name must contain 1..32 ASCII letters, digits, hyphens or underscores");
+    }
+    Ok(())
+}
+
+fn niri_socket(socket: Option<&std::path::Path>) -> Result<PathBuf> {
+    let path = socket
+        .map(std::path::Path::to_path_buf)
+        .or_else(|| std::env::var_os("NIRI_SOCKET").map(PathBuf::from))
+        .context("NIRI_SOCKET or --socket is required")?;
+    path.canonicalize().context("resolve Niri socket")
+}
+
 fn main() -> Result<()> {
     let mut arguments = std::env::args().skip(1);
     let mut socket = None;
     let mut name = "assistant".to_string();
     let mut idle_timeout = Duration::from_secs(60);
-    let mut is_worker = false;
+    let mut is_service = false;
+    let mut print_service_socket = false;
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--socket" => {
@@ -314,26 +337,29 @@ fn main() -> Result<()> {
                 }
                 idle_timeout = Duration::from_secs(seconds);
             }
-            "--worker" => is_worker = true,
+            "--service" => is_service = true,
+            "--print-service-socket" => print_service_socket = true,
             "--help" | "-h" => {
                 eprintln!(
-                    "Usage: dojo-agent [--socket PATH] [--name NAME] [--idle-timeout-seconds SECONDS]\nLocal stdio MCP adapter for on-demand desktop input. Defaults to NIRI_SOCKET and 60 seconds idle timeout."
+                    "Usage: dojo-agent [--service | --print-service-socket] [--socket PATH] [--name NAME] [--idle-timeout-seconds SECONDS]\nLocal stdio MCP adapter, or shared Unix socket service with --service. Starts directly on demand without systemd. Defaults to NIRI_SOCKET and 60 seconds idle timeout."
                 );
                 return Ok(());
             }
             _ => bail!("unknown argument {argument:?}"),
         }
     }
-    if name.is_empty()
-        || name.len() > 32
-        || !name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
-    {
-        bail!("name must contain 1..32 ASCII letters, digits, hyphens or underscores");
+    validate_name(&name)?;
+    if print_service_socket {
+        println!(
+            "{}",
+            service::paths(&niri_socket(socket.as_deref())?)?
+                .0
+                .display()
+        );
+        return Ok(());
     }
-    if is_worker {
-        return worker::run(socket, name, idle_timeout);
+    if is_service {
+        return service::run(niri_socket(socket.as_deref())?);
     }
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -343,7 +369,6 @@ fn main() -> Result<()> {
 }
 
 async fn serve(socket: Option<PathBuf>, name: String, idle_timeout: Duration) -> Result<()> {
-    let mut child_exits = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())?;
     let server = DesktopServer::new(socket, name, idle_timeout);
     let cleanup = server.session.clone();
     let service = server.serve(rmcp::transport::stdio()).await?;
@@ -355,10 +380,9 @@ async fn serve(socket: Option<PathBuf>, name: String, idle_timeout: Duration) ->
         tokio::select! {
             result = &mut waiting => { result?; break; }
             result = &mut interrupt => { result?; break; }
-            _ = child_exits.recv() => { cleanup.lock().await.reap_worker()?; }
         }
     }
-    cleanup.lock().await.worker = None;
+    cleanup.lock().await.connection = None;
     Ok(())
 }
 
@@ -447,7 +471,7 @@ mod tests {
             socket: Some(PathBuf::from("/missing-dojo-agent-test.sock")),
             name: "test".into(),
             idle_timeout: Duration::from_secs(60),
-            worker: None,
+            connection: None,
         };
         assert_eq!(
             session.action(DesktopAction::Reset {}).unwrap(),
@@ -461,6 +485,6 @@ mod tests {
                 })
                 .is_err()
         );
-        assert!(session.worker.is_none());
+        assert!(session.connection.is_none());
     }
 }

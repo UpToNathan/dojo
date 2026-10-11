@@ -140,7 +140,26 @@ The runner checks ownership notifications, blocked and stale actions, held-key
 cleanup, a working human click, the retained agent cursor and recovery after the
 human leaves. Screenshots require cyan cursor pixels before and after takeover,
 and no cyan pixels after release. The MCP adapter executable is removed before
-its first action to exercise worker startup during binary replacement.
+its first action to exercise service startup during binary replacement.
 An additional raw controller holds a mouse button while the human takes over;
 the page must receive its release before subsequent human input.
 Evidence remains in the printed `/tmp/dojo-electron-coordination.*` directory.
+
+## Shared service lifecycle
+
+Run the MCP lifecycle scenarios against raw Wayland and GPUI:
+
+```sh
+devenv shell -- tools/agent-input/run-nested.sh --mcp --lifecycle
+devenv shell -- tools/agent-input/run-nested.sh --mcp --gpui --lifecycle --recorder "$PWD/target/debug/examples/agent_seats"
+```
+
+The driver starts two adapters concurrently and requires one service PID with
+separate seats. It verifies independent idle deadlines, context without lease
+renewal, execution error and adapter crash isolation, socket permissions and
+handshake validation. The remaining client must continue receiving input.
+Releasing the last seat must stop the service and remove the socket.
+
+The existing lifecycle cases verify held-input release, visible cursor removal,
+service crash and restart, repeated release, graceful EOF and abrupt adapter
+exit. Only fixture processes in the nested desktop are controlled.

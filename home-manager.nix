@@ -26,6 +26,25 @@ let
     export LD_LIBRARY_PATH=${lib.escapeShellArg config.env.LD_LIBRARY_PATH}
     exec ${homeDirectory}/Dojo/target/debug/dojo --enable
   '';
+  onepasswordAutostart = pkgs.writeShellScript "dojo-1password-autostart" ''
+    onepassword=${pkgs._1password-gui}/bin/1password
+    busctl=${pkgs.systemd}/bin/busctl
+    sleep=${pkgs.coreutils}/bin/sleep
+    attempt=0
+
+    # Electron only registers the tray item when its StatusNotifier host
+    # already exists. Wait for Dojo, then start 1Password silently.
+    while [ "$attempt" -lt 300 ]; do
+      if "$busctl" --user --quiet status org.freedesktop.StatusNotifierWatcher >/dev/null 2>&1; then
+        exec "$onepassword" --silent
+      fi
+      attempt=$((attempt + 1))
+      "$sleep" 1
+    done
+
+    # If Dojo never starts, show 1Password instead of leaving it hidden.
+    exec "$onepassword"
+  '';
 in
 {
       imports = [
@@ -261,6 +280,11 @@ in
         org.freedesktop.impl.portal.Settings=darkman
         org.freedesktop.impl.portal.ScreenCast=gnome
         org.freedesktop.impl.portal.Screenshot=gnome
+      '';
+      xdg.configFile."systemd/user/app-1password@autostart.service.d/10-dojo-tray.conf".text = ''
+        [Service]
+        ExecStart=
+        ExecStart=${onepasswordAutostart}
       '';
       xdg.configFile."autostart/dojo.desktop".text = ''
         [Desktop Entry]

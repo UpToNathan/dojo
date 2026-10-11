@@ -41,7 +41,7 @@ retrying the action.
 
 MCP `desktop_context` includes `coordination`. A paused `desktop_action` returns
 `handled: false`, `paused: true`, the reason and snapshot, while retaining its
-seat and worker. The agent must inspect the situation and choose its next action.
+seat and session. The agent must inspect the situation and choose its next action.
 MCP supplies this information through tool responses; a runtime needing immediate
 notifications can subscribe to Niri's event stream. No observer worker runs while
 the adapter is idle. The updated SDK requires the updated compositor fork.
@@ -132,7 +132,7 @@ creates the seat. Keep stdin open for subsequent commands. Separate one-shot
 
 T3 Code's active Codex provider is configured through this project's
 [`.codex/config.toml`](../.codex/config.toml). It starts the built `dojo-agent`
-executable and explicitly forwards `NIRI_SOCKET`. The executable path matches
+executable and explicitly forwards `NIRI_SOCKET` and `XDG_RUNTIME_DIR`. The executable path matches
 this checkout; update it if the repository moves. Codex loads project MCP
 configuration for trusted projects, as described in the
 [official OpenAI documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
@@ -184,8 +184,8 @@ to the built executable:
 }
 ```
 
-The client must inherit `NIRI_SOCKET` from a session running the experimental
-compositor. For a nested session, pass `--socket /path/to/its/niri.sock` in
+The client must inherit `NIRI_SOCKET` and `XDG_RUNTIME_DIR` from a session
+running the experimental compositor. For a nested session, pass `--socket /path/to/its/niri.sock` in
 `args`. The installed upstream compositor cannot execute these input tools.
 Do not launch through `devenv shell` in an MCP configuration: its startup output
 would mix with the protocol stream.
@@ -194,9 +194,9 @@ The client discovers three tools:
 
 | Tool | Behavior |
 | --- | --- |
-| `desktop_context` | Lists windows, outputs, the current agent seat and worker PID. Starts no worker. |
-| `desktop_action` | Starts a worker on demand, then focuses, moves, clicks, injects keys, scrolls or resets its seat. |
-| `desktop_release` | Stops the worker and drops its seat and cursor; safe to repeat. |
+| `desktop_context` | Lists windows, outputs, coordination, this session's seat and shared service PID. Starts no service. |
+| `desktop_action` | Connects to the shared service on demand, then focuses, moves, clicks, injects keys, scrolls or resets its seat. |
+| `desktop_release` | Drops only this session's seat and cursor; safe to repeat. |
 
 Example `desktop_action` arguments:
 
@@ -214,29 +214,83 @@ the key, then release the modifier. Click buttons are `left`, `right` and
 `middle`. Key codes follow the compositor's current keyboard layout. There is
 no arbitrary Unicode text insertion.
 
-The stdio MCP process is a small adapter. Its desktop worker starts on the first
-valid input action and owns one seat. At rest there is no worker, controller
-connection, cursor or per-agent animation loop. Context, reset and release calls
-do not start an idle worker. Context reports `worker_pid` and `seat_name` as null
-when the worker is absent.
+### Shared service lifecycle
 
-After 60 seconds without an input action, the worker closes its controller and
-exits. Context traffic does not renew that deadline. Set
-`--idle-timeout-seconds SECONDS` in the MCP server arguments to choose another
-timeout (1 through 86400 seconds). Release immediately stops the worker. Use it
-when an agent task finishes; the timeout catches abandoned sessions. The adapter
-reaps children through exit notifications, with no periodic idle polling.
+The stdio MCP process is a small adapter. On the first valid input action it
+connects to a shared Unix socket service, starting `dojo-agent --service`
+directly if necessary. Systemd is not required. A file lock permits only one
+service for each canonical Niri socket path. Concurrent adapters connect to that
+same process, with separate sessions and Niri seats. The service runs in its own
+process group, so terminating an adapter's process group does not terminate the
+other clients' service.
 
-Calls execute serially. Input execution errors stop the worker and release held
-input. Adapter EOF, normal exit or crash also stop the worker and remove its
-seat. A later action starts a fresh worker; select a target again before typing.
-Failed actions are never automatically replayed. Invalid arguments leave the
-existing worker intact. Reset releases held input and focus while retaining an
-active seat.
+Sockets live under `$XDG_RUNTIME_DIR/dojo-desktop/`, a directory with mode 0700.
+The socket has mode 0600. Its name uses the first 24 hexadecimal characters of
+the SHA-256 hash of the canonical Niri socket path. The adjacent lock file remains
+on disk after exit to preserve its inode across concurrent starts. No service
+process, controller or cursor remains after all seats are idle. A grace period
+of up to 250 milliseconds allows startup and shutdown traffic to complete.
+
+Each session releases its seat after 60 seconds without an input action.
+Context and socket status queries do not renew that deadline. Set
+`--idle-timeout-seconds SECONDS` in the MCP adapter arguments to choose a timeout
+from 1 through 86400 seconds for that session. Idle reset and release calls do
+not start a service. Context reports `worker_pid` and `seat_name` as null for an
+idle session, even if other clients are using the service. For an active session,
+`worker_pid` is the shared service PID, retained under its original field name
+for MCP compatibility.
+
+Release, input execution errors, adapter EOF and adapter crashes release only
+that session's held input and cursor. Service failure releases all its seats.
+A later action reconnects and creates a fresh seat; select a target again before
+typing. Actions are never automatically replayed. Startup can retry its handshake
+because no input has been sent. Invalid arguments leave the existing seat intact.
+Reset releases held input and focus while retaining an active seat. Actions run
+serially in the service; human priority remains enforced immediately by Niri.
 
 Reopen T3 Code or reload its provider session after rebuilding `dojo-agent` to
-replace an already-running adapter. The compositor and Dojo shell need no restart
-for worker lifecycle changes.
+replace an already-running adapter. The compositor and Dojo shell need no restart.
+An already-running shared service keeps its executable until all its sessions
+release or expire.
+
+### Direct socket clients
+
+A future Pi or voice client can use the same service without MCP. Obtain the
+socket path without starting the service:
+
+```sh
+target/debug/dojo-agent --print-service-socket
+```
+
+To launch the service explicitly, run `target/debug/dojo-agent --service`.
+Connect within its startup grace period. The MCP adapter handles launching,
+readiness and reconnecting automatically. Explicit `--socket` selects a Niri
+socket for either command.
+
+Use one Unix connection per agent session. Send UTF-8 JSON objects terminated by
+newlines, with at most 65536 bytes per message including the newline. First send:
+
+```json
+{"operation":"hello","version":1,"name":"pi","idle_timeout_seconds":60}
+```
+
+Names contain 1 through 32 ASCII letters, digits, hyphens or underscores.
+The reply is `{"Ok":{"version":1,"service_pid":12345}}`. Each following request
+has one response, either `{"Ok":VALUE}` or `{"Err":"description"}`. Serialize
+requests on a connection. Input uses the same action object as the MCP tool:
+
+```json
+{"operation":"action","action":{"action":"focus","window_id":42}}
+{"operation":"status"}
+{"operation":"release"}
+```
+
+Status returns the current `seat_name`, or null. Release drops the seat and
+returns `{"released":true}`. Closing the connection releases its seat as well.
+Malformed or oversized messages close the connection after an error reply.
+A disconnected or idle session has no resumable target or held input. Reconnect
+with a new handshake and choose a fresh target. Paused actions retain their seat
+and return the same ownership snapshot as MCP.
 
 The server uses the [official Rust MCP SDK](https://github.com/modelcontextprotocol/rust-sdk)
 and [stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports).

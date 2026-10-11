@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Drive the real dojo-agent MCP subprocess against nested fixture windows."""
 import argparse
+import concurrent.futures
+import hashlib
+import socket
+import threading
 import json
 import os
 from pathlib import Path
@@ -107,7 +111,7 @@ def lifecycle(args, query, human, target, stderr, servers, output, x, y):
         seat = server.action("focus", window_id=target)["seat_name"]
         context = server.tool("desktop_context")
         pid = context["worker_pid"]
-        assert children(server.process) == {pid}
+        assert alive(pid)
         assert context["seat_name"] == seat
         return seat, pid
 
@@ -126,7 +130,7 @@ def lifecycle(args, query, human, target, stderr, servers, output, x, y):
     wait_for(lambda: any(e.get("window") == 2 and e.get("key") in (20, "t") for e in events(args.log)), "held key before idle")
     before = len(events(args.log))
     # Poll only /proc: no MCP request may help expiry or reaping happen.
-    wait_for(lambda: not Path(f"/proc/{pid}").exists(), "idle worker exit and reap")
+    wait_for(lambda: not Path(f"/proc/{pid}").exists(), "idle service exit and reap")
     wait_for(lambda: held_release(before), "held key release on idle expiry")
     if not args.gpui:
         seat_id = next(e["seat"] for e in events(args.log) if e.get("name") == seat)
@@ -144,7 +148,8 @@ def lifecycle(args, query, human, target, stderr, servers, output, x, y):
     pid = server.tool("desktop_context")["worker_pid"]
     visible = screenshot(query, str(directory / "idle-cursor-visible.png"))
     assert changed_pixels(baseline, visible, cursor_x, cursor_y, logical["scale"]) > 0
-    wait_for(lambda: not Path(f"/proc/{pid}").exists(), "visible cursor worker expiry")
+    wait_for(lambda: not Path(f"/proc/{pid}").exists(), "visible cursor service expiry")
+    assert server.tool("desktop_release") == {"released": True}
     removed = screenshot(query, str(directory / "idle-cursor-removed.png"))
     assert changed_pixels(baseline, removed, cursor_x, cursor_y, logical["scale"]) == 0
 
@@ -162,14 +167,14 @@ def lifecycle(args, query, human, target, stderr, servers, output, x, y):
     time.sleep(0.1)
     before = len(events(args.log))
     os.kill(pid, signal.SIGKILL)
-    wait_for(lambda: not Path(f"/proc/{pid}").exists(), "crashed worker reap")
-    wait_for(lambda: held_release(before), "held key release on worker crash")
+    wait_for(lambda: not Path(f"/proc/{pid}").exists(), "crashed service reap")
+    wait_for(lambda: held_release(before), "held key release on service crash")
     assert server.tool("desktop_context")["worker_pid"] is None
 
     _, pid = start()
     server.tool("desktop_release")
     server.tool("desktop_release")
-    wait_for(lambda: not Path(f"/proc/{pid}").exists(), "explicit worker release")
+    wait_for(lambda: not Path(f"/proc/{pid}").exists(), "explicit session release stops empty service")
 
     server.close()
     server = Mcp(args.server, args.socket, "mcp-crash", stderr, idle_timeout=60)
@@ -181,9 +186,89 @@ def lifecycle(args, query, human, target, stderr, servers, output, x, y):
     disconnected = time.monotonic()
     server.process.kill()
     server.process.wait(timeout=5)
-    wait_for(lambda: not alive(pid), "worker exit after adapter crash")
-    assert time.monotonic() - disconnected < 1, "Worker waited for idle expiry after adapter crash"
+    wait_for(lambda: not alive(pid), "service exit after last adapter crash")
+    assert time.monotonic() - disconnected < 2, "Service waited for session idle expiry after adapter crash"
     wait_for(lambda: held_release(before), "held key release on adapter crash")
+    assert focused_id(query) == human
+
+
+def shared_service(args, query, human, target, stderr, servers):
+    barrier = threading.Barrier(2)
+    first = Mcp(args.server, args.socket, "shared-first", stderr, idle_timeout=2)
+    second = Mcp(args.server, args.socket, "shared-second", stderr, idle_timeout=60)
+    servers.extend([first, second])
+    def start(client, window):
+        barrier.wait(timeout=5)
+        return client.action("focus", window_id=window)["seat_name"]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        a = pool.submit(start, first, target)
+        b = pool.submit(start, second, human)
+        first_seat, second_seat = a.result(), b.result()
+    pid = first.tool("desktop_context")["worker_pid"]
+    assert pid == second.tool("desktop_context")["worker_pid"]
+    assert first_seat != second_seat
+    key = hashlib.sha256(os.fsencode(str(Path(args.socket).resolve()))).hexdigest()[:24]
+    service_socket = Path(os.environ["XDG_RUNTIME_DIR"]) / "dojo-desktop" / (key + ".sock")
+    reported_path = subprocess.check_output([args.server, "--socket", args.socket, "--print-service-socket"], text=True).strip()
+    assert Path(reported_path) == service_socket
+    assert service_socket.stat().st_mode & 0o777 == 0o600
+    assert service_socket.parent.stat().st_mode & 0o777 == 0o700
+    def wire(message):
+        with socket.socket(socket.AF_UNIX) as stream:
+            stream.settimeout(3)
+            stream.connect(str(service_socket))
+            stream.sendall(json.dumps(message).encode() + b"\n")
+            return json.loads(stream.makefile("rb").readline())
+    assert "Err" in wire({"operation":"status"})
+    assert "Err" in wire({"operation":"hello", "version":2, "name":"bad", "idle_timeout_seconds":2})
+    assert "Err" in wire({"operation":"hello", "version":1, "name":"bad name", "idle_timeout_seconds":2})
+    assert "Err" in wire({"operation":"hello", "version":1, "name":"valid", "idle_timeout_seconds":0})
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if first.tool("desktop_context")["seat_name"] is None:
+            break
+        time.sleep(0.1)
+    assert first.tool("desktop_context")["worker_pid"] is None
+    assert second.tool("desktop_context")["seat_name"] == second_seat
+    assert second.tool("desktop_context")["worker_pid"] == pid and alive(pid)
+    # An execution error must leave the other client's seat intact.
+    first.action("focus", window_id=target)
+    first.tool("desktop_action", {"action":"focus", "window_id":2**64-1}, error=True)
+    assert second.tool("desktop_context")["seat_name"] == second_seat
+    first.action("focus", window_id=target)
+    first.action("key", evdev=20, state="press")
+    time.sleep(0.1)
+    before = len(events(args.log))
+    first.process.kill()
+    first.process.wait(timeout=5)
+    wait_for(lambda: any(e.get("window") == 2 and (
+        e.get("event") == "key_up" and e.get("key") == "t" or
+        e.get("event") == "key" and e.get("key") == 20 and "Released" in e.get("state", "")
+    ) for e in events(args.log)[before:]), "client crash releases its held key")
+    assert alive(pid)
+    assert second.tool("desktop_context")["seat_name"] == second_seat
+    second.action("key", evdev=48, state="tap")
+    second.tool("desktop_release")
+    wait_for(lambda: not alive(pid), "last shared session release scales service to zero")
+    assert not service_socket.exists()
+    second.close()
+    # The adapter that launched the service may leave while another client works.
+    owner = Mcp(args.server, args.socket, "shared-owner", stderr)
+    follower = Mcp(args.server, args.socket, "shared-follower", stderr)
+    servers.extend([owner, follower])
+    owner.action("focus", window_id=target)
+    pid = owner.tool("desktop_context")["worker_pid"]
+    assert pid in children(owner.process)
+    follower_seat = follower.action("focus", window_id=human)["seat_name"]
+    assert follower.tool("desktop_context")["worker_pid"] == pid
+    owner.close()
+    assert follower.tool("desktop_context")["seat_name"] == follower_seat
+    follower.action("key", evdev=48, state="tap")
+    assert alive(pid)
+    follower.tool("desktop_release")
+    wait_for(lambda: not alive(pid), "service exit after launcher adapter has exited")
+    assert not service_socket.exists()
+    follower.close()
     assert focused_id(query) == human
 
 
@@ -267,6 +352,7 @@ def main():
             second = Mcp(args.server, args.socket, "mcp-second", stderr)
             servers.append(second)
             second_seat = second.action("focus", window_id=human)["seat_name"]
+            assert second.tool("desktop_context")["worker_pid"] == server.tool("desktop_context")["worker_pid"]
             assert second_seat != new_seat
             second.action("key", evdev=48, state="tap")
             second.tool("desktop_release")
@@ -277,13 +363,14 @@ def main():
             before = len(events(args.log))
             worker_pid = server.tool("desktop_context")["worker_pid"]
             server.close()
-            wait_for(lambda: not Path(f"/proc/{worker_pid}").exists(), "worker reaped on MCP EOF")
+            wait_for(lambda: not Path(f"/proc/{worker_pid}").exists(), "service exits on last MCP EOF")
             wait_for(lambda: any(e.get("window") == 2 and (
                 e.get("event") == "key_up" and e.get("key") == "t" or
                 e.get("event") == "key" and e.get("key") == 20 and "Released" in e.get("state", "")
             ) for e in events(args.log)[before:]), "held key release on MCP EOF")
             assert focused_id(query) == human
             if args.lifecycle:
+                shared_service(args, query, human, target, stderr, servers)
                 lifecycle(args, query, human, target, stderr, servers,
                           workspace["output"], tile_x + offset_x + width / 2,
                           tile_y + offset_y + height / 2)

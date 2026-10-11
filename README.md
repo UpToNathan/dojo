@@ -44,8 +44,9 @@ See [the input analysis](docs/agent-input-analysis.md) and
 demonstration.
 
 `dojo-agent` exposes the independent controller as a local stdio MCP server for
-AI clients. Build with `devenv shell -- cargo build --bin dojo-agent`; see
-[client setup](docs/agent-input.md#connect-an-ai-client). Each server retains its
+AI clients. Its shared Unix socket service starts on demand and exits when all
+agent seats are idle, without requiring systemd. Build with
+`devenv shell -- cargo build --bin dojo-agent`; see [client setup](docs/agent-input.md#connect-an-ai-client). Each server retains its
 own cursor and keyboard seat across tool calls.
 
 Build the compositor inside the same development environment:
