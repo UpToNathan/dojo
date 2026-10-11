@@ -4,6 +4,19 @@ The compositor fork provides real Wayland seats for agent controllers. Each seat
 has an independent keyboard target and a visible software cursor. Agent clicks
 select that seat's keyboard target without activating the human's Niri layout.
 
+## Application compatibility
+
+Clients must bind the additional Wayland seat to receive independent agent input.
+Dojo's GPUI fork does this. T3's Electron 44.4.2 / Chromium 152.0.7977.130 binds
+only the original seat, so the independent cursor renders but T3 ignores its
+clicks and keys. This was reproduced with the same Electron runtime in an
+isolated compositor and confirmed in its protocol trace.
+
+The current `handled` response acknowledges compositor dispatch and does not
+prove that an application received the event. Verify an actual UI response.
+[The compatibility bug](../.scratch/agent-input/issues/04-chromium-seat-compatibility.md)
+records the evidence and required follow-up. It remains unresolved.
+
 ## Build
 
 Run these commands from the repository root:
