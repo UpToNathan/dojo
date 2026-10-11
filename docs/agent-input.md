@@ -204,7 +204,9 @@ The nested runner and installed Dojo session wrapper set it. Building alone does
 not replace the installed desktop; use the session installer to select a build.
 
 Agent window move/resize, popup grabs, drag-and-drop and layout activation are
-disabled. The cursor is a compositor-owned arrow. Native Wayland clients must
+disabled. The cursor is the cyan `nf-fa-mouse_pointer` Nerd Font glyph, rendered
+at 24 logical pixels high from an embedded high resolution asset. Its buffer
+exists only while the agent seat exists. Native Wayland clients must
 bind multiple seats; XWayland support has not been established.
 
 In experimental mode, the virtual-keyboard and input-method globals are hidden
