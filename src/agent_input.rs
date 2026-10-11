@@ -44,11 +44,20 @@ impl AgentController {
     }
 
     pub fn move_pointer(&mut self, output: &str, x: f64, y: f64) -> Result<()> {
-        self.command(AgentInput::Move {
-            output: output.into(),
-            x,
-            y,
-        })
+        let response = self
+            .socket
+            .send(Request::AgentInput(AgentInput::Move {
+                output: output.into(),
+                x,
+                y,
+            }))
+            .context("move agent pointer")?
+            .map_err(anyhow::Error::msg)?;
+        match response {
+            Response::AgentInputMoving => self.command(AgentInput::Wait),
+            Response::Handled => Ok(()),
+            response => bail!("unexpected agent movement response: {response:?}"),
+        }
     }
 
     pub fn button(&mut self, button: u32, state: InputState) -> Result<()> {
@@ -115,6 +124,12 @@ mod tests {
                 let value: serde_json::Value = serde_json::from_str(&line).unwrap();
                 let reply = if requests.is_empty() {
                     "{\"Ok\":{\"AgentInputCreated\":{\"seat_name\":\"dojo-agent-test\"}}}\n"
+                } else if value
+                    .get("AgentInput")
+                    .and_then(|v| v.get("Move"))
+                    .is_some()
+                {
+                    "{\"Ok\":\"AgentInputMoving\"}\n"
                 } else {
                     "{\"Ok\":\"Handled\"}\n"
                 };
@@ -127,6 +142,7 @@ mod tests {
             let mut controller = AgentController::connect_to(&path, "test").unwrap();
             assert_eq!(controller.seat_name(), "dojo-agent-test");
             controller.focus_window(42).unwrap();
+            controller.move_pointer("test-output", 100., 200.).unwrap();
             controller.key(30, InputState::Pressed).unwrap();
             controller.key(30, InputState::Released).unwrap();
             controller.reset().unwrap();
@@ -136,6 +152,8 @@ mod tests {
             vec![
                 serde_json::json!({"AgentInput":{"Create":{"name":"test"}}}),
                 serde_json::json!({"AgentInput":{"Focus":{"window_id":42}}}),
+                serde_json::json!({"AgentInput":{"Move":{"output":"test-output","x":100.0,"y":200.0}}}),
+                serde_json::json!({"AgentInput":"Wait"}),
                 serde_json::json!({"AgentInput":{"Key":{"evdev":30,"state":"Pressed"}}}),
                 serde_json::json!({"AgentInput":{"Key":{"evdev":30,"state":"Released"}}}),
                 serde_json::json!({"AgentInput":"Reset"}),

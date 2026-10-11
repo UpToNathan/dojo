@@ -55,6 +55,20 @@ requests. Coordinates are logical pixels relative to the output. Keyboard codes
 are Linux evdev codes without the XKB offset. Button 272 is the left mouse
 button; key 30 is A on the default layout.
 
+Pointer movement follows compositor frames, with distance-dependent travel time
+between 120 and 550 milliseconds. It accelerates and decelerates, and a raw
+controller can redirect it while preserving its position and velocity. The
+first appearance starts at the human pointer's location without moving that
+pointer. `move_pointer()` waits for arrival before returning. Niri also defers
+raw button and scroll requests until arrival. Niri's `animations { off; }`
+setting makes movement instant.
+
+Raw `Move` replies with `AgentInputMoving` when it starts a trajectory. Send
+`"Wait"` to wait for arrival, or another `Move` to redirect it. A move requiring
+no animation replies with `Handled`. Reset, locking, output removal and
+disconnect cancel movement. Active movement drives frame callbacks; a settled
+or removed seat schedules no cursor animation frames.
+
 Dropping the controller closes its socket. Niri releases held input, clears its
 focus and removes the seat and cursor. `destroy()` explicitly performs the same
 cleanup and consumes the controller. Locking resets agent input; unlocking

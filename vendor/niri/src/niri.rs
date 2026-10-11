@@ -4776,6 +4776,7 @@ impl Niri {
 
         self.update_render_elements(Some(output));
 
+        let agents_moving = self.agent_pointers_are_moving();
         let mut res = RenderResult::Skipped;
         if self.monitors_active {
             let state = self.output_state.get_mut(output).unwrap();
@@ -4786,6 +4787,7 @@ impl Niri {
             state.unfinished_animations_remain |= self.screenshot_ui.are_animations_ongoing();
             state.unfinished_animations_remain |= self.window_mru_ui.are_animations_ongoing();
             state.unfinished_animations_remain |= state.screen_transition.is_some();
+            state.unfinished_animations_remain |= agents_moving;
 
             // Also keep redrawing if the current cursor is animated.
             state.unfinished_animations_remain |= self

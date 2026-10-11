@@ -139,6 +139,8 @@ pub type Reply = Result<Response, String>;
 pub enum Response {
     /// A request that does not need a response was handled successfully.
     Handled,
+    /// The pointer started moving. Send AgentInput::Wait before acting at its destination.
+    AgentInputMoving,
     /// An agent seat was created for this connection.
     AgentInputCreated {
         /// The advertised Wayland seat name.
@@ -197,6 +199,8 @@ pub enum AgentInput {
         /// Vertical logical coordinate within the output.
         y: f64,
     },
+    /// Wait for the current pointer movement to finish. Reset or lock cancels this wait.
+    Wait,
     /// Press or release a Linux pointer button.
     Button {
         /// Linux evdev button code, such as 272 for the left button.

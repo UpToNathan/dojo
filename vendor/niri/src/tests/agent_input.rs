@@ -357,6 +357,7 @@ fn experimental_seats_hide_incompatible_protocol_globals() {
 #[test]
 fn destroying_agent_frames_button_release_before_pointer_leave() {
     let mut f = Fixture::with_agent_input();
+    f.niri().clock.set_complete_instantly(true);
     f.add_output(1, (1920, 1080));
     let (client, surface, target) = window(&mut f);
     let window = f.client(client).window(&surface);
@@ -429,4 +430,103 @@ fn destroying_agent_frames_button_release_before_pointer_leave() {
             PointerEvent::Frame,
         ]
     );
+}
+
+#[test]
+fn agent_click_waits_for_arrival_and_reset_cancels_wait() {
+    let mut f = Fixture::with_agent_input();
+    f.add_output(1, (1920, 1080));
+    let (client, surface, target) = window(&mut f);
+    let window = f.client(client).window(&surface);
+    window.set_size(1000, 1000);
+    window.commit();
+    f.double_roundtrip(client);
+    let output = f.niri_output(1).name();
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Create {
+                name: "motion".into(),
+            },
+        )
+        .unwrap();
+    f.double_roundtrip(client);
+    f.niri_state()
+        .apply_agent_input(1, AgentInput::Focus { window_id: target })
+        .unwrap();
+    f.double_roundtrip(client);
+    let human = f.niri().seat.get_pointer().unwrap().current_location();
+    assert!(matches!(
+        f.niri_state()
+            .apply_agent_input(
+                1,
+                AgentInput::Move {
+                    output: output.clone(),
+                    x: 500.,
+                    y: 500.,
+                }
+            )
+            .unwrap(),
+        niri_ipc::Response::AgentInputMoving
+    ));
+    let (tx, rx) = async_channel::bounded(1);
+    f.niri_state().request_agent_input(
+        1,
+        AgentInput::Button {
+            button: 272,
+            state: AgentInputState::Pressed,
+        },
+        tx,
+    );
+    assert!(rx.try_recv().is_err());
+    f.niri().clock.set_complete_instantly(true);
+    f.niri_state().refresh_agents();
+    assert!(matches!(
+        rx.try_recv().unwrap().unwrap(),
+        niri_ipc::Response::Handled
+    ));
+    assert!(!f.niri().agent_pointers_are_moving());
+    assert_eq!(
+        f.niri().seat.get_pointer().unwrap().current_location(),
+        human
+    );
+    assert_eq!(
+        f.niri().agent_seats[&1]
+            .seat
+            .get_pointer()
+            .unwrap()
+            .current_location(),
+        (500., 500.).into()
+    );
+    f.double_roundtrip(client);
+    assert!(f
+        .client(client)
+        .state
+        .pointer_events
+        .iter()
+        .any(|event| matches!(event, PointerEvent::Button { button: 272, .. })));
+    f.niri_state()
+        .apply_agent_input(1, AgentInput::Reset)
+        .unwrap();
+    f.niri().clock.set_complete_instantly(false);
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Move {
+                output,
+                x: 700.,
+                y: 700.,
+            },
+        )
+        .unwrap();
+    let (tx, rx) = async_channel::bounded(1);
+    f.niri_state().request_agent_input(1, AgentInput::Wait, tx);
+    assert!(rx.try_recv().is_err());
+    f.niri_state()
+        .apply_agent_input(1, AgentInput::Reset)
+        .unwrap();
+    assert!(rx.try_recv().unwrap().unwrap_err().contains("canceled"));
+    assert!(!f.niri().agent_pointers_are_moving());
+    f.niri_state().destroy_agent(1);
+    assert!(f.niri().agent_seats.is_empty());
 }

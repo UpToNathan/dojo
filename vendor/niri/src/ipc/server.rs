@@ -288,8 +288,7 @@ async fn process(ctx: &ClientCtx, request: Request) -> Reply {
             let (tx, rx) = async_channel::bounded(1);
             let peer = ctx.peer;
             ctx.event_loop.insert_idle(move |state| {
-                let result = state.apply_agent_input(peer, command);
-                let _ = tx.send_blocking(result);
+                state.request_agent_input(peer, command, tx);
             });
             return rx
                 .recv()

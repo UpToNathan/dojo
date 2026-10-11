@@ -25,7 +25,10 @@ class Peer:
         return response["Ok"]
 
     def agent(self, command):
-        return self.request({"AgentInput": command})
+        result = self.request({"AgentInput": command})
+        if result == "AgentInputMoving":
+            return self.request({"AgentInput": "Wait"})
+        return result
 
     def close(self):
         self.stream.close()
@@ -77,6 +80,7 @@ def main():
     parser.add_argument("--socket", default=os.environ.get("NIRI_SOCKET"))
     parser.add_argument("--recorder", default=str(Path(__file__).parent / "target/debug/dojo-agent-input-fixture"))
     parser.add_argument("--log", help="Keep recorder JSON lines at this path")
+    parser.add_argument("--motion", action="store_true", help="Check animation, retargeting and deferred clicks with the raw recorder")
     parser.add_argument("--gpui", action="store_true", help="Validate the GPUI example event format")
     parser.add_argument("--preexisting-seat", action="store_true", help="Create the agent before the recorder connects")
     args = parser.parse_args()
@@ -145,6 +149,10 @@ def main():
                                       "agent seat announcement")
                 seat_id = seat_event["seat"]
             agent.agent({"Focus": {"window_id": agent_id}})
+            if args.motion:
+                assert not args.gpui, "Motion samples require the raw recorder"
+                from motion import verify_motion
+                verify_motion(agent, query, output, x, y, seat_id, log_path)
             agent.agent({"Move": {"output": output, "x": x, "y": y}})
             time.sleep(0.1)
             with_cursor = screenshot(query, log_path + ".agent.png")

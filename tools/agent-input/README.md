@@ -109,3 +109,11 @@ normal scenario that announces the seat after the application is running.
 The raw scenario and both GPUI registry-discovery scenarios passed in nested
 Wayland sessions on 2026-10-10. Each final run observed 660 changed cursor pixels
 and an exact return to the blank cursor-region baseline after disconnect.
+
+## Cursor movement
+
+Run `devenv shell -- tools/agent-input/run-nested.sh --motion` to verify actual
+intermediate Wayland motion events, arrival before a raw click, redirection and
+reset cancellation. The evidence directory includes screenshots at the start,
+during movement, at arrival and after reset. The normal input and lifecycle
+scenarios wait for cursor arrival before inspecting its destination.

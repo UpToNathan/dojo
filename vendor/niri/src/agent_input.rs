@@ -24,8 +24,12 @@ use smithay::reexports::wayland_server::backend::GlobalId;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Scale, Transform, SERIAL_COUNTER};
 
+mod motion;
+use motion::Motion;
+
 use crate::niri::{LockState, Niri, OutputRenderElements, State};
 use crate::render_helpers::renderer::NiriRenderer;
+use crate::utils::get_monotonic_time;
 
 pub struct AgentSeat {
     pub seat: Seat<State>,
@@ -36,6 +40,13 @@ pub struct AgentSeat {
     buttons: HashSet<u32>,
     visible: bool,
     cursor: MemoryRenderBuffer,
+    motion: Option<Motion>,
+    arrival: Option<Arrival>,
+}
+
+struct Arrival {
+    command: AgentInput,
+    reply: async_channel::Sender<niri_ipc::Reply>,
 }
 
 pub fn enabled() -> bool {
@@ -86,15 +97,7 @@ impl State {
         peer: u64,
         command: AgentInput,
     ) -> Result<Response, String> {
-        validate(&command)?;
-        if !self.niri.agent_input_enabled {
-            return Err("agent input requires DOJO_AGENT_INPUT=1 on the compositor".into());
-        }
-        if !matches!(command, AgentInput::Reset | AgentInput::Destroy)
-            && !matches!(self.niri.lock_state, LockState::Unlocked)
-        {
-            return Err("agent input is suspended while the session is locking or locked".into());
-        }
+        self.check_agent_input(&command)?;
         self.refresh_agents();
         if let AgentInput::Create { name } = command {
             if self.niri.agent_seats.contains_key(&peer) {
@@ -132,6 +135,8 @@ impl State {
                     buttons: HashSet::new(),
                     visible: false,
                     cursor,
+                    motion: None,
+                    arrival: None,
                 },
             );
             return Ok(Response::AgentInputCreated { seat_name });
@@ -140,8 +145,68 @@ impl State {
             self.destroy_agent(peer);
             return Ok(Response::Handled);
         }
+        let moving = matches!(command, AgentInput::Move { .. });
         self.with_agent(peer, |this, agent| this.dispatch_agent(agent, command))??;
-        Ok(Response::Handled)
+        if moving && self.niri.agent_seats[&peer].motion.is_some() {
+            Ok(Response::AgentInputMoving)
+        } else {
+            Ok(Response::Handled)
+        }
+    }
+
+    fn check_agent_input(&self, command: &AgentInput) -> Result<(), String> {
+        validate(command)?;
+        if !self.niri.agent_input_enabled {
+            return Err("agent input requires DOJO_AGENT_INPUT=1 on the compositor".into());
+        }
+        if !matches!(command, AgentInput::Reset | AgentInput::Destroy)
+            && !matches!(self.niri.lock_state, LockState::Unlocked)
+        {
+            return Err("agent input is suspended while the session is locking or locked".into());
+        }
+        Ok(())
+    }
+
+    pub fn request_agent_input(
+        &mut self,
+        peer: u64,
+        command: AgentInput,
+        reply: async_channel::Sender<niri_ipc::Reply>,
+    ) {
+        if matches!(
+            command,
+            AgentInput::Wait | AgentInput::Button { .. } | AgentInput::Axis { .. }
+        ) {
+            if let Err(error) = self.check_agent_input(&command) {
+                let _ = reply.try_send(Err(error));
+                return;
+            }
+            self.refresh_agents();
+            if let Some(agent) = self.niri.agent_seats.get_mut(&peer) {
+                if let Some(motion) = &agent.motion {
+                    let remaining = motion.remaining(get_monotonic_time());
+                    agent.arrival = Some(Arrival { command, reply });
+                    // Frame callbacks drive movement; this one-shot also completes waits when
+                    // an output stops presenting frames.
+                    if let Err(error) = self.niri.event_loop.insert_source(
+                        Timer::from_duration(remaining),
+                        move |_, _, state| {
+                            state.refresh_agents();
+                            TimeoutAction::Drop
+                        },
+                    ) {
+                        let agent = self.niri.agent_seats.get_mut(&peer).unwrap();
+                        let arrival = agent.arrival.take().unwrap();
+                        let _ = arrival
+                            .reply
+                            .try_send(Err(format!("cannot schedule pointer arrival: {error}")));
+                    }
+                    return;
+                }
+            }
+        }
+        let result = self.apply_agent_input(peer, command);
+        let _ = reply.try_send(result);
     }
 
     fn with_agent<T>(
@@ -188,18 +253,36 @@ impl State {
                     return Err("pointer coordinates must be inside the output".into());
                 }
                 let location = geometry.loc.to_f64() + Point::from((x, y));
-                let under = self.niri.contents_under(location);
-                agent.contents = under.surface.clone();
-                pointer.motion(
+                let now = get_monotonic_time();
+                let from = if agent.visible {
+                    pointer.current_location()
+                } else {
+                    let human = self.niri.seat.get_pointer().unwrap().current_location();
+                    if self.niri.output_under(human).is_some() {
+                        human
+                    } else {
+                        location
+                    }
+                };
+                let velocity = agent
+                    .motion
+                    .as_ref()
+                    .map_or(Point::from((0., 0.)), |motion| motion.sample(now).1);
+                agent.motion = if self.niri.clock.should_complete_instantly()
+                    || (location.x - from.x).hypot(location.y - from.y) < 1.
+                {
+                    None
+                } else {
+                    Some(Motion::new(from, location, velocity, now))
+                };
+                agent.move_to(
                     self,
-                    under.surface,
-                    &MotionEvent {
-                        location,
-                        serial: SERIAL_COUNTER.next_serial(),
-                        time: InputTime::now(),
+                    if agent.motion.is_some() {
+                        from
+                    } else {
+                        location
                     },
                 );
-                pointer.frame(self);
                 agent.visible = true;
             }
             AgentInput::Button { button, state } => {
@@ -282,6 +365,7 @@ impl State {
                 );
                 pointer.frame(self);
             }
+            AgentInput::Wait => {}
             AgentInput::Reset => agent.reset(self),
             AgentInput::Create { .. } | AgentInput::Destroy => unreachable!(),
         }
@@ -342,8 +426,30 @@ impl State {
                 }
                 if agent.visible {
                     let pointer = agent.seat.get_pointer().unwrap();
+                    let now = get_monotonic_time();
+                    if let Some(motion) = &agent.motion {
+                        if this.niri.output_under(motion.destination()).is_none() {
+                            agent.reset(this);
+                            return;
+                        }
+                        let location = motion.sample(now).0;
+                        let done = motion.remaining(now).is_zero()
+                            || this.niri.clock.should_complete_instantly();
+                        let location = if done { motion.destination() } else { location };
+                        agent.move_to(this, location);
+                        if done {
+                            this.niri.queue_redraw_all();
+                            agent.motion = None;
+                            if let Some(arrival) = agent.arrival.take() {
+                                let result = this
+                                    .dispatch_agent(agent, arrival.command)
+                                    .map(|()| Response::Handled);
+                                let _ = arrival.reply.try_send(result);
+                            }
+                        }
+                    }
                     let location = pointer.current_location();
-                    if this.niri.output_under(location).is_none() {
+                    if agent.motion.is_none() && this.niri.output_under(location).is_none() {
                         agent.reset(this);
                         return;
                     }
@@ -401,6 +507,22 @@ impl Drop for State {
 }
 
 impl AgentSeat {
+    fn move_to(&mut self, state: &mut State, location: Point<f64, Logical>) {
+        let under = state.niri.contents_under(location);
+        self.contents = under.surface.clone();
+        let pointer = self.seat.get_pointer().unwrap();
+        pointer.motion(
+            state,
+            under.surface,
+            &MotionEvent {
+                location,
+                serial: SERIAL_COUNTER.next_serial(),
+                time: InputTime::now(),
+            },
+        );
+        pointer.frame(state);
+    }
+
     fn set_target(&mut self, state: &mut State, target: WlSurface) {
         if self.target.as_ref() == Some(&target) {
             return;
@@ -429,6 +551,12 @@ impl AgentSeat {
     }
 
     fn reset(&mut self, state: &mut State) {
+        self.motion = None;
+        if let Some(arrival) = self.arrival.take() {
+            let _ = arrival
+                .reply
+                .try_send(Err("agent movement was canceled".into()));
+        }
         if self.target.is_none()
             && self.contents.is_none()
             && self.keys.is_empty()
@@ -475,6 +603,12 @@ impl AgentSeat {
 }
 
 impl Niri {
+    pub fn agent_pointers_are_moving(&self) -> bool {
+        self.agent_seats
+            .values()
+            .any(|agent| agent.motion.is_some())
+    }
+
     pub fn render_agent_pointers<R: NiriRenderer>(
         &self,
         renderer: &mut R,
