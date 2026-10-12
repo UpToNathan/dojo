@@ -1434,7 +1434,9 @@ impl WgpuRendererCore {
         );
 
         self.atlas.before_frame();
-        self.ensure_intermediate_textures(size);
+        if !scene.paths.is_empty() {
+            self.ensure_intermediate_textures(size);
+        }
 
         let gamma_params = GammaParams {
             gamma_ratios: self.rendering_params.gamma_ratios,
@@ -2738,6 +2740,73 @@ mod tests {
 
         renderer.render_scene(&Scene::default(), device_size(16, 17))?;
         assert_ne!(target_texture(&renderer), first);
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn headless_path_resources_are_lazy_and_survive_scene_changes() -> anyhow::Result<()> {
+        let mut renderer = WgpuHeadlessRenderer::new()?;
+        let mut raster_scene = Scene::default();
+        raster_scene.insert_primitive(solid_quad(2., 2., 10., 10., gpui::rgb(0x0000ff).into()));
+        raster_scene.finish();
+        let image = renderer.render_scene_to_image(&raster_scene, device_size(16, 16))?;
+        assert_pixel(&image, 6, 6, BLUE);
+        assert!(renderer.core.resources.path_intermediate_texture.is_none());
+        assert!(renderer.core.resources.path_msaa_texture.is_none());
+
+        let mut path = gpui::Path::new(gpui::point(gpui::px(2.), gpui::px(2.)));
+        path.line_to(gpui::point(gpui::px(12.), gpui::px(2.)));
+        path.line_to(gpui::point(gpui::px(12.), gpui::px(12.)));
+        path.line_to(gpui::point(gpui::px(2.), gpui::px(12.)));
+        path.line_to(gpui::point(gpui::px(2.), gpui::px(2.)));
+        path.color = gpui::rgb(0xff0000).into();
+        path.content_mask = ContentMask {
+            bounds: Bounds {
+                origin: gpui::point(gpui::px(0.), gpui::px(0.)),
+                size: gpui::size(gpui::px(32.), gpui::px(32.)),
+            },
+        };
+        let mut path_scene = Scene::default();
+        path_scene.insert_primitive(path.scale(1.));
+        path_scene.finish();
+
+        let image = renderer.render_scene_to_image(&path_scene, device_size(16, 16))?;
+        assert_pixel(&image, 6, 6, RED);
+        assert_pixel(&image, 15, 15, BLACK);
+        let first_texture = renderer
+            .core
+            .resources
+            .path_intermediate_texture
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("path rendering did not allocate an intermediate"))?;
+        assert_eq!((first_texture.width(), first_texture.height()), (16, 16));
+
+        let image = renderer.render_scene_to_image(&raster_scene, device_size(24, 24))?;
+        assert_pixel(&image, 6, 6, BLUE);
+        assert_eq!(
+            renderer.core.resources.path_intermediate_texture.as_ref(),
+            Some(&first_texture)
+        );
+        let image = renderer.render_scene_to_image(&path_scene, device_size(24, 24))?;
+        assert_pixel(&image, 6, 6, RED);
+        assert_pixel(&image, 23, 23, BLACK);
+        let resized = renderer
+            .core
+            .resources
+            .path_intermediate_texture
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("resized path rendering lost its intermediate"))?;
+        assert_eq!((resized.width(), resized.height()), (24, 24));
+        assert_ne!(resized, &first_texture);
+
+        renderer.core.resources.invalidate_intermediate_textures();
+        let image = renderer.render_scene_to_image(&raster_scene, device_size(24, 24))?;
+        assert_pixel(&image, 6, 6, BLUE);
+        assert!(renderer.core.resources.path_intermediate_texture.is_none());
+        let image = renderer.render_scene_to_image(&path_scene, device_size(24, 24))?;
+        assert_pixel(&image, 6, 6, RED);
+        assert_pixel(&image, 23, 23, BLACK);
         Ok(())
     }
 

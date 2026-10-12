@@ -111,6 +111,12 @@ pub struct ConfigStore {
 }
 
 impl ConfigStore {
+    pub fn watch_paths(&self) -> Vec<PathBuf> {
+        std::iter::once(self.path.clone())
+            .chain(self.runtime_path.iter().cloned())
+            .collect()
+    }
+
     pub fn user_default() -> anyhow::Result<Self> {
         let config_home = match std::env::var_os("XDG_CONFIG_HOME") {
             Some(path) if !path.is_empty() => PathBuf::from(path),

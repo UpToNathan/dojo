@@ -71,6 +71,8 @@ pub enum Request {
     AgentInput(AgentInput),
     /// Inspect human ownership without creating an agent seat.
     InputCoordination,
+    /// Yield human ownership without moving the human cursor or keyboard focus.
+    YieldHumanInput,
     /// Request information about connected outputs.
     Outputs,
     /// Request information about workspaces.

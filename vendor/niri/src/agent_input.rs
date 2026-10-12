@@ -262,6 +262,7 @@ impl State {
     fn dispatch_agent(&mut self, agent: &mut AgentSeat, command: AgentInput) -> Result<(), String> {
         let pointer = agent.seat.get_pointer().unwrap();
         let keyboard = agent.seat.get_keyboard().unwrap();
+        let redraw_all = !matches!(&command, AgentInput::Move { .. } | AgentInput::Wait);
         match command {
             AgentInput::Coordinated { revision, command } => {
                 if revision != self.niri.input_coordination.revision {
@@ -325,6 +326,9 @@ impl State {
                     },
                 );
                 agent.visible = true;
+                if agent.motion.is_some() {
+                    self.niri.queue_redraw(&output);
+                }
             }
             AgentInput::Button { button, state } => {
                 let pressed = state == AgentInputState::Pressed;
@@ -441,7 +445,9 @@ impl State {
             AgentInput::Reset => agent.reset(self),
             AgentInput::Create { .. } | AgentInput::Destroy => unreachable!(),
         }
-        self.niri.queue_redraw_all();
+        if redraw_all {
+            self.niri.queue_redraw_all();
+        }
         Ok(())
     }
 
@@ -510,7 +516,10 @@ impl State {
                         let location = if done { motion.destination() } else { location };
                         agent.move_to(this, location);
                         if done {
-                            this.niri.queue_redraw_all();
+                            if let Some((output, _)) = this.niri.output_under(location) {
+                                let output = output.clone();
+                                this.niri.queue_redraw(&output);
+                            }
                             agent.motion = None;
                             if let Some(arrival) = agent.arrival.take() {
                                 let result = this
@@ -575,6 +584,25 @@ impl AgentSeat {
         let under = state.niri.contents_under(location);
         self.contents = under.surface.clone();
         let pointer = self.seat.get_pointer().unwrap();
+        let previous = pointer.current_location();
+        if !self.visible || previous != location {
+            let old_output = self
+                .visible
+                .then(|| {
+                    state
+                        .niri
+                        .output_under(previous)
+                        .map(|(output, _)| output.clone())
+                })
+                .flatten();
+            let new_output = state
+                .niri
+                .output_under(location)
+                .map(|(output, _)| output.clone());
+            for output in old_output.into_iter().chain(new_output) {
+                state.niri.queue_redraw(&output);
+            }
+        }
         let allowed = under
             .surface
             .as_ref()
@@ -692,10 +720,17 @@ impl AgentSeat {
 }
 
 impl Niri {
-    pub fn agent_pointers_are_moving(&self) -> bool {
-        self.agent_seats
-            .values()
-            .any(|agent| agent.motion.is_some())
+    pub fn agent_pointers_are_moving(&self, output: &Output) -> bool {
+        self.agent_seats.values().any(|agent| {
+            let Some(motion) = &agent.motion else {
+                return false;
+            };
+            let current = agent.seat.get_pointer().unwrap().current_location();
+            [current, motion.destination()].into_iter().any(|location| {
+                self.output_under(location)
+                    .is_some_and(|(under, _)| under == output)
+            })
+        })
     }
 
     pub fn render_agent_pointers<R: NiriRenderer>(

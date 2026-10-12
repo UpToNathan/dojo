@@ -487,7 +487,8 @@ fn agent_click_waits_for_arrival_and_reset_cancels_wait() {
         rx.try_recv().unwrap().unwrap(),
         niri_ipc::Response::Handled
     ));
-    assert!(!f.niri().agent_pointers_are_moving());
+    let output_handle = f.niri_output(1);
+    assert!(!f.niri().agent_pointers_are_moving(&output_handle));
     assert_eq!(
         f.niri().seat.get_pointer().unwrap().current_location(),
         human
@@ -528,7 +529,8 @@ fn agent_click_waits_for_arrival_and_reset_cancels_wait() {
         .apply_agent_input(1, AgentInput::Reset)
         .unwrap();
     assert!(rx.try_recv().unwrap().unwrap_err().contains("canceled"));
-    assert!(!f.niri().agent_pointers_are_moving());
+    let output_handle = f.niri_output(1);
+    assert!(!f.niri().agent_pointers_are_moving(&output_handle));
     f.niri_state().destroy_agent(1);
     assert!(f.niri().agent_seats.is_empty());
 }
@@ -920,4 +922,201 @@ fn human_typing_takes_over_and_held_keys_preserve_ownership() {
         .input_coordination_snapshot()
         .human_owned_windows
         .is_empty());
+}
+
+#[test]
+fn explicit_handoff_allows_agent_then_human_motion_takes_back_control() {
+    let mut f = Fixture::with_agent_input();
+    f.add_output(1, (1920, 1080));
+    f.niri().clock.set_complete_instantly(true);
+    let (client, surface, target) = window(&mut f);
+    let window = f.client(client).window(&surface);
+    window.set_size(1000, 1000);
+    window.commit();
+    f.double_roundtrip(client);
+    let motion = |f: &mut Fixture| {
+        f.niri_state()
+            .process_input_event(InputEvent::<TestInputBackend>::PointerMotionAbsolute {
+                event: super::test_input_backend::TestPointerMotionAbsoluteEvent {
+                    x: 500.,
+                    y: 500.,
+                },
+            });
+    };
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Create {
+                name: "handoff".into(),
+            },
+        )
+        .unwrap();
+    f.double_roundtrip(client);
+    motion(&mut f);
+    assert_eq!(
+        f.niri_state()
+            .input_coordination_snapshot()
+            .human_owned_windows,
+        vec![target]
+    );
+    assert!(matches!(
+        f.niri_state()
+            .apply_agent_input(1, AgentInput::Focus { window_id: target })
+            .unwrap(),
+        niri_ipc::Response::AgentInputPaused { .. }
+    ));
+    let location = f.niri().seat.get_pointer().unwrap().current_location();
+    let focus = f.niri().seat.get_keyboard().unwrap().current_focus();
+    f.niri_state().yield_human_input().unwrap();
+    assert_eq!(
+        f.niri().seat.get_pointer().unwrap().current_location(),
+        location
+    );
+    assert_eq!(f.niri().seat.get_keyboard().unwrap().current_focus(), focus);
+    assert!(matches!(
+        f.niri_state()
+            .apply_agent_input(1, AgentInput::Focus { window_id: target })
+            .unwrap(),
+        niri_ipc::Response::Handled
+    ));
+    motion(&mut f);
+    assert!(matches!(
+        f.niri_state()
+            .apply_agent_input(1, AgentInput::Focus { window_id: target })
+            .unwrap(),
+        niri_ipc::Response::AgentInputPaused { .. }
+    ));
+    f.niri_state()
+        .process_input_event(InputEvent::<TestInputBackend>::Keyboard {
+            event: TestKeyboardKeyEvent {
+                time: InputTime::now(),
+                code: Keycode::from(48_u32 + 8),
+                state: KeyState::Pressed,
+                count: 1,
+            },
+        });
+    assert!(f.niri_state().yield_human_input().is_err());
+}
+
+#[test]
+fn agent_motion_queues_current_and_destination_outputs_without_animating_others() {
+    use crate::niri::RedrawState;
+    let mut f = Fixture::with_agent_input();
+    f.add_output(1, (1920, 1080));
+    f.add_output(2, (1920, 1080));
+    f.add_output(3, (1920, 1080));
+    let first = f.niri_output(1);
+    let second = f.niri_output(2);
+    let third = f.niri_output(3);
+    f.niri().global_space.map_output(&first, (0, 0));
+    f.niri().global_space.map_output(&second, (3000, 0));
+    f.niri().global_space.map_output(&third, (6000, 0));
+    let human_pointer = f.niri().seat.get_pointer().unwrap();
+    human_pointer.motion(
+        f.niri_state(),
+        None,
+        &smithay::input::pointer::MotionEvent {
+            location: (100., 100.).into(),
+            serial: smithay::utils::SERIAL_COUNTER.next_serial(),
+            time: InputTime::now(),
+        },
+    );
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Create {
+                name: "outputs".into(),
+            },
+        )
+        .unwrap();
+    for state in f.niri().output_state.values_mut() {
+        state.redraw_state = RedrawState::Idle;
+    }
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Move {
+                output: first.name(),
+                x: 500.,
+                y: 500.,
+            },
+        )
+        .unwrap();
+    assert!(f.niri().agent_pointers_are_moving(&first));
+    assert!(!f.niri().agent_pointers_are_moving(&second));
+    assert!(!f.niri().agent_pointers_are_moving(&third));
+    assert!(matches!(
+        f.niri().output_state[&first].redraw_state,
+        RedrawState::Queued
+    ));
+    assert!(matches!(
+        f.niri().output_state[&second].redraw_state,
+        RedrawState::Idle
+    ));
+    assert!(matches!(
+        f.niri().output_state[&third].redraw_state,
+        RedrawState::Idle
+    ));
+
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Move {
+                output: second.name(),
+                x: 500.,
+                y: 500.,
+            },
+        )
+        .unwrap();
+    assert!(f.niri().agent_pointers_are_moving(&first));
+    assert!(f.niri().agent_pointers_are_moving(&second));
+    assert!(!f.niri().agent_pointers_are_moving(&third));
+    assert!(matches!(
+        f.niri().output_state[&second].redraw_state,
+        RedrawState::Queued
+    ));
+    assert!(matches!(
+        f.niri().output_state[&third].redraw_state,
+        RedrawState::Idle
+    ));
+
+    // A gap between outputs must retain the destination's frame source.
+    f.niri_state()
+        .with_agent(1, |state, agent| {
+            agent.seat.get_pointer().unwrap().motion(
+                state,
+                None,
+                &smithay::input::pointer::MotionEvent {
+                    location: (2500., 500.).into(),
+                    serial: smithay::utils::SERIAL_COUNTER.next_serial(),
+                    time: InputTime::now(),
+                },
+            );
+        })
+        .unwrap();
+    assert!(!f.niri().agent_pointers_are_moving(&first));
+    assert!(f.niri().agent_pointers_are_moving(&second));
+    assert!(!f.niri().agent_pointers_are_moving(&third));
+
+    f.niri().clock.set_complete_instantly(true);
+    f.niri_state().refresh_agents();
+    for output in [&first, &second, &third] {
+        assert!(!f.niri().agent_pointers_are_moving(output));
+    }
+    assert_eq!(
+        f.niri().agent_seats[&1]
+            .seat
+            .get_pointer()
+            .unwrap()
+            .current_location(),
+        (3500., 500.).into()
+    );
+    assert!(matches!(
+        f.niri().output_state[&third].redraw_state,
+        RedrawState::Idle
+    ));
+    f.niri_state()
+        .apply_agent_input(1, AgentInput::Reset)
+        .unwrap();
+    assert!(!f.niri().agent_pointers_are_moving(&second));
 }

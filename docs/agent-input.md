@@ -132,7 +132,8 @@ creates the seat. Keep stdin open for subsequent commands. Separate one-shot
 
 T3 Code's active Codex provider is configured through this project's
 [`.codex/config.toml`](../.codex/config.toml). It starts the built `dojo-agent`
-executable and explicitly forwards `NIRI_SOCKET` and `XDG_RUNTIME_DIR`. The executable path matches
+executable and explicitly forwards `NIRI_SOCKET`, `XDG_RUNTIME_DIR` and
+`WAYLAND_DISPLAY`. The executable path matches
 this checkout; update it if the repository moves. Codex loads project MCP
 configuration for trusted projects, as described in the
 [official OpenAI documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
@@ -151,7 +152,7 @@ python3 tools/agent-input/check-codex.py
 ```
 
 The check creates an ephemeral Codex app-server session, applies the same
-whole-table MCP override shape as the installed T3 bundle, discovers the three
+whole-table MCP override shape as the installed T3 bundle, discovers the six
 Dojo tools, and calls `desktop_context`. It stops its own app-server afterward.
 It verifies provider discovery and socket forwarding; the nested scenarios
 below verify actual input. Upstream Niri can supply context but rejects
@@ -197,6 +198,7 @@ The client discovers three tools:
 | `desktop_context` | Lists windows, outputs, coordination, this session's seat and shared service PID. Starts no service. |
 | `desktop_action` | Connects to the shared service on demand, then focuses, moves, clicks, injects keys, scrolls or resets its seat. |
 | `desktop_release` | Drops only this session's seat and cursor; safe to repeat. |
+| `desktop_feedback` | Shows an optional fading response in Dojo. `complete: true` restores the settled Arch icon. Starts no cursor service. |
 
 Example `desktop_action` arguments:
 
@@ -295,8 +297,19 @@ and return the same ownership snapshot as MCP.
 The server uses the [official Rust MCP SDK](https://github.com/modelcontextprotocol/rust-sdk)
 and [stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports).
 It supplies desktop tools to an existing AI client. It does not run a model,
-record voice, provide screenshots/accessibility observations, or add the
+record voice, provide accessibility observations, or add the
 planned agent UI. Use the client's own conversation and tool controls.
+
+`desktop_screenshot` captures a named output through `grim`, already installed
+by Home Manager. It returns a PNG image and image dimensions with mapping to
+output-relative logical coordinates. Multiply image x and y by
+`logical_x_per_image_pixel` and `logical_y_per_image_pixel` before moving the
+agent cursor. Inspect the screenshot before clicking, then capture again to
+verify the application changed. Capture does not create or renew an input seat,
+change focus, or replace the clipboard. It times out after five seconds. The
+output snapshot and capture are separate operations; capture again if the output
+configuration changes. Restart the MCP adapter after rebuilding to discover the
+new tool.
 
 Verify the actual MCP subprocess in a nested desktop:
 
@@ -332,3 +345,25 @@ events and scrolling independently. Clipboard and primary selection still use
 the primary seat. Additional seats do not bind text-input-v3 or pinch gestures.
 Widgets within one window still share their document, caret and interaction
 state; the demonstration verifies separate windows.
+
+## Launch desktop applications
+
+`desktop_launch` accepts `application="browser"` for a new default-browser
+window, or a desktop entry id such as `org.gnome.Nautilus.desktop`. It shares
+Dojo's launcher, reads the graphical session environment from systemd, and
+returns only after Niri reports a new window belonging to the application.
+Existing human-owned windows do not block launching another application.
+Run `devenv shell -- python3 scripts/check-desktop-launch.py` to verify a
+real browser launch even with graphical variables removed from the MCP process.
+
+`devenv shell -- python3 scripts/check-voice-browser.py` exercises the same
+request through voice dispatch and checks a new browser window, completion,
+and explicit zero reasoning. Both launch checks leave their browser windows open.
+
+### Voice handoff
+
+The `YieldHumanInput` IPC request clears human ownership without moving the human
+cursor or keyboard focus. Dojo issues it when push-to-talk is released. Held keys,
+pointer grabs and suppressed buttons reject the request. The next human input
+reacquires ownership and pauses conflicting agents. This requires the updated
+compositor, which becomes active on the next Niri login.

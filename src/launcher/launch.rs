@@ -134,7 +134,7 @@ fn exec_plan(entry: &DesktopEntry, name: &str) -> anyhow::Result<ExecPlan> {
     })
 }
 
-fn session_environment(
+pub fn session_environment(
     connection: &zbus::blocking::Connection,
 ) -> anyhow::Result<HashMap<String, String>> {
     let manager = zbus::blocking::Proxy::new(
@@ -223,14 +223,22 @@ fn terminal_argv(
     Ok(argv)
 }
 
-pub(super) fn launch(path: &Path, name: &str) -> anyhow::Result<()> {
+pub fn launch(path: &Path, name: &str) -> anyhow::Result<()> {
+    launch_with_window(path, name, false)
+}
+
+pub fn launch_new_window(path: &Path, name: &str) -> anyhow::Result<()> {
+    launch_with_window(path, name, true)
+}
+
+fn launch_with_window(path: &Path, name: &str, new_window: bool) -> anyhow::Result<()> {
     let locales = freedesktop_desktop_entry::get_languages_from_env();
     let entry = DesktopEntry::from_path(path, Some(&locales))?;
     let connection = zbus::blocking::connection::Builder::session()?
         .method_timeout(std::time::Duration::from_secs(3))
         .build()?;
     let environment = session_environment(&connection)?;
-    if entry.dbus_activatable() {
+    if entry.dbus_activatable() && !new_window {
         match activate(&entry, &connection, &environment) {
             Ok(()) => return Ok(()),
             Err(error) if entry.exec().is_some() && absent_activation(&error) => {}
@@ -240,7 +248,10 @@ pub(super) fn launch(path: &Path, name: &str) -> anyhow::Result<()> {
             }
         }
     }
-    let plan = exec_plan(&entry, name)?;
+    let mut plan = exec_plan(&entry, name)?;
+    if new_window {
+        plan.argv.insert(1, "--new-window".into());
+    }
     let active = Command::new("uwsm")
         .args(["check", "is-active"])
         .env_clear()

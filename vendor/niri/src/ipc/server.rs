@@ -304,6 +304,14 @@ async fn process(ctx: &ClientCtx, request: Request) -> Reply {
                 .await
                 .map_err(|_| "agent dispatcher stopped".to_string())?;
         }
+        Request::YieldHumanInput => {
+            let (tx, rx) = async_channel::bounded(1);
+            ctx.event_loop.insert_idle(move |state| {
+                let result = state.yield_human_input().map(|()| Response::InputCoordination(state.input_coordination_snapshot()));
+                let _ = tx.try_send(result);
+            });
+            return rx.recv().await.map_err(|_| "coordination dispatcher stopped".to_string())?;
+        }
         Request::InputCoordination => {
             let (tx, rx) = async_channel::bounded(1);
             ctx.event_loop.insert_idle(move |state| {

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::Duration;
 
 use anyhow::Context as _;
 use gpui::{
@@ -10,6 +9,7 @@ use gpui::{
 
 struct WallpaperView {
     path: PathBuf,
+    images: gpui::Entity<gpui::RetainAllImageCache>,
 }
 
 impl Render for WallpaperView {
@@ -17,6 +17,7 @@ impl Render for WallpaperView {
         window.set_input_region(Some(&[]));
         div().size_full().child(
             img(self.path.clone())
+                .image_cache(&self.images)
                 .size_full()
                 .object_fit(gpui::ObjectFit::Cover),
         )
@@ -25,12 +26,23 @@ impl Render for WallpaperView {
 
 struct WallpaperController {
     path: Option<PathBuf>,
+    cached_path: Option<PathBuf>,
+    images: gpui::Entity<gpui::RetainAllImageCache>,
     windows: HashMap<DisplayId, WindowHandle<WallpaperView>>,
     observer: Option<Subscription>,
 }
 
 impl WallpaperController {
     fn reconcile(&mut self, cx: &mut App) -> anyhow::Result<()> {
+        if self.cached_path != self.path {
+            if let Some(window) = self.windows.values().next() {
+                window.update(cx, |_, window, cx| {
+                    self.images
+                        .update(cx, |images, cx| images.clear(window, cx));
+                })?;
+            }
+            self.cached_path = self.path.clone();
+        }
         let displays = cx.displays();
         let ids: Vec<_> = displays.iter().map(|d| d.id()).collect();
         let removed: Vec<_> = self
@@ -57,6 +69,7 @@ impl WallpaperController {
                 })?;
             } else {
                 let image = path.clone();
+                let images = self.images.clone();
                 let window = cx.open_window(
                     WindowOptions {
                         window_bounds: Some(WindowBounds::Windowed(display.bounds())),
@@ -77,7 +90,12 @@ impl WallpaperController {
                         }),
                         ..Default::default()
                     },
-                    |_, cx| cx.new(|_| WallpaperView { path: image }),
+                    |_, cx| {
+                        cx.new(|_| WallpaperView {
+                            path: image,
+                            images,
+                        })
+                    },
                 )?;
                 self.windows.insert(display.id(), window);
             }
@@ -86,12 +104,15 @@ impl WallpaperController {
     }
 }
 
-pub fn start(cx: &mut App) -> anyhow::Result<()> {
+pub fn start(cx: &mut App, events: async_channel::Receiver<()>) -> anyhow::Result<()> {
     let path = dojo::theme::Paths::user_default()?
         .root
         .join("current/wallpaper.txt");
+    let images = gpui::RetainAllImageCache::new(cx);
     let controller = cx.new(|_| WallpaperController {
         path: None,
+        cached_path: None,
+        images,
         windows: HashMap::new(),
         observer: None,
     });
@@ -107,7 +128,7 @@ pub fn start(cx: &mut App) -> anyhow::Result<()> {
     controller.update(cx, |controller, _| controller.observer = Some(observer));
     let task_controller = controller.clone();
     cx.spawn(async move |cx| {
-        loop {
+        while events.recv().await.is_ok() {
             let file = path.clone();
             let result = cx
                 .background_executor()
@@ -126,6 +147,9 @@ pub fn start(cx: &mut App) -> anyhow::Result<()> {
                     }
                 })
                 .await;
+            if !events.is_empty() {
+                continue;
+            }
             match result {
                 Ok(path) => {
                     if let Err(error) = task_controller.update(cx, |controller, cx| {
@@ -137,9 +161,6 @@ pub fn start(cx: &mut App) -> anyhow::Result<()> {
                 }
                 Err(error) => eprintln!("Dojo retained its previous wallpaper: {error:#}"),
             }
-            cx.background_executor()
-                .timer(Duration::from_millis(500))
-                .await;
         }
     })
     .detach();

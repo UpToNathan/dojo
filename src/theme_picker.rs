@@ -23,11 +23,12 @@ struct Candidate {
 struct Analysis {
     path: PathBuf,
     bytes: Arc<Vec<u8>>,
+    preview: Arc<gpui::RenderImage>,
     candidates: Vec<Candidate>,
     appearance: Appearance,
 }
 
-fn analyze() -> anyhow::Result<Analysis> {
+fn analyze(preview_edge: u32) -> anyhow::Result<Analysis> {
     let store = ThemeStore::new(Paths::user_default()?);
     let path = if let Some(selection) = store.selection()? {
         let theme = store.theme(&selection.generation)?;
@@ -49,10 +50,10 @@ fn analyze() -> anyhow::Result<Analysis> {
         // selection is provided by the appearance UI.
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("astro.jpg")
     };
-    analyze_image(path)
+    analyze_image(path, preview_edge)
 }
 
-fn analyze_image(path: PathBuf) -> anyhow::Result<Analysis> {
+fn analyze_image(path: PathBuf, preview_edge: u32) -> anyhow::Result<Analysis> {
     let path = path.canonicalize()?;
     anyhow::ensure!(path.is_file(), "wallpaper must be a regular image file");
     let mut file = std::fs::File::open(&path)?;
@@ -63,7 +64,10 @@ fn analyze_image(path: PathBuf) -> anyhow::Result<Analysis> {
     anyhow::ensure!(bytes.len() <= 50 * 1024 * 1024, "wallpaper exceeds 50 MiB");
     let reader = image::ImageReader::new(std::io::Cursor::new(&bytes)).with_guessed_format()?;
     anyhow::ensure!(
-        matches!(reader.format(), Some(image::ImageFormat::Jpeg | image::ImageFormat::Png | image::ImageFormat::WebP)),
+        matches!(
+            reader.format(),
+            Some(image::ImageFormat::Jpeg | image::ImageFormat::Png | image::ImageFormat::WebP)
+        ),
         "wallpaper must be JPEG, PNG, or WebP"
     );
     let (width, height) = reader.into_dimensions()?;
@@ -71,12 +75,94 @@ fn analyze_image(path: PathBuf) -> anyhow::Result<Analysis> {
         width <= 16_384 && height <= 16_384 && u64::from(width) * u64::from(height) <= 40_000_000,
         "wallpaper exceeds image dimension limits"
     );
+    let preview = wallpaper_thumbnail(&bytes, preview_edge)?;
     Ok(Analysis {
         path,
         bytes: Arc::new(bytes),
+        preview,
         candidates: Vec::new(),
         appearance: dojo::theme::system_appearance().unwrap_or(Appearance::Dark),
     })
+}
+
+fn wallpaper_thumbnail(bytes: &[u8], preview_edge: u32) -> anyhow::Result<Arc<gpui::RenderImage>> {
+    let reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format()?;
+    use image::ImageDecoder as _;
+    if reader.format() == Some(image::ImageFormat::WebP) {
+        use image::AnimationDecoder as _;
+        let mut decoder = image::codecs::webp::WebPDecoder::new(std::io::Cursor::new(bytes))?;
+        if decoder.has_animation() {
+            let orientation = decoder.orientation()?;
+            return animated_thumbnail(decoder.into_frames(), orientation, preview_edge);
+        }
+    }
+    let mut decoder = reader.into_decoder()?;
+    let orientation = decoder.orientation()?;
+    let image = image::DynamicImage::from_decoder(decoder)?;
+    Ok(Arc::new(gpui::RenderImage::new(vec![thumbnail_frame(
+        image,
+        orientation,
+        preview_edge,
+        image::Delay::from_numer_denom_ms(100, 1),
+    )])))
+}
+
+fn thumbnail_frame(
+    mut image: image::DynamicImage,
+    orientation: image::metadata::Orientation,
+    preview_edge: u32,
+    delay: image::Delay,
+) -> image::Frame {
+    image.apply_orientation(orientation);
+    let width = preview_edge.max(1).min(image.width());
+    let height = preview_edge.max(1).min(image.height());
+    let mut pixels = image.thumbnail(width, height).into_rgba8();
+    for pixel in pixels.chunks_exact_mut(4) {
+        pixel.swap(0, 2);
+    }
+    image::Frame::from_parts(pixels, 0, 0, delay)
+}
+
+fn animated_thumbnail(
+    frames: image::Frames<'_>,
+    orientation: image::metadata::Orientation,
+    preview_edge: u32,
+) -> anyhow::Result<Arc<gpui::RenderImage>> {
+    let mut thumbnails = Vec::new();
+    let mut retained_bytes = 0;
+    for frame in frames {
+        if thumbnails.len() == 32 {
+            thumbnails.truncate(1);
+            break;
+        }
+        let frame = frame?;
+        let delay = frame.delay();
+        let thumbnail = thumbnail_frame(
+            image::DynamicImage::ImageRgba8(frame.into_buffer()),
+            orientation,
+            preview_edge.min(2048),
+            delay,
+        );
+        retained_bytes += thumbnail.buffer().len();
+        if retained_bytes > 16 * 1024 * 1024 {
+            thumbnails.truncate(1);
+            break;
+        }
+        thumbnails.push(thumbnail);
+    }
+    anyhow::ensure!(
+        !thumbnails.is_empty(),
+        "animated wallpaper has no preview frame"
+    );
+    Ok(Arc::new(gpui::RenderImage::new(thumbnails)))
+}
+
+fn preview_edge(window: &Window) -> u32 {
+    let width = (f32::from(window.viewport_size().width) - 48.).clamp(320., 940.);
+    let preview_width = width - (width * 0.43).min(400.) - 66.;
+    (preview_width.max(300.) * window.scale_factor())
+        .ceil()
+        .clamp(1., 4096.) as u32
 }
 
 fn derive_candidates(bytes: &[u8]) -> anyhow::Result<Vec<Candidate>> {
@@ -135,7 +221,7 @@ impl ThemePicker {
     pub fn toggle(&mut self, cx: &mut App) -> anyhow::Result<()> {
         if let Some(window) = self.window.take() {
             if window
-                .update(cx, |_, window, _| window.remove_window())
+                .update(cx, |view, window, _| view.close(window))
                 .is_ok()
             {
                 return Ok(());
@@ -176,8 +262,12 @@ impl ThemePicker {
                 cx.new(|cx| {
                     let focus = cx.focus_handle();
                     window.focus(&focus, cx);
+                    cx.on_release_in(window, |view: &mut PickerView, window, _| {
+                        view.release_preview(window);
+                    }).detach();
+                    let preview_edge = preview_edge(window);
                     cx.spawn_in(window, async move |this, cx| {
-                        let result = cx.background_executor().spawn(async { analyze() }).await;
+                        let result = cx.background_executor().spawn(async move { analyze(preview_edge) }).await;
                         if let Err(error) = this.update_in(cx, |view: &mut PickerView, window, cx| {
                             if view.analysis_revision != 0 {
                                 return;
@@ -188,7 +278,7 @@ impl ThemePicker {
                                     if !view.show_presets {
                                         view.appearance = analysis.appearance;
                                     }
-                                    view.analysis = Some(Arc::new(analysis));
+                                    view.replace_analysis(analysis, window);
                                     if view.show_wallpaper {
                                         view.message = "Choose an image, or keep the current wallpaper. Derivation is optional.".into();
                                     } else if !view.show_presets {
@@ -312,6 +402,25 @@ fn theme_content_row() -> gpui::Div {
 }
 
 impl PickerView {
+    fn release_preview(&mut self, window: &mut Window) {
+        if let Some(analysis) = self.analysis.take() {
+            if let Err(error) = window.drop_image(analysis.preview.clone()) {
+                eprintln!("Could not release wallpaper preview: {error:#}");
+            }
+        }
+    }
+
+    fn replace_analysis(&mut self, analysis: Analysis, window: &mut Window) {
+        self.release_preview(window);
+        self.analysis = Some(Arc::new(analysis));
+    }
+
+    fn close(&mut self, window: &mut Window) {
+        self.analysis_revision += 1;
+        self.release_preview(window);
+        window.remove_window();
+    }
+
     fn derive(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.loading || self.applying {
             return;
@@ -329,9 +438,10 @@ impl PickerView {
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
             let bytes = analysis.bytes.clone();
-            let result = cx.background_executor().spawn(async move {
-                derive_candidates(bytes.as_ref())
-            }).await;
+            let result = cx
+                .background_executor()
+                .spawn(async move { derive_candidates(bytes.as_ref()) })
+                .await;
             if let Err(error) = this.update_in(cx, |view, _, cx| {
                 if view.analysis_revision != revision {
                     return;
@@ -342,11 +452,14 @@ impl PickerView {
                         view.analysis = Some(Arc::new(Analysis {
                             path: analysis.path.clone(),
                             bytes: analysis.bytes.clone(),
+                            preview: analysis.preview.clone(),
                             candidates,
                             appearance: analysis.appearance,
                         }));
                         if !view.show_wallpaper && !view.show_presets {
-                            view.message = "Choose a derivation attempt to preview. Nothing is applied.".into();
+                            view.message =
+                                "Choose a derivation attempt to preview. Nothing is applied."
+                                    .into();
                         }
                     }
                     Err(error) => view.message = format!("Could not derive a palette: {error:#}"),
@@ -355,7 +468,8 @@ impl PickerView {
             }) {
                 eprintln!("Theme picker closed during derivation: {error:#}");
             }
-        }).detach();
+        })
+        .detach();
     }
 
     fn browse(&mut self, directory: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
@@ -397,14 +511,15 @@ impl PickerView {
         self.selected = None;
         self.message = "Loading wallpaper preview…".into();
         cx.notify();
+        let preview_edge = preview_edge(window);
         cx.spawn_in(window, async move |this, cx| {
-            let result = cx.background_executor().spawn(async move {analyze_image(path)}).await;
+            let result = cx.background_executor().spawn(async move {analyze_image(path, preview_edge)}).await;
             if let Err(error) = this.update_in(cx, |view, window, cx| {
                 if view.analysis_revision != revision {return;}
                 view.loading = false;
                 match result {
                     Ok(analysis) => {
-                        view.analysis=Some(Arc::new(analysis));
+                        view.replace_analysis(analysis, window);
                         view.message="Preview only. Apply wallpaper keeps your theme; Derive attempts a new palette.".into();
                         if !view.show_wallpaper && !view.show_presets {
                             view.derive(window, cx);
@@ -720,7 +835,7 @@ impl Render for PickerView {
             .gap(px(12.));
         if let Some(analysis) = &self.analysis {
             preview = preview.child(
-                img(analysis.path.clone())
+                img(analysis.preview.clone())
                     .w_full()
                     .h(px(if self.show_wallpaper { 300. } else { 160. }))
                     .object_fit(gpui::ObjectFit::Cover)
@@ -840,7 +955,9 @@ impl Render for PickerView {
                 if self.show_presets {
                     self.presets.len()
                 } else {
-                    self.analysis.as_ref().map_or(0, |analysis| analysis.candidates.len())
+                    self.analysis
+                        .as_ref()
+                        .map_or(0, |analysis| analysis.candidates.len())
                 },
                 !self.show_presets && self.loading,
                 self.applying,
@@ -995,7 +1112,7 @@ impl Render for PickerView {
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|view, event: &KeyDownEvent, window, cx| {
                 match event.keystroke.key.as_str() {
-                    "escape" if !view.applying => window.remove_window(),
+                    "escape" if !view.applying => view.close(window),
                     "enter" if !event.is_held => view.apply(window, cx),
                     _ => {}
                 }
@@ -1008,7 +1125,7 @@ impl Render for PickerView {
                             .panel
                             .is_some_and(|bounds| !bounds.contains(&event.position))
                     {
-                        window.remove_window();
+                        view.close(window);
                     }
                 }),
             )
@@ -1019,23 +1136,182 @@ impl Render for PickerView {
 #[cfg(test)]
 mod tests {
     use super::{button_label, confirmable, theme_content_row};
+    use anyhow::Context as _;
     use gpui::{Styled, px};
+
+    fn animated_webp(frame_count: usize) -> anyhow::Result<Vec<u8>> {
+        fn chunk(output: &mut Vec<u8>, name: &[u8; 4], payload: &[u8]) {
+            output.extend_from_slice(name);
+            output.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+            output.extend_from_slice(payload);
+            if payload.len() % 2 == 1 {
+                output.push(0);
+            }
+        }
+        let mut body = b"WEBP".to_vec();
+        chunk(&mut body, b"VP8X", &[2, 0, 0, 0, 1, 0, 0, 1, 0, 0]);
+        chunk(&mut body, b"ANIM", &[0; 6]);
+        for index in 0..frame_count {
+            let color = if index % 2 == 0 {
+                [255, 0, 0]
+            } else {
+                [0, 0, 255]
+            };
+            let image = image::RgbImage::from_pixel(2, 2, image::Rgb(color));
+            let mut encoded = std::io::Cursor::new(Vec::new());
+            image::DynamicImage::ImageRgb8(image)
+                .write_to(&mut encoded, image::ImageFormat::WebP)?;
+            let mut frame = vec![0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 50, 0, 0, 2];
+            frame.extend_from_slice(&encoded.into_inner()[12..]);
+            chunk(&mut body, b"ANMF", &frame);
+        }
+        let mut encoded = b"RIFF".to_vec();
+        encoded.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        encoded.extend(body);
+        Ok(encoded)
+    }
+
+    #[test]
+    fn wallpaper_preview_animates_within_budget_and_keeps_first_frame_over_budget()
+    -> anyhow::Result<()> {
+        let preview = super::wallpaper_thumbnail(&animated_webp(2)?, 8)?;
+        assert_eq!(preview.frame_count(), 2);
+        assert_eq!(
+            preview.size(0),
+            gpui::size(gpui::DevicePixels(2), gpui::DevicePixels(2))
+        );
+        assert_eq!(
+            preview.as_bytes(0).context("missing first frame")?,
+            &[0, 0, 255, 255].repeat(4)
+        );
+        assert_eq!(
+            preview.as_bytes(1).context("missing second frame")?,
+            &[255, 0, 0, 255].repeat(4)
+        );
+        assert_eq!(preview.delay(1).numer_denom_ms(), (50, 1));
+        let preview = super::wallpaper_thumbnail(&animated_webp(33)?, 8)?;
+        assert_eq!(preview.frame_count(), 1);
+        assert_eq!(
+            preview.as_bytes(0).context("missing static fallback")?,
+            &[0, 0, 255, 255].repeat(4)
+        );
+
+        let frames = image::Frames::new(Box::new((0..8).map(|_| {
+            Ok(image::Frame::new(image::RgbaImage::from_pixel(
+                1024,
+                1024,
+                image::Rgba([255, 0, 0, 255]),
+            )))
+        })));
+        let preview =
+            super::animated_thumbnail(frames, image::metadata::Orientation::NoTransforms, 1024)?;
+        assert_eq!(preview.frame_count(), 1);
+        assert_eq!(
+            preview.size(0),
+            gpui::size(gpui::DevicePixels(1024), gpui::DevicePixels(1024))
+        );
+        assert_eq!(
+            preview
+                .as_bytes(0)
+                .context("missing pixel-budget fallback")?
+                .get(..4),
+            Some([0, 0, 255, 255].as_slice())
+        );
+        Ok(())
+    }
 
     #[test]
     fn wallpaper_preview_loads_without_requiring_a_derivable_palette() -> anyhow::Result<()> {
         let path = std::env::temp_dir().join(format!(
             "dojo-wallpaper-preview-{}-{}.png",
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_nanos()
         ));
         image::RgbImage::from_pixel(1, 1, image::Rgb([200, 30, 50])).save(&path)?;
-        let preview = super::analyze_image(path.clone())?;
+        let preview = super::analyze_image(path.clone(), 512)?;
         assert_eq!(preview.path, path.canonicalize()?);
         let image = image::load_from_memory(preview.bytes.as_ref())?.to_rgb8();
         assert_eq!(image.get_pixel(0, 0).0, [200, 30, 50]);
         assert!(preview.candidates.is_empty());
         assert!(super::derive_candidates(preview.bytes.as_ref()).is_err());
         std::fs::remove_file(path)?;
+        Ok(())
+    }
+
+    #[test]
+    fn wallpaper_preview_keeps_original_bytes_and_bounds_decoded_pixels() -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        for extension in ["png", "jpg", "webp"] {
+            let path = directory.path().join(format!("wallpaper.{extension}"));
+            image::RgbImage::from_pixel(40, 20, image::Rgb([200, 30, 50])).save(&path)?;
+            let original = std::fs::read(&path)?;
+            let analysis = super::analyze_image(path, 8)?;
+            assert_eq!(analysis.bytes.as_ref(), &original);
+            assert_eq!(
+                analysis.preview.size(0),
+                gpui::size(gpui::DevicePixels(8), gpui::DevicePixels(4))
+            );
+            assert_eq!(analysis.preview.frame_count(), 1);
+            let pixels = analysis
+                .preview
+                .as_bytes(0)
+                .context("missing thumbnail pixels")?;
+            assert_eq!(pixels.len(), 8 * 4 * 4);
+            let expected = [50u8, 30, 200, 255];
+            for pixel in pixels.chunks_exact(4) {
+                assert!(
+                    pixel
+                        .iter()
+                        .zip(expected)
+                        .all(|(actual, expected)| actual.abs_diff(expected) <= 3)
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn wallpaper_preview_respects_jpeg_orientation() -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("oriented.jpg");
+        image::RgbImage::from_pixel(20, 40, image::Rgb([200, 30, 50])).save(&path)?;
+        let encoded = std::fs::read(&path)?;
+        let exif = [
+            b'E', b'x', b'i', b'f', 0, 0, b'I', b'I', 42, 0, 8, 0, 0, 0, 1, 0, 0x12, 0x01, 3, 0, 1,
+            0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        let mut oriented = encoded[..2].to_vec();
+        oriented.extend_from_slice(&[0xff, 0xe1, 0, 34]);
+        oriented.extend_from_slice(&exif);
+        oriented.extend_from_slice(&encoded[2..]);
+        std::fs::write(&path, &oriented)?;
+        let analysis = super::analyze_image(path, 8)?;
+        assert_eq!(analysis.bytes.as_ref(), &oriented);
+        assert_eq!(
+            analysis.preview.size(0),
+            gpui::size(gpui::DevicePixels(8), gpui::DevicePixels(4))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn wallpaper_preview_rejects_excessive_dimensions_before_decode() -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("too-wide.png");
+        image::RgbImage::from_pixel(16_385, 1, image::Rgb([200, 30, 50])).save(&path)?;
+        let error = super::analyze_image(path, 8)
+            .err()
+            .context("oversized image was accepted")?;
+        assert!(error.to_string().contains("image dimension limits"));
+        let path = directory.path().join("accepted.png");
+        image::RgbImage::from_pixel(16_384, 1, image::Rgb([200, 30, 50])).save(&path)?;
+        let analysis = super::analyze_image(path, 8)?;
+        assert_eq!(
+            analysis.preview.size(0),
+            gpui::size(gpui::DevicePixels(8), gpui::DevicePixels(1))
+        );
         Ok(())
     }
 

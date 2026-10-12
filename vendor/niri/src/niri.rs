@@ -348,6 +348,7 @@ pub struct Niri {
     pub next_agent_peer: u64,
     /// Scancodes of the keys to suppress.
     pub suppressed_keys: HashSet<Keycode>,
+    pub release_binds: HashMap<Keycode, niri_config::Bind>,
     /// Button codes of the mouse buttons to suppress.
     pub suppressed_buttons: HashSet<u32>,
     pub bind_cooldown_timers: HashMap<Key, RegistrationToken>,
@@ -2724,6 +2725,7 @@ impl Niri {
             popups: PopupManager::default(),
             popup_grab: None,
             suppressed_keys: HashSet::new(),
+            release_binds: HashMap::new(),
             suppressed_buttons: HashSet::new(),
             bind_cooldown_timers: HashMap::new(),
             bind_repeat_timer: Option::default(),
@@ -4783,7 +4785,7 @@ impl Niri {
 
         self.update_render_elements(Some(output));
 
-        let agents_moving = self.agent_pointers_are_moving();
+        let agents_moving = self.agent_pointers_are_moving(output);
         let mut res = RenderResult::Skipped;
         if self.monitors_active {
             let state = self.output_state.get_mut(output).unwrap();

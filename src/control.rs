@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -10,7 +10,7 @@ use std::time::Duration;
 use anyhow::{Context as _, bail};
 use async_channel::Sender;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ControlCommand {
     Toggle,
     Enable,
@@ -18,11 +18,15 @@ pub enum ControlCommand {
     Quit,
     Launcher,
     Theme,
+    Speech(crate::speech::SpeechEvent),
 }
 
 impl ControlCommand {
-    fn as_str(self) -> &'static str {
+    fn as_str(&self) -> String {
         match self {
+            Self::Speech(event) => {
+                return serde_json::to_string(event).expect("speech events serialize");
+            }
             Self::Toggle => "toggle",
             Self::Enable => "enable",
             Self::Disable => "disable",
@@ -30,6 +34,7 @@ impl ControlCommand {
             Self::Launcher => "launcher",
             Self::Theme => "theme",
         }
+        .to_owned()
     }
 
     fn parse(value: &str) -> Option<Self> {
@@ -40,12 +45,15 @@ impl ControlCommand {
             "quit" => Some(Self::Quit),
             "launcher" => Some(Self::Launcher),
             "theme" => Some(Self::Theme),
-            _ => None,
+            _ => serde_json::from_str::<crate::speech::SpeechEvent>(value)
+                .ok()
+                .filter(|event| event.validate().is_ok())
+                .map(Self::Speech),
         }
     }
 }
 
-pub fn send(command: ControlCommand) -> anyhow::Result<bool> {
+pub fn send(command: &ControlCommand) -> anyhow::Result<bool> {
     let path = socket_path()?;
     let mut stream = match UnixStream::connect(&path) {
         Ok(stream) => stream,
@@ -62,6 +70,8 @@ pub fn send(command: ControlCommand) -> anyhow::Result<bool> {
         }
     };
 
+    stream.set_read_timeout(Some(Duration::from_secs(1)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(1)))?;
     writeln!(stream, "{}", command.as_str()).context("sending Dojo control command")?;
     let mut reply = String::new();
     BufReader::new(stream)
@@ -161,13 +171,21 @@ fn handle_client(mut stream: UnixStream, sender: &Sender<ControlCommand>) {
         return;
     }
     let mut command = String::new();
-    let result = BufReader::new(&mut stream).read_line(&mut command);
+    let result = BufReader::new((&mut stream).take(16_385)).read_line(&mut command);
     let response = match result {
-        Ok(_) => match ControlCommand::parse(command.trim()) {
-            Some(command) if sender.try_send(command).is_ok() => "queued\n",
-            Some(_) => "stopping\n",
-            None => "invalid\n",
-        },
+        Ok(_) if command.len() <= 16_384 && command.ends_with('\n') => {
+            match ControlCommand::parse(command.trim()) {
+                Some(command) => {
+                    if sender.try_send(command).is_ok() {
+                        "queued\n"
+                    } else {
+                        "stopping\n"
+                    }
+                }
+                None => "invalid\n",
+            }
+        }
+        Ok(_) => "invalid\n",
         Err(error) => {
             eprintln!("Failed to read Dojo control command: {error}");
             "invalid\n"
@@ -191,6 +209,27 @@ fn socket_path() -> anyhow::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn speech_response_survives_socket_delivery() -> anyhow::Result<()> {
+        let (sender, receiver) = async_channel::bounded(1);
+        let (server, mut client) = UnixStream::pair()?;
+        client.write_all(b"{\"event\":\"response\",\"value\":\"Opened your bill.\"}\n")?;
+        handle_client(server, &sender);
+        assert_eq!(
+            receiver.try_recv()?,
+            ControlCommand::Speech(crate::speech::SpeechEvent::Response(
+                "Opened your bill.".into()
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_phase_and_empty_response_are_rejected() {
+        assert!(ControlCommand::parse(r#"{"event":"phase","value":"response"}"#).is_none());
+        assert!(ControlCommand::parse(r#"{"event":"response","value":" "}"#).is_none());
+    }
 
     #[test]
     fn launcher_command_is_delivered_and_acknowledged() -> anyhow::Result<()> {

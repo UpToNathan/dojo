@@ -892,10 +892,10 @@ mod tests {
         );
         assert!(kitty(&theme.dark).contains("color15 "));
         assert!(ghostty(&theme.dark).contains("palette = 15="));
-        assert!(
-            niri(&theme.dark)
-                .contains(&format!("active-color \"{}33\"", theme.dark.color("primary")))
-        );
+        assert!(niri(&theme.dark).contains(&format!(
+            "active-color \"{}33\"",
+            theme.dark.color("primary")
+        )));
         let helium: Value = serde_json::from_slice(&outputs["helium.json"])?;
         assert_eq!(helium["BrowserThemeColor"], theme.dark.color("background"));
         assert_eq!(helium["BrowserColorScheme"], "system");

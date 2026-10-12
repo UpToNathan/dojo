@@ -39,6 +39,9 @@ driver="$repo_root/tools/agent-input/run.py"
 if [[ "${1:-}" == --mcp ]]; then
     shift
     driver="$repo_root/tools/agent-input/run-mcp.py"
+elif [[ "${1:-}" == --handoff ]]; then
+    shift
+    driver="$repo_root/tools/agent-input/run-handoff.py"
 elif [[ "${1:-}" == --fullscreen ]]; then
     shift
     driver="$repo_root/tools/agent-input/run-fullscreen.py"

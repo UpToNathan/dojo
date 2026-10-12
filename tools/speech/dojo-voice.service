@@ -1,0 +1,14 @@
+[Unit]
+Description=Dojo voice and prewarmed local transcription
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/nathan/Dojo
+ExecStart=/home/nathan/.nix-profile/bin/devenv shell -- env DOJO_VOICE_DEVENV=1 /home/nathan/Dojo/tools/speech/dojo-voice --serve
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target

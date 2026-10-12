@@ -24,6 +24,7 @@ pub struct Bind {
     pub key: Key,
     pub action: Action,
     pub repeat: bool,
+    pub spawn_on_release: Option<String>,
     pub cooldown: Option<Duration>,
     pub allow_when_locked: bool,
     pub allow_inhibiting: bool,
@@ -846,6 +847,7 @@ where
             .map_err(|e| DecodeError::conversion(&node.node_name, e.wrap_err("invalid keybind")))?;
 
         let mut repeat = true;
+        let mut spawn_on_release = None;
         let mut cooldown = None;
         let mut allow_when_locked = false;
         let mut allow_when_locked_node = None;
@@ -853,6 +855,9 @@ where
         let mut hotkey_overlay_title = None;
         for (name, val) in &node.properties {
             match &***name {
+                "spawn-on-release" => {
+                    spawn_on_release = knuffel::traits::DecodeScalar::decode(val, ctx)?;
+                }
                 "repeat" => {
                     repeat = knuffel::traits::DecodeScalar::decode(val, ctx)?;
                 }
@@ -890,6 +895,7 @@ where
             key,
             action: Action::Spawn(vec![]),
             repeat: true,
+            spawn_on_release: None,
             cooldown: None,
             allow_when_locked: false,
             allow_inhibiting: true,
@@ -926,6 +932,7 @@ where
                         key,
                         action,
                         repeat,
+                        spawn_on_release,
                         cooldown,
                         allow_when_locked,
                         allow_inhibiting,
@@ -1055,6 +1062,21 @@ impl FromStr for Key {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_push_to_talk() {
+        let config = crate::Config::parse_mem(r#"
+            binds {
+            Mod+Shift+P repeat=false spawn-on-release="dojo-voice finish" {
+                spawn "dojo-voice" "begin"
+            }
+            }
+        "#).unwrap();
+        let binds = config.binds;
+        assert_eq!(binds.0[0].spawn_on_release.as_deref(), Some("dojo-voice finish"));
+        assert!(!binds.0[0].repeat);
+        assert_eq!(binds.0[0].action, Action::Spawn(vec!["dojo-voice".into(), "begin".into()]));
+    }
 
     #[test]
     fn parse_xf86_screensaver() {

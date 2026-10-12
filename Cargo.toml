@@ -9,6 +9,8 @@ gpui = { path = "vendor/zed/crates/gpui", default-features = false }
 gpui_platform = { path = "vendor/zed/crates/gpui_platform", default-features = false, features = ["wayland"] }
 niri-ipc = { path = "vendor/niri/niri-ipc" }
 anyhow = "1"
+base64 = "0.22"
+tempfile = "3"
 sha2 = "0.10"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 serde = { version = "1", features = ["derive"] }
@@ -19,6 +21,8 @@ freedesktop-desktop-entry = { version = "0.8", default-features = false }
 nucleo-matcher = "0.3"
 unicode-segmentation = "1"
 async-channel = "2"
+futures-lite = "2"
+rustix = { version = "1", features = ["fs", "event"] }
 freedesktop-icons = "0.4"
 rmcp = { version = "3.5.1", default-features = false, features = ["server", "macros", "transport-io"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "signal"] }

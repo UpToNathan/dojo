@@ -1,4 +1,7 @@
 /target
+/crates/*/target/
+__pycache__/
+*.pyc
 .devenv*
 .direnv
 devenv.local.nix

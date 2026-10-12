@@ -25,6 +25,7 @@ use wayland_protocols::xdg::shell::client::xdg_positioner;
 use wayland_protocols::xdg::shell::client::xdg_surface;
 use wayland_protocols::xdg::shell::client::xdg_toplevel::{self};
 use wayland_protocols::{
+    ext::background_effect::v1::client::ext_background_effect_surface_v1,
     wp::fractional_scale::v1::client::wp_fractional_scale_v1,
     xdg::dialog::v1::client::xdg_dialog_v1::XdgDialogV1,
 };
@@ -109,6 +110,8 @@ pub struct WaylandWindowState {
     app_id: Option<String>,
     appearance: WindowAppearance,
     blur: Option<org_kde_kwin_blur::OrgKdeKwinBlur>,
+    background_effect: Option<ext_background_effect_surface_v1::ExtBackgroundEffectSurfaceV1>,
+    background_blur_region: Option<(Vec<Bounds<Pixels>>, Pixels)>,
     viewport: Option<wp_viewport::WpViewport>,
     outputs: HashMap<ObjectId, Output>,
     display: Option<(ObjectId, Output)>,
@@ -612,6 +615,8 @@ impl WaylandWindowState {
             surface,
             app_id: options.app_id,
             blur: None,
+            background_effect: None,
+            background_blur_region: None,
             viewport,
             globals,
             outputs: HashMap::default(),
@@ -2208,6 +2213,65 @@ impl PlatformWindow for WaylandWindow {
         // waits for the next frame, which could be the very click we want to
         // allow passing through.
         state.surface.commit();
+    }
+
+    fn set_background_blur_regions(&self, regions: &[Bounds<Pixels>], corner_radius: Pixels) {
+        let mut state = self.borrow_mut();
+        let region = (!regions.is_empty()).then(|| (regions.to_vec(), corner_radius));
+        if state.background_blur_region == region {
+            return;
+        }
+        state.background_blur_region = region.clone();
+        let Some(manager) = state.globals.background_effect_manager.as_ref() else {
+            return;
+        };
+        if state.background_effect.is_none() {
+            state.background_effect = Some(manager.get_background_effect(
+                &state.surface,
+                &state.globals.qh,
+                (),
+            ));
+        }
+        let effect = state.background_effect.as_ref().unwrap();
+        let Some((regions, corner_radius)) = region else {
+            effect.set_blur_region(None);
+            return;
+        };
+
+        // A wl_region is a union of integer rectangles. One-pixel horizontal
+        // bands approximate the rounded corners while keeping blur inside the card.
+        let wl_region = state.globals.compositor.create_region(&state.globals.qh, ());
+        for bounds in regions {
+        let bounds = bounds.map(f32::from);
+        let radius = f32::from(corner_radius)
+            .min(bounds.size.width / 2.)
+            .min(bounds.size.height / 2.);
+        let left = bounds.origin.x;
+        let top = bounds.origin.y;
+        let right = left + bounds.size.width;
+        let bottom = top + bounds.size.height;
+        for y in top.floor() as i32..bottom.ceil() as i32 {
+            let center_y = y as f32 + 0.5;
+            let inset = if center_y < top + radius {
+                let dy = top + radius - center_y;
+                radius - (radius * radius - dy * dy).max(0.).sqrt()
+            } else if center_y > bottom - radius {
+                let dy = center_y - (bottom - radius);
+                radius - (radius * radius - dy * dy).max(0.).sqrt()
+            } else {
+                0.
+            };
+            let x = (left + inset).floor() as i32;
+            let band_width = ((right - inset).ceil() as i32 - x).max(0);
+            if band_width > 0 {
+                wl_region.add(x, y, band_width, 1);
+            }
+        }
+        }
+        effect.set_blur_region(Some(&wl_region));
+        wl_region.destroy();
+        // Apply double-buffered blur state with the next rendered buffer so
+        // moving bubbles and their blur regions reach the compositor together.
     }
 
     fn window_decorations(&self) -> Decorations {

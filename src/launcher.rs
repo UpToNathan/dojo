@@ -1,7 +1,7 @@
 mod catalogue;
 mod icons;
 mod input;
-mod launch;
+use dojo::application_launch as launch;
 mod worker;
 
 use std::collections::HashMap;
@@ -226,6 +226,14 @@ impl LauncherView {
                 if this
                     .update_in(cx, |this, window, cx| match this.worker.take_results() {
                         Ok(Some(results)) if results.generation == this.generation => {
+                            if this
+                                .catalogue
+                                .as_ref()
+                                .is_none_or(|old| !Arc::ptr_eq(old, &results.catalogue))
+                            {
+                                this.icon_task = None;
+                                this.icons.clear();
+                            }
                             this.catalogue = Some(results.catalogue);
                             this.matches = results.matches;
                             this.ready_generation = Some(this.generation);
@@ -253,6 +261,8 @@ impl LauncherView {
         let requested = self
             .matches
             .iter()
+            .skip(self.selected.saturating_sub(9))
+            .take(10)
             .filter(|index| !self.icons.contains_key(index))
             .filter_map(|&index| {
                 catalogue
@@ -264,6 +274,7 @@ impl LauncherView {
         if requested.is_empty() {
             return;
         }
+        let catalogue = catalogue.clone();
         let scale = window.scale_factor().ceil().clamp(1., 4.) as u16;
         self.icon_task = Some(cx.spawn_in(window, async move |this, cx| {
             let resolved = cx
@@ -276,7 +287,13 @@ impl LauncherView {
                 })
                 .await;
             if let Err(error) = this.update_in(cx, |this, _, cx| {
-                this.icons.extend(resolved);
+                if this
+                    .catalogue
+                    .as_ref()
+                    .is_some_and(|current| Arc::ptr_eq(current, &catalogue))
+                {
+                    this.icons.extend(resolved);
+                }
                 cx.notify();
             }) {
                 eprintln!("Dojo launcher closed during icon lookup: {error}");
@@ -335,10 +352,12 @@ impl LauncherView {
             "enter" if !event.is_held => self.launch_selected(window, cx),
             "down" => {
                 self.selected = (self.selected + 1).min(self.matches.len().saturating_sub(1));
+                self.load_icons(window, cx);
                 cx.notify();
             }
             "up" => {
                 self.selected = self.selected.saturating_sub(1);
+                self.load_icons(window, cx);
                 cx.notify();
             }
             "backspace" => {

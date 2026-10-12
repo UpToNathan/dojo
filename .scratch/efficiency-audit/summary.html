@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>
+body{font-family:var(--font-sans,system-ui);color:var(--foreground);margin:0;line-height:1.5}
+p{margin:0 0 14px} .lead{font-size:18px;font-weight:600}.note{color:var(--muted-foreground);font-size:12px}
+table{width:100%;border-collapse:collapse;font-size:13px;margin:12px 0 18px}th{text-align:left;color:var(--muted-foreground);font-weight:500}td,th{padding:9px 6px;border-bottom:1px solid var(--border);vertical-align:top}td:first-child,th:first-child{padding-left:0}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}.label{font-weight:600;font-size:14px;margin:20px 0 7px}
+details{border-top:1px solid var(--border);padding:12px 0}summary{cursor:pointer;font-weight:600;font-size:14px}details p{font-size:13px;margin:9px 0 0;color:var(--muted-foreground)}.tag{font-size:11px;font-weight:400;color:var(--muted-foreground);display:block;margin-top:3px}
+.foot{margin-top:16px;font-size:12px;color:var(--muted-foreground)}@media(max-width:430px){table{font-size:12px}td,th{padding:8px 3px}.lead{font-size:16px}}
+</style></head><body>
+<p class="lead">The largest verified quiet-shell cost is the tray.</p>
+<p>Most of Dojo's current CPU work sits in its tray and D-Bus threads. The best first gains preserve capability: stop repeated reads, let static content sleep, and give resident workers one owner.</p>
+<table aria-label="Current process observations"><thead><tr><th>Process</th><th class="num">CPU¹</th><th class="num">CPU memory²</th><th class="num">GPU allocation³</th></tr></thead><tbody>
+<tr><td>Dojo</td><td class="num">38.2%</td><td class="num">233 MiB</td><td class="num">552 MiB</td></tr>
+<tr><td>Niri</td><td class="num">4.7%</td><td class="num">88 MiB</td><td class="num">528 MiB</td></tr>
+<tr><td>wluma</td><td class="num">1.0%</td><td class="num">19 MiB</td><td class="num">50 MiB</td></tr>
+<tr><td>Speech worker</td><td class="num">0%</td><td class="num">123 MiB</td><td class="num">699 MiB</td></tr>
+</tbody></table>
+<p class="note">Five passive samples of about 5 seconds, current development build, active desktop. ¹ Median; 100% means one logical CPU core. ² Proportional memory. ³ Includes shared allocations; do not sum this column. No speech transcription ran.</p>
+<p class="label">Recommended sequence</p>
+<details open><summary>1. Release baseline and tray events<span class="tag">Measured hot threads + verified repeated work</span></summary><p>Replace 25 ms channel polling and repeated property/pixmap retrieval with blocking waits and change signals. Retain a slow fallback for imperfect tray providers. Measure an optimized resident build before promising savings.</p></details>
+<details open><summary>2. Sleep between visible changes<span class="tag">Verified unnecessary scheduling</span></summary><p>Notify the frame only when displayed state changes. Share host-state updates across outputs. Static speech bubbles should sleep between entry and exit; preserve input and active feedback.</p></details>
+<details open><summary>3. Give the idle manager an energy-saving plan<span class="tag">Verified live: no enabled idle actions</span></summary><p>Stasis is resident but its effective action plan is empty. Define battery and AC lock, screen-off, and suspend deadlines, preserving active-work and media inhibition.</p></details>
+<details open><summary>4. One voice owner, bounded integration work<span class="tag">Two live coordinators + verified startup race</span></summary><p>Acquire one lock before loading a model or replacing the socket. Coalesce history writes, retain healthy subscriptions, and use idle deadlines. Keep the fast warmed speech worker.</p></details>
+<details><summary>5. Allocate only the graphics resources being used<span class="tag">Verified allocation and retention paths; savings unmeasured</span></summary><p>Allocate path scratch textures only for scenes with paths. Use bounded thumbnail ownership for wallpaper previews. Measure blank reservation renderer costs before redesigning them.</p></details>
+<details><summary>6. Profile capture and blur, then test battery policy<span class="tag">Measured graphics activity; energy benefit unresolved</span></summary><p>wluma shows ongoing GPU activity and may also save panel power through brightness adaptation. Check capture cadence and resolution. Verify actual blur cropping. Measure net battery energy before changing appearance or unloading the speech model.</p></details>
+<p class="foot">Power-saver is already active; the panel runs at 60 Hz. AC was connected and the battery was charging, so this audit cannot give battery-life savings. Target: idle work approaches zero, memory stays bounded, and capability wakes immediately when needed.</p>
+</body></html>

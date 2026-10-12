@@ -31,6 +31,10 @@ impl Coordination {
         self.update(self.pointer.clone(), client)
     }
 
+    pub fn yield_human(&mut self) -> bool {
+        self.update(None, None)
+    }
+
     fn update(&mut self, pointer: Option<ClientId>, keyboard: Option<ClientId>) -> bool {
         if self.pointer == pointer && self.keyboard == keyboard {
             return false;

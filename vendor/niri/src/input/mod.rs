@@ -420,6 +420,11 @@ impl State {
         let serial = SERIAL_COUNTER.next_serial();
         let time = Event::time(&event);
         let pressed = event.state() == KeyState::Pressed;
+        if !pressed {
+            if let Some(bind) = self.niri.release_binds.remove(&event.key_code()) {
+                self.handle_bind(bind);
+            }
+        }
 
         // Stop bind key repeat on any release. This won't work 100% correctly in cases like:
         // 1. Press Mod
@@ -600,6 +605,13 @@ impl State {
             return;
         }
 
+        if let Some(command) = &bind.spawn_on_release {
+            let mut release = bind.clone();
+            release.action = Action::SpawnSh(command.clone());
+            release.repeat = false;
+            release.spawn_on_release = None;
+            self.niri.release_binds.insert(event.key_code(), release);
+        }
         self.handle_bind(bind.clone());
 
         self.start_key_repeat(bind);
@@ -3178,6 +3190,7 @@ impl State {
                                 },
                                 action: Action::FocusColumnLeftUnderMouse,
                                 repeat: true,
+                                spawn_on_release: None,
                                 cooldown: None,
                                 allow_when_locked: false,
                                 allow_inhibiting: false,
@@ -3190,6 +3203,7 @@ impl State {
                                 },
                                 action: Action::FocusColumnRightUnderMouse,
                                 repeat: true,
+                                spawn_on_release: None,
                                 cooldown: None,
                                 allow_when_locked: false,
                                 allow_inhibiting: false,
@@ -3247,6 +3261,7 @@ impl State {
                             },
                             action: Action::FocusWorkspaceUpUnderMouse,
                             repeat: true,
+                            spawn_on_release: None,
                             cooldown: Some(Duration::from_millis(50)),
                             allow_when_locked: false,
                             allow_inhibiting: false,
@@ -3259,6 +3274,7 @@ impl State {
                             },
                             action: Action::FocusWorkspaceDownUnderMouse,
                             repeat: true,
+                            spawn_on_release: None,
                             cooldown: Some(Duration::from_millis(50)),
                             allow_when_locked: false,
                             allow_inhibiting: false,
@@ -3273,6 +3289,7 @@ impl State {
                             },
                             action: Action::FocusColumnLeftUnderMouse,
                             repeat: true,
+                            spawn_on_release: None,
                             cooldown: Some(Duration::from_millis(50)),
                             allow_when_locked: false,
                             allow_inhibiting: false,
@@ -3285,6 +3302,7 @@ impl State {
                             },
                             action: Action::FocusColumnRightUnderMouse,
                             repeat: true,
+                            spawn_on_release: None,
                             cooldown: Some(Duration::from_millis(50)),
                             allow_when_locked: false,
                             allow_inhibiting: false,
@@ -4601,6 +4619,7 @@ fn should_intercept_key<'a>(
                     },
                     action,
                     repeat: true,
+                    spawn_on_release: None,
                     cooldown: None,
                     allow_when_locked: false,
                     // The screenshot UI owns the focus anyway, so this doesn't really matter.
@@ -4665,6 +4684,7 @@ fn find_bind<'a>(
             },
             action,
             repeat: true,
+            spawn_on_release: None,
             cooldown: None,
             allow_when_locked: false,
             // In a worst-case scenario, the user has no way to unlock the compositor and a
@@ -4907,6 +4927,7 @@ fn hardcoded_overview_bind(raw: Keysym, mods: ModifiersState) -> Option<Bind> {
         },
         action,
         repeat,
+        spawn_on_release: None,
         cooldown: None,
         allow_when_locked: false,
         allow_inhibiting: false,
@@ -5337,6 +5358,7 @@ mod tests {
                 },
                 action: Action::CloseWindow,
                 repeat: true,
+                spawn_on_release: None,
                 cooldown: None,
                 allow_when_locked: false,
                 allow_inhibiting: true,
@@ -5349,6 +5371,7 @@ mod tests {
                 },
                 action: Action::FocusColumnLeft,
                 repeat: true,
+                spawn_on_release: None,
                 cooldown: None,
                 allow_when_locked: false,
                 allow_inhibiting: true,
@@ -5361,6 +5384,7 @@ mod tests {
                 },
                 action: Action::FocusWindowDown,
                 repeat: true,
+                spawn_on_release: None,
                 cooldown: None,
                 allow_when_locked: false,
                 allow_inhibiting: true,
@@ -5373,6 +5397,7 @@ mod tests {
                 },
                 action: Action::FocusWindowUp,
                 repeat: true,
+                spawn_on_release: None,
                 cooldown: None,
                 allow_when_locked: false,
                 allow_inhibiting: true,
@@ -5385,6 +5410,7 @@ mod tests {
                 },
                 action: Action::FocusColumnRight,
                 repeat: true,
+                spawn_on_release: None,
                 cooldown: None,
                 allow_when_locked: false,
                 allow_inhibiting: true,

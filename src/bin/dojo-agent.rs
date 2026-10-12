@@ -2,6 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[path = "dojo-agent/screenshot.rs"]
+mod screenshot;
 #[path = "dojo-agent/service.rs"]
 mod service;
 use service::ActiveSession;
@@ -18,6 +20,20 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct DesktopLaunch {
+    /// Desktop entry id, or "browser" for the user's default browser.
+    application: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct DesktopScreenshot {
+    /// Output name from desktop_context, for example eDP-1.
+    output: String,
+}
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
@@ -103,6 +119,25 @@ impl DesktopAction {
             Self::Reset {} => controller.reset(),
         }
     }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct DesktopFeedback {
+    /// Brief text to display in a floating speech bubble, if there is a response.
+    response: Option<String>,
+    /// True when the task is finished. Restores the normal Arch icon.
+    #[serde(default)]
+    complete: bool,
+}
+
+fn shell_event(event: dojo::speech::SpeechEvent) -> Result<()> {
+    event.validate()?;
+    anyhow::ensure!(
+        dojo::control::send(&dojo::control::ControlCommand::Speech(event))?,
+        "Dojo shell is not running"
+    );
+    Ok(())
 }
 
 struct DesktopSession {
@@ -260,13 +295,83 @@ impl DesktopServer {
     }
 
     #[tool(
+        description = "Capture the current desktop output as a PNG image without changing focus or the clipboard. Select an output from desktop_context. Returns image dimensions and output-relative logical coordinate mapping for desktop_action move. Inspect this image before clicking and capture again to verify the result. Does not create or renew an input seat. Requires grim on PATH; capture times out after five seconds."
+    )]
+    async fn desktop_screenshot(
+        &self,
+        Parameters(request): Parameters<DesktopScreenshot>,
+    ) -> CallToolResult {
+        let socket = self.session.lock().await.socket.clone();
+        match tokio::task::spawn_blocking(move || {
+            screenshot::capture(socket.as_deref(), &request.output)
+        })
+        .await
+        {
+            Ok(Ok(content)) => CallToolResult::success(content),
+            Ok(Err(error)) => CallToolResult::error(vec![ContentBlock::text(format!("{error:#}"))]),
+            Err(error) => {
+                CallToolResult::error(vec![ContentBlock::text(format!("capture failed: {error}"))])
+            }
+        }
+    }
+
+    #[tool(
         description = "Act using your independent cursor and keyboard seat. Focus a window before keys, or move then click to select it. Coordinates are logical pixels relative to output. Keys use Linux evdev codes: A=30, Enter=28, Shift=42. Use press/release for chords and tap for a single key. Scroll uses pixel deltas. Reset releases held input and clears focus. Paused results retain the seat and report human ownership or stale state; inspect context and choose a new action without automatically retrying. Errors release the seat; select a fresh target afterward. Human Niri focus is unchanged. After the idle timeout the session releases its seat and loses its target; focus or click again before typing. Clipboard, Unicode text insertion and window management are unavailable."
     )]
     async fn desktop_action(
         &self,
         Parameters(action): Parameters<DesktopAction>,
     ) -> CallToolResult {
-        self.execute(move |session| session.action(action)).await
+        self.execute(move |session| {
+            action.validate()?;
+            if let Err(error) = shell_event(dojo::speech::SpeechEvent::Phase(
+                dojo::speech::SpeechPhase::Working,
+            )) {
+                eprintln!("Dojo working indicator unavailable: {error:#}");
+            }
+            let result = session.action(action);
+            if result.is_err() {
+                let _ = shell_event(dojo::speech::SpeechEvent::Phase(
+                    dojo::speech::SpeechPhase::Settled,
+                ));
+            }
+            result
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Launch a real desktop application and wait for its new Niri window. Use application=browser for the default desktop browser, or a desktop entry id. Launching is independent of human ownership of existing windows. Returns the verified new window; fails if no new window appears."
+    )]
+    async fn desktop_launch(
+        &self,
+        Parameters(request): Parameters<DesktopLaunch>,
+    ) -> CallToolResult {
+        self.execute(move |session| {
+            launch_application(&request.application, session.socket.as_deref())
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Show a brief visual response in Dojo's fading speech bubble. Use only when you have something to tell the user. Set complete=true when the task finishes to restore the Arch icon, including when no response is needed. Responses do not change task state on their own."
+    )]
+    async fn desktop_feedback(
+        &self,
+        Parameters(feedback): Parameters<DesktopFeedback>,
+    ) -> CallToolResult {
+        self.execute(move |_| {
+            if let Some(text) = feedback.response {
+                shell_event(dojo::speech::SpeechEvent::Response(text))?;
+            }
+            if feedback.complete {
+                shell_event(dojo::speech::SpeechEvent::Phase(
+                    dojo::speech::SpeechPhase::Settled,
+                ))?;
+            }
+            Ok(json!({"displayed": true, "complete": feedback.complete}))
+        })
+        .await
     }
 
     #[tool(
@@ -277,6 +382,9 @@ impl DesktopServer {
             if let Some(connection) = session.connection.take() {
                 connection.release();
             }
+            let _ = shell_event(dojo::speech::SpeechEvent::Phase(
+                dojo::speech::SpeechPhase::Settled,
+            ));
             Ok(json!({"released": true}))
         })
         .await
@@ -288,7 +396,7 @@ impl ServerHandler for DesktopServer {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("dojo-agent", env!("CARGO_PKG_VERSION")))
-            .with_instructions("Desktop tools use an independent seat in the experimental Dojo Niri fork. Inspect desktop_context before choosing targets. Release the seat when finished. No screenshot or accessibility observation is supplied by this server.")
+            .with_instructions("Desktop tools use an independent seat in the experimental Dojo Niri fork. Inspect desktop_context and desktop_screenshot before choosing targets. Move onto the visible target before clicking; capture again to verify the result. Use desktop_feedback for brief visual responses and set complete=true when the task finishes. Release the seat when finished. Accessibility observation is not supplied by this server.")
     }
 }
 
@@ -486,5 +594,89 @@ mod tests {
                 .is_err()
         );
         assert!(session.connection.is_none());
+    }
+}
+
+fn launch_application(application: &str, socket_path: Option<&std::path::Path>) -> Result<Value> {
+    let connection = zbus::blocking::connection::Builder::session()?
+        .method_timeout(Duration::from_secs(3))
+        .build()?;
+    let environment = dojo::application_launch::session_environment(&connection)?;
+    let id = if application == "browser" {
+        let output = std::process::Command::new("xdg-settings")
+            .args(["get", "default-web-browser"])
+            .env_clear()
+            .envs(&environment)
+            .output()?;
+        anyhow::ensure!(
+            output.status.success(),
+            "could not determine default browser"
+        );
+        String::from_utf8(output.stdout)?.trim().to_owned()
+    } else {
+        application.to_owned()
+    };
+    anyhow::ensure!(
+        !id.is_empty() && !id.contains('/') && id.ends_with(".desktop"),
+        "expected a desktop entry id or browser"
+    );
+    let data_home = environment
+        .get("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(environment.get("HOME").cloned().unwrap_or_default()).join(".local/share")
+        });
+    let mut roots = vec![data_home];
+    roots.extend(std::env::split_paths(
+        environment
+            .get("XDG_DATA_DIRS")
+            .map(String::as_str)
+            .unwrap_or("/usr/local/share:/usr/share"),
+    ));
+    let path = roots
+        .into_iter()
+        .map(|root| root.join("applications").join(&id))
+        .find(|path| path.is_file())
+        .context("desktop entry not found")?;
+    let mut socket = match socket_path {
+        Some(path) => Socket::connect_to(path)?,
+        None => Socket::connect()?,
+    };
+    let windows = |socket: &mut Socket| -> Result<Vec<niri_ipc::Window>> {
+        match socket.send(Request::Windows)?.map_err(anyhow::Error::msg)? {
+            Response::Windows(windows) => Ok(windows),
+            _ => bail!("unexpected Niri window response"),
+        }
+    };
+    let entry = freedesktop_desktop_entry::DesktopEntry::from_path(&path, None::<&[String]>)?;
+    let expected = entry
+        .startup_wm_class()
+        .unwrap_or(id.trim_end_matches(".desktop"))
+        .to_lowercase();
+    let before: Vec<_> = windows(&mut socket)?
+        .into_iter()
+        .map(|window| window.id)
+        .collect();
+    if application == "browser" {
+        dojo::application_launch::launch_new_window(&path, &id)?;
+    } else {
+        dojo::application_launch::launch(&path, &id)?;
+    }
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(window) = windows(&mut socket)?.into_iter().find(|window| {
+            !before.contains(&window.id)
+                && window
+                    .app_id
+                    .as_ref()
+                    .is_some_and(|app| app.to_lowercase() == expected)
+        }) {
+            return Ok(json!({"application": id, "window": window, "verified": true}));
+        }
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "application launch did not create a new window"
+        );
+        std::thread::sleep(Duration::from_millis(100));
     }
 }

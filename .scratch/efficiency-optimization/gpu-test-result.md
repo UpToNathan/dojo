@@ -1,0 +1,15 @@
+# Renderer resource verification
+
+PASS. The actual vendored headless WGPU renderer executed `wgpu_renderer::tests::headless_path_resources_are_lazy_and_survive_scene_changes`. Cargo reported one passing test, zero failures, and 43 filtered tests. No source mock replaced the renderer, texture objects, scene builder, or pixel readback.
+
+The test confirms path-free raster pixels render correctly while both path scratch textures remain absent. It then renders a red path, checks its actual intermediate texture dimensions, renders a blue raster scene at a new target size, and verifies the next path render resizes its scratch texture correctly. After resource invalidation, raster rendering still avoids path allocation and the next path render recreates resources with correct pixels.
+
+The runner is `.scratch/efficiency-optimization/run-renderer-test.py`. It expands inherited dependencies and lints from the authoritative vendored crate/workspace TOML into a temporary standalone manifest. Its library path points directly at `/home/nathan/Dojo/vendor/zed/crates/gpui_wgpu/src/gpui_wgpu.rs`. It preserves Dojo's development package profiles and seeds the temporary lockfile from Dojo's existing lockfile. The windows-capture patch comes from Zed's workspace declaration because optional capture dependencies enter this standalone test lockfile. Other unrelated workspace patches and members are excluded. No root Cargo manifest or lockfile was edited by this runner.
+
+The passing manifest is `/tmp/dojo-renderer-test-qria4wxj/Cargo.toml`. Full build/test output is `/tmp/dojo-optimization/gpu-resource-test.log`. Run `python .scratch/efficiency-optimization/run-renderer-test.py` to repeat from the now-populated cache, or add `--online` if declared test dependencies are missing. The target cache is shared with Dojo through Cargo's build lock. The runner supports `--target-dir` for a separate cache and `--prepare-only` for manifest inspection.
+
+One existing GPUI warning reports unused display-simulation methods in its test-support platform. The GPU resource test has no failures. The selected physical adapter/backend is not printed by this test, so this result establishes WGPU resource/pixel behavior rather than a hardware-specific memory or energy measurement. Live layer-shell, fullscreen, and output behavior remain separate checks owned by the parent.
+
+The renderer source SHA-256 at the passing run is `a458c3aee644e1640fd997b18a90650510aec2d679ca2b44eef43e1f48097d55`.
+
+The parent-requested animation rerun also passed. Its first failure exposed thumbnail upscaling in image::DynamicImage::thumbnail. Thumbnail bounds now stop at the oriented native width/height. The actual animated WebP fixture asserts a literal 2 by 2 preview, its red/blue BGRA pixels, original frame delays, and the count/pixel-budget fallbacks. `devenv shell -- env CARGO_BUILD_JOBS=2 cargo test --bin dojo theme_picker::tests::wallpaper_preview_animates_within_budget_and_keeps_first_frame_over_budget -- --exact` reported one pass and zero failures. Picker source SHA-256 is `e19abcc78767cd60298608784e19eff302afe55a5cc55a2d9159df1b960b7c8b`.

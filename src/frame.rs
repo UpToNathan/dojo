@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
@@ -10,7 +11,7 @@ use gpui::{
 use crate::config::ThemeColors;
 use crate::geometry::{BOTTOM_INSET, LEFT_PANEL_WIDTH, RIGHT_INSET, TOP_BAR_HEIGHT};
 use crate::power::{self, PowerStatus};
-use crate::tray::{TrayAction, TrayHandle, TrayItem, TrayMenu, TrayMenuItem};
+use crate::tray::{TrayAction, TrayHandle, TrayImageCache, TrayItem, TrayMenu, TrayMenuItem};
 
 const CORNER_RADIUS: f32 = 28.;
 const LAUNCHER_BUTTON_SIZE: f32 = 36.;
@@ -18,9 +19,12 @@ const TOP_BAR_GAP: f32 = 3.;
 const TOP_BAR_BUTTON_WIDTH: f32 = 14.;
 
 struct FrameView {
-    power: PowerStatus,
     tray: TrayHandle,
-    tray_items: Vec<TrayItem>,
+    tray_items: Arc<Vec<TrayItem>>,
+    tray_images: TrayImageCache,
+    _tray_updates: gpui::Task<()>,
+    _host_observer: gpui::Subscription,
+    speech_wake: Option<(Instant, gpui::Task<()>)>,
     open_menu: Option<(String, TrayItem)>,
     menu_data: Option<TrayMenu>,
     active_submenu: Option<i32>,
@@ -28,11 +32,85 @@ struct FrameView {
     pending_menu_hover: Option<(i32, Instant)>,
     submenu_bounds: Option<Bounds<gpui::Pixels>>,
     last_menu_pointer: Option<gpui::Point<gpui::Pixels>>,
-    last_power_update: Instant,
     launcher_hovered: bool,
-    vigiland_running: bool,
     wlsunset_hovered: bool,
     theme_hovered: bool,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct HostState {
+    power: PowerStatus,
+    vigiland_running: bool,
+}
+
+impl gpui::Global for HostState {}
+
+struct HostObservation {
+    _task: gpui::Task<()>,
+}
+
+impl gpui::Global for HostObservation {}
+
+pub fn initialize_host_state(cx: &mut App) {
+    use futures_lite::StreamExt as _;
+    cx.set_global(HostState {
+        power: power::read_status(),
+        vigiland_running: vigiland_running(),
+    });
+    let task = cx.spawn(async move |cx| {
+        let mut power_events = None;
+        loop {
+            if power_events.is_none() {
+                let subscribe = async {
+                    let connection = zbus::Connection::system().await?;
+                    let rule = zbus::MatchRule::builder()
+                        .msg_type(zbus::message::Type::Signal)
+                        .interface("org.freedesktop.DBus.Properties")?
+                        .path_namespace("/org/freedesktop/UPower")?
+                        .build();
+                    let stream =
+                        zbus::MessageStream::for_match_rule(rule, &connection, Some(4)).await?;
+                    Ok::<_, zbus::Error>((connection, stream))
+                };
+                match subscribe.await {
+                    Ok(events) => power_events = Some(events),
+                    Err(error) => eprintln!("Dojo power event subscription unavailable: {error}"),
+                }
+            }
+            let fallback = cx.background_executor().timer(Duration::from_secs(10));
+            let disconnected = futures_lite::future::race(
+                async {
+                    fallback.await;
+                    false
+                },
+                async {
+                    match power_events.as_mut() {
+                        Some((_, stream)) => !matches!(stream.next().await, Some(Ok(_))),
+                        None => futures_lite::future::pending().await,
+                    }
+                },
+            )
+            .await;
+            if disconnected {
+                power_events = None;
+            }
+            let next = cx
+                .background_executor()
+                .spawn(async {
+                    HostState {
+                        power: power::read_status(),
+                        vigiland_running: vigiland_running(),
+                    }
+                })
+                .await;
+            cx.update(|cx| {
+                if cx.global::<HostState>() != &next {
+                    cx.set_global(next);
+                }
+            });
+        }
+    });
+    cx.set_global(HostObservation { _task: task });
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -463,46 +541,60 @@ fn vigiland_running() -> bool {
     let Ok(metadata) = std::fs::metadata("/proc/self") else {
         return false;
     };
-    std::process::Command::new("pgrep")
-        .args(["-u", &metadata.uid().to_string(), "-x", "vigiland"])
-        .output()
-        .is_ok_and(|output| output.status.success())
+    let Ok(processes) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    processes.flatten().any(|process| {
+        process
+            .file_name()
+            .as_encoded_bytes()
+            .iter()
+            .all(u8::is_ascii_digit)
+            && process
+                .metadata()
+                .is_ok_and(|entry| entry.uid() == metadata.uid())
+            && std::fs::read_to_string(process.path().join("comm"))
+                .is_ok_and(|name| name.trim_end() == "vigiland")
+    })
 }
 
 impl FrameView {
     fn new(tray: TrayHandle, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let tray_for_updates = tray.clone();
-        cx.spawn_in(window, async move |this, cx| {
-            loop {
-                let vigiland_running = cx
-                    .background_executor()
-                    .spawn(async { vigiland_running() })
-                    .await;
+        let changes = tray.subscribe_changes();
+        let tray_updates = cx.spawn_in(window, async move |this, cx| {
+            while changes.recv().await.is_ok() {
                 if this
-                    .update_in(cx, |this, _window, cx| {
-                        this.vigiland_running = vigiland_running;
-                        if this.last_power_update.elapsed() >= Duration::from_secs(1) {
-                            this.power = power::read_status();
-                            this.last_power_update = Instant::now();
-                        }
-                        this.tray_items = tray_for_updates.items();
-                        this.menu_data = this
+                    .update_in(cx, |this, window, cx| {
+                        let items = tray_for_updates.items();
+                        let menu = this
                             .open_menu
                             .as_ref()
                             .and_then(|(key, _)| tray_for_updates.menu(key));
+                        if Arc::ptr_eq(&this.tray_items, &items) && menu == this.menu_data {
+                            return;
+                        }
+                        this.tray_items = items;
+                        this.tray_images.update(&this.tray_items, window);
+                        this.menu_data = menu;
                         cx.notify();
                     })
                     .is_err()
                 {
                     break;
                 }
-                cx.background_executor().timer(Duration::from_secs(1)).await;
             }
-        })
-        .detach();
+        });
+        let host_observer = cx.observe_global::<HostState>(|_, cx| cx.notify());
+        let tray_items = tray.items();
+        let mut tray_images = TrayImageCache::default();
+        tray_images.update(&tray_items, window);
         Self {
-            power: power::read_status(),
-            tray_items: tray.items(),
+            tray_items,
+            tray_images,
+            _tray_updates: tray_updates,
+            _host_observer: host_observer,
+            speech_wake: None,
             open_menu: None,
             menu_data: None,
             active_submenu: None,
@@ -510,9 +602,7 @@ impl FrameView {
             pending_menu_hover: None,
             submenu_bounds: None,
             last_menu_pointer: None,
-            last_power_update: Instant::now(),
             launcher_hovered: false,
-            vigiland_running: false,
             wlsunset_hovered: false,
             theme_hovered: false,
             tray,
@@ -521,7 +611,7 @@ impl FrameView {
 }
 
 impl FrameView {
-    fn open_tray_menu(&mut self, item: TrayItem, window: &mut Window, cx: &mut Context<Self>) {
+    fn open_tray_menu(&mut self, item: TrayItem, _window: &mut Window, cx: &mut Context<Self>) {
         let key = item.key.clone();
         if self
             .open_menu
@@ -532,35 +622,13 @@ impl FrameView {
             return;
         }
         self.tray.open_menu(&item);
-        self.open_menu = Some((key.clone(), item));
-        self.menu_data = None;
+        self.menu_data = self.tray.menu(&key);
+        self.open_menu = Some((key, item));
         self.active_submenu = None;
         self.hovered_menu_item = None;
         self.pending_menu_hover = None;
         self.last_menu_pointer = None;
 
-        let tray = self.tray.clone();
-        cx.spawn_in(window, async move |this, cx| {
-            for _ in 0..50 {
-                if let Some(menu) = tray.menu(&key) {
-                    let _ = this.update_in(cx, |this, _window, cx| {
-                        if this
-                            .open_menu
-                            .as_ref()
-                            .is_some_and(|(open_key, _)| open_key == &key)
-                        {
-                            this.menu_data = Some(menu);
-                            cx.notify();
-                        }
-                    });
-                    return;
-                }
-                cx.background_executor()
-                    .timer(Duration::from_millis(10))
-                    .await;
-            }
-        })
-        .detach();
         cx.notify();
     }
 
@@ -719,6 +787,68 @@ impl FrameView {
 impl Render for FrameView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = *cx.global::<ThemeColors>();
+        let power = cx.global::<HostState>().power.clone();
+        let vigiland_running = cx.global::<HostState>().vigiland_running;
+        let reduced_motion = cx.reduce_motion();
+        let now = Instant::now();
+        let speech = cx.global::<crate::speech::SpeechUi>();
+        let animation = speech.animation_schedule(now, reduced_motion);
+        let speech_phase = speech.phase;
+        let speech_glyph = speech_phase.glyph();
+        let speech_icon_size = speech_phase.icon_size();
+        let speech_label = speech_phase.label();
+        let speech_bubbles: Vec<_> = speech
+            .messages
+            .iter()
+            .rev()
+            .filter(|bubble| !bubble.expired(now))
+            .map(|bubble| {
+                (
+                    bubble.id,
+                    bubble.text.clone(),
+                    bubble.is_response,
+                    if reduced_motion {
+                        1.
+                    } else {
+                        bubble.opacity(now)
+                    },
+                    if reduced_motion {
+                        0.
+                    } else {
+                        bubble.rise_offset(now)
+                    },
+                    if reduced_motion {
+                        1.
+                    } else {
+                        bubble.entry_progress(now)
+                    },
+                )
+            })
+            .collect();
+        match animation {
+            crate::speech::AnimationSchedule::Animate => {
+                self.speech_wake = None;
+                window.request_animation_frame();
+            }
+            crate::speech::AnimationSchedule::Idle => self.speech_wake = None,
+            crate::speech::AnimationSchedule::WakeAt(deadline) => {
+                if self
+                    .speech_wake
+                    .as_ref()
+                    .is_none_or(|(scheduled, _)| *scheduled != deadline)
+                {
+                    let task = cx.spawn_in(window, async move |view, cx| {
+                        cx.background_executor()
+                            .timer(deadline.saturating_duration_since(Instant::now()))
+                            .await;
+                        if let Err(error) = view.update_in(cx, |_, _, cx| cx.notify()) {
+                            eprintln!("Dojo speech deadline target closed: {error}");
+                        }
+                    });
+                    self.speech_wake = Some((deadline, task));
+                }
+            }
+        }
         let viewport = window.viewport_size();
         let top_bar_input = [top_bar_input_region(viewport)];
         let launcher_bounds = launcher_button_bounds(viewport);
@@ -726,11 +856,9 @@ impl Render for FrameView {
         let wlsunset_hovered = self.wlsunset_hovered && window.is_window_hovered();
         let theme_hovered = self.theme_hovered && window.is_window_hovered();
 
-        let battery_glyph =
-            power::battery_glyph(self.power.capacity, self.power.battery_status.as_deref());
-        let charging = self.power.battery_status.as_deref() == Some("Charging");
-        let battery_percent = self
-            .power
+        let battery_glyph = power::battery_glyph(power.capacity, power.battery_status.as_deref());
+        let charging = power.battery_status.as_deref() == Some("Charging");
+        let battery_percent = power
             .capacity
             .map_or("?".to_string(), |capacity| format!("{capacity}%"));
         let visible_items = self
@@ -741,7 +869,7 @@ impl Render for FrameView {
         let mut tray_icons = Vec::with_capacity(visible_items.len());
 
         for (index, item) in visible_items.iter().enumerate() {
-            let icon: AnyElement = if let Some(image) = item.render_image() {
+            let icon: AnyElement = if let Some(image) = self.tray_images.image(&item.key) {
                 img(ImageSource::Render(image))
                     .size(px(11.))
                     .into_any_element()
@@ -805,7 +933,7 @@ impl Render for FrameView {
         }
 
         let tray_count = tray_icons.len();
-        let indicator_count = usize::from(self.vigiland_running);
+        let indicator_count = usize::from(vigiland_running);
         let top_bar_width =
             124. + (tray_count + indicator_count) as f32 * (TOP_BAR_BUTTON_WIDTH + TOP_BAR_GAP);
         let tray_group = div()
@@ -825,7 +953,7 @@ impl Render for FrameView {
             .justify_end()
             .gap(px(TOP_BAR_GAP))
             .text_color(colors.foreground.rgb())
-            .when(self.vigiland_running, |bar| {
+            .when(vigiland_running, |bar| {
                 bar.child(
                     div()
                         .id("vigiland-indicator")
@@ -924,13 +1052,11 @@ impl Render for FrameView {
         top_bar = top_bar.child(
             div()
                 .id("battery-status")
-                .aria_label(
-                    if self.power.battery_status.as_deref() == Some("Charging") {
-                        "Battery charging"
-                    } else {
-                        "Battery status"
-                    },
-                )
+                .aria_label(if power.battery_status.as_deref() == Some("Charging") {
+                    "Battery charging"
+                } else {
+                    "Battery status"
+                })
                 .flex()
                 .items_center()
                 .ml(px(2.))
@@ -1025,13 +1151,16 @@ impl Render for FrameView {
             }
         }
         self.submenu_bounds = menu_hit_bounds.get(1).copied();
-        if active_item.is_some() {
-            window.set_input_region(Some(&[Bounds {
+        let frame_input_regions = if active_item.is_some() {
+            vec![Bounds {
                 origin: point(px(0.), px(0.)),
                 size: window.viewport_size(),
-            }]));
+            }]
         } else {
-            window.set_input_region(Some(&[top_bar_input[0], launcher_bounds]));
+            vec![top_bar_input[0], launcher_bounds]
+        };
+        if speech_bubbles.is_empty() {
+            window.set_input_region(Some(&frame_input_regions));
         }
 
         let mut shell = div()
@@ -1088,7 +1217,7 @@ impl Render for FrameView {
                     .child(
                         div()
                             .id("open-launcher")
-                            .aria_label("Open application launcher")
+                            .aria_label(speech_label)
                             .size(px(LAUNCHER_BUTTON_SIZE))
                             .rounded(px(LAUNCHER_BUTTON_SIZE / 2.))
                             .text_color(colors.primary.rgb())
@@ -1113,7 +1242,7 @@ impl Render for FrameView {
                                 gpui::canvas(
                                     |_, _, _| (),
                                     move |bounds, (), window, cx| {
-                                        let text: gpui::SharedString = "\u{f303}".into();
+                                        let text: gpui::SharedString = speech_glyph.into();
                                         let run = gpui::TextRun {
                                             len: text.len(),
                                             font: window.text_style().font(),
@@ -1124,7 +1253,7 @@ impl Render for FrameView {
                                         };
                                         let line = window.text_system().shape_line(
                                             text,
-                                            px(32.),
+                                            px(speech_icon_size),
                                             &[run],
                                             None,
                                         );
@@ -1160,6 +1289,183 @@ impl Render for FrameView {
                             ),
                     ),
             );
+        if speech_phase != crate::speech::SpeechPhase::Settled {
+            static ANIMATION_START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+            let elapsed = ANIMATION_START
+                .get_or_init(Instant::now)
+                .elapsed()
+                .as_secs_f32();
+            let pulse = if reduced_motion || speech_phase == crate::speech::SpeechPhase::Sent {
+                1.
+            } else {
+                0.45 + 0.35 * (elapsed * 3.).sin().abs()
+            };
+            shell = shell.child(
+                div()
+                    .absolute()
+                    .left(px(LEFT_PANEL_WIDTH as f32 / 2. + 6.))
+                    .bottom(px(BOTTOM_INSET as f32 + 13.))
+                    .size(px(7.))
+                    .rounded_full()
+                    .border_1()
+                    .border_color(colors.background.rgb())
+                    .bg(colors.primary.rgb().opacity(pulse)),
+            );
+        }
+        let blur_bounds = std::rc::Rc::new(std::cell::RefCell::new(Vec::<
+            gpui::Bounds<gpui::Pixels>,
+        >::new()));
+        let bubble_width = |text: &str| {
+            let text_width = text
+                .lines()
+                .map(|line| line.chars().count())
+                .max()
+                .unwrap_or(0) as f32
+                * 8.4
+                + 80.;
+            text_width
+                .max(152.)
+                .min(520.)
+                .min((f32::from(viewport.width) - 48.).max(1.))
+        };
+        let bubble_height = |text: &str, is_response: bool| {
+            let label = gpui::TextRun {
+                len: if is_response { 4 } else { 3 },
+                font: power::font(),
+                color: colors.foreground.rgb().into(),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            let label_width = window
+                .text_system()
+                .shape_line(
+                    if is_response {
+                        "Dojo".into()
+                    } else {
+                        "You".into()
+                    },
+                    px(10.),
+                    &[label],
+                    None,
+                )
+                .width;
+            let run = gpui::TextRun {
+                len: text.len(),
+                font: power::font(),
+                color: colors.foreground.rgb().into(),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            window
+                .text_system()
+                .shape_text(
+                    text.to_owned().into(),
+                    px(14.),
+                    &[run],
+                    Some(px(
+                        (bubble_width(text) - 40. - f32::from(label_width)).max(1.)
+                    )),
+                    None,
+                )
+                .map(|lines| {
+                    lines
+                        .iter()
+                        .map(|line| f32::from(line.size(px(21.)).height))
+                        .sum::<f32>()
+                        + 18.
+                })
+                .unwrap_or(39.)
+        };
+        if speech_bubbles.is_empty() {
+            window.set_background_blur_regions(&[], px(0.));
+        }
+        let bubble_count = speech_bubbles.len();
+        let mut stack_offset = 0.;
+        for (id, text, is_response, opacity, rise, entry) in speech_bubbles {
+            let bottom = BOTTOM_INSET as f32 + 18. - rise + stack_offset;
+            stack_offset += (bubble_height(&text, is_response) + 10.) * entry;
+            let width = bubble_width(&text);
+            let left = (f32::from(viewport.width) - width) / 2.;
+            let surface = if is_response {
+                colors.background_highlight.rgb()
+            } else {
+                colors.primary.rgb()
+            };
+            let outline = if is_response {
+                colors.border.rgb().opacity(0.2)
+            } else {
+                colors.primary.rgb().opacity(0.2)
+            };
+            let blur_bounds = blur_bounds.clone();
+            let frame_input_regions = frame_input_regions.clone();
+            let set_blur_region = move |children: Vec<gpui::Bounds<gpui::Pixels>>,
+                                        window: &mut Window,
+                                        _cx: &mut gpui::App| {
+                if let Some(mut bounds) = children
+                    .into_iter()
+                    .reduce(|bounds, child| bounds.union(&child))
+                {
+                    bounds.origin.x = px(left);
+                    bounds.origin.y -= px(8.);
+                    bounds.size.width = px(width);
+                    bounds.size.height += px(16.);
+                    let mut combined = blur_bounds.borrow_mut();
+                    combined.push(bounds);
+                    if combined.len() == bubble_count {
+                        let mut input_regions = frame_input_regions.clone();
+                        input_regions.extend(combined.iter().copied());
+                        window.set_input_region(Some(&input_regions));
+                        window.set_background_blur_regions(&combined, px(22.));
+                    }
+                }
+            };
+            shell = shell.child(
+                div()
+                    .absolute()
+                    .left(px(left))
+                    .bottom(px(bottom))
+                    .w(px(width))
+                    .rounded(px(22.))
+                    .px(px(14.))
+                    .py(px(8.))
+                    .bg(surface.opacity(0.2))
+                    .border_1()
+                    .border_color(outline)
+                    .text_size(px(14.))
+                    .line_height(px(21.))
+                    .text_color(colors.foreground.rgb())
+                    .opacity(opacity)
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .on_children_prepainted(set_blur_region)
+                    .id(("speech-bubble", id))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |_, _, _, cx| {
+                            cx.update_global::<crate::speech::SpeechUi, _>(|speech, _| {
+                                speech.dismiss(id)
+                            });
+                            cx.stop_propagation();
+                            cx.notify();
+                        }),
+                    )
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_size(px(10.))
+                            .text_color(if is_response {
+                                colors.foreground_muted.rgb()
+                            } else {
+                                colors.primary.rgb()
+                            })
+                            .child(if is_response { "Dojo" } else { "You" }),
+                    )
+                    .child(div().flex_1().min_w(px(0.)).child(text)),
+            );
+        }
         if let Some((menu_key, _)) = &self.open_menu {
             let menu_key = menu_key.clone();
             let hit_bounds = menu_hit_bounds.clone();

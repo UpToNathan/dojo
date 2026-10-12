@@ -12,7 +12,10 @@ symlinks to maintained files here; its `.devenv` directory is local generated
 cache/state and is not part of the source configuration.
 
 Home Manager autostarts Dojo through a wrapper that supplies devenv's graphics
-and Wayland library paths. The desktop binary must already be built. Run
+and Wayland library paths. Build and install the optimized desktop with `devenv shell -- cargo build --release --bin dojo`,
+then `devenv shell -- scripts/install-dojo-release.sh`. The installer keeps the previous
+binary and its runtime library roots. Its per-shell allocator setting returns large
+freed buffers to the system; an explicitly supplied mmap threshold takes precedence. Run
 `devenv shell -- scripts/check-dojo-autostart.sh` after login to check the actual
 autostart service, its process and the mapped desktop frame.
 
@@ -33,6 +36,11 @@ is unchanged. To verify in a live Wayland session, run
 `python3 scripts/check-clipboard-persistence.py` (replaces the current clipboard).
 
 ## Project
+
+Local speech capture and transcription are extracted from the pinned Hex
+subtree into [dojo-speech](crates/dojo-speech/README.md). Build that independent
+package through devenv; its CLI supports model installation, WAV transcription
+and microphone capture.
 
 Dojo is a Niri desktop shell implemented with GPUI. Build and test it with
 `cargo check` and `cargo test` inside devenv.
@@ -89,7 +97,7 @@ The `[theme.colors]` table defines `primary` (accent), `background`, `foreground
 `foreground_muted` (disabled text). Colors use `#RRGGBB` strings. Missing fields
 use the current default palette; unknown fields and malformed colors are errors.
 
-Edits reload within approximately 500 ms without restarting. Invalid edits keep
+Native filesystem events reload edits without restarting. Invalid edits keep
 the last working palette and log the error; invalid initial config prevents
 startup. Removing the file restores defaults. Runtime state remains separately
 stored under `$XDG_STATE_HOME/dojo/state.toml`.

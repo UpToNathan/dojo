@@ -10,18 +10,32 @@
   # https://devenv.sh/basics/
   env.GREET = "devenv";
   env.LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
+  env.BLA_VENDOR = "OpenBLAS";
+  env.ALSA_CONFIG_PATH = "/usr/share/alsa/alsa.conf";
+  env.ALSA_PLUGIN_DIR = "${pkgs.pipewire}/lib/alsa-lib";
   env.LD_LIBRARY_PATH = lib.makeLibraryPath [
     pkgs.libglvnd
     pkgs.vulkan-loader
     pkgs.mesa
     pkgs.wayland
+    pkgs.openblas
+    pkgs.alsa-lib
+    pkgs.pipewire
   ];
 
   # https://devenv.sh/packages/
   packages = [
+    pkgs.grim
     (pkgs.callPackage ./nix/rift.nix { })
     inputs.bend.packages.${pkgs.stdenv.hostPlatform.system}.default
     pkgs.pkg-config
+    pkgs.cmake
+    pkgs.shaderc
+    pkgs.spirv-headers
+    pkgs.vulkan-headers
+    pkgs.openblas
+    pkgs.alsa-lib
+    pkgs.curl
     pkgs.fontconfig.dev
     pkgs.freetype.dev
     pkgs.wayland.dev
@@ -53,6 +67,9 @@
   # https://devenv.sh/scripts/
   scripts.hello.exec = ''
     echo hello from $GREET
+  '';
+  scripts.dojo-voice.exec = ''
+    exec /home/nathan/Dojo/tools/speech/dojo-voice "$@"
   '';
   scripts.install-rbonsai.exec = ''
     cargo install rbonsai --locked

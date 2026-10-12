@@ -8,6 +8,8 @@ use gpui::{App, AppContext, DisplayChanges, DisplayEvent, DisplayId, QuitMode, S
 use gpui_platform::application;
 
 use crate::config::{ConfigStore, ThemeColors};
+use gpui::BorrowAppContext;
+
 use crate::control::{ControlCommand, ControlServer};
 use crate::frame::DisplayFrame;
 use crate::launcher::Launcher;
@@ -287,6 +289,35 @@ fn run_with_surfaces(
     let launcher = Launcher::new()?;
     let mut config_store = ConfigStore::user_default()?;
     let initial_colors = config_store.load()?.context("loading initial Dojo theme")?;
+    let theme_paths = dojo::theme::Paths::user_default()?;
+    let mut watch_paths = config_store.watch_paths();
+    watch_paths.extend([
+        theme_paths.root.join("current"),
+        theme_paths.root.join("selection.json"),
+        theme_paths.root.join("current/selection.json"),
+        theme_paths.root.join("current/wallpaper.txt"),
+    ]);
+    let mut file_watcher = match crate::file_events::Watcher::start(watch_paths) {
+        Ok(watcher) => Some(watcher),
+        Err(error) => {
+            eprintln!("Dojo file watches could not start; reconciling every 30 seconds: {error:#}");
+            None
+        }
+    };
+    let subscribe = || {
+        if let Some(watcher) = &file_watcher {
+            watcher.subscribe()
+        } else {
+            let (sender, receiver) = async_channel::bounded(1);
+            invalidate_theme(&sender);
+            (sender, receiver)
+        }
+    };
+    let (theme_trigger, theme_events) = subscribe();
+    let (wallpaper_trigger, wallpaper_events) = subscribe();
+    let watch_fallback = file_watcher.is_none();
+    let appearance_task = Rc::new(RefCell::new(None::<gpui::Task<()>>));
+    let appearance_task_for_run = Rc::clone(&appearance_task);
     let state = StateStore::user_default()?;
     let initial_enabled = match force_enabled {
         Some(enabled) => enabled,
@@ -305,35 +336,54 @@ fn run_with_surfaces(
         .with_quit_mode(QuitMode::Explicit)
         .run(move |cx: &mut App| {
             cx.set_global(initial_colors);
-            if let Err(error) = crate::wallpaper::start(cx) {
+            cx.set_global(crate::speech::SpeechUi::default());
+            crate::frame::initialize_host_state(cx);
+            if let Err(error) = crate::wallpaper::start(cx, wallpaper_events) {
                 eprintln!("Dojo could not start its wallpaper surfaces: {error:#}");
             }
-            cx.spawn(async move |cx| {
+            if watch_fallback {
+                let theme_trigger = theme_trigger.clone();
+                cx.spawn(async move |cx| {
+                    loop {
+                        cx.background_executor()
+                            .timer(Duration::from_secs(30))
+                            .await;
+                        invalidate_theme(&theme_trigger);
+                        invalidate_theme(&wallpaper_trigger);
+                    }
+                })
+                .detach();
+            }
+            *appearance_task_for_run.borrow_mut() = Some(cx.spawn(async move |cx| {
                 loop {
+                    if let Err(error) = follow_appearance(&theme_trigger).await {
+                        eprintln!(
+                            "Dojo appearance events disconnected; retrying in 30 seconds: {error:#}"
+                        );
+                    }
                     cx.background_executor()
-                        .timer(Duration::from_millis(500))
+                        .timer(Duration::from_secs(30))
                         .await;
-                    let (store, result) = cx
+                }
+            }));
+            cx.spawn(async move |cx| {
+                let mut theme_store = dojo::theme::ThemeStore::new(theme_paths);
+                while theme_events.recv().await.is_ok() {
+                    let (store, returned_theme_store, result) = cx
                         .background_executor()
                         .spawn(async move {
-                            match dojo::theme::Paths::user_default() {
-                                Ok(paths) => {
-                                    let theme_store = dojo::theme::ThemeStore::new(paths);
-                                    if let Err(error) = dojo::theme::refresh_system(&theme_store) {
-                                        eprintln!(
-                                            "Dojo could not propagate appearance change: {error:#}"
-                                        );
-                                    }
-                                }
-                                Err(error) => {
-                                    eprintln!("Dojo could not resolve theme state: {error:#}")
-                                }
+                            if let Err(error) = dojo::theme::refresh_system(&theme_store) {
+                                eprintln!("Dojo could not propagate appearance change: {error:#}");
                             }
                             let result = config_store.load();
-                            (config_store, result)
+                            (config_store, theme_store, result)
                         })
                         .await;
                     config_store = store;
+                    theme_store = returned_theme_store;
+                    if !theme_events.is_empty() {
+                        continue;
+                    }
                     match result {
                         Ok(Some(colors)) => cx.update(|cx| {
                             if *cx.global::<ThemeColors>() != colors {
@@ -452,6 +502,13 @@ fn run_with_surfaces(
                             ControlCommand::Quit => controller.quit(cx),
                             ControlCommand::Launcher => controller.launcher.toggle(cx),
                             ControlCommand::Theme => controller.theme_picker.toggle(cx),
+                            ControlCommand::Speech(event) => {
+                                cx.update_global::<crate::speech::SpeechUi, _>(|speech, _| {
+                                    speech.apply(event, std::time::Instant::now());
+                                });
+                                cx.refresh_windows();
+                                Ok(())
+                            }
                         });
                     match result {
                         Ok(()) if quit => {
@@ -471,6 +528,10 @@ fn run_with_surfaces(
             })
             .detach();
         });
+    appearance_task.borrow_mut().take();
+    if let Some(watcher) = &mut file_watcher {
+        watcher.shutdown();
+    }
     if let Err(error) = niri_layout_for_exit.borrow_mut().disable() {
         eprintln!("Failed to restore Niri widths after Dojo exited: {error:#}");
     }
@@ -479,4 +540,40 @@ fn run_with_surfaces(
         bail!(error);
     }
     Ok(())
+}
+
+fn invalidate_theme(sender: &async_channel::Sender<()>) {
+    match sender.try_send(()) {
+        Ok(())
+        | Err(async_channel::TrySendError::Full(()))
+        | Err(async_channel::TrySendError::Closed(())) => {}
+    }
+}
+
+async fn follow_appearance(sender: &async_channel::Sender<()>) -> anyhow::Result<()> {
+    use zbus::export::futures_core::Stream as _;
+    let connection = zbus::Connection::session().await?;
+    let proxy = zbus::Proxy::new(
+        &connection,
+        "nl.whynothugo.darkman",
+        "/nl/whynothugo/darkman",
+        "nl.whynothugo.darkman",
+    )
+    .await?;
+    let stream = proxy.receive_signal("ModeChanged").await?;
+    let mut stream = std::pin::pin!(stream);
+    let owners = proxy.receive_owner_changed().await?;
+    let mut owners = std::pin::pin!(owners);
+    invalidate_theme(sender);
+    while std::future::poll_fn(|cx| {
+        if let std::task::Poll::Ready(owner) = owners.as_mut().poll_next(cx) {
+            return std::task::Poll::Ready(owner.is_some());
+        }
+        stream.as_mut().poll_next(cx).map(|signal| signal.is_some())
+    })
+    .await
+    {
+        invalidate_theme(sender);
+    }
+    anyhow::bail!("darkman signal stream ended")
 }

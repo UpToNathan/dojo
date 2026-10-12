@@ -115,6 +115,25 @@ impl State {
         self.suspend_conflicting_agents();
     }
 
+    pub(crate) fn yield_human_input(&mut self) -> Result<(), String> {
+        if !self
+            .niri
+            .seat
+            .get_keyboard()
+            .unwrap()
+            .pressed_keys()
+            .is_empty()
+            || self.niri.seat.get_pointer().unwrap().is_grabbed()
+            || !self.niri.suppressed_buttons.is_empty()
+        {
+            return Err("cannot yield while human input is held".into());
+        }
+        if self.niri.input_coordination.yield_human() {
+            self.publish_input_coordination();
+        }
+        Ok(())
+    }
+
     pub(crate) fn human_keyboard_activity(&mut self) {
         let client = self
             .niri

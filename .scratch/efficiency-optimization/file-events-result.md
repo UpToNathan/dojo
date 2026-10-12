@@ -1,0 +1,21 @@
+# Theme and wallpaper events
+
+Implemented `src/file_events.rs` and updated `src/config.rs`, `src/shell.rs`, and `src/wallpaper.rs`. The parent added the binary module registration and enabled rustix filesystem/event features. No host files, services, or UI sessions were changed.
+
+`file_events::Watcher::start(Vec<PathBuf>)` owns one inotify descriptor and one blocking worker. `subscribe()` returns a Sender/Receiver pair backed by a channel of capacity one. Each subscription begins with one token for initial reconciliation. The sender also lets darkman events invalidate theme state without a separate reload queue. `shutdown()` and Drop wake the worker through a UnixStream, join it, and remove its subscription senders.
+
+The worker reads at most one 16 KiB batch before returning to the descriptor/stop poll. It filters watched directories by exact leaf names. ConfigStore exposes its fallback TOML and selected runtime JSON paths through `watch_paths()`. Shell adds the current symlink, root/current selection JSON, and wallpaper.txt. apply.lock writes and unrelated files do not notify consumers.
+
+Watches follow canonical config symlink targets and up to sixteen currently relevant links, including dangling leaf or parent links. Missing directories use their nearest existing ancestor. Reconciliation checks its installed plan again after adding watches, so namespace creation during installation cannot leave a stale parent watch. Directory move/delete notifications invalidate the prior descriptor even if another directory has already replaced the same path. Current generation switches remove obsolete watches. An inotify overflow triggers complete reconciliation. Watch repair failure enables a thirty-second retry. Healthy watches have no periodic timer. Initial watcher setup failure uses an explicitly logged thirty-second reconciliation fallback.
+
+Shell and wallpaper reload only after their bounded event channels receive an invalidation. They read selected publication paths rather than copying theme-store state into the watcher. Shell retains ThemeStore::refresh_system and its apply lock, and keeps previous colors on failure. Wallpaper keeps previous state on invalid path or read failure. Reloads execute serially, and an event queued during a background read discards that older completion before it reaches UI state. Atomic generation publication remains authoritative.
+
+One owned GPUI task subscribes to darkman's `nl.whynothugo.darkman.ModeChanged` signal at `/nl/whynothugo/darkman`, and to destination-owner changes. It invalidates immediately after subscription and on service restart. The existing refresh_system operation performs authoritative appearance resolution. Bus/subscription failure retries after thirty seconds. The task is dropped on application return before watcher shutdown. There are no half-second theme or wallpaper polling loops.
+
+Shell now calls `frame::initialize_host_state(cx)` after initializing ThemeColors and SpeechUi, before opening frame surfaces, as requested by the parent.
+
+Four integration tests exercise actual inotify delivery in temporary directories. Coverage includes direct writes, atomic file rename, apply.lock and unrelated-file filtering, canonical config symlinks, dangling symlinks, replacement of an entire watched directory, missing ancestors, atomic current-generation switches, and cessation of notifications from the obsolete generation. Shutdown must close the receiver after pending tokens are drained.
+
+Formatting and `git diff --check` pass. The parent coordinated a first compilation and reported API errors. Those reported errors were corrected: the sender vector now has an explicit type, rustix uses QUEUE_OVERFLOW, strong Entity::update returns the reconcile result directly, and shell retains the returned ThemeStore with the config store. The follow-up coordinated compile and runtime tests remain pending here. The focused filter is `cargo test --bin dojo file_events::tests`.
+
+No CPU, GPU, or battery saving is claimed. Healthy idle wakeups, publication latency, darkman restart behavior, compositor surfaces, and channel/resource teardown still require the parent's final behavior and live-counter verification.

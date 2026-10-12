@@ -1,5 +1,5 @@
 mod config;
-mod control;
+mod file_events;
 mod frame;
 mod geometry;
 mod launcher;
@@ -12,8 +12,8 @@ mod tray;
 mod wallpaper;
 
 use anyhow::bail;
-use dojo::design;
 use control::ControlCommand;
+use dojo::{control, design, speech};
 
 fn main() {
     if let Err(error) = run() {
@@ -38,9 +38,28 @@ fn run() -> anyhow::Result<()> {
         Some("--quit") => ControlCommand::Quit,
         Some("--launcher") => ControlCommand::Launcher,
         Some("--theme") => ControlCommand::Theme,
+        Some("--speech-state") => {
+            let phase = arguments
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("missing speech state"))?;
+            let phase = serde_json::from_value(serde_json::Value::String(phase))?;
+            ControlCommand::Speech(speech::SpeechEvent::Phase(phase))
+        }
+        Some(flag @ ("--speech-response" | "--speech-transcript")) => {
+            let text = arguments
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("missing speech text"))?;
+            let event = if flag == "--speech-response" {
+                speech::SpeechEvent::Response(text)
+            } else {
+                speech::SpeechEvent::Transcript(text)
+            };
+            event.validate()?;
+            ControlCommand::Speech(event)
+        }
         Some("--help") | Some("-h") => {
             println!(
-                "Usage: dojo [--toggle|--enable|--disable|--quit|--launcher|--theme|--launcher-benchmark]"
+                "Usage: dojo [--toggle|--enable|--disable|--quit|--launcher|--theme|--launcher-benchmark|--speech-state STATE|--speech-response TEXT|--speech-transcript TEXT]"
             );
             return Ok(());
         }
@@ -53,7 +72,7 @@ fn run() -> anyhow::Result<()> {
         bail!("Dojo accepts one control argument at a time");
     }
 
-    if control::send(command)? {
+    if control::send(&command)? {
         return Ok(());
     }
 
@@ -63,5 +82,6 @@ fn run() -> anyhow::Result<()> {
         ControlCommand::Quit => Ok(()),
         ControlCommand::Launcher => shell::run_with_launcher(None, true),
         ControlCommand::Theme => shell::run_with_theme_picker(None),
+        ControlCommand::Speech(_) => bail!("start Dojo before sending speech events"),
     }
 }

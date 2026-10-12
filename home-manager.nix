@@ -24,7 +24,7 @@ let
   };
   dojoAutostart = pkgs.writeShellScript "dojo-autostart" ''
     export LD_LIBRARY_PATH=${lib.escapeShellArg config.env.LD_LIBRARY_PATH}
-    exec ${homeDirectory}/Dojo/target/debug/dojo --enable
+    exec ${homeDirectory}/Dojo/scripts/dojo-desktop --enable
   '';
   onepasswordAutostart = pkgs.writeShellScript "dojo-1password-autostart" ''
     onepassword=${pkgs._1password-gui}/bin/1password
@@ -52,6 +52,7 @@ in
         ./theme-home-manager.nix
         ./t3-home-manager.nix
         ./rift-home-manager.nix
+        ./voice-home-manager.nix
       ];
       home.username = "nathan";
       home.homeDirectory = homeDirectory;
@@ -122,7 +123,12 @@ in
           if ${pkgs.procps}/bin/pgrep -u "$UID" -x vigiland >/dev/null; then
             ${pkgs.procps}/bin/pkill -u "$UID" -x vigiland
           else
-            ${inputs.vigiland.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/vigiland \
+            ${pkgs.systemd}/bin/systemd-inhibit \
+              --what=handle-lid-switch \
+              --mode=block \
+              --who=Vigiland \
+              --why='Vigiland is keeping the laptop running with its lid closed' \
+              ${inputs.vigiland.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/vigiland \
               >/dev/null 2>&1 </dev/null &
           fi
         '')
@@ -219,7 +225,8 @@ in
       xdg.configFile."rush/config.rush".source = ./rush-config/config.rush;
 
       services.wluma = {
-        enable = true;
+        # Paused pending power measurements of screen-content capture.
+        enable = false;
         package = pkgs.wluma.overrideAttrs (old: {
           patches = (old.patches or []) ++ [ ./system-config/patches/wluma-no-reply.patch ];
         });
@@ -509,9 +516,13 @@ in
       home.sessionPath = [ "/home/nathan/.local/share/mbx/bin" "/home/nathan/.nix-profile/bin" "/home/nathan/.local/npm/bin" "/home/nathan/.cargo/bin" "/home/nathan/.local/bin" ];
       home.file.".local/bin/codelldb".source = "${pkgs.vscode-extensions.vadimcn.vscode-lldb}/share/vscode/extensions/vadimcn.vscode-lldb/adapter/codelldb";
       home.file.".local/bin/dojo-niri-session".source = ./scripts/dojo-niri-session;
+      home.file.".local/bin/dojo-voice".source = pkgs.writeShellScript "dojo-voice" ''
+        exec /home/nathan/Dojo/tools/speech/dojo-voice "$@"
+      '';
       xdg.configFile."systemd/user/wayland-wm@niri\\x2dsession.service.d/90-dojo-niri.conf".source = ./session-config/90-dojo-niri.conf;
       wayland.windowManager.niri = {
         enable = true;
+        checkConfig = false;
 	enableDefaultConfig = true;
 	settings.binds."Mod+T" = {
 	  _props.hotkey-overlay-title = "Open a Terminal: kitty";
@@ -521,9 +532,25 @@ in
 	  _props.hotkey-overlay-title = "Open Helium";
 	  spawn = [ "uwsm" "app" "-t" "service" "-d" "Helium" "--" "helium" ];
 	};
-	settings.binds."Mod+Shift+P" = {
+	settings.binds."Mod+Shift+Space" = {
 	  _props.hotkey-overlay-title = "Toggle Dojo launcher";
-	  spawn = [ "/home/nathan/Dojo/target/debug/dojo" "--launcher" ];
+	  spawn = [ "/home/nathan/Dojo/scripts/dojo-desktop" "--launcher" ];
+	};
+	settings.binds."Mod+Shift+P" = {
+	  _props.hotkey-overlay-title = "Hold to talk to Dojo";
+          _props.repeat = false;
+          _props.spawn-on-release = "/home/nathan/Dojo/tools/speech/dojo-voice finish";
+	  spawn = [ "/home/nathan/Dojo/tools/speech/dojo-voice" "begin" ];
+	};
+	settings.binds."Mod+Shift+F23" = {
+	  _props.hotkey-overlay-title = "Hold to talk to Dojo";
+          _props.repeat = false;
+          _props.spawn-on-release = "/home/nathan/Dojo/tools/speech/dojo-voice finish";
+	  spawn = [ "/home/nathan/Dojo/tools/speech/dojo-voice" "begin" ];
+	};
+	settings.binds."Mod+Shift+Escape" = {
+	  _props.hotkey-overlay-title = "Cancel Dojo recording";
+	  spawn = [ "/home/nathan/Dojo/tools/speech/dojo-voice" "cancel" ];
 	};
 	settings.binds."Ctrl+F11" = {
 	  _props.hotkey-overlay-title = "Toggle quick-access terminal";
@@ -581,6 +608,12 @@ in
 	  geometry-corner-radius = 12;
 	  clip-to-geometry = true;
 	  draw-border-with-background = false;
+	};
+	# Speech bubbles sit on a full-output Dojo layer. Use regular backdrop blur so
+	# their requested regions sample the windows underneath instead of the wallpaper.
+	settings."layer-rule" = {
+	  match._props.namespace = "^dojo-frame-[0-9]+$";
+	  background-effect.xray = false;
 	};
 	# Run btrbg with the wallpaper on login
   settings."spawn-at-startup" = [ "btrbg" "/home/nathan/Dojo/astro.jpg" ];

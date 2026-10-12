@@ -60,13 +60,21 @@ def main():
         })
         server = next(item for item in status["data"] if item["name"] == "dojo-desktop")
         tools = set(server["tools"])
-        assert tools == {"desktop_context", "desktop_action", "desktop_release"}, server
+        assert tools == {"desktop_context", "desktop_action", "desktop_release", "desktop_feedback", "desktop_launch", "desktop_screenshot"}, server
         result = request("mcpServer/tool/call", {
             "threadId": thread, "server": "dojo-desktop", "tool": "desktop_context", "arguments": {},
         })
         assert not result.get("isError"), result
         context = json.loads(result["content"][0]["text"])
         assert context["seat_name"] is None
+        output = next(name for name, info in context["outputs"].items() if info["logical"])
+        screenshot = request("mcpServer/tool/call", {
+            "threadId": thread, "server": "dojo-desktop", "tool": "desktop_screenshot",
+            "arguments": {"output": output},
+        })
+        assert not screenshot.get("isError"), screenshot
+        assert screenshot["content"][1]["type"] == "image"
+        assert screenshot["content"][1]["mimeType"] == "image/png"
         print(json.dumps({
             "passed": True, "provider": "Codex app-server",
             "t3_override_merge": True, "tools": sorted(tools),

@@ -2513,6 +2513,11 @@ impl Window {
         self.platform_window.set_input_region(region);
     }
 
+    /// Linux (Wayland) only: Ask the compositor to blur the background behind a rounded region.
+    pub fn set_background_blur_regions(&self, regions: &[Bounds<Pixels>], corner_radius: Pixels) {
+        self.platform_window.set_background_blur_regions(regions, corner_radius);
+    }
+
     /// Return the `WindowBounds` to indicate that how a window should be opened
     /// after it has been closed
     pub fn window_bounds(&self) -> WindowBounds {

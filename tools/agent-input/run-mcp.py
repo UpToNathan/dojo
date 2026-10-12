@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Drive the real dojo-agent MCP subprocess against nested fixture windows."""
 import argparse
+import base64
 import concurrent.futures
 import hashlib
 import socket
@@ -30,7 +31,7 @@ class Mcp:
         assert result["capabilities"]["tools"] == {}
         self.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
         tools = self.request("tools/list")["tools"]
-        assert {t["name"] for t in tools} == {"desktop_context", "desktop_action", "desktop_release"}
+        assert {t["name"] for t in tools} == {"desktop_context", "desktop_action", "desktop_release", "desktop_feedback", "desktop_launch", "desktop_screenshot"}
 
     def send(self, value):
         self.process.stdin.write(json.dumps(value).encode() + b"\n")
@@ -282,6 +283,17 @@ def main():
     parser.add_argument("--lifecycle", action="store_true")
     parser.add_argument("--log", required=True)
     args = parser.parse_args()
+    host_runtime = Path(os.environ["XDG_RUNTIME_DIR"])
+    runtime = Path(args.log).resolve().parent / "mcp-runtime"
+    runtime.mkdir(mode=0o700, exist_ok=True)
+    assert runtime.resolve() != host_runtime.resolve(), "MCP fixture must not use the host runtime"
+    assert not (runtime / "dojo.sock").exists(), "Unexpected shell control socket in fixture runtime"
+    os.environ["WAYLAND_DISPLAY"] = str(host_runtime / os.environ["WAYLAND_DISPLAY"])
+    os.environ["XDG_RUNTIME_DIR"] = str(runtime)
+    Path(args.log + ".runtime.json").write_text(json.dumps({
+        "runtime": str(runtime), "wayland_display": os.environ["WAYLAND_DISPLAY"],
+        "niri_socket": args.socket, "host_shell_socket_accessible": False,
+    }, indent=2))
     query = Peer(args.socket)
     servers = []
     with open(args.log, "w") as log, open(args.log + ".mcp-stderr", "w") as stderr:
@@ -314,6 +326,25 @@ def main():
             assert not children(server.process)
             assert {human, target} <= {w["id"] for w in context["windows"]}
             assert context["outputs"]
+            output_name = next(name for name, output in context["outputs"].items() if output["logical"])
+            capture = server.request("tools/call", {"name": "desktop_screenshot", "arguments": {"output": output_name}})
+            assert not capture.get("isError"), capture
+            metadata = json.loads(capture["content"][0]["text"])
+            image = capture["content"][1]
+            assert image["type"] == "image" and image["mimeType"] == "image/png"
+            png = base64.b64decode(image["data"], validate=True)
+            assert png.startswith(b"\x89PNG\r\n\x1a\n") and png.endswith(b"IEND\xaeB`\x82")
+            width = int.from_bytes(png[16:20], "big")
+            height = int.from_bytes(png[20:24], "big")
+            assert [metadata["image_width"], metadata["image_height"]] == [width, height]
+            logical = context["outputs"][output_name]["logical"]
+            assert metadata["logical_x_per_image_pixel"] == logical["width"] / width
+            assert metadata["logical_y_per_image_pixel"] == logical["height"] / height
+            Path(args.log + ".mcp-screenshot.png").write_bytes(png)
+            assert focused_id(query) == human
+            assert server.tool("desktop_context")["seat_name"] is None
+            assert not children(server.process)
+            server.tool("desktop_screenshot", {"output": "missing-output"}, error=True)
             invalid = server.rpc("tools/call", {"name": "desktop_action", "arguments": {"action": "key", "evdev": 30, "state": "typo"}})
             assert "error" in invalid or invalid["result"].get("isError"), invalid
             server.tool("desktop_action", {"action": "key", "evdev": 0, "state": "tap"}, error=True)
