@@ -34,6 +34,7 @@ pub fn handle_msg(mut msg: Msg, json: bool, print_request: bool) -> anyhow::Resu
     }
 
     let request = match &msg {
+        Msg::YieldHumanInput => Request::YieldHumanInput,
         Msg::Version => Request::Version,
         Msg::Outputs => Request::Outputs,
         Msg::FocusedWindow => Request::FocusedWindow,
@@ -132,6 +133,16 @@ pub fn handle_msg(mut msg: Msg, json: bool, print_request: bool) -> anyhow::Resu
     let response = reply.map_err(|err_msg| anyhow!(err_msg).context("niri returned an error"))?;
 
     match msg {
+        Msg::YieldHumanInput => {
+            let Response::InputCoordination(coordination) = response else {
+                bail!("unexpected response: expected InputCoordination, got {response:?}");
+            };
+            if json {
+                println!("{}", serde_json::to_string(&coordination)?);
+            } else {
+                println!("Human input ownership yielded.");
+            }
+        }
         Msg::AgentInput => unreachable!(),
         Msg::RequestError => {
             bail!("unexpected response: expected an error, got {response:?}");
@@ -845,6 +856,18 @@ mod tests {
     use insta::assert_snapshot;
 
     use super::*;
+    #[test]
+    fn yield_human_input_cli_parses_without_agent_seat_arguments() {
+        use clap::Parser;
+        let cli = crate::cli::Cli::try_parse_from(["niri", "msg", "yield-human-input"]).unwrap();
+        assert!(matches!(
+            cli.subcommand,
+            Some(crate::cli::Sub::Msg {
+                msg: Msg::YieldHumanInput,
+                ..
+            })
+        ));
+    }
 
     #[test]
     fn test_fmt_rounded() {

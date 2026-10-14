@@ -1,0 +1,396 @@
+--- a/libs/cua/crates/cua-image/src/resolve.rs
++++ b/libs/cua/crates/cua-image/src/resolve.rs
+@@ -427,8 +427,48 @@
+     }
+ }
+ 
+-async fn probe(src: &dyn ManifestSource, reference: &str, arch: &str) -> Result<Probe> {
+-    let full = inspect_full(src, reference, arch).await?;
++fn acquisition_reference(reference: &str) -> Result<String> {
++    let normalized = NormalizedRef::parse(reference)?;
++    let digest = normalized.digest.as_deref().or_else(|| {
++        crate::catalog::find(&normalized.full()).and_then(|entry| entry.digest.as_deref())
++    }).ok_or_else(|| ImageError::Reference(reference.into(),
++        "Dojo requires a catalog image with a committed digest or an explicit @sha256 digest".into()))?;
++    if !digest
++        .strip_prefix("sha256:")
++        .is_some_and(|hex| hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit()))
++    {
++        return Err(ImageError::Reference(
++            reference.into(),
++            "expected @sha256 followed by 64 hex digits".into(),
++        ));
++    }
++    Ok(normalized.pinned(digest))
++}
++
++async fn probe(
++    src: &dyn ManifestSource,
++    reference: &str,
++    arch: &str,
++    immutable: bool,
++) -> Result<Probe> {
++    let acquired = if immutable {
++        acquisition_reference(reference)?
++    } else {
++        reference.to_string()
++    };
++    let full = inspect_full(src, &acquired, arch).await?;
++    if immutable {
++        let expected = NormalizedRef::parse(&acquired)?
++            .digest
++            .expect("acquisition reference has a digest");
++        if full.digest != expected {
++            return Err(ImageError::Digest {
++                what: acquired,
++                expected,
++                actual: full.digest,
++            });
++        }
++    }
+     let variant = Variant::from_kind(full.inspection.kind);
+     Ok(Probe {
+         reference: reference.to_string(),
+@@ -530,9 +570,30 @@
+     backend: Backend,
+     arch: &str,
+ ) -> Result<ResolvedImage> {
++    resolve_from(src, reference, backend, arch, false).await
++}
++
++/// Resolves catalog variants through their committed digests. Custom images
++/// must carry an explicit SHA-256 digest before any registry request.
++pub async fn resolve_pinned_with(
++    src: &dyn ManifestSource,
++    reference: &str,
++    backend: Backend,
++    arch: &str,
++) -> Result<ResolvedImage> {
++    resolve_from(src, reference, backend, arch, true).await
++}
++
++async fn resolve_from(
++    src: &dyn ManifestSource,
++    reference: &str,
++    backend: Backend,
++    arch: &str,
++    immutable: bool,
++) -> Result<ResolvedImage> {
+     let input = NormalizedRef::parse(reference)?;
+     let accepts = backend.accepts();
+-    let primary = match probe(src, &input.full(), arch).await {
++    let primary = match probe(src, &input.full(), arch, immutable).await {
+         Ok(p) => Some(p),
+         // Docker Hub answers 401 for repositories that do not exist (and for
+         // private ones): an image only the local engine has looks like this.
+@@ -578,7 +639,7 @@
+             candidates.push(s);
+         }
+         for c in candidates {
+-            match probe(src, &c, arch).await {
++            match probe(src, &c, arch, immutable).await {
+                 Ok(p) => match p.variant {
+                     Some(v) if v == want => return finish(&input, p, v, arch),
+                     Some(v) => {
+@@ -605,7 +666,7 @@
+             let Some(s) = input.sibling(*v).filter(|s| *s != input.full()) else {
+                 continue;
+             };
+-            if let Ok(p) = probe(src, &s, arch).await
++            if let Ok(p) = probe(src, &s, arch, immutable).await
+                 && let Some(pv) = p.variant
+             {
+                 found.push(pv);
+@@ -676,7 +737,7 @@
+     let src = source_slot().read().unwrap().clone();
+     let r = match src {
+         Some(src) => resolve_with(src.as_ref(), reference, backend, arch).await?,
+-        None => resolve_with(default_client(), reference, backend, arch).await?,
++        None => resolve_pinned_with(default_client(), reference, backend, arch).await?,
+     };
+     cache()
+         .lock()
+@@ -708,7 +769,7 @@
+         Some(src) => resolve_with(src.as_ref(), reference, backend, arch).await,
+         None => {
+             let client = RegistryClient::with_credentials(creds.clone());
+-            resolve_with(&client, reference, backend, arch).await
++            resolve_pinned_with(&client, reference, backend, arch).await
+         }
+     }
+ }
+--- a/libs/cua/crates/cua-image/src/resolve/tests.rs
++++ b/libs/cua/crates/cua-image/src/resolve/tests.rs
+@@ -523,7 +523,7 @@
+         "ghcr.io/trycua/macos:26".into(),
+         "ghcr.io/trycua/macos:15".into(),
+     ] {
+-        let p = probe(&c, &primary, "amd64").await.unwrap();
++        let p = probe(&c, &primary, "amd64", false).await.unwrap();
+         assert!(
+             !p.variants_annotation().is_empty(),
+             "{primary} has no {VARIANTS_ANNOTATION}"
+@@ -531,3 +531,108 @@
+     }
+     eprintln!("{root:#?}\n{disk:#?}\n{win:#?}");
+ }
++
++struct CatalogRegistry {
++    registry: FakeRegistry,
++    requests: Mutex<Vec<String>>,
++}
++
++#[async_trait::async_trait]
++impl ManifestSource for CatalogRegistry {
++    async fn manifest(&self, reference: &str) -> Result<(crate::manifest::Manifest, String)> {
++        self.requests.lock().unwrap().push(reference.into());
++        for entry in crate::catalog::entries() {
++            if let Some(digest) = &entry.digest
++                && NormalizedRef::parse(&entry.reference)?.pinned(digest) == reference
++            {
++                let (manifest, _) = self.registry.manifest(&entry.reference).await?;
++                return Ok((manifest, digest.clone()));
++            }
++        }
++        self.registry.manifest(reference).await
++    }
++    async fn blob(&self, reference: &str, desc: &crate::manifest::Descriptor) -> Result<Vec<u8>> {
++        self.registry.blob(reference, desc).await
++    }
++}
++
++#[tokio::test]
++async fn committed_catalog_digests_select_each_runtime_variant() {
++    let (registry, _, _) = canonical(false);
++    let source = CatalogRegistry {
++        registry,
++        requests: Mutex::new(Vec::new()),
++    };
++    let container = resolve_pinned_with(&source, LINUX, Backend::Container, "amd64")
++        .await
++        .unwrap();
++    assert_eq!(container.variant_ref, LINUX);
++    assert_eq!(
++        container.pinned_ref,
++        "ghcr.io/trycua/linux@sha256:ac5c9fd4aba25d5f1245a206191cfa6fc6ca7fceda60fcec1b7ec9d816223107"
++    );
++    let vm = resolve_pinned_with(&source, LINUX, Backend::Vm, "arm64")
++        .await
++        .unwrap();
++    assert_eq!(vm.variant_ref, LINUX_DISK);
++    assert_eq!(
++        vm.pinned_ref,
++        "ghcr.io/trycua/linux@sha256:c492b2d5b4b80a706f7a85e2333b6b57ad922282756f72f2cbde0c0809a38a8c"
++    );
++    assert_eq!(vm.os, "linux");
++    assert_eq!(vm.arch.as_deref(), Some("arm64"));
++    assert!(
++        source
++            .requests
++            .lock()
++            .unwrap()
++            .iter()
++            .all(|reference| reference.contains("@sha256:"))
++    );
++}
++
++#[tokio::test]
++async fn custom_mutable_image_is_refused_before_reading_registry() {
++    let source = CatalogRegistry {
++        registry: FakeRegistry::default(),
++        requests: Mutex::new(Vec::new()),
++    };
++    let error = resolve_pinned_with(
++        &source,
++        "ghcr.io/example/custom:latest",
++        Backend::Container,
++        "amd64",
++    )
++    .await
++    .unwrap_err();
++    assert!(matches!(error, ImageError::Reference(_, _)));
++    assert!(source.requests.lock().unwrap().is_empty());
++}
++
++#[tokio::test]
++async fn explicit_custom_digest_is_preserved() {
++    let mut source = FakeRegistry::default();
++    let digest = source.index("ghcr.io/example/custom:build", &["amd64"], false, None);
++    let reference = format!("ghcr.io/example/custom@{digest}");
++    let resolved = resolve_pinned_with(&source, &reference, Backend::Container, "amd64")
++        .await
++        .unwrap();
++    assert_eq!(resolved.pinned_ref, reference);
++}
++
++#[test]
++fn catalog_acquisition_refuses_missing_or_invalid_content_identity() {
++    assert!(acquisition_reference("ghcr.io/trycua/macos:26-xcode").is_err());
++    assert!(acquisition_reference("ghcr.io/example/custom@sha256:abc").is_err());
++}
++
++#[tokio::test]
++async fn catalog_manifest_with_wrong_digest_is_refused() {
++    let (mut source, _, _) = canonical(false);
++    let raw = source.manifests[LINUX].clone();
++    source.manifests.insert("ghcr.io/trycua/linux@sha256:ac5c9fd4aba25d5f1245a206191cfa6fc6ca7fceda60fcec1b7ec9d816223107".into(), raw);
++    let error = resolve_pinned_with(&source, LINUX, Backend::Container, "amd64")
++        .await
++        .unwrap_err();
++    assert!(matches!(error, ImageError::Digest { .. }));
++}
+--- a/libs/cua/crates/cua-vmm/src/qemu/mod.rs
++++ b/libs/cua/crates/cua-vmm/src/qemu/mod.rs
+@@ -272,10 +272,7 @@
+         }
+         Err(VmmError::missing(
+             name,
+-            format!(
+-                "install QEMU (macOS: `brew install qemu`; {}) or enable allow_install to let cua provision it",
+-                QemuPackageManager::linux_hint()
+-            ),
++            "provide QEMU from the locked system environment",
+         ))
+     }
+ 
+@@ -893,35 +890,10 @@
+ 
+ /// Install QEMU through the host package manager (explicit opt-in).
+ pub async fn install_qemu() -> Result<()> {
+-    match host::HostOs::current() {
+-        host::HostOs::Macos => {
+-            let brew = host::which("brew").ok_or_else(|| {
+-                VmmError::missing(
+-                    "Homebrew",
+-                    "install https://brew.sh, then `brew install qemu`",
+-                )
+-            })?;
+-            tracing::info!("installing QEMU with Homebrew");
+-            host::run(brew, &["install", "qemu"]).await?;
+-        }
+-        host::HostOs::Linux => {
+-            let (manager, program) = QemuPackageManager::detect().ok_or_else(|| {
+-                VmmError::missing("QEMU", "no supported package manager found (apt-get/dnf)")
+-            })?;
+-            let program = program.display().to_string();
+-            tracing::info!("installing QEMU with {manager:?} (sudo -n)");
+-            for args in manager.commands(&program) {
+-                host::run("sudo", &args).await?;
+-            }
+-        }
+-        host::HostOs::Windows => {
+-            return Err(VmmError::missing(
+-                "QEMU",
+-                "download QEMU for Windows from https://qemu.weilnetz.de/ and put it on PATH",
+-            ));
+-        }
+-    }
+-    Ok(())
++    Err(VmmError::missing(
++        "QEMU",
++        "automatic acquisition is unavailable in Dojo; provide a runtime from the locked system environment",
++    ))
+ }
+ 
+ #[async_trait]
+--- a/libs/cua/crates/cua-vmm/src/lume/mod.rs
++++ b/libs/cua/crates/cua-vmm/src/lume/mod.rs
+@@ -427,9 +427,7 @@
+             None => {
+                 return Err(VmmError::missing(
+                     "lume",
+-                    format!(
+-                        "install it with `/bin/bash -c \"$(curl -fsSL {INSTALL_URL})\"` or enable allow_install to let cua do it"
+-                    ),
++                    "provide Lume from the locked system environment or select the built-in pinned Lume",
+                 ));
+             }
+         };
+@@ -1166,27 +1164,10 @@
+ 
+ /// Run the official Lume installer (explicit opt-in only).
+ pub async fn install_lume() -> Result<()> {
+-    let curl = host::which("curl")
+-        .ok_or_else(|| VmmError::missing("curl", "needed to download the Lume installer"))?;
+-    let script = host::run(curl, &["-fsSL", INSTALL_URL]).await?;
+-    tracing::info!("running the Lume installer");
+-    let out = crate::exec::run_with_stdin(
+-        "/bin/bash",
+-        &["-s".into()],
+-        Some(script.as_bytes()),
+-        Some(Duration::from_secs(600)),
+-    )
+-    .await?;
+-    out.check("lume installer")?;
+-    // The installer's LaunchAgent logs to /tmp; record that cua installed
+-    // it, so `cua cache prune` caps those logs (a user's own install is
+-    // left alone).
+-    let marker = lume_installed_marker();
+-    if let Some(d) = marker.parent() {
+-        let _ = std::fs::create_dir_all(d);
+-    }
+-    let _ = std::fs::write(&marker, host::now_secs().to_string());
+-    Ok(())
++    Err(VmmError::missing(
++        "Lume",
++        "automatic acquisition is unavailable in Dojo; provide a runtime from the locked system environment",
++    ))
+ }
+ 
+ /// Marker file: this cua home installed Lume ([`install_lume`]).
+--- a/libs/cua/crates/cua-vmm/src/container/mod.rs
++++ b/libs/cua/crates/cua-vmm/src/container/mod.rs
+@@ -299,7 +299,7 @@
+             }
+         } else if self.cfg.require_gvisor {
+             let hint = match plan {
+-                Ok(p) => format!("set allow_install_runsc to let cua {}", p.description),
++                Ok(_) => "provide gVisor from the locked system environment".into(),
+                 Err(h) => h,
+             };
+             return Err(VmmError::missing("gVisor (runsc)", hint));
+@@ -311,40 +311,10 @@
+         Ok("runc".into())
+     }
+ 
+-    async fn install_runsc(&self, plan: &gvisor::InstallPlan) -> Result<()> {
+-        for step in &plan.steps {
+-            match step {
+-                gvisor::Step::Run { argv } => {
+-                    let prog = host::which(&argv[0]).ok_or_else(|| {
+-                        VmmError::missing(argv[0].clone(), "needed to install runsc")
+-                    })?;
+-                    let args: Vec<&str> = argv[1..].iter().map(String::as_str).collect();
+-                    host::run(prog, &args).await?;
+-                }
+-                gvisor::Step::ColimaRuntime { config } => {
+-                    let changed = gvisor::register_in_colima_config(config).map_err(|e| {
+-                        VmmError::other(format!("cannot update {}: {e}", config.display()))
+-                    })?;
+-                    tracing::info!(config = %config.display(), changed, "registered runsc in colima config");
+-                }
+-            }
+-        }
+-        // dockerd restarts; wait for it to come back with runsc registered.
+-        let deadline = tokio::time::Instant::now() + Duration::from_secs(300);
+-        while tokio::time::Instant::now() < deadline {
+-            if let Ok(rts) = connect_uri(&self.endpoint.uri)?.info().await.map(|i| {
+-                i.runtimes
+-                    .unwrap_or_default()
+-                    .into_keys()
+-                    .collect::<Vec<_>>()
+-            }) && rts.iter().any(|r| r == "runsc")
+-            {
+-                return Ok(());
+-            }
+-            tokio::time::sleep(Duration::from_secs(2)).await;
+-        }
+-        Err(VmmError::other(
+-            "runsc installed but the engine did not register it within 300s",
++    async fn install_runsc(&self, _plan: &gvisor::InstallPlan) -> Result<()> {
++        Err(VmmError::missing(
++            "gVisor (runsc)",
++            "automatic acquisition is unavailable in Dojo; provide a runtime from the locked system environment",
+         ))
+     }
+ 

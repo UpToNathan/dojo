@@ -60,10 +60,10 @@ def focused_id(query):
     return window["id"] if window else None
 
 
-def screenshot(query, path):
+def screenshot(query, path, *, show_pointer=True):
     path = str(Path(path).resolve())
     query.request({"Action": {"ScreenshotScreen": {
-        "write_to_disk": True, "show_pointer": True, "path": path}}})
+        "write_to_disk": True, "show_pointer": show_pointer, "path": path}}})
     wait_for(lambda: Path(path).exists() and Path(path).read_bytes().endswith(b"IEND\xaeB`\x82"), "screenshot " + path)
     return path
 

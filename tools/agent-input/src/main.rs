@@ -46,7 +46,8 @@ impl State {
         else {
             return;
         };
-        for index in 0..2 {
+        let count = if std::env::var_os("DOJO_TEST_CDP").is_some() { 1 } else { 2 };
+        for index in 0..count {
             let surface = compositor.create_surface(qh, ());
             let xdg = shell.get_xdg_surface(&surface, qh, index);
             let top = xdg.get_toplevel(qh, index);
@@ -324,6 +325,7 @@ delegate_noop!(State: ignore wl_shm::WlShm);
 delegate_noop!(State: ignore wl_shm_pool::WlShmPool);
 delegate_noop!(State: ignore wl_buffer::WlBuffer);
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(release) = std::env::var_os("DOJO_TEST_CDP") { cdp_fixture(release.into())?; }
     let connection = Connection::connect_to_env()?;
     let mut queue = connection.new_event_queue();
     connection.display().get_registry(&queue.handle(), ());
@@ -334,5 +336,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     while state.running {
         queue.blocking_dispatch(&mut state)?;
     }
+    Ok(())
+}
+
+
+/// An opt-in real loopback websocket owned by this native Wayland fixture PID.
+fn cdp_fixture(release: std::path::PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    record(serde_json::json!({"event":"cdp_listening","port":listener.local_addr()?.port(),"pid":std::process::id()}));
+    std::thread::spawn(move || {
+        for connection in listener.incoming() {
+            let Ok(socket) = connection else { break };
+            socket.set_read_timeout(Some(std::time::Duration::from_secs(3))).unwrap();
+            let upgraded = tungstenite::accept_hdr(socket, |request: &tungstenite::handshake::server::Request, response| {
+                assert_eq!(request.uri().path(), "/devtools/page/PAGE-1"); Ok(response)
+            });
+            let Ok(mut socket) = upgraded else { continue };
+            let Ok(message) = socket.read() else { record(serde_json::json!({"event":"cdp_no_effect"})); continue };
+            let Ok(payload) = message.into_text() else { continue };
+            let value: serde_json::Value = serde_json::from_str(&payload).unwrap();
+            assert_eq!(value["method"], "Page.navigate");
+            record(serde_json::json!({"event":"cdp_pending","id":value["id"]}));
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while !release.exists() && std::time::Instant::now() < deadline { std::thread::sleep(std::time::Duration::from_millis(5)); }
+            if release.exists() { record(serde_json::json!({"event":"cdp_effect","id":value["id"],"url":value["params"]["url"]})); }
+        }
+    });
     Ok(())
 }

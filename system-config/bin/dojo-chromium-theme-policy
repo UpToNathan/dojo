@@ -9,10 +9,10 @@ fail() {
 }
 
 [[ $EUID -eq 0 ]] || fail 'must be run as root'
-[[ $# -eq 1 ]] || fail 'expected one #RRGGBB color'
+[[ $# -eq 1 ]] || fail 'expected one #RRGGBB color or --clear'
 
 color=${1,,}
-[[ $color =~ ^#[0-9a-f]{6}$ ]] || fail 'expected one #RRGGBB color'
+[[ $color == --clear || $color =~ ^#[0-9a-f]{6}$ ]] || fail 'expected one #RRGGBB color or --clear'
 
 for directory in /etc/chromium /etc/chromium/policies /etc/chromium/policies/managed; do
     if [[ -L $directory || ( -e $directory && ! -d $directory ) ]]; then
@@ -28,25 +28,56 @@ done
 policy_dir=/etc/chromium/policies/managed
 policy_file=$policy_dir/dojo-theme.json
 
+backup_dir=/etc/chromium/policies/dojo-backups
+if [[ -L $backup_dir || ( -e $backup_dir && ! -d $backup_dir ) ]]; then
+    fail "refusing unsafe backup directory $backup_dir"
+fi
+if [[ ! -e $backup_dir ]]; then
+    /usr/bin/install -d -m 0755 -o root -g root -- "$backup_dir"
+fi
+[[ $(/usr/bin/stat -c '%U:%G %a' -- "$backup_dir") == 'root:root 755' ]] ||
+    fail "backup directory must be root:root mode 0755: $backup_dir"
+
+dojo_policy_pattern='^\{"BrowserThemeColor": "#[0-9a-f]{6}", "BrowserColorScheme": "system"\}$'
+is_dojo_policy() {
+    [[ -f $1 && ! -L $1 ]] &&
+        [[ $(/usr/bin/stat -c '%U:%G %a' -- "$1") == 'root:root 644' ]] &&
+        [[ $(/usr/bin/cat -- "$1") =~ $dojo_policy_pattern ]]
+}
+
+shopt -s nullglob dotglob
+# Chromium reads every regular file in managed, regardless of its suffix.
+for previous in "$policy_dir"/dojo-theme.json.backup-*; do
+    [[ ${previous##*/} =~ ^dojo-theme\.json\.backup-[0-9]{14}-[0-9]+$ ]] || continue
+    is_dojo_policy "$previous" || continue
+    destination="$backup_dir/${previous##*/}"
+    [[ ! -e $destination && ! -L $destination ]] || fail "backup already exists: $destination"
+    /usr/bin/mv -T -- "$previous" "$destination"
+done
+
 if [[ -e $policy_file || -L $policy_file ]]; then
-    [[ -f $policy_file && ! -L $policy_file ]] ||
-        fail "refusing to replace non-regular policy file $policy_file"
-    [[ $(/usr/bin/stat -c '%U:%G %a' -- "$policy_file") == 'root:root 644' ]] ||
-        fail "policy file must be root:root mode 0644: $policy_file"
-    /usr/bin/grep -Eq '^\{"BrowserThemeColor": "#[0-9a-f]{6}", "BrowserColorScheme": "system"\}$' "$policy_file" ||
-        fail "refusing to replace policy file not owned by Dojo: $policy_file"
+    is_dojo_policy "$policy_file" || fail "refusing to replace policy file not owned by Dojo: $policy_file"
 fi
 
-shopt -s nullglob
-for other in "$policy_dir"/*.json; do
+if [[ $color == --clear ]]; then
+    if [[ -e $policy_file ]]; then
+        destination="$backup_dir/dojo-theme.json.backup-$(/usr/bin/date +%Y%m%d%H%M%S)-$$"
+        [[ ! -e $destination && ! -L $destination ]] || fail "backup already exists: $destination"
+        /usr/bin/mv -T -- "$policy_file" "$destination"
+    fi
+    exit 0
+fi
+
+for other in "$policy_dir"/*; do
     [[ $other == "$policy_file" ]] && continue
+    [[ -d $other && ! -L $other ]] && continue
     [[ -f $other && ! -L $other ]] || fail "refusing unsafe managed policy file $other"
     if /usr/bin/grep -Eq '"BrowserThemeColor"[[:space:]]*:|"BrowserColorScheme"[[:space:]]*:' "$other"; then
         fail "another managed policy already sets browser theme colors: $other"
     fi
 done
 
-temporary=$(/usr/bin/mktemp "$policy_dir/.dojo-theme.XXXXXX")
+temporary=$(/usr/bin/mktemp "$backup_dir/.dojo-theme.XXXXXX")
 cleanup() {
     [[ -z ${temporary:-} ]] || /usr/bin/rm -f -- "$temporary"
 }

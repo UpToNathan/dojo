@@ -6,7 +6,7 @@ let
     url = "https://github.com/imputnet/helium-linux/releases/download/${heliumVersion}/helium-${heliumVersion}-x86_64.AppImage";
     hash = "sha256-oEVQo8fHC9rTrNOkQw7ajSr8C/cXOpxYpAP+q5UXCH8=";
   };
-  helium = pkgs.appimageTools.wrapType2 {
+  heliumApp = pkgs.appimageTools.wrapType2 {
     pname = "helium";
     version = heliumVersion;
     src = heliumAppImage;
@@ -17,6 +17,10 @@ let
       "--ro-bind-try /etc/chromium/policies /etc/chromium/policies"
     ];
   };
+  helium = pkgs.writeShellScriptBin "helium" ''
+    exec ${heliumApp}/bin/helium \
+      --load-extension=${homeDirectory}/.local/share/dojo/browser-control/extension "$@"
+  '';
   heliumContents = pkgs.appimageTools.extractType2 {
     pname = "helium";
     version = heliumVersion;
@@ -51,8 +55,12 @@ in
         inputs.stasis.homeModules.default
         ./theme-home-manager.nix
         ./t3-home-manager.nix
+        ./browser-control-home-manager.nix
         ./rift-home-manager.nix
         ./voice-home-manager.nix
+        ./gamepad-home-manager.nix
+        ./yazi-home-manager.nix
+        ./update-home-manager.nix
       ];
       home.username = "nathan";
       home.homeDirectory = homeDirectory;
@@ -283,13 +291,6 @@ in
       xdg.dataFile."dbus-1/services/org.gnome.keyring.PrivatePrompter.service".source =
         "${pkgs.gcr_3}/share/dbus-1/services/org.gnome.keyring.PrivatePrompter.service";
 
-      xdg.configFile."xdg-desktop-portal/niri-portals.conf".text = ''
-        [preferred]
-        default=gtk
-        org.freedesktop.impl.portal.Settings=darkman
-        org.freedesktop.impl.portal.ScreenCast=gnome
-        org.freedesktop.impl.portal.Screenshot=gnome
-      '';
       xdg.configFile."systemd/user/app-1password@autostart.service.d/10-dojo-tray.conf".text = ''
         [Service]
         ExecStart=
@@ -523,6 +524,7 @@ in
       wayland.windowManager.niri = {
         enable = true;
         checkConfig = false;
+	settings.input.focus-follows-mouse = {};
 	enableDefaultConfig = true;
 	settings.binds."Mod+T" = {
 	  _props.hotkey-overlay-title = "Open a Terminal: kitty";
@@ -554,7 +556,7 @@ in
 	};
 	settings.binds."Ctrl+F11" = {
 	  _props.hotkey-overlay-title = "Toggle quick-access terminal";
-	  spawn = [ "kitten" "quick-access-terminal" ];
+	  spawn = [ "${homeDirectory}/.local/bin/dojo-desktop" "--terminal" ];
 	};
 	settings.binds."Mod+Shift+S" = {
 	  _props.hotkey-overlay-title = "Select screenshot region to clipboard";
@@ -601,6 +603,7 @@ in
         };
       };
       extraConfig = lib.mkAfter ''
+        include optional=true "${homeDirectory}/.local/state/dojo/displays/niri.kdl"
         include optional=true "${homeDirectory}/.local/state/dojo/themes/niri.kdl"
       '';
       # Rounded corners on tiled windows
@@ -609,13 +612,11 @@ in
 	  clip-to-geometry = true;
 	  draw-border-with-background = false;
 	};
-	# Speech bubbles sit on a full-output Dojo layer. Use regular backdrop blur so
-	# their requested regions sample the windows underneath instead of the wallpaper.
+	# Dojo surfaces use backdrop blur over the windows underneath.
 	settings."layer-rule" = {
 	  match._props.namespace = "^dojo-frame-[0-9]+$";
 	  background-effect.xray = false;
 	};
-	# Run btrbg with the wallpaper on login
-  settings."spawn-at-startup" = [ "btrbg" "/home/nathan/Dojo/astro.jpg" ];
+	# Dojo restores its selected wallpaper after login.
       };
 }

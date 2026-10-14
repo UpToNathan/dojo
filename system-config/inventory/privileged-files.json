@@ -1,0 +1,857 @@
+{
+  "excluded": [
+    {
+      "path": "/etc",
+      "reason": "local-backups-review-on-host"
+    },
+    {
+      "path": "/etc",
+      "reason": "private-requires-separate-provisioning"
+    },
+    {
+      "path": "/etc/.pwd.lock",
+      "reason": "generated-runtime"
+    },
+    {
+      "path": "/etc/.updated",
+      "reason": "generated-runtime"
+    },
+    {
+      "path": "/etc/1password",
+      "reason": "private-requires-separate-provisioning"
+    },
+    {
+      "path": "/etc/NetworkManager/system-connections",
+      "reason": "private-requires-separate-provisioning"
+    },
+    {
+      "path": "/etc/avahi",
+      "reason": "private-requires-separate-provisioning"
+    },
+    {
+      "path": "/etc/ca-certificates/extracted",
+      "reason": "generated-runtime"
+    },
+    {
+      "path": "/etc/chromium/policies/dojo-backups",
+      "reason": "generated-runtime"
+    },
+    {
+      "path": "/etc/chromium/policies/managed/dojo-theme.json",
+      "reason": "generated-runtime"
+    },
+    {
+      "path": "/etc/credstore",
+      "reason": "private-requires-separate-provisioning"
+    },
+    {
+      "path": "/etc/credstore.encrypted",
+      "reason": "private-requires-separate-provisioning"
+    },
+    {
+      "path": "/etc/cryptsetup-keys.d",
+      "reason": "private-requires-separate-provisioning"
+    },
+    {
+      "path": "/etc/cups/ssl",
+      "reason": "private-requires-separate-provisioning"
+    },
+    {
+      "path": "/etc/environment.d/99-nix-gl.conf",
+      "reason": "generated-runtime"
+    },
+    {
+      "path": "/etc/fonts",
+      "reason": "local-backups-review-on-host"
+    },
+    {
+      "path": "/etc/ld.so.cache",
+      "reason": "generated-runtime"
+    },
+    {
+      "path": "/etc/ly/save.txt",
+      "reason": "private-requires-separate-provisioning"
+    },
+    {
+      "path": "/etc/nix",
+      "reason": "local-backups-review-on-host"
+    },
+    {
+      "path": "/etc/opengl-driver",
+      "reason": "generated-runtime"
+    },
+    {
+      "path": "/etc/pacman.d/gnupg",
+      "reason": "generated-runtime"
+    },
+    {
+      "path": "/etc/pam.d",
+      "reason": "local-backups-review-on-host"
+    },
+    {
+      "path": "/etc/pam.d",
+      "reason": "private-requires-separate-provisioning"
+    },
+    {
+      "path": "/etc/resolv.pre-tailscale-backup.conf",
+      "reason": "generated-runtime"
+    },
+    {
+      "path": "/etc/ssh",
+      "reason": "private-requires-separate-provisioning"
+    },
+    {
+      "path": "/etc/ssl",
+      "reason": "private-requires-separate-provisioning"
+    },
+    {
+      "path": "/etc/ssl/certs",
+      "reason": "generated-runtime"
+    },
+    {
+      "path": "/etc/ssl/private",
+      "reason": "private-requires-separate-provisioning"
+    },
+    {
+      "path": "/etc/sudoers.d",
+      "reason": "local-backups-review-on-host"
+    },
+    {
+      "path": "/etc/systemd/system",
+      "reason": "local-backups-review-on-host"
+    },
+    {
+      "path": "/etc/tmpfiles.d",
+      "reason": "local-backups-review-on-host"
+    },
+    {
+      "path": "/etc/udev/rules.d",
+      "reason": "local-backups-review-on-host"
+    },
+    {
+      "path": "/usr/local/bin",
+      "reason": "local-backups-review-on-host"
+    }
+  ],
+  "files": [
+    {
+      "classification": "repo-managed",
+      "gid": 0,
+      "installation": "symlink",
+      "mode": "0777",
+      "path": "/etc/1password/custom_allowed_browsers",
+      "source": "system-config/1password/custom_allowed_browsers",
+      "source_link_matches": true,
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "backup_status": "modified",
+      "classification": "package-backup",
+      "gid": 0,
+      "mode": "0644",
+      "package": "bash",
+      "path": "/etc/bash.bashrc",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0644",
+      "path": "/etc/bashrc",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "backup_status": "unreadable",
+      "classification": "package-backup",
+      "gid": 209,
+      "mode": "0640",
+      "package": "cups",
+      "path": "/etc/cups/cups-files.conf",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "backup_status": "unreadable",
+      "classification": "package-backup",
+      "gid": 209,
+      "mode": "0640",
+      "package": "cups",
+      "path": "/etc/cups/cupsd.conf",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "backup_status": "unreadable",
+      "classification": "package-backup",
+      "gid": 209,
+      "mode": "0640",
+      "package": "cups",
+      "path": "/etc/cups/snmp.conf",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "backup_status": "unreadable",
+      "classification": "package-backup",
+      "gid": 0,
+      "mode": "0600",
+      "package": "shadow",
+      "path": "/etc/default/useradd",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "backup_status": "unreadable",
+      "classification": "package-backup",
+      "gid": 0,
+      "mode": "0600",
+      "package": "firewalld",
+      "path": "/etc/firewalld/firewalld.conf",
+      "setup_scope": "default-zone=drop",
+      "setup_tool": "system-config/bin/configure-firewalld",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0644",
+      "path": "/etc/firewalld/firewalld.conf.old",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0644",
+      "path": "/etc/firewalld/zones/trusted.xml",
+      "setup_scope": "trusted-interface=tailscale0",
+      "setup_tool": "system-config/bin/configure-firewalld",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/10-hinting-slight.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/10-scale-bitmap-fonts.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/10-yes-antialias.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/11-lcdfilter-default.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/20-unhint-small-vera.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/30-metric-aliases.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/40-nonlatin.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/45-generic.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/45-latin.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/48-guessfamily.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/48-spacing.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/49-sansserif.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/50-user.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/51-local.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/60-generic.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/60-latin.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/65-fonts-persian.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/65-nonlatin.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/69-unifont.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/80-delicious.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/fonts/conf.d/90-synthetic.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "backup_status": "modified",
+      "classification": "package-backup",
+      "gid": 0,
+      "mode": "0444",
+      "package": "fontconfig",
+      "path": "/etc/fonts/fonts.conf",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "backup_status": "unreadable",
+      "classification": "package-backup",
+      "gid": 0,
+      "mode": "0640",
+      "package": "audit",
+      "path": "/etc/libaudit.conf",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0644",
+      "path": "/etc/locale.conf",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "backup_status": "modified",
+      "classification": "package-backup",
+      "gid": 0,
+      "mode": "0644",
+      "package": "glibc",
+      "path": "/etc/locale.gen",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/localtime",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "backup_status": "modified",
+      "classification": "package-backup",
+      "gid": 0,
+      "mode": "0644",
+      "package": "mkinitcpio",
+      "path": "/etc/mkinitcpio.conf",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0644",
+      "path": "/etc/mkinitcpio.d/linux.preset",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "classification": "repo-managed",
+      "gid": 0,
+      "installation": "symlink",
+      "mode": "0777",
+      "path": "/etc/nix/nix.conf",
+      "source": "system-config/nix/nix.conf",
+      "source_link_matches": true,
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/os-release",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "backup_status": "modified",
+      "classification": "package-backup",
+      "gid": 0,
+      "mode": "0644",
+      "package": "pacman-mirrorlist",
+      "path": "/etc/pacman.d/mirrorlist",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "backup_status": "modified",
+      "classification": "repo-managed",
+      "gid": 0,
+      "installation": "symlink",
+      "mode": "0777",
+      "package": "pambase",
+      "path": "/etc/pam.d/system-local-login",
+      "source": "system-config/pam.d/system-local-login",
+      "source_link_matches": true,
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0644",
+      "path": "/etc/profile.d/nix.sh",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "backup_status": "modified",
+      "classification": "package-backup",
+      "gid": 0,
+      "mode": "0644",
+      "package": "filesystem",
+      "path": "/etc/shells",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "backup_status": "unreadable",
+      "classification": "package-backup",
+      "gid": 0,
+      "mode": "0440",
+      "package": "sudo",
+      "path": "/etc/sudoers",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "classification": "repo-managed",
+      "expected_mode": "0440",
+      "gid": 0,
+      "installation": "copy",
+      "mode": "0440",
+      "path": "/etc/sudoers.d/dojo-chromium-theme-policy",
+      "source": "system-config/sudoers.d/dojo-chromium-theme-policy",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/system/autovt@.service",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/system/bluetooth.target.wants/bluetooth.service",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/system/dbus-org.bluez.service",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/system/dbus-org.fedoraproject.FirewallD1.service",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/system/dbus-org.freedesktop.nm-dispatcher.service",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/system/getty.target.wants/getty@tty1.service",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/system/graphical.target.wants/power-profiles-daemon.service",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/system/multi-user.target.wants/NetworkManager.service",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/system/multi-user.target.wants/chronyd.service",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/system/multi-user.target.wants/firewalld.service",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/system/multi-user.target.wants/ly@tty2.service",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/system/multi-user.target.wants/remote-fs.target",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/system/multi-user.target.wants/tailscaled.service",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/system/multi-user.target.wants/update-nix-gl.service",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/system/network-online.target.wants/NetworkManager-wait-online.service",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/system/nix-daemon.service",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/system/nix-daemon.socket",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/system/sockets.target.wants/nix-daemon.socket",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/system/sockets.target.wants/systemd-userdbd.socket",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "repo-managed",
+      "gid": 0,
+      "installation": "symlink",
+      "mode": "0777",
+      "path": "/etc/systemd/system/update-nix-gl.service",
+      "source": "system-config/systemd/system/update-nix-gl.service",
+      "source_link_matches": true,
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/user/pipewire-session-manager.service",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/user/pipewire.service.wants/wireplumber.service",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/user/sockets.target.wants/p11-kit-server.socket",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/user/sockets.target.wants/pipewire-pulse.socket",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/user/sockets.target.wants/pipewire.socket",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/tmpfiles.d/nix-daemon.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "repo-managed",
+      "gid": 0,
+      "installation": "symlink",
+      "mode": "0777",
+      "path": "/etc/tmpfiles.d/nix-pam-unix-chkpwd.conf",
+      "source": "system-config/tmpfiles.d/nix-pam-unix-chkpwd.conf",
+      "source_link_matches": true,
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/tmpfiles.d/non-nixos-gpu.conf",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "repo-managed",
+      "gid": 0,
+      "installation": "symlink",
+      "mode": "0777",
+      "path": "/etc/tmpfiles.d/opengl-driver.conf",
+      "source": "system-config/tmpfiles.d/opengl-driver.conf",
+      "source_link_matches": true,
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "repo-managed",
+      "gid": 0,
+      "installation": "symlink",
+      "mode": "0777",
+      "path": "/etc/udev/rules.d/90-wluma-backlight.rules",
+      "source": "system-config/udev/rules.d/90-wluma-backlight.rules",
+      "source_link_matches": true,
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0644",
+      "path": "/etc/vconsole.conf",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0644",
+      "path": "/etc/zshrc",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "classification": "repo-managed",
+      "expected_mode": "0755",
+      "gid": 0,
+      "installation": "copy",
+      "mode": "0755",
+      "path": "/usr/local/bin/dojo-chromium-theme-policy",
+      "source": "system-config/bin/dojo-chromium-theme-policy",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 30001,
+      "mode": "2755",
+      "path": "/usr/local/bin/op",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "classification": "repo-managed",
+      "gid": 0,
+      "installation": "symlink",
+      "mode": "0777",
+      "path": "/usr/local/bin/update-nix-gl",
+      "source": "system-config/bin/update-nix-gl",
+      "source_link_matches": true,
+      "type": "symlink",
+      "uid": 0
+    }
+  ],
+  "inspection_gaps": [
+    "/etc/audit/plugins.d",
+    "/etc/polkit-1/rules.d"
+  ],
+  "schema_version": 1,
+  "scope": [
+    "/etc",
+    "/usr/local"
+  ]
+}

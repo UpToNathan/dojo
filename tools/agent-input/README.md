@@ -163,3 +163,11 @@ Releasing the last seat must stop the service and remove the socket.
 The existing lifecycle cases verify held-input release, visible cursor removal,
 service crash and restart, repeated release, graceful EOF and abrupt adapter
 exit. Only fixture processes in the nested desktop are controlled.
+
+The Rust `nested-navigation` runner in `crates/dojo-external-admission` also uses
+this native fixture. `DOJO_TEST_CDP` enables one window and a loopback WebSocket
+listener owned by that window's process; its value is the fixture effect-release
+file. The ordinary fixture retains its two windows and creates no listener.
+The runner proves external final-write admission and actual primary-seat takeover
+in a disposable compositor. See
+[`SOCKET-PROOF.md`](../../crates/dojo-external-admission/SOCKET-PROOF.md).

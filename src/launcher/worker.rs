@@ -6,6 +6,7 @@ use nucleo_matcher::Matcher;
 
 use super::catalogue::Catalogue;
 
+#[derive(Clone)]
 pub struct SearchResults {
     pub generation: u64,
     pub catalogue: Arc<Catalogue>,
@@ -20,12 +21,30 @@ struct Work {
     results: Option<SearchResults>,
     error: Option<String>,
     stopped: bool,
+    listeners: Vec<async_channel::Sender<()>>,
 }
 
-#[derive(Clone)]
 pub struct SearchWorker {
     shared: Arc<(Mutex<Work>, Condvar)>,
     ready: async_channel::Receiver<()>,
+}
+
+impl Clone for SearchWorker {
+    fn clone(&self) -> Self {
+        let (notify, ready) = async_channel::bounded(1);
+        if let Ok(mut state) = self.shared.0.lock() {
+            if !state.stopped {
+                if state.results.is_some() || state.error.is_some() {
+                    let _ = notify.try_send(());
+                }
+                state.listeners.push(notify);
+            }
+        }
+        Self {
+            shared: self.shared.clone(),
+            ready,
+        }
+    }
 }
 
 impl SearchWorker {
@@ -36,9 +55,15 @@ impl SearchWorker {
     fn start_with_discoverer(
         discover: impl Fn() -> anyhow::Result<Catalogue> + Send + 'static,
     ) -> anyhow::Result<Self> {
-        let shared = Arc::new((Mutex::new(Work::default()), Condvar::new()));
-        let worker_shared = shared.clone();
         let (notify, ready) = async_channel::bounded(1);
+        let shared = Arc::new((
+            Mutex::new(Work {
+                listeners: vec![notify],
+                ..Work::default()
+            }),
+            Condvar::new(),
+        ));
+        let worker_shared = shared.clone();
         thread::Builder::new()
             .name("dojo-launcher-search".into())
             .spawn(move || {
@@ -72,8 +97,8 @@ impl SearchWorker {
                                 if let Ok(mut state) = worker_shared.0.lock() {
                                     state.error =
                                         Some(format!("Application discovery failed: {error:#}"));
+                                    notify_ready(&mut state.listeners);
                                 }
-                                notify_ready(&notify);
                                 continue;
                             }
                         }
@@ -92,7 +117,7 @@ impl SearchWorker {
                             catalogue,
                             matches,
                         });
-                        notify_ready(&notify);
+                        notify_ready(&mut state.listeners);
                     }
                 }
             })
@@ -128,8 +153,8 @@ impl SearchWorker {
         Ok(generation)
     }
 
-    pub fn take_results(&self) -> Result<Option<SearchResults>, String> {
-        let mut state = self
+    pub fn results(&self) -> Result<Option<SearchResults>, String> {
+        let state = self
             .shared
             .0
             .lock()
@@ -137,12 +162,13 @@ impl SearchWorker {
         if let Some(error) = &state.error {
             return Err(error.clone());
         }
-        Ok(state.results.take())
+        Ok(state.results.clone())
     }
 
     pub fn stop(&self) {
         if let Ok(mut state) = self.shared.0.lock() {
             state.stopped = true;
+            state.listeners.clear();
             self.shared.1.notify_one();
         }
     }
@@ -152,12 +178,13 @@ impl SearchWorker {
     }
 }
 
-fn notify_ready(sender: &async_channel::Sender<()>) {
-    if let Err(error) = sender.try_send(()) {
-        if error.is_closed() {
-            eprintln!("Dojo launcher result receiver closed");
-        }
-    }
+fn notify_ready(listeners: &mut Vec<async_channel::Sender<()>>) {
+    listeners.retain(|sender| {
+        !matches!(
+            sender.try_send(()),
+            Err(async_channel::TrySendError::Closed(_))
+        )
+    });
 }
 
 #[cfg(test)]
@@ -165,6 +192,56 @@ mod tests {
     use super::*;
     use std::fs;
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn reopening_delivers_results_to_the_current_launcher() -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        fs::write(
+            directory.path().join("app.desktop"),
+            "[Desktop Entry]\nType=Application\nName=Visible App\nExec=/bin/true\n",
+        )?;
+        let root = directory.path().to_path_buf();
+        let worker = SearchWorker::start_with_discoverer(move || {
+            Catalogue::from_roots(&[root.clone()], &[], &[])
+        })?;
+        let closing_window = worker.clone();
+        let current_window = worker.clone();
+        let generation = current_window
+            .refresh(String::new())
+            .map_err(anyhow::Error::msg)?;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if closing_window.ready.try_recv().is_ok() {
+                break;
+            }
+            anyhow::ensure!(
+                Instant::now() < deadline,
+                "closing launcher did not receive notification"
+            );
+            thread::sleep(Duration::from_millis(1));
+        }
+        let closing_results = closing_window
+            .results()
+            .map_err(anyhow::Error::msg)?
+            .context("closing launcher has no results")?;
+        assert_eq!(closing_results.generation, generation);
+        // Reading takes the state lock, ensuring the broadcast has completed.
+        assert!(
+            current_window.ready.try_recv().is_ok(),
+            "reopened launcher remains Searching because the closing launcher consumed its wakeup"
+        );
+        let results = current_window
+            .results()
+            .map_err(anyhow::Error::msg)?
+            .context("current launcher has no results")?;
+        assert_eq!(results.generation, generation);
+        assert_eq!(
+            results.catalogue.applications[results.matches[0]].name,
+            "Visible App"
+        );
+        worker.stop();
+        Ok(())
+    }
 
     #[test]
     fn refresh_picks_up_applications_added_after_worker_start() -> anyhow::Result<()> {
@@ -205,7 +282,7 @@ mod tests {
     fn wait_for_results(worker: &SearchWorker, generation: u64) -> anyhow::Result<SearchResults> {
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
-            if let Some(results) = worker.take_results().map_err(anyhow::Error::msg)? {
+            if let Some(results) = worker.results().map_err(anyhow::Error::msg)? {
                 if results.generation == generation {
                     return Ok(results);
                 }

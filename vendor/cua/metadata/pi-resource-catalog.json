@@ -1,0 +1,1654 @@
+{
+  "revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+  "command": [
+    "--embedded",
+    "mcp"
+  ],
+  "tools": [
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Add an existing machine as a Space by address and token.\n\nTries a GetCapabilities handshake with the Space's cua-spacesd first. A local:<name> or cloud:<name> id without one is still a Space, with an empty capability set (its declared services, tunnels and public URLs work); a direct URL without one is added as an MCP Space when it answers MCP initialize (service `mcp`), and refused with spacesd_not_available when it answers neither. The Space is stored in ~/.cua/spaces.json and its token in ~/.cua/spaces-credentials.json (0600). Re-adding the same address updates it.",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "description": "Display name. Default: the guest's hostname.",
+            "type": "string"
+          },
+          "service": {
+            "description": "For an MCP endpoint URL: the service name to register it under.\nDefault `mcp`.",
+            "type": "string"
+          },
+          "token": {
+            "description": "The spacesd token (or the bearer an MCP endpoint needs). Stored in\na separate 0600 credentials file, never in `spaces.json`.",
+            "type": "string"
+          },
+          "url": {
+            "description": "The Space's cua-spacesd: `http(s)://host:port` (port defaults to\n3211), `host:port`, or a Space id (`cloud:<name>`, `local:<name>`).\nAny other MCP endpoint (for example\n`http://host:8765/mcp`) is added as a Space with one MCP service and\nno spacesd capabilities.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      },
+      "name": "add_space"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Forget a registered Space without touching it.\n\nOnly the registration and its stored token are removed. The sandbox keeps running, including a Space in your cloud (its cloud resources and relay machine stay); delete_space deletes a Space that create_space made.",
+      "inputSchema": {
+        "properties": {
+          "space": {
+            "description": "Space id or name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "space"
+        ],
+        "type": "object"
+      },
+      "name": "remove_space"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "List the Spaces this connection can see.\n\nEvery registered Space (cloud, local, direct and relay) with its id (local:<name>, cloud:<name>, direct:<host:port>, relay:<machine-id>), provider, spacesd version (empty without one) and supported features as of the last handshake. The signed-in account's machines on the relay are listed too: those are the names `create_space` accepts as on=\"host:<machine>\". A Space a machine provides carries `host` (that machine's id) and `host_name`; group them under it when you show them. A Space in your cloud carries `cloud` (the provider: aws, gcp, modal), `cloud_place` (account and region, to show with it) and `cloud_delete` (where delete_space can delete it: here, host:<machine>, or elsewhere).",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "list_spaces"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Create a Space: a new sandbox on this machine, on one of your machines, or in the cloud.\n\nCreates a new sandbox where `on` says (local: this machine, free; cloud: Cua cloud, metered; aws, gcp or modal: the user's own cloud account, connected with cloud_connect, billed there; default: the user's default location, else local), waits until it is ready (its spacesd when the image runs one, else its declared services), and registers it as local:<name> or cloud:<name>. `kind` (auto, container, vm) and `runtime` (auto, or an engine the location offers for the kind) are chosen automatically by default: the canonical Linux image runs as a gVisor container, macOS images as Lume VMs, Windows and disk-only images as VMs (QEMU locally, KubeVirt in the cloud). An impossible combination fails with invalid_placement and lists the valid values. Any image works; without cua-spacesd the capability set is empty. reuse=true returns a reachable registered Space in the same location with the requested services instead of creating one. On the user's own machines: on=\"host:<machine>\" creates the Space on a machine set up with `cua host setup --provide-spaces` (for example \"spin up 2 macOS Spaces on my spare Mac mini\" is on=\"host:spare mac mini\", image=\"macos\", count=2). The machine is matched by id, exact name, or the words of its name; when several fit equally the call fails with ambiguous_host listing them (ask the user which, then pass on=\"host:<id>\"). The host runs it with its own runtimes (Lume for macOS VMs on a Mac, Docker for Linux), the Space joins the relay and is returned as relay:<machine> with `host` set. A Mac runs at most two macOS VMs (Apple's macOS license, enforced by Apple Virtualization); a host at a limit fails with limit_exceeded. Only the machine's owner and the accounts it is shared with as editors can create there, from an enrolled device. on=\"direct:<addr>\" is not accepted here: a direct address is one already-running Space, attached with add_space, not a host this call can create on.",
+      "inputSchema": {
+        "properties": {
+          "command": {
+            "description": "Entrypoint override (argv), for example\n`[\"python\", \"-m\", \"my_mcp\", \"--port\", \"8765\"]`.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "count": {
+            "description": "How many Spaces to create, 1 to 8 (default 1), all with the same\nsettings (a name gets `-2`, `-3`, ... suffixes). With more than one\nthe result is an array.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Guest environment variables.",
+            "type": "object"
+          },
+          "image": {
+            "description": "Guest image. Default: the canonical Linux image\n(`ghcr.io/trycua/linux:24.04`), whose variant follows the kind.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "What kind of machine. Default `auto` (from the image).",
+            "oneOf": [
+              {
+                "const": "auto",
+                "description": "From the image: macOS and Windows images are VMs, an image with a\ncontainer rootfs is a container, a disk-only image is a VM.",
+                "type": "string"
+              },
+              {
+                "const": "container",
+                "description": "A container (gVisor, or runc locally).",
+                "type": "string"
+              },
+              {
+                "const": "vm",
+                "description": "A virtual machine (QEMU or Lume locally, KubeVirt in the cloud).",
+                "type": "string"
+              }
+            ]
+          },
+          "name": {
+            "description": "Name. Default: a generated `space-<hex>`.",
+            "type": "string"
+          },
+          "on": {
+            "description": "Where it runs: `local` (this machine, free), `cloud` (Cua cloud,\nmetered), or `host:<machine>`: one of the user's own machines that\nprovides Spaces (`cua host setup --provide-spaces` on it), named by\nid or by words from its name (\"host:spare mac mini\" matches \"Mac\nmini (spare)\" or `dillons-mac-mini`). Default: the user's default\nlocation (`cua config set default.on`, `CUA_DEFAULT_ON`), else\n`local`. Not `direct:<addr>`: that is one already-running Space at a\nfixed address, attached with `add_space`, not a host this can create\non. An existing machine is added with `add_space`, not created.",
+            "type": "string"
+          },
+          "reuse": {
+            "description": "Return a reachable registered Space in the same location that has\nthe requested services instead of creating one (get-or-create).\nDefault false.",
+            "type": "boolean"
+          },
+          "runtime": {
+            "description": "Which engine. Default `auto`: the safest one for the location and\nkind. Local: `gvisor` or `runc` (containers), `qemu` or `lume`\n(VMs). Cloud: `gvisor` (containers), `kubevirt` (VMs). Anything\nelse fails with `invalid_placement`, listing the valid values.",
+            "type": "string"
+          },
+          "services": {
+            "additionalProperties": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "description": "Named services (name to guest port), for example `{\"mcp\": 8765}`.\nEach is probed for readiness and reachable with `list_tools` /\n`call_tool` (`service=<name>`).",
+            "type": "object"
+          },
+          "spacesd": {
+            "description": "Whether the image runs cua-spacesd. Default: true for the canonical\nimages (and no image), false for any other image. A Space without it\nhas an empty capability set: only its services work.",
+            "type": "boolean"
+          },
+          "timeout": {
+            "description": "Seconds to wait for readiness (local). Default 600.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "wait": {
+            "description": "Wait until the Space is ready (its spacesd, or its declared\nservices). Default true.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "name": "create_space"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Delete a Space's sandbox and forget it.\n\nDeletes the sandbox of a Space that create_space made (cloud: metering stops; local: the instance is deleted; on one of your machines, on=\"host:...\": that machine deletes it and it leaves the relay) and forgets it. A Space in your cloud (list_spaces: cloud, cloud_place, cloud_delete) is deleted permanently through the records of the device that created it: cloud_delete \"here\" deletes it from this device; \"host:<machine>\" asks that host (it must be online, and only its owner may); \"elsewhere\" is refused with where it was created: delete it there, or remove_space. Another Space added by address (direct:, relay:) is only forgotten: cua did not create it. Any hotspot on the Space is stopped first. To forget a Space without deleting anything, use remove_space.",
+      "inputSchema": {
+        "properties": {
+          "space": {
+            "description": "Space id or name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "space"
+        ],
+        "type": "object"
+      },
+      "name": "delete_space"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Turn a Space off: suspend it (memory kept) or stop it (disk kept).\n\nTurns a Space off the way its provider can: a local container or QEMU VM is suspended (its memory is kept and it resumes where it was), a local Lume VM is stopped (its disk is kept and it boots again), a Space one of your machines provides is stopped by that machine, which frees its memory, and a Space in your own cloud (on=\"aws\", \"gcp\") is stopped there: compute billing stops, its disk stays (storage is still billed). Anything streaming from the Space and any hotspot on it end first. A Fleet cloud Space, a Modal sandbox, a Space added by address and your own computers on the relay cannot be turned off (wrong_provider); delete_space deletes a Space instead. start_space turns it on again.",
+      "inputSchema": {
+        "properties": {
+          "space": {
+            "description": "Space id or name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "space"
+        ],
+        "type": "object"
+      },
+      "name": "stop_space"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Turn a Space back on: resume or boot it.\n\nTurns a Space stop_space turned off on again: resumes a suspended one, boots a stopped one (a Space one of your machines provides, or one in your cloud, joins the relay again), and leaves a running one as it is. Returns once it answers again (bounded). The same Spaces turn on as turn off.",
+      "inputSchema": {
+        "properties": {
+          "space": {
+            "description": "Space id or name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "space"
+        ],
+        "type": "object"
+      },
+      "name": "start_space"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Run a shell command inside the Space.\n\nRuns through the spacesd's ProcessService with `/bin/sh -c`. Output is stdout, then `[stderr]` and stderr, then `[exit N]`; each stream keeps its last 16000 characters when longer.",
+      "inputSchema": {
+        "properties": {
+          "command": {
+            "description": "Command line, run with `/bin/sh -c` (`cmd.exe /C` on Windows guests).",
+            "type": "string"
+          },
+          "space": {
+            "description": "Space id or name.",
+            "type": "string"
+          },
+          "timeout": {
+            "description": "Seconds before the command is killed. Default 60.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "space",
+          "command"
+        ],
+        "type": "object"
+      },
+      "name": "space_bash"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Write literal text to a path inside the Space.\n\nWritten through FilesystemService, verified by sha256; no shell is involved, so nothing needs quoting.",
+      "inputSchema": {
+        "properties": {
+          "content": {
+            "description": "The exact file contents.",
+            "type": "string"
+          },
+          "path": {
+            "description": "Absolute path in the Space. Parent directories are created.",
+            "type": "string"
+          },
+          "space": {
+            "description": "Space id or name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "space",
+          "path",
+          "content"
+        ],
+        "type": "object"
+      },
+      "name": "space_write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Send a local file or folder into the Space.\n\nFiles stream through FilesystemService in chunks with a sha256 check; a folder is copied file by file (empty directories included, symlinks skipped). No size cap.",
+      "inputSchema": {
+        "properties": {
+          "dest": {
+            "description": "Absolute destination path in the Space; an existing file there is\nreplaced. Default: `<guest home>/<name>`, or `<name> (1).ext` when\nthat is taken (nothing is replaced).",
+            "type": "string"
+          },
+          "path": {
+            "description": "Host path (file or folder).",
+            "type": "string"
+          },
+          "space": {
+            "description": "Space id or name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "space",
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "upload"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Send a host file or folder into the Space's Downloads, verified by sha256 on arrival.\n\nThe same transfer the Cua Spaces pop-out's Teleport drop zone performs: files land in the Space user's ~/Downloads through the spacesd's TeleportService (chunked, resumable, every file verified by sha256 before it is published). A transfer that does not land, or lands corrupted, is an error and not a reported success.\n\nrespect_ignorefiles (default true) applies ONLY when `path` is a folder. It honors `.gitignore` and `.ignore` at the folder root and in every subdirectory (each scoped to its own subtree, so a nested ignore file overrides its parent), plus `.dockerignore` at the root only. All three use gitignore semantics: negation (`!`), directory-only patterns (`foo/`), anchoring, `*`/`?`/`[...]`, `**`, comments, last-matching-rule-wins. As in git, an excluded directory is pruned and `!` cannot re-include anything beneath it. `.git/` is always skipped and symlinks are never followed. For a single named file it has NO effect.",
+      "inputSchema": {
+        "properties": {
+          "path": {
+            "description": "Host path (file or folder) to send.",
+            "type": "string"
+          },
+          "respect_ignorefiles": {
+            "description": "Honor `.gitignore` / `.ignore` (nested) and `.dockerignore` (root only)\nwhen sending a folder. Default true. No effect on a single named file.",
+            "type": "boolean"
+          },
+          "space": {
+            "description": "Space id or name.",
+            "type": "string"
+          },
+          "target_directory": {
+            "description": "Subdirectory of the Space user's `~/Downloads` to land in. `~/Downloads`\nand `~/Downloads/<sub>` are accepted too. Default: `~/Downloads` itself.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "space",
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "send_file"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Fetch a file or folder out of the Space.\n\nFiles stream through FilesystemService and are verified by sha256; a folder is copied recursively.",
+      "inputSchema": {
+        "properties": {
+          "dest": {
+            "description": "Host destination directory. Default `~/Downloads/cua-spaces`.",
+            "type": "string"
+          },
+          "path": {
+            "description": "Absolute path in the Space (file or folder).",
+            "type": "string"
+          },
+          "space": {
+            "description": "Space id or name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "space",
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "download"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Return a ticketed media endpoint for the Space's desktop or one window.\n\nOpens a media session (StreamService.OpenMedia) for the desktop or one window and returns its ticketed WebSocket URL (rcdp wire v2, see libs/cua/proto/MEDIA.md). The ticket is short-lived, bound to that one session, and safe to put in a URL; it is not the Space's token. Works for every provider because the token comes from the SDK, not from the guest.",
+      "inputSchema": {
+        "properties": {
+          "app_name": {
+            "description": "Stream the largest visible window of this app (case-insensitive\nsubstring). Ignored when `window_id` is set.",
+            "type": "string"
+          },
+          "display": {
+            "description": "Display id for a desktop stream. Default: the primary display.",
+            "type": "string"
+          },
+          "max_fps": {
+            "description": "Maximum frames per second. Default 30.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "space": {
+            "description": "Space id or name.",
+            "type": "string"
+          },
+          "ticket_ttl": {
+            "description": "Ticket lifetime in seconds (at most 600). Default 60.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "window_id": {
+            "description": "Window handle from `list_space_windows`. Streams that window.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "space"
+        ],
+        "type": "object"
+      },
+      "name": "stream_endpoint"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "List the windows open inside the Space.\n\nThe windows a viewer can stream now, from StreamService.ListTargets: on screen, sized, normal app windows (no hidden, minimized or system-UI windows), each with its handle, title, app and bounds.",
+      "inputSchema": {
+        "properties": {
+          "app_name": {
+            "description": "Only windows of this app (case-insensitive substring).",
+            "type": "string"
+          },
+          "space": {
+            "description": "Space id or name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "space"
+        ],
+        "type": "object"
+      },
+      "name": "list_space_windows"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Draw one Space window on the operator's desktop.\n\nFOR THE HUMAN. Opens a bidirectional window on the operator's desktop showing one Space window (the Cua Spaces app draws it from a media ticket). Pass app_name to auto-pick that app's largest visible window, or an exact window_id.",
+      "inputSchema": {
+        "properties": {
+          "app_name": {
+            "description": "Auto-pick this app's largest visible window, e.g. \"Firefox\".",
+            "type": "string"
+          },
+          "space": {
+            "description": "Space id or name.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Label for the operator's window. Default: the window title.",
+            "type": "string"
+          },
+          "window_id": {
+            "description": "Exact window handle from `list_space_windows` (overrides `app_name`).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "space"
+        ],
+        "type": "object"
+      },
+      "name": "stream_space_window"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Pin the Space as picture-in-picture on the operator's desktop.\n\nFOR THE HUMAN, NOT FOR YOU. Pins an always-on-top picture-in-picture overlay of the Space onto the user's own desktop. Call it only when the user asks to see a Space; never to observe your own work.",
+      "inputSchema": {
+        "properties": {
+          "space": {
+            "description": "Space id or name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "space"
+        ],
+        "type": "object"
+      },
+      "name": "show_space_pip"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Unpin the picture-in-picture window.",
+      "inputSchema": {
+        "properties": {
+          "space": {
+            "description": "Space id or name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "space"
+        ],
+        "type": "object"
+      },
+      "name": "hide_space_pip"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Open the full Space viewer on the operator's desktop.\n\nFOR THE HUMAN, NOT FOR YOU. Opens a live viewer window on the user's own desktop. Never call it to obtain a screenshot or to check on your own work; use the screenshot tool for that.",
+      "inputSchema": {
+        "properties": {
+          "space": {
+            "description": "Space id or name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "space"
+        ],
+        "type": "object"
+      },
+      "name": "open_space_viewer"
+    },
+    {
+      "description": "List the sandbox image catalog (the images the docs list): ref, OS, container or VM, local and cloud runtime, whether it ships cua-spacesd and which browsers, its other variants, and the command that creates it. browser_tools=true means the in-sandbox cua-driver browser tools can drive its browser. Call this first to choose an image.",
+      "inputSchema": {
+        "properties": {
+          "all": {
+            "description": "Include unpublished entries (benchmark images)",
+            "type": "boolean"
+          },
+          "browser": {
+            "description": "Only images whose browser the cua-driver browser tools drive",
+            "type": "boolean"
+          },
+          "os": {
+            "description": "Only this OS: linux, windows or macos",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "images_list"
+    },
+    {
+      "description": "List sandboxes: local, direct and cloud (Fleet) ones by default, each row with location (local, cloud or direct). Pass location to list only one kind. If the cloud cannot be listed, the local rows come back with a warning.",
+      "inputSchema": {
+        "properties": {
+          "location": {
+            "description": "Only sandboxes in this location: local, cloud or direct (default: all)",
+            "enum": [
+              "local",
+              "cloud",
+              "direct"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "sandbox_list"
+    },
+    {
+      "description": "Create a sandbox from any image. `on` says where (local, the default unless the user configured another with `cua config set default.on`; or cloud), `kind` what (auto, container, vm) and `runtime` which engine (auto, or gvisor, runc, qemu, lume locally; gvisor, kubevirt in the cloud); an impossible combination fails and lists the valid values. To browse the web, pass browser=true (and optionally url): it starts the canonical Linux image, registers it as a Space, launches Chromium with a throwaway profile inside it and returns the space, session, target_id and tab_id to pass to call_tool with the in-sandbox browser tools (browser_navigate, get_browser_state, browser_click, browser_type). Pass command, env and services to run a server in it, for example an MCP server: services {\"mcp\": 8765}. Without browser=true it does not register a Space: to reach its MCP server with list_tools/call_tool (service=\"mcp\"), use create_space instead (same arguments), or add this one with add_space (address local:<name>).",
+      "inputSchema": {
+        "properties": {
+          "browser": {
+            "description": "Start a browser in it, ready for the cua-driver browser tools (default image: the canonical Linux image)",
+            "type": "boolean"
+          },
+          "command": {
+            "description": "Entrypoint override (argv), for example [\"python\", \"-m\", \"my_mcp\"]",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "env": {
+            "description": "Environment variables (string values)",
+            "type": "object"
+          },
+          "image": {
+            "description": "Image reference, any registry (overrides os_type)",
+            "type": "string"
+          },
+          "kind": {
+            "description": "What kind of machine: auto (default; from the image), container or vm",
+            "enum": [
+              "auto",
+              "container",
+              "vm"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "Sandbox name",
+            "type": "string"
+          },
+          "on": {
+            "description": "Where it runs: local or cloud (default: the user's default location, else local)",
+            "type": "string"
+          },
+          "os_type": {
+            "description": "linux (default) or macos",
+            "type": "string"
+          },
+          "pool": {
+            "description": "Use this dedicated cloud pool (Fleets advanced; implies on=cloud)",
+            "type": "string"
+          },
+          "runtime": {
+            "description": "Which engine: auto (default) or one the location offers for the kind (local: gvisor, runc, qemu, lume; cloud: gvisor, kubevirt)",
+            "type": "string"
+          },
+          "services": {
+            "description": "Named services: name to guest port, for example {\"mcp\": 8765}; each is probed for readiness",
+            "type": "object"
+          },
+          "url": {
+            "description": "With browser=true: open this URL first",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "sandbox_create"
+    },
+    {
+      "description": "Get details for a sandbox.",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "sandbox_get"
+    },
+    {
+      "description": "Start (resume) a sandbox.",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "sandbox_start"
+    },
+    {
+      "description": "Stop (suspend) a sandbox.",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "sandbox_stop"
+    },
+    {
+      "description": "Restart a sandbox.",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "sandbox_restart"
+    },
+    {
+      "description": "Suspend a sandbox.",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "sandbox_suspend"
+    },
+    {
+      "description": "Delete a sandbox.",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "sandbox_delete"
+    },
+    {
+      "description": "Get a browser link to the sandbox desktop in the cua-spacesd HTML5 viewer (video, audio, input, clipboard, files). The link expires after an hour.",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "sandbox_view"
+    },
+    {
+      "description": "Deprecated: use sandbox_view. Returns the same viewer link.",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "sandbox_vnc"
+    },
+    {
+      "description": "Launch Chromium with a fresh throwaway profile inside an existing sandbox (an image with cua-spacesd and Chromium, see images_list), bind it and optionally open a URL. Returns the space, session, target_id and tab_id for call_tool with the in-sandbox browser tools. sandbox_create with browser=true already does this.",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations",
+            "type": "string"
+          },
+          "session": {
+            "description": "cua-driver session label to use on every later browser call (default: browse)",
+            "type": "string"
+          },
+          "url": {
+            "description": "Open this URL first",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "sandbox_open_browser"
+    },
+    {
+      "description": "Take a screenshot (long edge at most 1200 px). Later coordinates are in its pixel space.",
+      "inputSchema": {
+        "properties": {
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "computer_screenshot"
+    },
+    {
+      "description": "Click at screenshot coordinates.",
+      "inputSchema": {
+        "properties": {
+          "button": {
+            "description": "left (default), right or middle",
+            "type": "string"
+          },
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          },
+          "x": {
+            "description": "X in screenshot pixels",
+            "type": "integer"
+          },
+          "y": {
+            "description": "Y in screenshot pixels",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "type": "object"
+      },
+      "name": "computer_click"
+    },
+    {
+      "description": "Double-click at screenshot coordinates.",
+      "inputSchema": {
+        "properties": {
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          },
+          "x": {
+            "description": "X in screenshot pixels",
+            "type": "integer"
+          },
+          "y": {
+            "description": "Y in screenshot pixels",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "type": "object"
+      },
+      "name": "computer_double_click"
+    },
+    {
+      "description": "Move the cursor.",
+      "inputSchema": {
+        "properties": {
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          },
+          "x": {
+            "description": "X in screenshot pixels",
+            "type": "integer"
+          },
+          "y": {
+            "description": "Y in screenshot pixels",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "type": "object"
+      },
+      "name": "computer_move_cursor"
+    },
+    {
+      "description": "Press a mouse button.",
+      "inputSchema": {
+        "properties": {
+          "button": {
+            "description": "left, right or middle",
+            "type": "string"
+          },
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          },
+          "x": {
+            "description": "X in screenshot pixels",
+            "type": "integer"
+          },
+          "y": {
+            "description": "Y in screenshot pixels",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "type": "object"
+      },
+      "name": "computer_mouse_down"
+    },
+    {
+      "description": "Release a mouse button.",
+      "inputSchema": {
+        "properties": {
+          "button": {
+            "description": "left, right or middle",
+            "type": "string"
+          },
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          },
+          "x": {
+            "description": "X in screenshot pixels",
+            "type": "integer"
+          },
+          "y": {
+            "description": "Y in screenshot pixels",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "type": "object"
+      },
+      "name": "computer_mouse_up"
+    },
+    {
+      "description": "Type text.",
+      "inputSchema": {
+        "properties": {
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          },
+          "text": {
+            "description": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "computer_type"
+    },
+    {
+      "description": "Press a key (enter, escape, tab, a, ...).",
+      "inputSchema": {
+        "properties": {
+          "key": {
+            "description": "Key",
+            "type": "string"
+          },
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "type": "object"
+      },
+      "name": "computer_key"
+    },
+    {
+      "description": "Hold a key.",
+      "inputSchema": {
+        "properties": {
+          "key": {
+            "description": "Key",
+            "type": "string"
+          },
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "type": "object"
+      },
+      "name": "computer_key_down"
+    },
+    {
+      "description": "Release a key.",
+      "inputSchema": {
+        "properties": {
+          "key": {
+            "description": "Key",
+            "type": "string"
+          },
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "type": "object"
+      },
+      "name": "computer_key_up"
+    },
+    {
+      "description": "Press a shortcut such as ctrl+c or cmd+shift+s.",
+      "inputSchema": {
+        "properties": {
+          "keys": {
+            "description": "Keys joined by +",
+            "type": "string"
+          },
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "keys"
+        ],
+        "type": "object"
+      },
+      "name": "computer_hotkey"
+    },
+    {
+      "description": "Scroll up, down, left or right.",
+      "inputSchema": {
+        "properties": {
+          "amount": {
+            "description": "Lines (default 3)",
+            "type": "integer"
+          },
+          "direction": {
+            "description": "down (default), up, left, right",
+            "type": "string"
+          },
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "computer_scroll"
+    },
+    {
+      "description": "Drag between two points.",
+      "inputSchema": {
+        "properties": {
+          "end_x": {
+            "description": "End X",
+            "type": "integer"
+          },
+          "end_y": {
+            "description": "End Y",
+            "type": "integer"
+          },
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          },
+          "start_x": {
+            "description": "Start X",
+            "type": "integer"
+          },
+          "start_y": {
+            "description": "Start Y",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start_x",
+          "start_y",
+          "end_x",
+          "end_y"
+        ],
+        "type": "object"
+      },
+      "name": "computer_drag"
+    },
+    {
+      "description": "Read clipboard text.",
+      "inputSchema": {
+        "properties": {
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "computer_clipboard_get"
+    },
+    {
+      "description": "Set clipboard text.",
+      "inputSchema": {
+        "properties": {
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          },
+          "text": {
+            "description": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "computer_clipboard_set"
+    },
+    {
+      "description": "Read a text file.",
+      "inputSchema": {
+        "properties": {
+          "path": {
+            "description": "Path",
+            "type": "string"
+          },
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "computer_file_read"
+    },
+    {
+      "description": "Write a text file (the Spaces `space_write` implementation, on this sandbox).",
+      "inputSchema": {
+        "properties": {
+          "content": {
+            "description": "Content",
+            "type": "string"
+          },
+          "path": {
+            "description": "Path",
+            "type": "string"
+          },
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ],
+        "type": "object"
+      },
+      "name": "computer_file_write"
+    },
+    {
+      "description": "List a directory.",
+      "inputSchema": {
+        "properties": {
+          "path": {
+            "description": "Path (default .)",
+            "type": "string"
+          },
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "computer_file_list"
+    },
+    {
+      "description": "Run a shell command (sh -c, 120 s timeout; the Spaces `space_bash` implementation, on this sandbox).",
+      "inputSchema": {
+        "properties": {
+          "command": {
+            "description": "Command line",
+            "type": "string"
+          },
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "type": "object"
+      },
+      "name": "computer_shell"
+    },
+    {
+      "description": "List windows.",
+      "inputSchema": {
+        "properties": {
+          "app": {
+            "description": "Filter by app or title",
+            "type": "string"
+          },
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "computer_window_list"
+    },
+    {
+      "description": "Open a file or URL.",
+      "inputSchema": {
+        "properties": {
+          "path": {
+            "description": "Path or URL",
+            "type": "string"
+          },
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "computer_window_open"
+    },
+    {
+      "description": "Focus a window.",
+      "inputSchema": {
+        "properties": {
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          },
+          "window_id": {
+            "description": "Window id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_id"
+        ],
+        "type": "object"
+      },
+      "name": "computer_window_focus"
+    },
+    {
+      "description": "Remove focus from the current window (Escape).",
+      "inputSchema": {
+        "properties": {
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "computer_window_unfocus"
+    },
+    {
+      "description": "Minimize a window.",
+      "inputSchema": {
+        "properties": {
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          },
+          "window_id": {
+            "description": "Window id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_id"
+        ],
+        "type": "object"
+      },
+      "name": "computer_window_minimize"
+    },
+    {
+      "description": "Maximize a window.",
+      "inputSchema": {
+        "properties": {
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          },
+          "window_id": {
+            "description": "Window id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_id"
+        ],
+        "type": "object"
+      },
+      "name": "computer_window_maximize"
+    },
+    {
+      "description": "Close a window.",
+      "inputSchema": {
+        "properties": {
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          },
+          "window_id": {
+            "description": "Window id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_id"
+        ],
+        "type": "object"
+      },
+      "name": "computer_window_close"
+    },
+    {
+      "description": "Resize a window.",
+      "inputSchema": {
+        "properties": {
+          "height": {
+            "description": "Height",
+            "type": "integer"
+          },
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          },
+          "width": {
+            "description": "Width",
+            "type": "integer"
+          },
+          "window_id": {
+            "description": "Window id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_id",
+          "width",
+          "height"
+        ],
+        "type": "object"
+      },
+      "name": "computer_window_resize"
+    },
+    {
+      "description": "Move a window.",
+      "inputSchema": {
+        "properties": {
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          },
+          "window_id": {
+            "description": "Window id",
+            "type": "string"
+          },
+          "x": {
+            "description": "X",
+            "type": "integer"
+          },
+          "y": {
+            "description": "Y",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "window_id",
+          "x",
+          "y"
+        ],
+        "type": "object"
+      },
+      "name": "computer_window_move"
+    },
+    {
+      "description": "Get a window's title, position and size.",
+      "inputSchema": {
+        "properties": {
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          },
+          "window_id": {
+            "description": "Window id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_id"
+        ],
+        "type": "object"
+      },
+      "name": "computer_window_get_info"
+    },
+    {
+      "description": "Launch an application.",
+      "inputSchema": {
+        "properties": {
+          "app": {
+            "description": "App name",
+            "type": "string"
+          },
+          "args": {
+            "description": "Arguments",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "app"
+        ],
+        "type": "object"
+      },
+      "name": "computer_launch"
+    },
+    {
+      "description": "Primary display size in points.",
+      "inputSchema": {
+        "properties": {
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "computer_get_screen_size"
+    },
+    {
+      "description": "Cursor position in points.",
+      "inputSchema": {
+        "properties": {
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "computer_get_cursor_position"
+    },
+    {
+      "description": "The focused window's id and title.",
+      "inputSchema": {
+        "properties": {
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "computer_get_current_window"
+    },
+    {
+      "description": "Accessibility tree of the focused (or given) window.",
+      "inputSchema": {
+        "properties": {
+          "max_depth": {
+            "description": "Depth limit",
+            "type": "integer"
+          },
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          },
+          "window_id": {
+            "description": "Window id",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "computer_get_accessibility_tree"
+    },
+    {
+      "description": "Act on an accessibility element (press, focus, set_value, ...).",
+      "inputSchema": {
+        "properties": {
+          "action": {
+            "description": "press (default), focus, set_value, ...",
+            "type": "string"
+          },
+          "element_id": {
+            "description": "Element id",
+            "type": "string"
+          },
+          "sandbox": {
+            "description": "Sandbox ref (local:<name>, cloud:<name>, direct:<host:port>) or a name unique across locations (default: --sandbox / CUA_SANDBOX)",
+            "type": "string"
+          },
+          "snapshot_id": {
+            "description": "Snapshot id from the tree",
+            "type": "string"
+          },
+          "value": {
+            "description": "Value for set_value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "element_id"
+        ],
+        "type": "object"
+      },
+      "name": "computer_accessibility_act"
+    },
+    {
+      "description": "List recorded skills.",
+      "inputSchema": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "skills_list"
+    },
+    {
+      "description": "Read a skill and its steps.",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "description": "Skill name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "skills_read"
+    },
+    {
+      "description": "Delete a skill.",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "description": "Skill name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "skills_delete"
+    },
+    {
+      "description": "How to record a skill (recording is interactive: cua skills record).",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "description": "Skill name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "skills_record"
+    }
+  ]
+}

@@ -51,8 +51,8 @@ func SavePaletteToCache(key string,palette [16]string) {}
 
         fixtures = ROOT / "tests/fixtures"
         fixtures.mkdir(exist_ok=True)
-        run([ROOT / "astro.jpg"], fixtures / "aether-palettes.json")
-        run(["--sample", ROOT / "astro.jpg"], fixtures / "astro-go-samples.rgb")
+        run([fixtures / "astro.jpg"], fixtures / "aether-palettes.json")
+        run(["--sample", fixtures / "astro.jpg"], fixtures / "astro-go-samples.rgb")
         subprocess.run(["go", "run", ".", "--make-sampling-fixture", str(fixtures / "aether-sampling.png")], cwd=source, check=True)
         run(["--sample", fixtures / "aether-sampling.png"], fixtures / "aether-sampling.rgb")
 

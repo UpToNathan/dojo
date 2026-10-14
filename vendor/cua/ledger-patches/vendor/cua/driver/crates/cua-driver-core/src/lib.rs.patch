@@ -1,0 +1,174 @@
+--- a/vendor/cua/driver/crates/cua-driver-core/src/lib.rs
++++ b/vendor/cua/driver/crates/cua-driver-core/src/lib.rs
+@@ -1,3 +1,4 @@
++#![allow(dead_code, unused_imports)]
+ //! Platform-independent Driver core and dual-era MCP dispatch.
+ //!
+ //! Stdio supports legacy initialization and modern per-request negotiation.
+@@ -10,8 +11,8 @@
+ // here would churn every adapter's call sites for no runtime gain.
+ #![allow(clippy::result_large_err)]
+ 
+-pub mod mcp_skills;
+-pub mod mcp_wire;
++pub(crate) mod mcp_skills;
++pub(crate) mod mcp_wire;
+ 
+ pub const RESPONSIBILITY_DISCLAIMED_ENV: &str = "CUA_DRIVER_RS_RESPONSIBILITY_DISCLAIMED";
+ 
+@@ -48,76 +49,88 @@
+     embedded_mode() && std::env::var_os(PARENT_LIVENESS_STDIN_ENV).is_some_and(|value| value == "1")
+ }
+ 
+-pub mod action_record;
+-pub mod action_target;
+-pub mod agent_cursor;
+-pub mod authorization;
+-pub mod background_input;
+-pub mod batch_tools;
+-pub mod browser;
+-pub mod build_info;
+-pub mod capture_mode;
++pub(crate) mod action_record;
++pub(crate) mod action_target;
++pub(crate) mod agent_cursor;
++pub(crate) mod authorization;
++pub(crate) mod background_input;
++pub(crate) mod batch_tools;
++pub(crate) mod browser;
++pub(crate) mod build_info;
++pub(crate) mod capture_mode;
+ pub(crate) mod capture_registry;
+-pub mod capture_runtime;
+-pub mod capture_scope;
+-pub mod cdp;
+-pub mod clipboard;
+-pub mod consent;
+-pub mod cursor_events;
+-pub mod cursor_hook;
+-pub mod cursor_sampler;
+-pub mod cursor_shape;
+-pub mod daemon;
+-pub mod delivery;
+-pub mod desktop_capture_scale;
+-pub mod element_frame;
+-pub mod element_query;
+-pub mod element_token;
+-pub mod expectation;
+-pub mod ffmpeg_install;
+-pub mod health_report;
+-pub mod history;
+-pub mod image_utils;
+-pub mod interactive_input;
+-pub mod key_pacing;
+-pub mod launch_guard;
+-pub mod mcp_result;
+-pub mod page;
+-pub mod perception_client;
+-pub mod perception_tools;
+-pub mod pip_hook;
+-pub mod pointer_shape;
+-pub mod policy;
+-pub mod protocol;
+-pub mod recording;
+-pub mod recording_loader;
+-pub mod recording_render;
+-pub mod recording_tools;
+-pub mod recording_zoom;
++pub(crate) mod capture_runtime;
++pub(crate) mod capture_scope;
++pub(crate) mod cdp;
++pub(crate) mod clipboard;
++pub(crate) mod consent;
++pub(crate) mod cursor_events;
++pub(crate) mod cursor_hook;
++pub(crate) mod cursor_sampler;
++pub(crate) mod cursor_shape;
++pub(crate) mod daemon;
++pub(crate) mod delivery;
++pub(crate) mod desktop_capture_scale;
++pub(crate) mod element_frame;
++pub(crate) mod element_query;
++pub(crate) mod element_token;
++pub(crate) mod expectation;
++pub(crate) mod ffmpeg_install;
++pub(crate) mod health_report;
++pub(crate) mod history;
++pub(crate) mod image_utils;
++pub(crate) mod interactive_input;
++pub(crate) mod key_pacing;
++pub(crate) mod launch_guard;
++pub(crate) mod mcp_result;
++pub(crate) mod page;
++pub(crate) mod perception_client;
++#[cfg(target_os = "linux")]
++pub mod capture_perception;
++pub(crate) mod perception_tools;
++pub(crate) mod pip_hook;
++pub(crate) mod pointer_shape;
++pub(crate) mod policy;
++pub(crate) mod protocol;
++pub(crate) mod recording;
++pub(crate) mod recording_loader;
++pub(crate) mod recording_render;
++pub(crate) mod recording_tools;
++pub(crate) mod recording_zoom;
+ #[cfg(feature = "script")]
+-pub mod script_tool;
+-pub mod server;
+-pub mod session;
+-pub mod session_authorization;
+-pub mod session_manifest;
+-pub mod session_tools;
+-pub mod single_flight;
+-pub mod snapshot_store;
++pub(crate) mod script_tool;
++pub(crate) mod server;
++pub(crate) mod session;
++pub(crate) mod session_authorization;
++pub(crate) mod session_manifest;
++pub(crate) mod session_tools;
++pub(crate) mod single_flight;
++pub(crate) mod snapshot_store;
+ #[cfg(test)]
+ pub(crate) mod snapshot_test_support;
+-pub mod socket_io;
+-pub mod text_sanitize;
+-pub mod timestamp;
+-pub mod tool;
+-pub mod tool_args;
+-pub mod tool_schema;
+-pub mod video;
+-pub mod video_ffmpeg;
+-pub mod walk_budget;
+-pub mod window_inspection;
+-pub mod window_observation;
+-pub mod window_state_view;
+-pub mod window_target;
++pub(crate) mod socket_io;
++pub(crate) mod text_sanitize;
++pub(crate) mod timestamp;
++pub use timestamp::unix_secs_to_rfc3339;
++pub(crate) mod tool;
++pub(crate) mod tool_args;
++pub(crate) mod tool_schema;
++pub(crate) mod video;
++pub(crate) mod video_ffmpeg;
++pub(crate) mod walk_budget;
++pub(crate) mod window_inspection;
++pub(crate) mod window_observation;
++pub(crate) mod window_state_view;
++pub(crate) mod window_target;
+ 
+ pub use cua_driver_contract::{CaptureScope, EscalationReason, TOOL_INVOCATION_FAILED_CODE};
+-pub use recording::RecordingSession;
++pub(crate) use recording::RecordingSession;
++
++/// The only public execution API of the ownership experiment.
++pub mod embedded;
++
++/// Read-only engine integration. No engine, transport, or registry is exported.
++pub mod browser_observation;
++
++#[cfg(feature = "yaml")]
++pub mod host_policy;

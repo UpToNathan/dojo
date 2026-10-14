@@ -1,0 +1,162 @@
+--- upstream/crates/cua-driver-core/src/browser/cdp_ws.rs
++++ dojo/crates/cua-driver-core/src/browser/cdp_ws.rs
+@@ -243,6 +243,7 @@
+     demux: Arc<Demux>,
+     next_id: AtomicU64,
+     existing_profile_policy: AtomicBool,
++    read_context: Option<Arc<super::read::ReadContext>>,
+     reader: tokio::task::JoinHandle<()>,
+ }
+ 
+@@ -255,6 +256,14 @@
+ 
+ impl CdpConnection {
+     pub async fn connect(ws_url: &str) -> anyhow::Result<Self> {
++        Self::connect_with_read_context(ws_url, None).await
++    }
++
++    async fn connect_with_read_context(ws_url: &str, read_context: Option<Arc<super::read::ReadContext>>) -> anyhow::Result<Self> {
++        if let Some(context) = &read_context {
++            context.check().await.map_err(|error| anyhow::anyhow!(error.message))?;
++            if ws_url != context.endpoint { anyhow::bail!("browser endpoint outside episode identity"); }
++        }
+         validate_loopback_ws_url(ws_url).map_err(|e| anyhow::anyhow!(e))?;
+         let (ws, _resp) =
+             tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async(ws_url))
+@@ -275,6 +284,7 @@
+             demux,
+             next_id: AtomicU64::new(1),
+             existing_profile_policy: AtomicBool::new(false),
++            read_context,
+             reader,
+         })
+     }
+@@ -356,6 +366,10 @@
+         method: &str,
+         params: Value,
+     ) -> anyhow::Result<Value> {
++        if let Some(context) = &self.read_context {
++            if !super::read::permits(method, &params) { anyhow::bail!("read-only episode refused CDP {method}"); }
++            context.check().await.map_err(|error| anyhow::anyhow!(error.message))?;
++        }
+         let policy = self.method_policy();
+         if !policy.allows(method) {
+             anyhow::bail!(
+@@ -382,14 +396,45 @@
+         }
+         let sent = {
+             let mut writer = self.writer.lock().await;
+-            writer.send(Message::Text(msg.to_string())).await
++            if let Some(context) = &self.read_context {
++                use std::future::Future;
++                let send = writer.send(Message::Text(msg.to_string()));
++                tokio::pin!(send);
++                let guarded = std::future::poll_fn(|cx| {
++                    let _live = match context.guard() {
++                        Ok(live) => live,
++                        Err(error) => return std::task::Poll::Ready(Err(anyhow::anyhow!(error.message))),
++                    };
++                    send.as_mut().poll(cx).map(|result| result.map_err(anyhow::Error::from))
++                });
++                tokio::select! {
++                    _ = context.closed() => Err(anyhow::anyhow!("browser episode closed before send completed")),
++                    result = tokio::time::timeout(Duration::from_secs(1), guarded) =>
++                        result.map_err(|_| anyhow::anyhow!("browser read send timed out"))?,
++                }
++            } else {
++                writer.send(Message::Text(msg.to_string())).await.map_err(anyhow::Error::from)
++            }
+         };
+         if let Err(e) = sent {
+             self.demux.pending.lock().unwrap().remove(&id);
+             anyhow::bail!("CDP send failed during {method}: {e}");
+         }
+ 
+-        match tokio::time::timeout(CALL_TIMEOUT, rx).await {
++        let reply = tokio::time::timeout(CALL_TIMEOUT, rx);
++        let outcome = if let Some(context) = &self.read_context {
++            tokio::select! {
++                _ = context.closed() => {
++                    self.demux.pending.lock().unwrap().remove(&id);
++                    anyhow::bail!("browser episode closed while awaiting read reply");
++                }
++                result = reply => result,
++            }
++        } else { reply.await };
++        if let Some(context) = &self.read_context {
++            drop(context.guard().map_err(|error| anyhow::anyhow!(error.message))?);
++        }
++        match outcome {
+             Err(_) => {
+                 self.demux.pending.lock().unwrap().remove(&id);
+                 anyhow::bail!("CDP {method} timed out after {CALL_TIMEOUT:?}")
+@@ -439,14 +484,25 @@
+ pub struct CdpPool {
+     conns: Mutex<HashMap<String, PoolEntry>>,
+     claimed_loopback_ports: StdMutex<HashSet<u16>>,
++    read_context: Option<Arc<super::read::ReadContext>>,
+ }
+ 
+ impl CdpPool {
+-    pub fn new() -> Self {
+-        Self {
+-            conns: Mutex::new(HashMap::new()),
+-            claimed_loopback_ports: StdMutex::new(HashSet::new()),
+-        }
++    pub fn new() -> Self { Self::new_with_read_context(None) }
++
++    pub(crate) fn new_with_read_context(read_context: Option<Arc<super::read::ReadContext>>) -> Self {
++        Self { conns: Mutex::new(HashMap::new()), claimed_loopback_ports: StdMutex::new(HashSet::new()), read_context }
++    }
++
++    pub(crate) async fn close_read_only(&self) {
++        let mut conns = self.conns.lock().await;
++        for entry in conns.values() {
++            entry.conn.demux.close();
++            entry.conn.reader.abort();
++            let close = async { entry.conn.writer.lock().await.close().await };
++            let _ = tokio::time::timeout(Duration::from_millis(250), close).await;
++        }
++        conns.clear();
+     }
+ 
+     /// Get the pooled connection for `ws_url`, dialing if needed.
+@@ -467,7 +523,13 @@
+             }
+             conns.remove(ws_url);
+         }
+-        let conn = Arc::new(CdpConnection::connect(ws_url).await?);
++        let connect = CdpConnection::connect_with_read_context(ws_url, self.read_context.clone());
++        let conn = if let Some(context) = &self.read_context {
++            tokio::select! {
++                _ = context.closed() => anyhow::bail!("browser episode closed during connect"),
++                result = connect => Arc::new(result?),
++            }
++        } else { Arc::new(connect.await?) };
+         conns.insert(
+             ws_url.to_owned(),
+             PoolEntry {
+@@ -485,6 +547,7 @@
+         ws_url: &str,
+         generation: u64,
+     ) -> anyhow::Result<Arc<CdpConnection>> {
++        if self.read_context.is_some() { anyhow::bail!("read-only episode refuses existing-profile grants"); }
+         let port = loopback_port(ws_url)
+             .ok_or_else(|| anyhow::anyhow!("existing-profile endpoint has no loopback port"))?;
+         let mut conns = self.conns.lock().await;
+@@ -515,6 +578,7 @@
+         ws_url: &str,
+         generation: u64,
+     ) -> anyhow::Result<Arc<CdpConnection>> {
++        if self.read_context.is_some() { anyhow::bail!("read-only episode refuses existing-profile grants"); }
+         let conns = self.conns.lock().await;
+         let entry = conns
+             .get(ws_url)
+@@ -535,6 +599,7 @@
+         old_generation: u64,
+         new_generation: u64,
+     ) -> anyhow::Result<Arc<CdpConnection>> {
++        if self.read_context.is_some() { anyhow::bail!("read-only episode refuses existing-profile grants"); }
+         {
+             let conns = self.conns.lock().await;
+             if let Some(entry) = conns.get(ws_url) {

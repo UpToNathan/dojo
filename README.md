@@ -3,6 +3,8 @@
 
 # Dojo
 
+USB PS5 controller support is described in [the controller guide](docs/gamepad.md).
+
 ## Desktop configuration
 
 This repository is the source for the desktop's devenv inputs and definition,
@@ -24,10 +26,16 @@ Run `devenv shell` or `devenv eval ...` from this directory. Run
 place; it preserves replaced files as timestamped backups. See
 `system-config/README.md` for tracked inputs versus generated runtime state.
 
-Home Manager also installs T3's bundled CLI and a freedesktop autostart entry
-for its standalone backend. See [T3 server setup](docs/t3-server.md) for the
-desktop client handoff. [Rift workspaces](docs/rift.md) describes the pinned
+Home Manager also installs T3's bundled CLI. The desktop app owns its local
+backend; Dojo does not autostart a separate T3 server. See
+[T3 backend setup](docs/t3-server.md). [Rift workspaces](docs/rift.md) describes the pinned
 CLI and OpenCode workspace plugin installed through Home Manager and devenv.
+
+Run `devenv shell -- dojo-update --dry-run` to preview the software update plan.
+The default version buffer is three days; Pi, OpenCode, Codex, Claude, and T3 Code
+are exempt. The updater also refreshes the tracked package, service, and
+privileged-file inventory. See [software updates and restoration](docs/system-update.md)
+and [the system inventory](docs/system-inventory.md).
 
 Clipboard history and persistence are separate services: Clipvault stores past
 entries, while `wl-clip-persist` retains the regular clipboard in memory after
@@ -57,8 +65,9 @@ See [the input analysis](docs/agent-input-analysis.md) and
 demonstration.
 
 `dojo-agent` exposes the independent controller as a local stdio MCP server for
-AI clients. Its shared Unix socket service starts on demand and exits when all
-agent seats are idle, without requiring systemd. Build with
+AI clients. Its shared Unix socket service starts on demand and exits after all clients
+disconnect. Idle seats and captures expire while connected clients remain
+available. The service does not require systemd. Build with
 `devenv shell -- cargo build --bin dojo-agent`; see [client setup](docs/agent-input.md#connect-an-ai-client). Each server retains its
 own cursor and keyboard seat across tool calls.
 
@@ -79,8 +88,17 @@ To install the full release compositor for the next UWSM Niri login, follow
 current session and keeps the upstream package available for rollback.
 
 The desktop frame uses the Top layer so fullscreen applications cover it.
+The Dojo Niri fork pauses focus follows mouse while primary-seat keys are held
+and for 750 milliseconds after keyboard activity. Subsequent mouse motion resumes
+window and monitor focus; explicit clicks still change focus immediately.
 `devenv shell -- tools/agent-input/run-nested.sh --fullscreen` checks rendered
 fullscreen edges and frame restoration in an isolated session.
+
+Battery observation follows UPower events, with a 60-second reconciliation while
+subscribed and a 10-second fallback when unavailable. Vigiland detection keeps
+its independent 10-second reconciliation deadline; battery events never trigger
+process scans. While Vigiland runs, Dojo revalidates the cached process's owner
+and name instead of walking all of `/proc`.
 
 Development builds optimize the shader/pipeline dependencies (`naga`,
 `wgpu-core`, and `gpui_wgpu`) because unoptimized window initialization can
@@ -116,8 +134,8 @@ correction. The upstream algorithm is pinned to
 Inside devenv:
 
 ```sh
-cargo run --bin dojo-palette -- astro.jpg --mode normal --dark
-cargo run --bin dojo-palette -- astro.jpg --mode ocean --light
+cargo run --bin dojo-palette -- ~/Pictures/astro.jpg --mode normal --dark
+cargo run --bin dojo-palette -- ~/Pictures/astro.jpg --mode ocean --light
 cargo run --bin dojo-palette -- --list-modes
 ```
 
@@ -131,12 +149,13 @@ both light and dark variants, plus quantization and alpha-aware resampling.
 Go source and regenerates the fixtures; normal Rust tests require no network or Go.
 See `docs/theme-extraction.md` for parity limits and the next integration steps.
 
-## Applying generated themes
+## Applying themes
 
-`dojo-theme` derives semantic roles and paired appearances, retains wallpaper
-snapshots, exports application formats and coordinates reloads without rewriting
-the user config. Run `dojo-theme --help`; see `docs/theme-application.md` for
-target readiness, opt-in Home Manager setup, live-update contracts and rollback.
+`dojo-theme` applies static presets, retains selected wallpaper snapshots,
+exports application formats and coordinates reloads without rewriting the user
+config. Wallpaper-derived themes use the refined recipe with mode-dependent
+colors fitted into semantic hue ranges. Run `dojo-theme --help`; see `docs/theme-application.md` for target readiness, opt-in
+Home Manager setup, live-update contracts and rollback.
 
 GNOME Keyring's Secret Service component is started with the graphical session
 for applications such as Zed and Delta. They discover `org.freedesktop.secrets`
@@ -146,13 +165,14 @@ GCR's SystemPrompter and PrivatePrompter D-Bus activation files are also
 provisioned: the daemon alone cannot create or unlock a keyring if its prompt
 service is absent. Enter keyring passwords only in the native dialog.
 
-Use `dojo-theme preview IMAGE OUTPUT.html` before choosing and applying a palette.
 The paintbrush beside the system tray (or `dojo --theme`) opens Wallpaper,
-Derive and Presets tabs. Wallpaper changes can keep the existing palette;
-theme Apply shows per-app setup/reload results. Static presets switch darkman
+Presets, and Derive tabs. Wallpaper changes can keep the existing palette;
+theme Apply shows per-app setup/reload results. Choose image opens the desktop's
+FileChooser portal rather than an embedded file browser. The portal follows the
+configured system picker (currently GTK); selecting a file only updates the
+preview, and cancelling leaves it unchanged. Presets switch darkman
 to their authored light/dark mode. Tokyo Night/Catppuccin use upstream native
 Neovim plugins; other presets still need authored-role fidelity validation.
-The automatic normal-mode test palette is not the approved desktop theme.
 See `docs/zen-dbus-exhaustion.md` for the separate wluma reply-accumulation fix.
 
 ## Application launch lifetime
@@ -163,6 +183,53 @@ handling to `uwsm app -t service`. Otherwise it uses a separate systemd user sco
 Apps have independent process groups/cgroups and journal logging and survive a
 Dojo restart. D-Bus-only entries use explicit activation; timeout is not treated
 as permission to spawn a second instance. Use `dojo --quit` for shell shutdown.
+
+## Top bar audio
+
+The seven-stroke wave to the left of the corner icons shows the default output's volume. Hover to expand it and reveal the percentage. Drag right to raise volume or left to lower it; scroll for small changes. Click to mute or restore the previous volume. Adjustments stay between 0% and 100%.
+
+The wave follows external volume, mute and default-output changes through `pactl subscribe`; `wpctl` reads and adjusts the default PipeWire output on a worker. Volume writes share a fixed 25-millisecond batching window with blocking channel waits, not polling; the last drag value is delivered without waiting for mouse-up. Mute clicks preserve command order and flush pending adjustments early. The wave stays still when idle. Bluetooth and output selection are not included.
+
+For a live interaction check, identify the wave's center in logical output coordinates, then run `python3 scripts/check-audio-wave.py --output eDP-1 --x X --evidence /tmp/dojo-audio-check`. The check temporarily adjusts audio, verifies click, drag and scroll against system volume, saves screenshots, and restores the original volume and mute state.
+
+## Bluetooth dock
+
+Click the Bluetooth icon beside the audio wave to open the native device dock. Device rows expose Connect, Disconnect or Pair directly, with connected devices first and battery when available. Select a row to view its address. Nearby results show named devices first; unnamed devices remain available through an explicit reveal. Find a device searches nearby for up to 30 seconds. Closing the dock releases Dojo's discovery session and cancels unfinished pairing. Pairing confirmations, PINs and passkeys use the dock's keyboard-capable panel.
+
+Dojo uses the system BlueZ D-Bus service, with event updates and no automatic trust or pairing approval. Device-state signal bursts share a fixed 100-millisecond refresh window; pairing prompts and action feedback remain immediate. Local prompt edits do not fetch the full device list. On this Arch host, run `bash scripts/setup-bluetooth.sh` to install BlueZ and enable its service; sudo prompts for your password in the terminal. The dock updates when BlueZ starts. Dojo's private D-Bus tests exercise connection errors, discovery ownership, authentication, cancellation, daemon restarts and shutdown without touching real devices.
+
+## Shell controls
+
+The top-center clock shows the local date and time. Click the Wi-Fi icon directly
+left of Bluetooth to view networks, scan, connect or disconnect, and control the
+radio. Personal networks use a masked password prompt; saved profiles come from
+NetworkManager. Passwords stay out of command arguments and logs.
+
+The network icon and menu follow NetworkManager's primary connection. When a
+phone's USB tether carries the connection, the icon changes to Ethernet and the
+menu shows USB Ethernet, the connection name, and interface. Wi-Fi controls remain
+available. Removing the tether restores the Wi-Fi display when Wi-Fi becomes
+primary again. NetworkManager signals trigger updates, with a five-second
+reconciliation fallback.
+
+For an iPhone, run `bash scripts/setup-usb-tethering.sh` once to install USB pairing
+support and load the Ethernet driver. Enable Personal Hotspot, unlock the phone,
+and accept Trust if prompted. Reconnect the cable if NetworkManager does not show
+the USB adapter. The setup command requires sudo; pairing records remain in the
+system's runtime state. Android USB tethering uses the kernel's USB networking
+drivers and NetworkManager.
+
+Click the power icon in the bottom-right corner for Suspend, Log out, Restart,
+and Shut down. Log out, Restart, and Shut down require confirmation inside the
+menu. Escape cancels or closes it. The terminal shortcuts are
+`dojo-desktop --wifi` and `dojo-desktop --system-menu`.
+
+## Monitor settings
+
+Click the monitor icon in the top bar or run `dojo-desktop --displays` to arrange
+monitors inside the shell. Drag the monitor boxes, choose resolution and refresh
+rate, and adjust scaling. Apply previews the changes for 15 seconds; Keep saves
+them. See [monitor settings](docs/displays.md) for rollback and persistence.
 
 ## Application launcher
 

@@ -1,0 +1,14 @@
+--- upstream/crates/cua-driver-core/src/browser/download.rs
++++ dojo/crates/cua-driver-core/src/browser/download.rs
+@@ -276,6 +276,11 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if self.engine.read_context.is_some() {
++            return BrowserRefusal::new(BrowserRefusalCode::BrowserRouteUnavailable,
++                "external mutation admission unproved in read-only episode").to_tool_result();
++        }
++
+         let (session, target_id, tab_id, ext_ref, destination_raw) = match (
+             explicit_session(&args),
+             args.require_str("target_id"),

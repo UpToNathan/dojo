@@ -1,0 +1,92 @@
+{
+  "name": "@opencode-ai/browser-control",
+  "version": "0.8.4",
+  "description": "Local browser driver for trusted agents: control your existing Chromium-family browser through a small extension and a local relay.",
+  "license": "MIT",
+  "packageManager": "pnpm@11.20.0",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anomalyco/browser-control.git"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/types/opencode.d.ts",
+      "import": "./dist/opencode.js"
+    }
+  },
+  "files": [
+    "dist",
+    "extension/dist",
+    "skills/browser-control/SKILL.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "bin": {
+    "browser-control": "./dist/cli.js",
+    "browser-control-mcp": "./dist/mcp.js"
+  },
+  "types": "./dist/types/index.d.ts",
+  "scripts": {
+    "audit:duplicates": "jscpd src extension/src --format typescript --min-lines 10 --min-tokens 100 --mode weak --reporters console --absolute --no-tips",
+    "bench:recording": "tsx scripts/bench-recording.ts",
+    "bench:recording-quality": "tsx scripts/bench-recording-quality.ts",
+    "build:cli": "tsx scripts/build-cli.ts",
+    "build": "pnpm build:cli && pnpm build:extension",
+    "build:extension": "tsx scripts/build-extension.ts",
+    "package:extension": "pnpm build:extension && tsx scripts/package-extension.ts",
+    "changeset": "changeset",
+    "check:locals": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
+    "check:unused": "knip",
+    "ci": "pnpm check:locals && pnpm check:unused && pnpm test && pnpm build && pnpm package:extension",
+    "prepack": "pnpm build",
+    "release": "changeset publish",
+    "runtime:prepare": "tsx scripts/runtime-install.ts prepare",
+    "runtime:select": "tsx scripts/runtime-install.ts select",
+    "runtime:check-lifecycle": "tsx scripts/check-runtime-lifecycle.ts",
+    "smoke": "tsx scripts/smoke.ts",
+    "gauntlet": "tsx scripts/gauntlet.ts",
+    "gauntlet:isolated": "tsx scripts/gauntlet-isolated.ts",
+    "smoke:snapshot": "tsx scripts/check-snapshot.ts",
+    "repro:screenshot-zoom": "tsx scripts/check-screenshot-zoom.ts",
+    "repro:page-preservation": "tsx scripts/check-page-preservation.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "smoke:debugger-ownership": "pnpm build:extension && tsx scripts/check-debugger-ownership.ts"
+  },
+  "dependencies": {
+    "@effect/platform-node": "4.0.1",
+    "@effect/platform-node-shared": "4.0.1",
+    "acorn": "^8.18.0",
+    "effect": "4.0.1",
+    "pixelmatch": "^7.2.0",
+    "playwright-core": "^1.63.0",
+    "pngjs": "^7.0.0",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^3.0.3",
+    "@types/chrome": "^0.3.4",
+    "@types/node": "^26.6.4",
+    "@types/pngjs": "^6.0.5",
+    "@types/ws": "^8.18.2",
+    "esbuild": "^0.28.2",
+    "fflate": "^0.8.3",
+    "jscpd": "^5.4.0",
+    "knip": "^6.39.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}

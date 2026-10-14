@@ -17,6 +17,7 @@
       "original": {
         "owner": "bendlang",
         "repo": "bend",
+        "rev": "60fa05dc28f847382554dae6ee76cd1b2911bcc3",
         "type": "github"
       }
     },
@@ -38,6 +39,7 @@
       "original": {
         "owner": "Rolv-Apneseth",
         "repo": "clipvault",
+        "rev": "3332dd0287fc10727b2b081cdc2d3dd785ae999b",
         "type": "github"
       }
     },
@@ -58,6 +60,7 @@
       "original": {
         "owner": "zed-industries",
         "repo": "delta-nix",
+        "rev": "6aa23dbf48a75e77e50e5a9e9856cd2e24471a88",
         "type": "github"
       }
     },
@@ -75,6 +78,7 @@
         "dir": "src/modules",
         "owner": "cachix",
         "repo": "devenv",
+        "rev": "c69190c2702bad99474200b6b7a80be86146ae71",
         "type": "github"
       }
     },
@@ -113,6 +117,7 @@
       "original": {
         "owner": "nix-community",
         "repo": "home-manager",
+        "rev": "dfadbe5162d5e86bc0808badec8f346f81b4b3f0",
         "type": "github"
       }
     },
@@ -130,8 +135,8 @@
       },
       "original": {
         "owner": "cachix",
-        "ref": "rolling",
         "repo": "devenv-nixpkgs",
+        "rev": "c2f38fe7f9e04d9aadd354d380f2bd40531d9737",
         "type": "github"
       }
     },
@@ -199,8 +204,8 @@
       },
       "original": {
         "owner": "anomalyco",
-        "ref": "v2.0.26",
         "repo": "opencode",
+        "rev": "9b4ec5714d481559990db0a816d5dec19541a814",
         "type": "github"
       }
     },
@@ -221,8 +226,8 @@
       },
       "original": {
         "owner": "earendil-works",
-        "ref": "stable",
         "repo": "pi",
+        "rev": "abe508e1b89912adde45528136c3221eb69acdd7",
         "type": "github"
       }
     },
@@ -260,6 +265,7 @@
       "original": {
         "owner": "rockorager",
         "repo": "rush",
+        "rev": "7698fd561e5823a7cd30768734f5450aafbd0433",
         "type": "github"
       }
     },
@@ -281,6 +287,7 @@
       "original": {
         "owner": "saltnpepper97",
         "repo": "stasis",
+        "rev": "99b9e9676e464ac03e224bcdfde34aa1a41cb547",
         "type": "github"
       }
     },
@@ -316,6 +323,7 @@
       "original": {
         "owner": "xevrion",
         "repo": "utsushot",
+        "rev": "e30ad5bd487516664809d1e3335c36a71ae471e1",
         "type": "github"
       }
     },
@@ -336,6 +344,7 @@
       "original": {
         "owner": "Jappie3",
         "repo": "vigiland",
+        "rev": "62d0d6be2e19690c88e627eff76161ba41adbf97",
         "type": "github"
       }
     },
@@ -356,6 +365,7 @@
       "original": {
         "owner": "youwen5",
         "repo": "zen-browser-flake",
+        "rev": "0ae74880377f493555038d52edd9c90178e05186",
         "type": "github"
       }
     }

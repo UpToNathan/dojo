@@ -18,8 +18,8 @@ pub(super) fn load(path: &Path) -> anyhow::Result<Vec<Rgb>> {
         .decode()
         .with_context(|| format!("decoding wallpaper {}", path.display()))?;
     anyhow::ensure!(
-        u64::from(image.width()) * u64::from(image.height()) <= 40_000_000,
-        "wallpaper exceeds the 40 million pixel limit"
+        u64::from(image.width()) * u64::from(image.height()) <= crate::theme::MAX_WALLPAPER_PIXELS,
+        "wallpaper exceeds the 64 million pixel limit"
     );
     Ok(sample(&image.into_rgba8()))
 }
@@ -33,8 +33,8 @@ pub(super) fn load_bytes(bytes: &[u8]) -> anyhow::Result<Vec<Rgb>> {
     reader.limits(limits);
     let image = reader.decode()?;
     anyhow::ensure!(
-        u64::from(image.width()) * u64::from(image.height()) <= 40_000_000,
-        "wallpaper exceeds the 40 million pixel limit"
+        u64::from(image.width()) * u64::from(image.height()) <= crate::theme::MAX_WALLPAPER_PIXELS,
+        "wallpaper exceeds the 64 million pixel limit"
     );
     Ok(sample(&image.into_rgba8()))
 }

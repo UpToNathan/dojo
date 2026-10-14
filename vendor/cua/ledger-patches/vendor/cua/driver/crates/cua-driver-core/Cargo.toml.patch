@@ -1,0 +1,10 @@
+--- a/vendor/cua/driver/crates/cua-driver-core/Cargo.toml
++++ b/vendor/cua/driver/crates/cua-driver-core/Cargo.toml
+@@ -16,6 +16,7 @@
+ script = ["dep:rquickjs"]
+ 
+ [dependencies]
++dojo-computer = { path = "../../../../../crates/dojo-computer" }
+ cua-driver-contract = { path = "../cua-driver-contract" }
+ tokio = { workspace = true }
+ serde = { workspace = true }

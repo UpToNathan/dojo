@@ -1,0 +1,13 @@
+--- upstream/crates/cua-driver-core/src/snapshot_store.rs
++++ dojo/crates/cua-driver-core/src/snapshot_store.rs
+@@ -263,6 +263,10 @@
+ }
+ 
+ impl<S: SnapshotPayload> SnapshotStore<S> {
++    pub(crate) fn new_for_runtime_scope(runtime_scope: String) -> Self {
++        Self { runtime_scope, inner: Mutex::new(HashMap::new()) }
++    }
++
+     pub fn new() -> Self {
+         Self {
+             runtime_scope: current_runtime_scope(),

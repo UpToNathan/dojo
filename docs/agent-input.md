@@ -289,27 +289,40 @@ requests on a connection. Input uses the same action object as the MCP tool:
 
 Status returns the current `seat_name`, or null. Release drops the seat and
 returns `{"released":true}`. Closing the connection releases its seat as well.
-Malformed or oversized messages close the connection after an error reply.
+Malformed or oversized messages close the connection.
 A disconnected or idle session has no resumable target or held input. Reconnect
 with a new handshake and choose a fresh target. Paused actions retain their seat
 and return the same ownership snapshot as MCP.
 
 The server uses the [official Rust MCP SDK](https://github.com/modelcontextprotocol/rust-sdk)
 and [stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports).
-It supplies desktop tools to an existing AI client. It does not run a model,
-record voice, provide accessibility observations, or add the
-planned agent UI. Use the client's own conversation and tool controls.
+It supplies desktop tools to an existing AI client. Pi owns Dojo's model calls
+and durable tool execution. The Rust service supplies bounded screenshots,
+application accessibility observations, input, and verification.
 
-`desktop_screenshot` captures a named output through `grim`, already installed
-by Home Manager. It returns a PNG image and image dimensions with mapping to
-output-relative logical coordinates. Multiply image x and y by
-`logical_x_per_image_pixel` and `logical_y_per_image_pixel` before moving the
-agent cursor. Inspect the screenshot before clicking, then capture again to
-verify the application changed. Capture does not create or renew an input seat,
-change focus, or replace the clipboard. It times out after five seconds. The
-output snapshot and capture are separate operations; capture again if the output
-configuration changes. Restart the MCP adapter after rebuilding to discover the
-new tool.
+`desktop_screenshot` captures visible output pixels through native Wayland
+capture. `DOJO_CAPTURE_BACKEND=grim` selects the explicit migration backend. Existing `{"output":"eDP-1"}` calls capture the whole
+output at scale 1. Optional fields select a smaller observation:
+
+- `region`: `{ "x":100, "y":80, "width":400, "height":300 }`, in
+  output-relative logical pixels. The rectangle is clipped to the output.
+- `window_id`: a window on the selected output's active workspace. Its visible
+  tile rectangle is cropped, including any surfaces overlapping it. The updated Niri supplies tiled and floating placements from the same render
+  as the PNG. Unsupported transitions and animations return an error.
+- `scale`: image pixels per logical pixel, from 0.1 through 1. Default 1.
+  A scale of 0.5 reduces both image dimensions.
+
+`region` and `window_id` cannot be combined. Every result includes a PNG,
+`logical_x` and `logical_y` for its origin, captured logical dimensions, actual
+image dimensions, and per-axis pixel mapping. Map image coordinates with
+`desktop_x = logical_x + image_x * logical_x_per_image_pixel` and the same
+formula for y before calling `desktop_action`. Full-output origins are zero.
+Inspect the screenshot before clicking, then capture again to verify the result.
+Capture does not create or renew an input seat, change focus, or replace the
+clipboard. Capture has a five-second deadline. Window captures bind pixels and
+placements to one compositor render. Output capture verifies compositor peer
+identity and output geometry. Rebuild and reopen the MCP adapter to discover
+updated schemas. Installing the updated compositor is a separate deployment.
 
 Verify the actual MCP subprocess in a nested desktop:
 
@@ -367,3 +380,109 @@ cursor or keyboard focus. Dojo issues it when push-to-talk is released. Held key
 pointer grabs and suppressed buttons reject the request. The next human input
 reacquires ownership and pauses conflicting agents. This requires the updated
 compositor, which becomes active on the next Niri login.
+
+## Capture-bound input
+
+`desktop_observe` starts the shared service's bounded capture storage without
+creating an input seat. Give it `output` and a positioned `window_id` to receive
+an actionable PNG plus opaque `capture_id`, digest, process/output/window
+identity, dimensions and coordinate mapping. Output/region observations are
+read-only. Capture storage expires after 30 seconds and does not renew a seat's
+idle deadline.
+
+Use `desktop_capture_action` with that ID and coordinates in the delivered PNG:
+
+```json
+{"capture_id":"capture_...","x":120,"y":80,"input":{"kind":"click","button":"left"}}
+```
+
+Inputs support `move`, `click`, `double_click`, physical `key` and `chord`,
+`key_hold` for 1 through 1000 milliseconds, printable ASCII `text` on a verified
+plain US layout, and in-window `drag`. Drag x/y selects the initial press point;
+`path` contains 1 through 16 subsequent image-pixel waypoints. `scroll` uses
+`horizontal` and `vertical` logical-pixel deltas. Unicode, clipboard insertion,
+cross-window drag, and persistent held keys are refused. Rust validates the owning session, identity,
+geometry, bounds and ownership revision, then maps the image point to its
+output. Admission consumes the reference; the service also retires sibling
+observations before input. Take a fresh observation after every attempt. Release,
+disconnect, restart, expiry and intervening low-level input invalidate captures.
+
+The updated compositor accepts captured geometry, exact target, and coordination
+wrappers around input. It checks rendered window placement, output scale and
+transform, compositor generation, and coordination on each command and animation
+frame. It checks the mapped pointer
+or keyboard target at actual delivery; deferred pointer events retain the guard
+through movement. Releases remain available for cleanup. The captured visible
+crop may include another window, so an occluding window causes guarded click or
+scroll refusal. Older compositors reject the wrapper and capture actions refuse.
+
+A receipt reports delivery as `handled`, ownership pause as `paused`, or an
+uncertain operation as `unknown`. Each carries `verified: false` and requires a
+fresh observation. The adapter releases its seat after an unknown effect. Pi
+commits capture consumption before dispatch, marks desktop mutations unsafe to
+replay, preserves images, and requires new observation after interruption.
+These checks do not detect control changes inside an otherwise unchanged window.
+Screenshots retain the existing visible-content and transcript privacy limits.
+
+See [the Rust authority and acceptance commands](../crates/dojo-computer/README.md)
+and [the bounded Rust model parsers](../crates/dojo-computer-models/README.md).
+Pi's optional `desktopModelProfile` converts supported textual profiles into
+ordinary Pi tool calls before response classification. Rust owns parsing and
+coordinate restoration. Tool arguments preserve bounded prediction provenance.
+Native Anthropic, OpenAI, and Gemini envelope decoders preserve safety metadata;
+native provider transport and subscription endpoint support remain separate gates.
+
+
+## CUA-derived capabilities
+
+`desktop_accessibility` returns a bounded application-scoped AT-SPI tree for the
+process owning a Niri window. Password and credential fields are filtered before
+secret getters. Trees contain no actionable refs or exact native-window mapping.
+Browser automation uses the pinned anomalyco Browser Control package rather than
+CUA's browser adapters. The `desktop_browser_*` routes were removed. Native
+capture, independent desktop input, AT-SPI and verification remain available.
+See [Browser Control](browser-control.md) for packaging, agent configuration,
+cancellation and the operator's ownership handoff.
+
+`desktop_verify` checks bounded window existence and rendered bounds predicates.
+Missing or untrusted element evidence returns unknown. `observe_after=true` on
+`desktop_capture_action` returns a fresh observation with the effect receipt.
+Failure to obtain that image preserves the receipt and never retries input.
+
+Pi persists tool-attempt reservations before transport. `desktopMaxToolAttempts`
+defaults to 1000 per conversation. `desktopRequestImages` defaults to eight
+recent desktop images in each request. Request projection preserves canonical
+entries, signatures, and call/result pairing. It does not erase recorded pixels.
+`human_request` stores a bounded clarification request in Pi. The local voice
+host supplies its response. Clarification grants no permission and retires old
+capture authority. Stop cancels pending requests.
+
+Build `dojo-agent-setup` for a read-only client configuration plan. `--apply`
+performs backed-up configuration edits and removal preserves edited user content.
+Build `dojo-computer-recording` for bounded redacted traces, ATIF export, terminal
+observations, offline processors, and isolated grounding evaluation. Pi's
+`exportDesktopTrace()` projects canonical entries through that Rust codec and
+omits screenshots by default. Export analysis never replays desktop effects.
+
+[The adoption record](../.scratch/cua-adoption/result.md) identifies pinned sources,
+validation commands, deliberate differences, and remaining deployment and artifact
+gates. Vendored source alone does not establish runtime parity.
+
+## Operator desktop policy
+
+Set `DOJO_DESKTOP_POLICY` to an absolute YAML file before launching a desktop MCP client. The file must be a regular file owned by root or your user, at most 64 KiB, and not writable by group or others. Symlinks are refused. Invalid configuration fails closed.
+
+CUA's YAML evaluator supports allow lists, deny lists and argument constraints. For example:
+
+```yaml
+allow:
+  tools: [desktop_context, desktop_observe, desktop_verify, desktop_decode_model]
+  rules:
+    - tool: desktop_capture_action
+      constraints:
+        x: { min: 0, max: 10000 }
+        y: { min: 0, max: 10000 }
+deny: [desktop_action, desktop_launch, desktop_browser_navigate]
+```
+
+This policy narrows the existing rules. It cannot authorize a stale capture, transfer human ownership, grant browser profile consent or resolve an unknown external effect. Deny entries take precedence. Tools omitted from the allow list are denied. Release, browser close and internal session status remain available for cleanup. The shared service socket and handshake include the policy fingerprint; changed policy files require a new connection before dispatch. This is operator configuration, not a model-visible permission grant.

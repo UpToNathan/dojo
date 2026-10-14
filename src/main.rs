@@ -1,15 +1,24 @@
+mod audio;
+mod bluetooth;
+mod bluetooth_ui;
+mod clock;
 mod config;
+mod displays_ui;
 mod file_events;
 mod frame;
 mod geometry;
 mod launcher;
 mod niri_layout;
 mod power;
+mod quick_terminal;
 mod shell;
 mod state;
+mod system_menu;
 mod theme_picker;
 mod tray;
 mod wallpaper;
+mod wifi;
+mod wifi_ui;
 
 use anyhow::bail;
 use control::ControlCommand;
@@ -37,7 +46,20 @@ fn run() -> anyhow::Result<()> {
         Some("--disable") => ControlCommand::Disable,
         Some("--quit") => ControlCommand::Quit,
         Some("--launcher") => ControlCommand::Launcher,
+        Some("--launcher-up") => ControlCommand::LauncherNavigation(launcher::Navigation::Up),
+        Some("--launcher-down") => ControlCommand::LauncherNavigation(launcher::Navigation::Down),
+        Some("--launcher-activate") => {
+            ControlCommand::LauncherNavigation(launcher::Navigation::Activate)
+        }
+        Some("--launcher-dismiss") => {
+            ControlCommand::LauncherNavigation(launcher::Navigation::Dismiss)
+        }
         Some("--theme") => ControlCommand::Theme,
+        Some("--displays") => ControlCommand::Displays,
+        Some("--wifi") => ControlCommand::Wifi,
+        Some("--system-menu") => ControlCommand::SystemMenu,
+        Some("--terminal") => ControlCommand::Terminal,
+        Some("--terminal-closed") => ControlCommand::TerminalClosed,
         Some("--speech-state") => {
             let phase = arguments
                 .next()
@@ -59,7 +81,7 @@ fn run() -> anyhow::Result<()> {
         }
         Some("--help") | Some("-h") => {
             println!(
-                "Usage: dojo [--toggle|--enable|--disable|--quit|--launcher|--theme|--launcher-benchmark|--speech-state STATE|--speech-response TEXT|--speech-transcript TEXT]"
+                "Usage: dojo [--toggle|--enable|--disable|--quit|--launcher|--launcher-up|--launcher-down|--launcher-activate|--launcher-dismiss|--theme|--displays|--wifi|--system-menu|--terminal|--launcher-benchmark|--speech-state STATE|--speech-response TEXT|--speech-transcript TEXT]"
             );
             return Ok(());
         }
@@ -81,7 +103,16 @@ fn run() -> anyhow::Result<()> {
         ControlCommand::Disable => state::persist_frame_enabled(false),
         ControlCommand::Quit => Ok(()),
         ControlCommand::Launcher => shell::run_with_launcher(None, true),
+        ControlCommand::LauncherNavigation(_) => {
+            bail!("start Dojo and open the launcher before navigating it")
+        }
         ControlCommand::Theme => shell::run_with_theme_picker(None),
+        ControlCommand::Displays | ControlCommand::Wifi | ControlCommand::SystemMenu => {
+            bail!("start Dojo before opening shell settings")
+        }
+        ControlCommand::Terminal | ControlCommand::TerminalClosed => {
+            bail!("start Dojo before using its quick terminal")
+        }
         ControlCommand::Speech(_) => bail!("start Dojo before sending speech events"),
     }
 }

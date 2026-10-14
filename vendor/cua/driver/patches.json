@@ -1,0 +1,74 @@
+{
+  "patches": [
+    {
+      "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+      "upstream_sha256": "6ef8615cd552a62819ae2296fd5476dd97a3e0790c853c2156353c024baf99c7",
+      "modified_sha256": "b88244e79fc0252161d2ce354a5f03e298770faf2b7b7b081bb614cdb52fbfc5"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/download.rs",
+      "upstream_sha256": "a8a54027ad28f217f50a94ccbd4e47b73a73ab8e458bf964a4c3a6b593638389",
+      "modified_sha256": "ca37c853a66d1ad7901265199bc7318679e700f0f93ab28f38412533bbbe5dd9"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/engine.rs",
+      "upstream_sha256": "41fcef8e6c9963a70eb639640e85e7a01058049f9a450670062e3d82ab165d49",
+      "modified_sha256": "07beda0741d5a16218f62276f601b804802c345ea849bee56bfa23cd5f80da9e"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/mock_cdp.rs",
+      "upstream_sha256": "518c8f6f0a1bdc89cbe504d8d867acbc644f139f19553f60dc03fdc0512e9d21",
+      "modified_sha256": "268c5aa02a392897eb43ae9b1569b1971e572678f9fe7719542a0746dfc950e9"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/mod.rs",
+      "upstream_sha256": "6fa6f1dfacc6029328ac40138d82bd2241af9bcf210d93cb6edbf0b7800481c5",
+      "modified_sha256": "bfb6ad73b79644e5199db024919f76050099be1877e525132a1610abb76d5475"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/pointer.rs",
+      "upstream_sha256": "9b4b491c6b66c16915c589d0a043bd77fab308c6fa58637ae9e89f7417b8b50e",
+      "modified_sha256": "d67feadcdd9da268c337b851fe71253483a5a2b2c7d14003e2f2d8bd2a39b8a3"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/prepare.rs",
+      "upstream_sha256": "d79baceddd4f13a4065fa0111af8061c37253223ee116a55f708a954164c598e",
+      "modified_sha256": "bc7383439764cf8d26dca7a270ffa7b0172e7e7e277be748d0aee4ea8c2c0b07"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/tools.rs",
+      "upstream_sha256": "be2bd85f2bb5c1804301beced4ad4dd525d32a3a7e2e48e5509e91ef5f1fd849",
+      "modified_sha256": "5918de878b5c493b306ec93e65fe2e5a020266363609f901ae02a27e5ada5cb9"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/v2_tests.rs",
+      "upstream_sha256": "01c76209b9fc095a1c38a2e81e6caa068fa9a92445ff4c446fe0e8266bc6b75d",
+      "modified_sha256": "212901cad4f52bff5e370afbdc497e86ad52070e44d4f5ef4dbb03a90d461abd"
+    },
+    {
+      "path": "crates/cua-driver-core/src/lib.rs",
+      "upstream_sha256": "501a0acdfdbb0bc2960ce01843bc6287ab99fb66bf3bdf2bef0bb1ae0a72ae4d",
+      "modified_sha256": "9c79b2de8b3505aa3c847edca2943369da8b9d200929d989cfc0048b2e212f9f"
+    },
+    {
+      "path": "crates/cua-driver-core/src/snapshot_store.rs",
+      "upstream_sha256": "3e516a89e68fd7e9da6ef730bff94e8108b9bae0e62e5e77f5e9909f33e3edd1",
+      "modified_sha256": "d10dd9fa7b141d9012224bbc05c54fd1765da279d8c1ff9f9207809ccd72d02c"
+    },
+    {
+      "path": "crates/cua-driver-core/src/policy.rs",
+      "upstream_sha256": "01b166439382adf190f0425dfd380040840e12d3ac84c2f3fc814466ba8ac92b",
+      "modified_sha256": "2c1e4a567c0363fa0d524eb30b647a67472f6542cd5d602a548a09ed550d54d8"
+    }
+  ],
+  "new_source": [
+    "crates/cua-driver-core/src/embedded.rs",
+    "crates/cua-driver-core/src/browser/read.rs",
+    "crates/cua-driver-core/src/browser/niri.rs",
+    "crates/cua-driver-core/src/browser/niri_evidence.rs",
+    "crates/cua-driver-core/src/browser_observation.rs",
+    "crates/cua-driver-core/src/host_policy.rs",
+    "crates/cua-driver-core/src/capture_perception.rs"
+  ],
+  "scope": "standalone minimal-feature core, explicit read-only browser/retained-snapshot ownership; no production action runtime"
+}

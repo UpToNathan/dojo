@@ -343,6 +343,8 @@ pub struct Niri {
     pub seat: Seat<State>,
     pub agent_input_enabled: bool,
     pub(crate) input_coordination: crate::agent_input::Coordination,
+    pub(crate) external_admission_unknown: HashSet<crate::external_admission::TargetKey>,
+    pub(crate) browser_control: Option<Rc<RefCell<crate::browser_control::Channel>>>,
     pub agent_seats: HashMap<u64, crate::agent_input::AgentSeat>,
     pub agent_dispatch_state: Option<SeatState<State>>,
     pub next_agent_peer: u64,
@@ -353,6 +355,7 @@ pub struct Niri {
     pub suppressed_buttons: HashSet<u32>,
     pub bind_cooldown_timers: HashMap<Key, RegistrationToken>,
     pub bind_repeat_timer: Option<RegistrationToken>,
+    pub last_keyboard_activity: Option<Duration>,
     pub keyboard_focus: KeyboardFocus,
     pub layer_shell_on_demand_focus: Option<LayerSurface>,
     pub idle_inhibiting_surfaces: HashSet<WlSurface>,
@@ -516,6 +519,12 @@ pub struct OutputState {
     screen_transition: Option<ScreenTransition>,
     /// Damage tracker used for the debug damage visualization.
     pub debug_damage_tracker: OutputDamageTracker,
+}
+
+impl OutputState {
+    pub(crate) fn has_screen_transition(&self) -> bool {
+        self.screen_transition.is_some()
+    }
 }
 
 #[derive(Debug, Default)]
@@ -2623,6 +2632,53 @@ impl Niri {
             }
         };
 
+        if let Some(broker) = std::env::var_os("DOJO_BROWSER_CONTROL_BROKER_EXE") {
+            let path = std::env::var_os("DOJO_BROWSER_CONTROL_SOCKET")
+                .map(PathBuf::from)
+                .or_else(|| {
+                    std::env::var_os("XDG_RUNTIME_DIR")
+                        .map(|p| PathBuf::from(p).join("dojo-browser-admission.sock"))
+                });
+            if let Some(path) = path {
+                if let Err(error) = crate::browser_control::start(&event_loop, path, broker.into())
+                {
+                    warn!("browser admission disabled: {error:#}");
+                }
+            }
+        }
+
+        // External mutation admission is operator-pinned and opt-in. Ordinary
+        // desktop/browser configuration cannot silently create a trusted broker.
+        if let Some(path) = std::env::var_os("DOJO_EXTERNAL_ADMISSION_SOCKET") {
+            let start = (|| -> anyhow::Result<()> {
+                if let Some(recipe) = std::env::var_os("DOJO_EXTERNAL_LAUNCH_RECIPE_SHA256") {
+                    anyhow::ensure!(
+                        std::env::var_os("DOJO_EXTERNAL_TRUSTED_BROKER_PID").is_none()
+                            && std::env::var_os("DOJO_EXTERNAL_TRUSTED_BROKER_START").is_none(),
+                        "choose launch enrollment or static broker enrollment, not both"
+                    );
+                    let pid = std::env::var("DOJO_EXTERNAL_LAUNCHER_PID")?.parse()?;
+                    let generation = std::env::var("DOJO_EXTERNAL_LAUNCHER_START")?.parse()?;
+                    let recipe = recipe
+                        .into_string()
+                        .map_err(|_| anyhow::anyhow!("recipe identity must be UTF-8"))?;
+                    return crate::external_admission::start_with_launcher(
+                        &event_loop,
+                        path.into(),
+                        pid,
+                        generation,
+                        recipe,
+                    );
+                }
+                let pid = std::env::var("DOJO_EXTERNAL_TRUSTED_BROKER_PID")?.parse()?;
+                let generation = std::env::var("DOJO_EXTERNAL_TRUSTED_BROKER_START")?.parse()?;
+                crate::external_admission::start(&event_loop, path.into(), pid, generation)
+            })();
+            if let Err(error) = start {
+                warn!("external admission disabled: {error:#}");
+            }
+        }
+
         #[cfg(feature = "xdp-gnome-screencast")]
         let screencasting = Screencasting::new(&event_loop);
 
@@ -2729,6 +2785,7 @@ impl Niri {
             suppressed_buttons: HashSet::new(),
             bind_cooldown_timers: HashMap::new(),
             bind_repeat_timer: Option::default(),
+            last_keyboard_activity: None,
             presentation_state,
             security_context_state,
             gamma_control_manager_state,
@@ -2740,6 +2797,8 @@ impl Niri {
             seat,
             agent_input_enabled,
             input_coordination: Default::default(),
+            external_admission_unknown: Default::default(),
+            browser_control: None,
             agent_seats: HashMap::new(),
             agent_dispatch_state: None,
             next_agent_peer: 0,
@@ -6825,6 +6884,14 @@ impl Niri {
         let Some(ffm) = self.config.borrow().input.focus_follows_mouse else {
             return;
         };
+
+        if !self.seat.get_keyboard().unwrap().pressed_keys().is_empty()
+            || self.last_keyboard_activity.is_some_and(|last| {
+                self.clock.now_unadjusted().saturating_sub(last) < Duration::from_millis(750)
+            })
+        {
+            return;
+        }
 
         let pointer = &self.seat.get_pointer().unwrap();
         if pointer.is_grabbed() {

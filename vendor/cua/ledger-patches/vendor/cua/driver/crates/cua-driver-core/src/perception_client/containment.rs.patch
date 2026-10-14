@@ -1,0 +1,139 @@
+--- a/vendor/cua/driver/crates/cua-driver-core/src/perception_client/containment.rs
++++ b/vendor/cua/driver/crates/cua-driver-core/src/perception_client/containment.rs
+@@ -254,6 +254,12 @@
+     /// and model paths and the target's immutable system runtime directories.
+     /// Every entry widens the sandbox, so callers opt in per path.
+     pub additional_readable_paths: Vec<PathBuf>,
++    /// Exact immutable loader files selected by the Dojo host package.
++    pub additional_readable_files: Vec<PathBuf>,
++    /// Explicit host-owned loader search directories; ambient variables stay cleared.
++    pub loader_search_paths: Vec<PathBuf>,
++    /// Stock platform loader trees are unnecessary for an exact Dojo Nix closure.
++    pub allow_system_runtime_trees: bool,
+     /// Windows-only file whose exclusive lock serializes temporary worker ACLs
+     /// with extension lifecycle hardening. Other platforms ignore this path.
+     pub windows_acl_lease_path: Option<PathBuf>,
+@@ -267,7 +273,6 @@
+     pub windows_require_synchronous_cleanup: bool,
+     /// Exact executable files needed only by scripted test fixtures. Shipped
+     /// native workers execute only their configured worker binary.
+-    #[cfg(test)]
+     pub additional_executable_paths: Vec<PathBuf>,
+ }
+ 
+@@ -280,10 +285,12 @@
+             max_open_files: DEFAULT_MAX_OPEN_FILES,
+             additional_writable_paths: Vec::new(),
+             additional_readable_paths: Vec::new(),
++            additional_readable_files: Vec::new(),
++            loader_search_paths: Vec::new(),
++            allow_system_runtime_trees: true,
+             windows_acl_lease_path: None,
+             windows_acl_profile_journal_path: None,
+             windows_require_synchronous_cleanup: false,
+-            #[cfg(test)]
+             additional_executable_paths: Vec::new(),
+         }
+     }
+@@ -325,6 +332,7 @@
+ /// sandbox. Directory roots are canonical and executable entries are exact
+ /// canonical files.
+ struct FilesystemBoundary {
++    allow_system_runtime_trees: bool,
+     /// Directories the worker may read from.
+     readable: Vec<PathBuf>,
+     /// Directories the worker may write to.
+@@ -351,9 +359,6 @@
+     let working_directory = canonical_directory(working_directory)?;
+     let mut readable = vec![working_directory.clone()];
+     let mut writable = vec![working_directory];
+-    #[cfg(not(test))]
+-    let executables = vec![canonical_file(executable)?];
+-    #[cfg(test)]
+     let mut executables = vec![canonical_file(executable)?];
+ 
+     readable.push(derived_read_root(executable)?);
+@@ -372,7 +377,9 @@
+     for path in &limits.additional_readable_paths {
+         readable.push(canonical_directory(path)?);
+     }
+-    #[cfg(test)]
++    for path in &limits.additional_readable_files {
++        readable.push(canonical_file(path)?);
++    }
+     for path in &limits.additional_executable_paths {
+         executables.push(canonical_file(path)?);
+     }
+@@ -383,6 +390,7 @@
+     }
+ 
+     Ok(FilesystemBoundary {
++        allow_system_runtime_trees: limits.allow_system_runtime_trees,
+         readable: collapse_roots(readable),
+         writable: collapse_roots(writable),
+         executables,
+@@ -471,6 +479,7 @@
+ /// Shared directories that must never become a worker read root even though
+ /// they are deep enough to pass the component check.
+ const BROAD_READ_ROOTS: &[&str] = &[
++    "/nix/store",
+     "/usr/bin",
+     "/usr/sbin",
+     "/usr/lib",
+@@ -729,6 +738,10 @@
+ /// Destructuring rather than dropping keeps the documented order explicit: the
+ /// guard kills the tree first, and only then is the process handle awaited.
+ async fn terminate(contained: ContainedChild) {
++    let _ = terminate_reaped(contained).await;
++}
++
++pub(crate) async fn terminate_reaped(contained: ContainedChild) -> std::io::Result<()> {
+     let ContainedChild {
+         guard,
+         mut process,
+@@ -739,9 +752,16 @@
+     // the tree down first, the process handle is reaped next, and the protocol
+     // pipes are released last.
+     drop(guard);
+-    let _ = tokio::time::timeout(TERMINATION_GRACE, process.wait()).await;
++    let result = tokio::time::timeout(TERMINATION_GRACE, process.wait()).await;
+     drop(stdin);
+     drop(stdout);
++    match result {
++        Ok(result) => result.map(|_| ()),
++        Err(_) => Err(std::io::Error::new(
++            std::io::ErrorKind::TimedOut,
++            "perception cleanup did not settle",
++        )),
++    }
+ }
+ 
+ /// A launch failure that is deterministic for this host: retrying cannot make
+@@ -826,6 +846,7 @@
+             "/etc",
+             "/usr/lib",
+             "/usr/local",
++            "/nix/store",
+             "/Users/someone",
+             "/home/someone",
+             "/private/var",
+@@ -902,11 +923,13 @@
+         assert!(boundary.readable.contains(&canonical_working));
+         assert_eq!(boundary.writable, vec![canonical_working]);
+         // The caller's home directory and the temporary root are never granted.
+-        assert!(!boundary
+-            .readable
+-            .iter()
+-            .any(|root| root == Path::new("/tmp")
+-                || root == Path::new("/private/tmp")
+-                || home_directory().is_some_and(|home| *root == home)));
++        assert!(
++            !boundary
++                .readable
++                .iter()
++                .any(|root| root == Path::new("/tmp")
++                    || root == Path::new("/private/tmp")
++                    || home_directory().is_some_and(|home| *root == home))
++        );
+     }
+ }

@@ -1,0 +1,30 @@
+--- a/vendor/cua/crates/cua-spaces-transcript/Cargo.toml
++++ b/vendor/cua/crates/cua-spaces-transcript/Cargo.toml
+@@ -1,16 +1,19 @@
+ [package]
+ name = "cua-spaces-transcript"
+-version.workspace = true
+-edition.workspace = true
+-rust-version.workspace = true
+-authors.workspace = true
+-license.workspace = true
+-repository.workspace = true
++version = "0.1.0"
++edition = "2024"
++rust-version = "1.97"
++authors = ["trycua"]
++license = "MIT"
++repository = "https://github.com/trycua/cua"
+ publish = false
+ 
++# Standalone import; retains upstream MSRV and relative fixture layout.
++[workspace]
++
+ [dependencies]
+-serde_json = { workspace = true }
+-thiserror = { workspace = true }
++serde_json = "1"
++thiserror = "2"
+ 
+ [[bin]]
+ name = "cua-spaces-fixtures"

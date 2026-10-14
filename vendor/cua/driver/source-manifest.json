@@ -1,0 +1,606 @@
+{
+  "upstream": "trycua/cua",
+  "revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+  "files": [
+    {
+      "path": "crates/cua-driver-core/Cargo.toml",
+      "sha256": "76a3632fb2ea88ac4b7649252111ee0ce75bb7bfb76538ccc8dde91d2c439433"
+    },
+    {
+      "path": "crates/cua-driver-core/examples/history_hook_bench.rs",
+      "sha256": "539c988eae34bf87b5f91596eaf4ca0055dea6797b86888a07c3169e923d7487"
+    },
+    {
+      "path": "crates/cua-driver-core/src/action_record.rs",
+      "sha256": "259649d6a1f81f9dcea1e587918960adaab8c7f1706d815a251e6b19a171b698"
+    },
+    {
+      "path": "crates/cua-driver-core/src/action_target.rs",
+      "sha256": "bf4f928831474634551c630ffaa9aefb80c5e855afafe3cff93395f25be8a616"
+    },
+    {
+      "path": "crates/cua-driver-core/src/agent_cursor.rs",
+      "sha256": "41d47d47cc8ec85a70715f017f8c7a9383ab0b252d20855e22f025710dba93de"
+    },
+    {
+      "path": "crates/cua-driver-core/src/authorization.rs",
+      "sha256": "1b55a8696da7df98455833a7c1f6d1851eb9a60520050dd76143883820ecc827"
+    },
+    {
+      "path": "crates/cua-driver-core/src/background_input.rs",
+      "sha256": "05dea089f494f0a64f33b87349aaa4a9ed8b5e254ce91cd5efa5b0426c2dec99"
+    },
+    {
+      "path": "crates/cua-driver-core/src/batch_tools/flow_tests.rs",
+      "sha256": "f643209866c364f850531b93b09bf8c73556aae30762b39774a5c504489fe6e3"
+    },
+    {
+      "path": "crates/cua-driver-core/src/batch_tools/locate.rs",
+      "sha256": "5ada1ad04d21c57fbde9616b478fe7b2608ce461f4e70d456771d2a520ab8602"
+    },
+    {
+      "path": "crates/cua-driver-core/src/batch_tools/reliability_tests.rs",
+      "sha256": "47300f42a5b1cd9f5caccb1874d372e147d50044d3aa2113fd7cb242a276e4d4"
+    },
+    {
+      "path": "crates/cua-driver-core/src/batch_tools/tests.rs",
+      "sha256": "065e8852da4ff904ca224a2b72756d227ada37e694293b009fa6d67a501425a9"
+    },
+    {
+      "path": "crates/cua-driver-core/src/batch_tools.rs",
+      "sha256": "21a1854291e1b307aad01075b3d38855cb77fe740bec2c3a3232f9524be0d101"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/adapter_support.rs",
+      "sha256": "e144026e18aaa2847827fec8c984fd1ffddf4c345bd119cce1b1db852d754a88"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/binding.rs",
+      "sha256": "edb81f39727b61b20abf9ba1c5e6bd19614afa518991284759731caeeeef2afc"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+      "sha256": "6ef8615cd552a62819ae2296fd5476dd97a3e0790c853c2156353c024baf99c7"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/download.rs",
+      "sha256": "a8a54027ad28f217f50a94ccbd4e47b73a73ab8e458bf964a4c3a6b593638389"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/engine.rs",
+      "sha256": "41fcef8e6c9963a70eb639640e85e7a01058049f9a450670062e3d82ab165d49"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/grant.rs",
+      "sha256": "9ad8a69e1d3cd5b4240c984af7e143af7bfd11a169f7e21dc1bbe96061b8bcd1"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/keyed_gates.rs",
+      "sha256": "7156bd7b51c57410937ce9a20ff962a577ab500aabaa3ce1aa1020435e4d9dcf"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/mock_cdp.rs",
+      "sha256": "518c8f6f0a1bdc89cbe504d8d867acbc644f139f19553f60dc03fdc0512e9d21"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/mod.rs",
+      "sha256": "6fa6f1dfacc6029328ac40138d82bd2241af9bcf210d93cb6edbf0b7800481c5"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/mutation.rs",
+      "sha256": "fdf9dbf57e2a1301ddaf060341ed1ede5364ad9dc756f0c033f8dba26532cee6"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/platform.rs",
+      "sha256": "18b3083128098ed9e44401700821a7f58d5a32cd40705ea91123b642a674359b"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/pointer.rs",
+      "sha256": "9b4b491c6b66c16915c589d0a043bd77fab308c6fa58637ae9e89f7417b8b50e"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/prepare.rs",
+      "sha256": "d79baceddd4f13a4065fa0111af8061c37253223ee116a55f708a954164c598e"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/reconnect.rs",
+      "sha256": "480c0b7e9c0bb69f51f66170704362af64c87fe8dadd9dee1f233dd25b363f73"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/refusal.rs",
+      "sha256": "c3c295666085d25ffadf23757eee7b07ba5ae891b7f999182c0a341e5299d97a"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/semantic.rs",
+      "sha256": "85197f91395113aadc4bd55970834437f9dfe5f3981955ae0f9d07adc990d6c1"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/setup_descriptor.rs",
+      "sha256": "b6c188a2ef38b0d5192992f02e90fb5dc2329a4d58fa9838980373f3e1d15cca"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/store.rs",
+      "sha256": "48364ebe08e2c0c472e644cbd8f5fec5f8380d60c3f4819a159836cf1080b99d"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/tools.rs",
+      "sha256": "be2bd85f2bb5c1804301beced4ad4dd525d32a3a7e2e48e5509e91ef5f1fd849"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/types.rs",
+      "sha256": "feaf155c9ea28cede5a589967e65460d09b011fcea5a79904b0daed38211aa34"
+    },
+    {
+      "path": "crates/cua-driver-core/src/browser/v2_tests.rs",
+      "sha256": "01c76209b9fc095a1c38a2e81e6caa068fa9a92445ff4c446fe0e8266bc6b75d"
+    },
+    {
+      "path": "crates/cua-driver-core/src/build_info.rs",
+      "sha256": "9efd9e35c518cca1eca406f4514b589a7aebd0000c44533f9414cc4906ad3806"
+    },
+    {
+      "path": "crates/cua-driver-core/src/capture_mode.rs",
+      "sha256": "5be32d743667e2f23d96fb499f4a873787aab4a3e206d2d02bfccb7d45480600"
+    },
+    {
+      "path": "crates/cua-driver-core/src/capture_registry.rs",
+      "sha256": "4d7b2694ca19d338c28efe8143b4a3542eca9f7493ee13b84df1395fe6d4fe9e"
+    },
+    {
+      "path": "crates/cua-driver-core/src/capture_runtime.rs",
+      "sha256": "ef4ab0074ddff82c0200c085b1edcd92e949067cd271019e58c3a2c782532d2e"
+    },
+    {
+      "path": "crates/cua-driver-core/src/capture_scope.rs",
+      "sha256": "893ff1a4a37c500fdd06090ba358e305a2e7baa35428d33e7d40bdd3bee55e4f"
+    },
+    {
+      "path": "crates/cua-driver-core/src/cdp.rs",
+      "sha256": "14c0a7475886a4385f442113e89b26e60e545a145524bbeebc803830e336e630"
+    },
+    {
+      "path": "crates/cua-driver-core/src/clipboard.rs",
+      "sha256": "dbf8f93eee68a9a0bfc4af4e6a7687a06e9379871ba9222a05a79fe9bcb25d03"
+    },
+    {
+      "path": "crates/cua-driver-core/src/consent.rs",
+      "sha256": "fbaf3a714c97c670571270804c8519f3a5cbea7ab59260bd64489ac3e27f96f1"
+    },
+    {
+      "path": "crates/cua-driver-core/src/cursor_events.rs",
+      "sha256": "1ed32eec03f0d1efab98bac3455f53fa5baa693b1086b01f3e21caac6805325c"
+    },
+    {
+      "path": "crates/cua-driver-core/src/cursor_hook.rs",
+      "sha256": "3a0b4d3b37d899361e33305f5570a384c26fd41c4de3e890d5e481c3957e2ba5"
+    },
+    {
+      "path": "crates/cua-driver-core/src/cursor_sampler.rs",
+      "sha256": "a4d96de7054d61fa44447acb56000f5cdad5767a2209db041c0a8c6be7c5bdda"
+    },
+    {
+      "path": "crates/cua-driver-core/src/cursor_shape.rs",
+      "sha256": "799551a2696e683334d72679b5f290b5848968251bbe4d46326f777b17c18834"
+    },
+    {
+      "path": "crates/cua-driver-core/src/daemon.rs",
+      "sha256": "1c06afb2a576f62317c32e709136f463520eca851009a93f3835973af507848f"
+    },
+    {
+      "path": "crates/cua-driver-core/src/delivery.rs",
+      "sha256": "93cabfd9967738a53379fd6d4f38519006a04755f8c25cd50e40873c8381a05f"
+    },
+    {
+      "path": "crates/cua-driver-core/src/desktop_capture_scale.rs",
+      "sha256": "2be72dfc4364e8cb2d7aed4e0d16b9810497d340115e746cf59abdd70dd5c7bf"
+    },
+    {
+      "path": "crates/cua-driver-core/src/element_frame.rs",
+      "sha256": "286aceae9d725d37d6ee43707050445061043b4af90b9c7071e5e6d687e1d0df"
+    },
+    {
+      "path": "crates/cua-driver-core/src/element_query.rs",
+      "sha256": "123ebde69bd76afbb237d84715cb96504d088feec8d54d9d17dd79b2e9b595cb"
+    },
+    {
+      "path": "crates/cua-driver-core/src/element_token.rs",
+      "sha256": "118874069d701cf6d710656b9d92bfe1ad225436bbbf2d957b412325507a0721"
+    },
+    {
+      "path": "crates/cua-driver-core/src/expectation.rs",
+      "sha256": "1ce170608152331889c9b24d6c0d4fbfe60cdcc2f06d0c965a088e8377356800"
+    },
+    {
+      "path": "crates/cua-driver-core/src/ffmpeg_install.rs",
+      "sha256": "5b0c3d5fc8cdb3c6e8bed78954f5ed8905bf5f682606402cf5f2e1d479c92eb7"
+    },
+    {
+      "path": "crates/cua-driver-core/src/health_report.rs",
+      "sha256": "b6de8e125357edefec3b28e2dd7523fb616c9f741902024e53fbd3818285f2ac"
+    },
+    {
+      "path": "crates/cua-driver-core/src/history.rs",
+      "sha256": "b2fb453345b5e92e723df7fe8e06a45b26b03328089e536856ce75f78d06b921"
+    },
+    {
+      "path": "crates/cua-driver-core/src/image_utils.rs",
+      "sha256": "8a034848008644ab1b02d13427a67f8df68a47efb31d8ae3b854d6bf8eb98fc8"
+    },
+    {
+      "path": "crates/cua-driver-core/src/interactive_input/gestures.rs",
+      "sha256": "8da88148f647d96ec9874265fb2755f808d2fa2d42e7d52481d654e9bdd119d7"
+    },
+    {
+      "path": "crates/cua-driver-core/src/interactive_input.rs",
+      "sha256": "1d89bf4dcde7b0ecf7c5757880a5325441297e1eab1db944faa64f47b14cc9e3"
+    },
+    {
+      "path": "crates/cua-driver-core/src/key_pacing.rs",
+      "sha256": "9d84728a6d9b4ffd1b8dba8cb5fbb7622b0da981389e56513e6b0dc73fbc3357"
+    },
+    {
+      "path": "crates/cua-driver-core/src/launch_guard.rs",
+      "sha256": "d5fe3897fddb2f2fc903edfad13e19c06dba0586ab9f6f320ce9c9e4b7bab2eb"
+    },
+    {
+      "path": "crates/cua-driver-core/src/lib.rs",
+      "sha256": "501a0acdfdbb0bc2960ce01843bc6287ab99fb66bf3bdf2bef0bb1ae0a72ae4d"
+    },
+    {
+      "path": "crates/cua-driver-core/src/mcp_result.rs",
+      "sha256": "c54702c6a26eb5a7c8aeadd8a9d2f30d295b6f33034408f725b718761c657ee9"
+    },
+    {
+      "path": "crates/cua-driver-core/src/mcp_skills.rs",
+      "sha256": "c999d6a705d6198244e6f3712e56f667ead0010d882bef68a961d4cb6fc08424"
+    },
+    {
+      "path": "crates/cua-driver-core/src/mcp_wire.rs",
+      "sha256": "a9579e27b91048b7d650e2725ad53b8f029b0c4525895b0997d65e538c41650c"
+    },
+    {
+      "path": "crates/cua-driver-core/src/page.rs",
+      "sha256": "3b7df1a69f8fc670be3cc1696d7048ab4421394dcee5d2207bdfe1f64cfc1aa1"
+    },
+    {
+      "path": "crates/cua-driver-core/src/perception_client/containment/linux.rs",
+      "sha256": "3b03f634f85dfabe5684a0b30682b20b8577ed3451db704a1d941471d1611a8b"
+    },
+    {
+      "path": "crates/cua-driver-core/src/perception_client/containment/macos.rs",
+      "sha256": "3586eee0cb5477fbbdd3848da110da8dc8f68704606c167d95fd8a3b7cd6d795"
+    },
+    {
+      "path": "crates/cua-driver-core/src/perception_client/containment/unix.rs",
+      "sha256": "63ae9dcefc540efaed52e47c152d8a2684473254948173913d27cb6393d34801"
+    },
+    {
+      "path": "crates/cua-driver-core/src/perception_client/containment/unsupported.rs",
+      "sha256": "2897e4e606c9ab6cba0d431cef3a9c69fc2e5e6b44b41b64222b004a0b48d3f1"
+    },
+    {
+      "path": "crates/cua-driver-core/src/perception_client/containment/windows.rs",
+      "sha256": "e23fdfc00033f4613b77f7348b63e61915b34f785e71802a467a50b90ddd2014"
+    },
+    {
+      "path": "crates/cua-driver-core/src/perception_client/containment.rs",
+      "sha256": "60d99c96973a0d07c5e7f0003e782d8c8c2bdc6bf4f17a31d61ea4cadc375aff"
+    },
+    {
+      "path": "crates/cua-driver-core/src/perception_client.rs",
+      "sha256": "3618a6fd472a9891baaf10e8e7ad0569cb78149e4132385e7c0b03671270e974"
+    },
+    {
+      "path": "crates/cua-driver-core/src/perception_tools.rs",
+      "sha256": "c3c016b5150179ff6f67217d559a772c458ceb5ff0da83589d4e08a5e8a5c76c"
+    },
+    {
+      "path": "crates/cua-driver-core/src/pip_hook.rs",
+      "sha256": "89c80a81a76465eb92fddf302a19560c07685be989eb93e5fa6112ad2b34e410"
+    },
+    {
+      "path": "crates/cua-driver-core/src/pointer_shape.rs",
+      "sha256": "23c065684af68f3a5df48a186a1fed16ece8f7f0993511064abfb00932b2da7f"
+    },
+    {
+      "path": "crates/cua-driver-core/src/policy.rs",
+      "sha256": "01b166439382adf190f0425dfd380040840e12d3ac84c2f3fc814466ba8ac92b"
+    },
+    {
+      "path": "crates/cua-driver-core/src/protocol.rs",
+      "sha256": "acb990cdd4ffe1a074b57eff48944bea5b24d7798679bc2a302f118a3cefc9fb"
+    },
+    {
+      "path": "crates/cua-driver-core/src/recording.rs",
+      "sha256": "14f38d668ea0a3e63d20825b5d0597dedc9a90dc880a323b652e01b53e4f4d32"
+    },
+    {
+      "path": "crates/cua-driver-core/src/recording_loader.rs",
+      "sha256": "166386e9b1e796c242f8cf0dc31e62356a49690dfd0b51a21f972ea335d8fa76"
+    },
+    {
+      "path": "crates/cua-driver-core/src/recording_render.rs",
+      "sha256": "6d6d8662ebc11415c79654d29a4d3a3d49996b9da36009bcbdd20f7c49474a31"
+    },
+    {
+      "path": "crates/cua-driver-core/src/recording_tools.rs",
+      "sha256": "89977862c2f521815d08b410896dd51a1464edba6d575b81008f899a51806537"
+    },
+    {
+      "path": "crates/cua-driver-core/src/recording_zoom.rs",
+      "sha256": "15f7d3eac89363c1e559d49c2174ff4c04fa7cd66d0748f29fc8a9422ba2d52c"
+    },
+    {
+      "path": "crates/cua-driver-core/src/script_tool/engine.rs",
+      "sha256": "fa61393ba5b685df34858a81e8e32e8fbdab77e17f2e1094514b43510891242d"
+    },
+    {
+      "path": "crates/cua-driver-core/src/script_tool/prelude.js",
+      "sha256": "af23eaf9c7c198f7feb6ac38e26c94d5b4d76bc0b794c491b80adb9933ed2865"
+    },
+    {
+      "path": "crates/cua-driver-core/src/script_tool/tests.rs",
+      "sha256": "c53358c5d4ebf5bffc44ede142f429056f85415e0755d14e60e5e33a60f5cc70"
+    },
+    {
+      "path": "crates/cua-driver-core/src/script_tool.rs",
+      "sha256": "95ee480ef60afbe28237d21ff3da23a6776ffd22e0d0d3daebe62d93c1c89ce4"
+    },
+    {
+      "path": "crates/cua-driver-core/src/server.rs",
+      "sha256": "6c9e928cddd44b9ec38c39340fb8f3b47d7230af05f359dc164b25131740ed97"
+    },
+    {
+      "path": "crates/cua-driver-core/src/session.rs",
+      "sha256": "606f8857adb9e9111f2cf7692077b7a070525ab8087b7e621b1328ae18c0ed18"
+    },
+    {
+      "path": "crates/cua-driver-core/src/session_authorization.rs",
+      "sha256": "7926bfe6f604ec35eb102dc20b38e25ba4d968fcce420a6f7a31d115d07292fc"
+    },
+    {
+      "path": "crates/cua-driver-core/src/session_manifest.rs",
+      "sha256": "f2b440a88292a625ab5157201a0dd0c02c84bff162762cf76c76e1e90732db1a"
+    },
+    {
+      "path": "crates/cua-driver-core/src/session_tools.rs",
+      "sha256": "e877bbf487c53874dddd1c68498c76143dde42675115ad6e50a372cf16bc685b"
+    },
+    {
+      "path": "crates/cua-driver-core/src/single_flight.rs",
+      "sha256": "618391ffe2263e526bb31790ebd82a0fd7139ed3ee525da7991cc0c74432d4e7"
+    },
+    {
+      "path": "crates/cua-driver-core/src/snapshot_store.rs",
+      "sha256": "3e516a89e68fd7e9da6ef730bff94e8108b9bae0e62e5e77f5e9909f33e3edd1"
+    },
+    {
+      "path": "crates/cua-driver-core/src/snapshot_test_support.rs",
+      "sha256": "9a3306f46cf71c3668af8b8cfce2b88b98913fdb5bd164b5be8c3d9c4ee57b77"
+    },
+    {
+      "path": "crates/cua-driver-core/src/socket_io.rs",
+      "sha256": "a981bf695d495e13e490a03a0eb4627ef1dcabf908e98acc9c25c2166d688c51"
+    },
+    {
+      "path": "crates/cua-driver-core/src/text_sanitize.rs",
+      "sha256": "5ff0a01d9b979157e7c284e9217b6c391c20b752754a85d3af487cfe25bc21de"
+    },
+    {
+      "path": "crates/cua-driver-core/src/timestamp.rs",
+      "sha256": "d0345e148eaf26a2f8710a7c3b0fa0c7a51689dba637d518623b44fba1a595c7"
+    },
+    {
+      "path": "crates/cua-driver-core/src/tool.rs",
+      "sha256": "dbe728976ac6de43841aebe128f77e94ee6437cb88ee800b9c87fdfee8dac168"
+    },
+    {
+      "path": "crates/cua-driver-core/src/tool_args.rs",
+      "sha256": "aad4935ab17c72f718b1427b86db34821167d711d165ff246eb2f194d94bd110"
+    },
+    {
+      "path": "crates/cua-driver-core/src/tool_schema.rs",
+      "sha256": "8896b41fd3e9329c275aa78bfc1116001d35a21113d8971131c8b00bb177544c"
+    },
+    {
+      "path": "crates/cua-driver-core/src/video.rs",
+      "sha256": "84ab5377e52de87231ef6c3d36dd5473dfa1a0e0d9d28eb5084116559a089e22"
+    },
+    {
+      "path": "crates/cua-driver-core/src/video_ffmpeg.rs",
+      "sha256": "fc7b1fec2ba14f0a1136e1e3f9a740c6451f0d05554f1fc683af399631c9fed8"
+    },
+    {
+      "path": "crates/cua-driver-core/src/walk_budget.rs",
+      "sha256": "9a0ea50059adae1bb3bc96071aead65c66b663a0f07380705814847f6a92b1e4"
+    },
+    {
+      "path": "crates/cua-driver-core/src/window_inspection.rs",
+      "sha256": "781126acd03bbe7a7857322f302452b377f1c5d64583c7df3c462e92fdee61db"
+    },
+    {
+      "path": "crates/cua-driver-core/src/window_observation.rs",
+      "sha256": "8546327e363a7af05a4acf61aab13a86b43bb4a8d718e7ae06a52daafa72dae2"
+    },
+    {
+      "path": "crates/cua-driver-core/src/window_state_view.rs",
+      "sha256": "d626950796651cee184b3435f83c9a33f53027ba4b45fc5723014bf2659c79da"
+    },
+    {
+      "path": "crates/cua-driver-core/src/window_target.rs",
+      "sha256": "d1f76db25a4355f0155c0aab34cc234b2ff6a4c3b329169057225ffce52a2777"
+    },
+    {
+      "path": "crates/cua-driver-core/tests/contract_parity.rs",
+      "sha256": "dcb800b869a632aeb9139de14703f7c35fbc7dc23344559def8bd83930ebec01"
+    },
+    {
+      "path": "crates/cua-driver-core/tests/cursor_hook_inert.rs",
+      "sha256": "3a4323959f99611a88be9aa66cac78aceb15cda62196cefa423d828dd20d1fac"
+    },
+    {
+      "path": "crates/cua-driver-core/tests/cursor_hook_platform_support.rs",
+      "sha256": "5047cd5266f340ad7eb0c4fbd36af2925cabfb4a37b24a3cfbed3130486472cc"
+    },
+    {
+      "path": "crates/cua-driver-core/tests/cursor_hook_registered.rs",
+      "sha256": "59c02924ada7dc695db25e398c2af71dbb08d3631ff3ecf25a4f2c06776be22c"
+    },
+    {
+      "path": "crates/cua-driver-core/tests/fixtures/failing_encoder.rs",
+      "sha256": "9f77c3310d74763ad505a36a38b6b590f76102d460cb1a82389bd885f9d2b299"
+    },
+    {
+      "path": "crates/cua-driver-core/tests/recording_semantic_evidence.rs",
+      "sha256": "7e1a4b0579efe75b8de7a20982c92057f2e5acf1cb060689abc4a2bb0738905a"
+    },
+    {
+      "path": "crates/cua-driver-core/tests/recording_shutdown_errors.rs",
+      "sha256": "8c11df7aa1d401567360cde0a587e9a5c19ae9f8f8cccba600e8e62e6f7f12fc"
+    },
+    {
+      "path": "crates/cua-driver-core/tests/recording_transport_identity.rs",
+      "sha256": "1f3187ce8193092cf2bcd69abe14c755e863de3c2c27a8f8b5ecba0016e4aca4"
+    },
+    {
+      "path": "crates/cua-driver-core/tests/recording_turn_latency.rs",
+      "sha256": "39d47b46864bfee2f426068ce5c8fa9ef05d1cb2713e64fcd9906c479edd0598"
+    },
+    {
+      "path": "crates/cua-driver-core/tests/session_lifecycle.rs",
+      "sha256": "00886ad2be66781537052e7504a55f42a9c92443f9243c7784c3334974ac03de"
+    },
+    {
+      "path": "crates/cua-driver-core/tests/snapshot_dispatch_invariants.rs",
+      "sha256": "1219842f258fe1d7a78de9265f89c984bc6fa5b9aaba3dcba5b35e5cbfeef18b"
+    },
+    {
+      "path": "crates/cua-driver-core/tests/snapshot_invariants.rs",
+      "sha256": "78bee36b7d1d6684f0d7dc5ca8aa96bfd9379fd854a92760c34712d31d538d20"
+    },
+    {
+      "path": "crates/cua-driver-core/tests/tool_arguments_boundary.rs",
+      "sha256": "c06fa2293c14621818d32f61343e30cbeac92e53b11448abc157b31ce48dc6fc"
+    },
+    {
+      "path": "crates/cua-driver-contract/Cargo.toml",
+      "sha256": "a0bfc462c279b13e3021325ffdfcb9240848f54273a5a4b8fc0d9a92a99528ac"
+    },
+    {
+      "path": "crates/cua-driver-contract/src/bin/cua-contract-gen.rs",
+      "sha256": "09628932fdc64543be7720c95df6ecf9b4ed46c1593afbfde42cfda4508857c4"
+    },
+    {
+      "path": "crates/cua-driver-contract/src/compatibility.rs",
+      "sha256": "df60cf3567ce9bffa3f8ee93d038afc83c8eba5a43bda3321be96550f3889896"
+    },
+    {
+      "path": "crates/cua-driver-contract/src/cursor.rs",
+      "sha256": "8a1650ef9db3c0de7b7b4a70a803312f788afbbf4b031499703ef8952d7080f9"
+    },
+    {
+      "path": "crates/cua-driver-contract/src/cursor_tools.rs",
+      "sha256": "06ef1d12c50b3702c9c6a5fb2da7bbc62e2523998e87c6b44c57a5c84f5221a3"
+    },
+    {
+      "path": "crates/cua-driver-contract/src/desktop.rs",
+      "sha256": "61b3702c1fad4752b2bfcae5f34b553fc7f5eb23278dea82f43f693b68c54e28"
+    },
+    {
+      "path": "crates/cua-driver-contract/src/inputs.rs",
+      "sha256": "b6bcff700f05cbee2d9b46fa7dfd4f8583bbae1f2aa0a447e961a806f55291b3"
+    },
+    {
+      "path": "crates/cua-driver-contract/src/lib.rs",
+      "sha256": "53c6a9cd219301b2e0d1708a5d9630e31a609cc8032f3a4b30936b2237d463c2"
+    },
+    {
+      "path": "crates/cua-driver-contract/src/outputs.rs",
+      "sha256": "039acc1413f902c741ee0849a89eb00c96517ef852f8948da770615073e06931"
+    },
+    {
+      "path": "crates/cua-driver-contract/src/session.rs",
+      "sha256": "977a95159947ad07b3dc9e19aeb6cf8db1f71494b286cc1182f300e50cfe957d"
+    },
+    {
+      "path": "crates/cua-driver-contract/src/verification.rs",
+      "sha256": "3345671784de3113dd281b3eab14f4efdb519e9f6d19d313222ae6ad21bf3aa5"
+    },
+    {
+      "path": "crates/cua-driver-contract/src/visual.rs",
+      "sha256": "54d4519110e14f84f2184982c29c994ae027e7989adc0d2353338768a2447686"
+    },
+    {
+      "path": "crates/cua-driver-contract/src/windows.rs",
+      "sha256": "7d119f50cfbc83d0d02d8e278835195de97694c0593e7f1fcda4d85ab0281d68"
+    },
+    {
+      "path": "crates/cua-driver-contract/tests/fixtures/parse-visual-regions-output-full-v1.json",
+      "sha256": "05ba47e3229c0b79f657d81a51a40f554592c09207e5645d690b50ea1a5d4228"
+    },
+    {
+      "path": "crates/cua-driver-contract/tests/fixtures/parse-visual-regions-request-full-v1.json",
+      "sha256": "414f612b7594ff4eb66941328ec2744eae5c5b5c902593afd2d6e076b999f70c"
+    },
+    {
+      "path": "crates/cua-driver-contract/tests/fixtures/parse-visual-regions-request-minimal-v1.json",
+      "sha256": "4024bd8de4bd7a7c35b54a8dd4ca816e3d30aa12559cf485ed49db3e6d5c20e4"
+    },
+    {
+      "path": "crates/cua-driver-contract/tests/fixtures/visual-parse-errors-v1.json",
+      "sha256": "0dc0b3ebb7724de1489f18af1cdc2032065abab3b6f7451bbd594048b559a534"
+    },
+    {
+      "path": "crates/cua-driver-contract/tests/visual_contract.rs",
+      "sha256": "e853ab03b6ffde6c7567aa0034fc6514711a0d23d901ce6054de0b8b4d32bf6e"
+    },
+    {
+      "path": "crates/cua-driver-contract/uniffi.toml",
+      "sha256": "3213462d1ca26b1aee8b0ddf63120e5dfdac4e1876217e95c0bb277830c72873"
+    },
+    {
+      "path": "Skills/cua-driver/BROWSER.md",
+      "sha256": "2fef722b8fbefe78a3b50ca2d0a3130aded65758b7b496b497d47dd97c6a93e0"
+    },
+    {
+      "path": "Skills/cua-driver/EMBEDDING.md",
+      "sha256": "e090a7dc065d181da6e28b7bd29807a56086a459adbf9a355a36502702a1f46a"
+    },
+    {
+      "path": "Skills/cua-driver/LINUX.md",
+      "sha256": "0560bc227d2e1d6f5a6da6ebd3bc9b1149b85580f7d2170f9882ce86e2c3fc6e"
+    },
+    {
+      "path": "Skills/cua-driver/MACOS.md",
+      "sha256": "ce051cd937fc2a45fa5442ca3b25c7525eae199d27f4b6c3837dac3c7dfbb45a"
+    },
+    {
+      "path": "Skills/cua-driver/README.md",
+      "sha256": "3e6e3266a0a8a7249ac57f9be6eaaeeee68336789c7c4556d14889d0e8a0ca65"
+    },
+    {
+      "path": "Skills/cua-driver/RECORDING.md",
+      "sha256": "6d1d5f8ff192f37bd9c67efcda59154f3242b0fae72e86ba7e2ba5a4899fd248"
+    },
+    {
+      "path": "Skills/cua-driver/RUNTIME.md",
+      "sha256": "79d8fa37b29ba4008805629afaaf61bb880a2f476ed79e1939bb5dc2362081a2"
+    },
+    {
+      "path": "Skills/cua-driver/SKILL.md",
+      "sha256": "752b620d5d42a9692caae141895d114e9c4f2b17f742060c671ad80795b984bd"
+    },
+    {
+      "path": "Skills/cua-driver/VISUAL.md",
+      "sha256": "66aa0fadd643ee4cd0deda751af1f3ebc2cec0b77607eec61c9b2a4ee7d4a256"
+    },
+    {
+      "path": "Skills/cua-driver/WINDOWS.md",
+      "sha256": "21bf71d599c7481a10b3ecb9d02731c72b34b21367e769d554c9341071bf837d"
+    },
+    {
+      "path": "Skills/cua-driver/WORKFLOW.md",
+      "sha256": "79f24525aa70bb3925aa56831a069a2a40f50eaf37f3522c1902c300330aa135"
+    }
+  ]
+}

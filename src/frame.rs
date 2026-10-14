@@ -16,7 +16,9 @@ use crate::tray::{TrayAction, TrayHandle, TrayImageCache, TrayItem, TrayMenu, Tr
 const CORNER_RADIUS: f32 = 28.;
 const LAUNCHER_BUTTON_SIZE: f32 = 36.;
 const TOP_BAR_GAP: f32 = 3.;
-const TOP_BAR_BUTTON_WIDTH: f32 = 14.;
+const TOP_BAR_BUTTON_WIDTH: f32 = 18.;
+const TOP_BAR_ICON_SIZE: f32 = 12.;
+const SYSTEM_BUTTON_SIZE: f32 = 20.;
 
 struct FrameView {
     tray: TrayHandle,
@@ -26,6 +28,7 @@ struct FrameView {
     _host_observer: gpui::Subscription,
     speech_wake: Option<(Instant, gpui::Task<()>)>,
     open_menu: Option<(String, TrayItem)>,
+    menu_reveal: crate::design::MenuReveal,
     menu_data: Option<TrayMenu>,
     active_submenu: Option<i32>,
     hovered_menu_item: Option<i32>,
@@ -35,6 +38,14 @@ struct FrameView {
     launcher_hovered: bool,
     wlsunset_hovered: bool,
     theme_hovered: bool,
+    audio_hovered: bool,
+    audio_drag: Option<(f32, u8)>,
+    audio_dragged: bool,
+    audio_wave: crate::audio::Wave,
+    _audio_observer: gpui::Subscription,
+    _bluetooth_observer: gpui::Subscription,
+    _clock_observer: gpui::Subscription,
+    _wifi_observer: gpui::Subscription,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -51,59 +62,156 @@ struct HostObservation {
 
 impl gpui::Global for HostObservation {}
 
+struct PowerEvents {
+    _connection: zbus::Connection,
+    properties: zbus::MessageStream,
+    owners: zbus::MessageStream,
+    available: bool,
+}
+impl PowerEvents {
+    async fn subscribe(connection: zbus::Connection) -> zbus::Result<Self> {
+        let rule = zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .sender("org.freedesktop.DBus")?
+            .interface("org.freedesktop.DBus")?
+            .member("NameOwnerChanged")?
+            .arg(0, "org.freedesktop.UPower")?
+            .build();
+        let mut owners = zbus::MessageStream::for_match_rule(rule, &connection, Some(4)).await?;
+        let rule = zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .sender("org.freedesktop.UPower")?
+            .interface("org.freedesktop.DBus.Properties")?
+            .path_namespace("/org/freedesktop/UPower")?
+            .build();
+        // Installing the second match is itself a bus round-trip. Drain the
+        // first stream concurrently so its bounded queue cannot block replies.
+        let properties = futures_lite::future::race(
+            zbus::MessageStream::for_match_rule(rule, &connection, Some(4)),
+            async {
+                use futures_lite::StreamExt as _;
+                while let Some(Ok(_)) = owners.next().await {}
+                Err(zbus::Error::Failure("power owner stream closed".into()))
+            },
+        )
+        .await?;
+        let proxy = zbus::Proxy::new(
+            &connection,
+            "org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus",
+        )
+        .await?;
+        let mut events = Self {
+            _connection: connection.clone(),
+            properties,
+            owners,
+            available: false,
+        };
+        events.available = events
+            .while_draining(proxy.call("NameHasOwner", &("org.freedesktop.UPower",)))
+            .await?;
+        Ok(events)
+    }
+    async fn while_draining<T>(
+        &mut self,
+        operation: impl std::future::Future<Output = zbus::Result<T>>,
+    ) -> zbus::Result<T> {
+        futures_lite::future::race(operation, async {
+            while self.next().await {}
+            Err(zbus::Error::Failure("power event stream closed".into()))
+        })
+        .await
+    }
+    async fn next(&mut self) -> bool {
+        use futures_lite::StreamExt as _;
+        let event =
+            futures_lite::future::race(async { (false, self.properties.next().await) }, async {
+                (true, self.owners.next().await)
+            })
+            .await;
+        let (owner_changed, Some(Ok(message))) = event else {
+            return false;
+        };
+        if owner_changed {
+            let Ok((_, _, owner)) = message.body().deserialize::<(String, String, String)>() else {
+                return false;
+            };
+            self.available = !owner.is_empty();
+        }
+        true
+    }
+}
+
 pub fn initialize_host_state(cx: &mut App) {
-    use futures_lite::StreamExt as _;
+    let mut vigiland = VigilandProbe::default();
     cx.set_global(HostState {
         power: power::read_status(),
-        vigiland_running: vigiland_running(),
+        vigiland_running: vigiland.read(),
     });
     let task = cx.spawn(async move |cx| {
         let mut power_events = None;
+        let mut schedule = HostRefreshSchedule::new(Instant::now());
         loop {
             if power_events.is_none() {
-                let subscribe = async {
-                    let connection = zbus::Connection::system().await?;
-                    let rule = zbus::MatchRule::builder()
-                        .msg_type(zbus::message::Type::Signal)
-                        .interface("org.freedesktop.DBus.Properties")?
-                        .path_namespace("/org/freedesktop/UPower")?
-                        .build();
-                    let stream =
-                        zbus::MessageStream::for_match_rule(rule, &connection, Some(4)).await?;
-                    Ok::<_, zbus::Error>((connection, stream))
-                };
-                match subscribe.await {
-                    Ok(events) => power_events = Some(events),
-                    Err(error) => eprintln!("Dojo power event subscription unavailable: {error}"),
+                let subscribe =
+                    async { PowerEvents::subscribe(zbus::Connection::system().await?).await };
+                let result = futures_lite::future::race(async { Some(subscribe.await) }, async {
+                    cx.background_executor().timer(Duration::from_secs(1)).await;
+                    None
+                })
+                .await;
+                match result {
+                    Some(Ok(events)) => power_events = Some(events),
+                    Some(Err(error)) => {
+                        eprintln!("Dojo power event subscription unavailable: {error}")
+                    }
+                    None => eprintln!("Dojo power event subscription timed out"),
                 }
             }
-            let fallback = cx.background_executor().timer(Duration::from_secs(10));
-            let disconnected = futures_lite::future::race(
+            let wake = cx.background_executor().timer(
+                schedule
+                    .next_deadline()
+                    .saturating_duration_since(Instant::now()),
+            );
+            let event = futures_lite::future::race(
                 async {
-                    fallback.await;
-                    false
+                    wake.await;
+                    None
                 },
                 async {
                     match power_events.as_mut() {
-                        Some((_, stream)) => !matches!(stream.next().await, Some(Ok(_))),
+                        Some(events) => Some(events.next().await),
                         None => futures_lite::future::pending().await,
                     }
                 },
             )
             .await;
-            if disconnected {
+            if event == Some(false) {
                 power_events = None;
             }
-            let next = cx
+            let (read_power, read_vigiland) = schedule.due(
+                Instant::now(),
+                event.is_some(),
+                power_events.as_ref().is_some_and(|events| events.available),
+            );
+            let (returned_probe, power, running) = cx
                 .background_executor()
-                .spawn(async {
-                    HostState {
-                        power: power::read_status(),
-                        vigiland_running: vigiland_running(),
-                    }
+                .spawn(async move {
+                    let power = read_power.then(power::read_status);
+                    let running = read_vigiland.then(|| vigiland.read());
+                    (vigiland, power, running)
                 })
                 .await;
+            vigiland = returned_probe;
             cx.update(|cx| {
+                let mut next = cx.global::<HostState>().clone();
+                if let Some(power) = power {
+                    next.power = power;
+                }
+                if let Some(running) = running {
+                    next.vigiland_running = running;
+                }
                 if cx.global::<HostState>() != &next {
                     cx.set_global(next);
                 }
@@ -497,6 +605,25 @@ fn launcher_button_bounds(viewport: Size<gpui::Pixels>) -> Bounds<gpui::Pixels> 
     }
 }
 
+fn system_button_bounds(viewport: Size<gpui::Pixels>) -> Bounds<gpui::Pixels> {
+    Bounds::new(
+        point(
+            viewport.width - px(SYSTEM_BUTTON_SIZE / 2. + 13.),
+            viewport.height - px(SYSTEM_BUTTON_SIZE / 2. + 13.),
+        ),
+        Size::new(px(SYSTEM_BUTTON_SIZE), px(SYSTEM_BUTTON_SIZE)),
+    )
+}
+
+fn clock_bounds(viewport: Size<gpui::Pixels>, controls_width: f32) -> Bounds<gpui::Pixels> {
+    let width = 240_f32
+        .min((f32::from(viewport.width) - 2. * (controls_width + RIGHT_INSET as f32 + 8.)).max(0.));
+    Bounds::new(
+        point((viewport.width - px(width)) / 2., px(0.)),
+        Size::new(px(width), px(TOP_BAR_HEIGHT as f32)),
+    )
+}
+
 fn menu_aim_contains(
     previous: gpui::Point<gpui::Pixels>,
     current: gpui::Point<gpui::Pixels>,
@@ -535,27 +662,70 @@ fn submenu_hover_target(
     }
 }
 
-fn vigiland_running() -> bool {
-    use std::os::unix::fs::MetadataExt;
+// Independent deadlines: frequent UPower signals must not trigger process scans
+// or postpone the process reconciliation indefinitely.
+struct HostRefreshSchedule {
+    power: Instant,
+    vigiland: Instant,
+}
+impl HostRefreshSchedule {
+    fn new(now: Instant) -> Self {
+        Self {
+            power: now + Duration::from_secs(10),
+            vigiland: now + Duration::from_secs(10),
+        }
+    }
+    fn next_deadline(&self) -> Instant {
+        self.power.min(self.vigiland)
+    }
+    fn due(&mut self, now: Instant, power_event: bool, subscribed: bool) -> (bool, bool) {
+        let power = power_event || now >= self.power;
+        let vigiland = now >= self.vigiland;
+        if power {
+            self.power = now + Duration::from_secs(if subscribed { 60 } else { 10 });
+        }
+        if vigiland {
+            self.vigiland = now + Duration::from_secs(10);
+        }
+        (power, vigiland)
+    }
+}
 
-    let Ok(metadata) = std::fs::metadata("/proc/self") else {
-        return false;
-    };
-    let Ok(processes) = std::fs::read_dir("/proc") else {
-        return false;
-    };
-    processes.flatten().any(|process| {
-        process
-            .file_name()
-            .as_encoded_bytes()
-            .iter()
-            .all(u8::is_ascii_digit)
-            && process
-                .metadata()
+#[derive(Default)]
+struct VigilandProbe {
+    process: Option<std::path::PathBuf>,
+}
+impl VigilandProbe {
+    fn read(&mut self) -> bool {
+        self.read_at(std::path::Path::new("/proc"))
+    }
+    fn read_at(&mut self, root: &std::path::Path) -> bool {
+        use std::os::unix::fs::MetadataExt;
+        let Ok(metadata) = std::fs::metadata(root.join("self")) else {
+            self.process = None;
+            return false;
+        };
+        let matches = |path: &std::path::Path| {
+            path.metadata()
                 .is_ok_and(|entry| entry.uid() == metadata.uid())
-            && std::fs::read_to_string(process.path().join("comm"))
-                .is_ok_and(|name| name.trim_end() == "vigiland")
-    })
+                && std::fs::read_to_string(path.join("comm"))
+                    .is_ok_and(|name| name.trim_end() == "vigiland")
+        };
+        // Revalidate UID and name, not just PID existence (PIDs can be reused).
+        if self.process.as_deref().is_some_and(matches) {
+            return true;
+        }
+        self.process = std::fs::read_dir(root).ok().and_then(|processes| {
+            processes.flatten().find_map(|process| {
+                let name = process.file_name();
+                (!name.is_empty()
+                    && name.as_encoded_bytes().iter().all(u8::is_ascii_digit)
+                    && matches(&process.path()))
+                .then(|| process.path())
+            })
+        });
+        self.process.is_some()
+    }
 }
 
 impl FrameView {
@@ -585,17 +755,25 @@ impl FrameView {
                 }
             }
         });
+        let bluetooth_observer =
+            cx.observe_global::<crate::bluetooth_ui::BluetoothUi>(|_, cx| cx.notify());
+        let clock_observer = cx.observe_global::<crate::clock::Clock>(|_, cx| cx.notify());
+        let wifi_observer = cx.observe_global::<crate::wifi_ui::WifiUi>(|_, cx| cx.notify());
+        let audio_observer = cx.observe_global::<crate::audio::AudioState>(|_, cx| cx.notify());
         let host_observer = cx.observe_global::<HostState>(|_, cx| cx.notify());
         let tray_items = tray.items();
         let mut tray_images = TrayImageCache::default();
         tray_images.update(&tray_items, window);
         Self {
+            _clock_observer: clock_observer,
+            _wifi_observer: wifi_observer,
             tray_items,
             tray_images,
             _tray_updates: tray_updates,
             _host_observer: host_observer,
             speech_wake: None,
             open_menu: None,
+            menu_reveal: crate::design::MenuReveal::opening(Instant::now()),
             menu_data: None,
             active_submenu: None,
             hovered_menu_item: None,
@@ -605,6 +783,12 @@ impl FrameView {
             launcher_hovered: false,
             wlsunset_hovered: false,
             theme_hovered: false,
+            audio_hovered: false,
+            audio_drag: None,
+            audio_dragged: false,
+            audio_wave: crate::audio::Wave::default(),
+            _audio_observer: audio_observer,
+            _bluetooth_observer: bluetooth_observer,
             tray,
         }
     }
@@ -624,6 +808,7 @@ impl FrameView {
         self.tray.open_menu(&item);
         self.menu_data = self.tray.menu(&key);
         self.open_menu = Some((key, item));
+        self.menu_reveal = crate::design::MenuReveal::opening(Instant::now());
         self.active_submenu = None;
         self.hovered_menu_item = None;
         self.pending_menu_hover = None;
@@ -633,13 +818,7 @@ impl FrameView {
     }
 
     fn close_tray_menu(&mut self, cx: &mut Context<Self>) {
-        self.open_menu = None;
-        self.menu_data = None;
-        self.active_submenu = None;
-        self.hovered_menu_item = None;
-        self.pending_menu_hover = None;
-        self.submenu_bounds = None;
-        self.last_menu_pointer = None;
+        self.menu_reveal.set_open(false, Instant::now());
         cx.notify();
     }
 
@@ -674,6 +853,7 @@ impl FrameView {
                         .mx(px(8.))
                         .w(px(menu_width - 16.))
                         .h(px(tray_menu_row_height(item)))
+                        .flex_shrink_0()
                         .px(px(10.))
                         .flex()
                         .items_center()
@@ -685,7 +865,9 @@ impl FrameView {
                         } else {
                             colors.background.rgb()
                         })
-                        .text_color(if enabled {
+                        .text_color(if self.hovered_menu_item == Some(item_id) {
+                            colors.selection_foreground.rgb()
+                        } else if enabled {
                             colors.foreground.rgb()
                         } else {
                             colors.foreground_muted.rgb()
@@ -852,6 +1034,7 @@ impl Render for FrameView {
         let viewport = window.viewport_size();
         let top_bar_input = [top_bar_input_region(viewport)];
         let launcher_bounds = launcher_button_bounds(viewport);
+        let system_bounds = system_button_bounds(viewport);
         let launcher_hovered = self.launcher_hovered && window.is_window_hovered();
         let wlsunset_hovered = self.wlsunset_hovered && window.is_window_hovered();
         let theme_hovered = self.theme_hovered && window.is_window_hovered();
@@ -871,7 +1054,7 @@ impl Render for FrameView {
         for (index, item) in visible_items.iter().enumerate() {
             let icon: AnyElement = if let Some(image) = self.tray_images.image(&item.key) {
                 img(ImageSource::Render(image))
-                    .size(px(11.))
+                    .size(px(TOP_BAR_ICON_SIZE))
                     .into_any_element()
             } else {
                 div()
@@ -932,10 +1115,108 @@ impl Render for FrameView {
             tray_icons.push(button.into_any_element());
         }
 
+        let audio_volume = cx.global::<crate::audio::AudioState>().volume;
+        let audio_expanded =
+            (self.audio_hovered && window.is_window_hovered()) || self.audio_drag.is_some();
+        let (wave, moving) = self.audio_wave.update(audio_volume, audio_expanded, now);
+        if moving {
+            window.request_animation_frame();
+        }
+        let audio_width = wave[7];
+        let mut audio = div()
+            .id("audio-wave")
+            .aria_label(match audio_volume {
+                Some(v) => format!(
+                    "Volume {} percent{}. Drag or scroll to adjust; click to mute",
+                    v.percent,
+                    if v.muted { ", muted" } else { "" }
+                ),
+                None => "Audio output unavailable".into(),
+            })
+            .w(px(audio_width))
+            .h(px(22.))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_between()
+            .px(px(4.))
+            .cursor_pointer()
+            .on_hover(cx.listener(|this, hovered, _, cx| {
+                this.audio_hovered = *hovered;
+                cx.notify();
+            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
+                    if let Some(volume) = cx.global::<crate::audio::AudioState>().volume {
+                        this.audio_drag = Some((f32::from(event.position.x), volume.percent));
+                        this.audio_dragged = false;
+                        this.close_tray_menu(cx);
+                        cx.stop_propagation();
+                        cx.notify();
+                    }
+                }),
+            )
+            .on_scroll_wheel(cx.listener(|_, event: &gpui::ScrollWheelEvent, _, cx| {
+                let delta = match event.delta {
+                    gpui::ScrollDelta::Lines(p) => p.y,
+                    gpui::ScrollDelta::Pixels(p) => f32::from(p.y) / 12.,
+                };
+                if delta != 0. {
+                    let audio = cx.global::<crate::audio::AudioState>();
+                    if audio.volume.is_some() {
+                        audio.adjust_volume(delta * 2.);
+                    }
+                    cx.stop_propagation();
+                }
+            }));
+        let reveal = ((audio_width - 36.) / 44.).clamp(0., 1.);
+        audio = audio.child(audio_volume_label(reveal, audio_volume, colors));
+        let flatness = (1. - (wave[3] - 2.) / 3.).clamp(0., 1.);
+        let wave_color = if audio_volume.is_none_or(|v| v.muted) {
+            colors.foreground_muted.rgb()
+        } else {
+            colors.foreground.rgb()
+        };
+        audio = audio.child(
+            div()
+                .relative()
+                .flex_1()
+                .h_full()
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(0.))
+                        .right(px(0.))
+                        .top(px(10.))
+                        .h(px(2.))
+                        .rounded(px(2.))
+                        .bg(wave_color)
+                        .opacity(flatness),
+                )
+                .children(wave[..7].iter().enumerate().map(|(index, height)| {
+                    div()
+                        .id(("audio-crest", index))
+                        .w(px(2.5))
+                        .h(px(*height))
+                        .rounded(px(2.))
+                        .opacity(1. - flatness)
+                        .bg(wave_color)
+                })),
+        );
         let tray_count = tray_icons.len();
         let indicator_count = usize::from(vigiland_running);
-        let top_bar_width =
-            124. + (tray_count + indicator_count) as f32 * (TOP_BAR_BUTTON_WIDTH + TOP_BAR_GAP);
+        let top_bar_width = 124.
+            + audio_width
+            + TOP_BAR_BUTTON_WIDTH
+            + TOP_BAR_BUTTON_WIDTH
+            + TOP_BAR_GAP
+            + TOP_BAR_GAP * 2.
+            + (tray_count + indicator_count) as f32 * (TOP_BAR_BUTTON_WIDTH + TOP_BAR_GAP);
+        let clock_bounds = clock_bounds(viewport, top_bar_width);
         let tray_group = div()
             .flex()
             .items_center()
@@ -945,7 +1226,7 @@ impl Render for FrameView {
         let mut top_bar = div()
             .absolute()
             .top(px(0.))
-            .right(px(RIGHT_INSET as f32))
+            .right(px(RIGHT_INSET as f32 - 3.))
             .w(px(top_bar_width))
             .h(px(TOP_BAR_HEIGHT as f32))
             .flex()
@@ -953,6 +1234,105 @@ impl Render for FrameView {
             .justify_end()
             .gap(px(TOP_BAR_GAP))
             .text_color(colors.foreground.rgb())
+            .child(audio)
+            .child(
+                div()
+                    .id("displays-button")
+                    .aria_label("Open display settings")
+                    .w(px(TOP_BAR_BUTTON_WIDTH))
+                    .h(px(18.))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(14.))
+                    .cursor_pointer()
+                    .child(top_bar_icon("\u{f0379}", 0.545))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| {
+                            this.close_tray_menu(cx);
+                            cx.stop_propagation();
+                            if let Some(display) = window.display(cx) {
+                                if let Err(error) = crate::displays_ui::toggle(display.id(), cx) {
+                                    eprintln!("Dojo could not open display settings: {error:#}");
+                                }
+                            }
+                        }),
+                    ),
+            )
+            .child(
+                div()
+                    .id("wifi-button")
+                    .aria_label("Open network menu")
+                    .w(px(TOP_BAR_BUTTON_WIDTH))
+                    .h(px(18.))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .text_size(px(14.))
+                    .child(top_bar_icon(
+                        if cx.has_global::<crate::wifi_ui::WifiUi>() {
+                            cx.global::<crate::wifi_ui::WifiUi>().snapshot.icon()
+                        } else {
+                            "\u{f05aa}"
+                        },
+                        0.545,
+                    ))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| {
+                            this.close_tray_menu(cx);
+                            cx.stop_propagation();
+                            if let Some(display) = window.display(cx) {
+                                if let Err(error) = crate::wifi_ui::toggle(display.id(), cx) {
+                                    eprintln!("Dojo could not open Wi-Fi: {error:#}");
+                                }
+                            }
+                        }),
+                    ),
+            )
+            .child(
+                div()
+                    .id("bluetooth-button")
+                    .aria_label("Open Bluetooth dock")
+                    .w(px(TOP_BAR_BUTTON_WIDTH))
+                    .h(px(18.))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(14.))
+                    .text_color(
+                        if cx
+                            .global::<crate::bluetooth_ui::BluetoothUi>()
+                            .snapshot
+                            .adapters
+                            .iter()
+                            .any(|a| a.powered)
+                        {
+                            colors.foreground.rgb()
+                        } else {
+                            colors.foreground_muted.rgb()
+                        },
+                    )
+                    .cursor_pointer()
+                    .child(top_bar_icon("\u{f00af}", 0.858))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| {
+                            this.close_tray_menu(cx);
+                            cx.stop_propagation();
+                            if let Some(display) = window.display(cx) {
+                                if let Err(error) = crate::bluetooth_ui::toggle(display.id(), cx) {
+                                    eprintln!("Dojo could not open Bluetooth: {error:#}");
+                                }
+                            }
+                        }),
+                    ),
+            )
             .when(vigiland_running, |bar| {
                 bar.child(
                     div()
@@ -965,7 +1345,7 @@ impl Render for FrameView {
                         .items_center()
                         .justify_center()
                         .text_size(px(18.5))
-                        .child("\u{f05e2}"),
+                        .child(top_bar_icon("\u{f05e2}", 0.680)),
                 )
             })
             .child(
@@ -993,7 +1373,7 @@ impl Render for FrameView {
                             cx.notify();
                         }
                     }))
-                    .child("\u{f2a8}")
+                    .child(top_bar_icon("\u{f2a8}", 0.547))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _, _, cx| {
@@ -1030,7 +1410,7 @@ impl Render for FrameView {
                             cx.notify();
                         }
                     }))
-                    .child("\u{f1fc}")
+                    .child(top_bar_icon("\u{f1fc}", 0.547))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _, window, cx| {
@@ -1039,7 +1419,9 @@ impl Render for FrameView {
                             cx.notify();
                             cx.stop_propagation();
                             window.dispatch_action(
-                                Box::new(crate::theme_picker::ToggleThemePicker),
+                                Box::new(crate::theme_picker::ToggleThemePicker {
+                                    display_id: window.display(cx).map(|display| display.id()),
+                                }),
                                 cx,
                             );
                         }),
@@ -1060,18 +1442,29 @@ impl Render for FrameView {
                 .flex()
                 .items_center()
                 .ml(px(2.))
-                .gap(px(TOP_BAR_GAP))
+                .gap(px(0.))
                 .text_size(px(11.))
-                .child(
-                    div()
-                        // MDI charging variants occupy only about 52% of the em vertically,
-                        // versus about 91% for the regular battery glyphs.
-                        .text_size(px(if charging { 18.5 } else { 11. }))
-                        .child(battery_glyph.to_string()),
-                )
-                .child(div().child(battery_percent)),
+                .child(top_bar_icon(
+                    &battery_glyph.to_string(),
+                    if charging { 0.545 } else { 0.907 },
+                ))
+                .child(div().ml(px(-1.)).child(battery_percent)),
         );
 
+        let (menu_progress, menu_moving) = self.menu_reveal.sample_with_motion(now, reduced_motion);
+        if self.open_menu.is_some() {
+            if menu_moving {
+                window.request_animation_frame();
+            } else if !self.menu_reveal.is_open() {
+                self.open_menu = None;
+                self.menu_data = None;
+                self.active_submenu = None;
+                self.hovered_menu_item = None;
+                self.pending_menu_hover = None;
+                self.submenu_bounds = None;
+                self.last_menu_pointer = None;
+            }
+        }
         let active_item = self.open_menu.as_ref().map(|(_, item)| item);
         let active_menu = self.menu_data.as_ref();
         let menu_width = active_menu
@@ -1104,6 +1497,8 @@ impl Render for FrameView {
                     .top(bounds.origin.y)
                     .right(px(right))
                     .w(px(menu_width))
+                    .h(px(menu_height * menu_progress))
+                    .overflow_hidden()
                     .flex()
                     .flex_col()
                     .py(px(8.))
@@ -1135,6 +1530,8 @@ impl Render for FrameView {
                         .top(bounds.origin.y)
                         .right(px(submenu_right))
                         .w(px(submenu_width))
+                        .h(px(submenu_height * menu_progress))
+                        .overflow_hidden()
                         .flex()
                         .flex_col()
                         .py(px(8.))
@@ -1151,13 +1548,17 @@ impl Render for FrameView {
             }
         }
         self.submenu_bounds = menu_hit_bounds.get(1).copied();
+        if let Some(surface) = menu_surface.as_mut() {
+            surface.size.height *= menu_progress;
+        }
+
         let frame_input_regions = if active_item.is_some() {
             vec![Bounds {
                 origin: point(px(0.), px(0.)),
                 size: window.viewport_size(),
             }]
         } else {
-            vec![top_bar_input[0], launcher_bounds]
+            vec![top_bar_input[0], launcher_bounds, system_bounds]
         };
         if speech_bubbles.is_empty() {
             window.set_input_region(Some(&frame_input_regions));
@@ -1165,6 +1566,40 @@ impl Render for FrameView {
 
         let mut shell = div()
             .size_full()
+            .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, _, cx| {
+                if let Some((start, volume)) = this.audio_drag {
+                    if !event.dragging() {
+                        this.audio_drag = None;
+                        cx.notify();
+                        return;
+                    }
+                    let distance = f32::from(event.position.x) - start;
+                    if distance.abs() > 3. {
+                        this.audio_dragged = true;
+                    }
+                    if this.audio_dragged {
+                        cx.global::<crate::audio::AudioState>()
+                            .set_volume(crate::audio::drag_volume(volume, distance));
+                        cx.notify();
+                    }
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    if this.audio_drag.take().is_some() {
+                        if !this.audio_dragged {
+                            cx.global::<crate::audio::AudioState>().toggle_mute();
+                        }
+                        cx.notify();
+                    }
+                }),
+            )
+            .on_mouse_exit(cx.listener(|this, _, _, cx| {
+                if this.audio_drag.take().is_some() {
+                    cx.notify();
+                }
+            }))
             .font_family(power::FONT_FAMILY)
             .font_features(power::font_features())
             .child(
@@ -1190,9 +1625,6 @@ impl Render for FrameView {
                             inner_bounds,
                             px(CORNER_RADIUS),
                         );
-                        if let Some(menu_bounds) = menu_surface {
-                            append_rounded_rectangle(&mut builder, menu_bounds, px(24.));
-                        }
 
                         match builder.build() {
                             Ok(path) => window.paint_path(path, colors.background.rgb()),
@@ -1200,11 +1632,64 @@ impl Render for FrameView {
                                 eprintln!("Failed to render Dojo's desktop surround: {error}")
                             }
                         }
+                        if let Some(menu_bounds) = menu_surface {
+                            crate::design::paint_shell_extension(
+                                window,
+                                menu_bounds,
+                                colors.background.rgb(),
+                                true,
+                            );
+                        }
                     },
                 )
                 .size_full(),
             )
             .child(top_bar)
+            .child(
+                div()
+                    .id("shell-clock")
+                    .absolute()
+                    .top(px(0.))
+                    .left(clock_bounds.origin.x)
+                    .w(clock_bounds.size.width)
+                    .h(px(TOP_BAR_HEIGHT as f32))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(11.))
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .text_color(colors.foreground.rgb())
+                    .child(cx.global::<crate::clock::Clock>().label.clone()),
+            )
+            .child(
+                div()
+                    .id("system-menu-button")
+                    .aria_label("Open power menu")
+                    .absolute()
+                    .left(system_bounds.origin.x)
+                    .top(system_bounds.origin.y)
+                    .size(px(SYSTEM_BUTTON_SIZE))
+                    .text_color(colors.primary.rgb())
+                    .text_size(px(16.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .child("\u{f0425}")
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| {
+                            this.close_tray_menu(cx);
+                            cx.stop_propagation();
+                            if let Some(display) = window.display(cx) {
+                                if let Err(error) = crate::system_menu::toggle(display.id(), cx) {
+                                    eprintln!("Dojo could not open power menu: {error:#}");
+                                }
+                            }
+                        }),
+                    ),
+            )
             .child(
                 div()
                     .absolute()
@@ -1281,7 +1766,11 @@ impl Render for FrameView {
                                     this.launcher_hovered = false;
                                     this.close_tray_menu(cx);
                                     window.dispatch_action(
-                                        Box::new(crate::launcher::ToggleLauncher),
+                                        Box::new(crate::launcher::ToggleLauncher {
+                                            display_id: window
+                                                .display(cx)
+                                                .map(|display| display.id()),
+                                        }),
                                         cx,
                                     );
                                     cx.stop_propagation();
@@ -1378,10 +1867,10 @@ impl Render for FrameView {
                 })
                 .unwrap_or(39.)
         };
-        if speech_bubbles.is_empty() {
-            window.set_background_blur_regions(&[], px(0.));
-        }
         let bubble_count = speech_bubbles.len();
+        if bubble_count == 0 {
+            window.set_background_blur_regions(&[], px(crate::design::SURFACE_RADIUS));
+        }
         let mut stack_offset = 0.;
         for (id, text, is_response, opacity, rise, entry) in speech_bubbles {
             let bottom = BOTTOM_INSET as f32 + 18. - rise + stack_offset;
@@ -1497,6 +1986,53 @@ impl Render for FrameView {
     }
 }
 
+fn audio_volume_label(
+    reveal: f32,
+    volume: Option<crate::audio::Volume>,
+    colors: ThemeColors,
+) -> gpui::Div {
+    let text = volume.map_or("?".into(), |v| {
+        if v.muted {
+            "M".into()
+        } else {
+            format!("{}", v.percent)
+        }
+    });
+    div()
+        .w(px(28. * reveal))
+        .h(px(22.))
+        .flex_shrink_0()
+        .overflow_hidden()
+        .flex()
+        .items_center()
+        .opacity(((reveal - 0.85) / 0.15).clamp(0., 1.))
+        .child(
+            div()
+                .w(px(28.))
+                .h(px(14.))
+                .flex_shrink_0()
+                .whitespace_nowrap()
+                .text_right()
+                .pr(px(6.))
+                .text_size(px(12.))
+                .line_height(px(14.))
+                .text_color(colors.foreground_muted.rgb())
+                .child(text),
+        )
+}
+
+fn top_bar_icon(glyph: &str, em_extent: f32) -> gpui::Div {
+    div()
+        .size(px(TOP_BAR_BUTTON_WIDTH))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(px(TOP_BAR_ICON_SIZE / em_extent))
+        .line_height(px(TOP_BAR_BUTTON_WIDTH))
+        .child(glyph.to_owned())
+}
+
 fn fallback_tray_glyph(item: &TrayItem) -> String {
     item.icon_name
         .chars()
@@ -1521,7 +2057,276 @@ impl Render for ReservationView {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn system_trigger_and_clock_use_output_geometry() {
+        let viewport = gpui::size(gpui::px(1920.), gpui::px(1080.));
+        let trigger = super::system_button_bounds(viewport);
+        assert_eq!(
+            trigger.origin,
+            gpui::point(gpui::px(1897.), gpui::px(1057.))
+        );
+        assert_eq!(trigger.size, gpui::size(gpui::px(20.), gpui::px(20.)));
+        let clock = super::clock_bounds(viewport, 300.);
+        assert_eq!(clock.origin, gpui::point(gpui::px(840.), gpui::px(0.)));
+        assert_eq!(clock.size, gpui::size(gpui::px(240.), gpui::px(24.)));
+        let narrow = super::clock_bounds(gpui::size(gpui::px(800.), gpui::px(600.)), 300.);
+        assert_eq!(narrow.origin.x, gpui::px(320.));
+        assert_eq!(narrow.size.width, gpui::px(160.));
+    }
     use super::*;
+
+    #[tokio::test]
+    async fn power_subscription_tracks_service_absence_stop_and_return() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::process::{Command, Stdio};
+        struct Bus(std::process::Child);
+        impl Drop for Bus {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let mut config = tempfile::NamedTempFile::new().unwrap();
+        config.write_all(b"<busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth><policy context='default'><allow send_destination='*'/><allow receive_sender='*'/><allow own='*'/></policy></busconfig>").unwrap();
+        let mut bus = Bus(Command::new("dbus-daemon")
+            .arg(format!("--config-file={}", config.path().display()))
+            .args(["--nofork", "--print-address=1"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap());
+        let mut address = String::new();
+        BufReader::new(bus.0.stdout.take().unwrap())
+            .read_line(&mut address)
+            .unwrap();
+        let connection = zbus::connection::Builder::address(address.trim())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        let service = zbus::connection::Builder::address(address.trim())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        let mut events = PowerEvents::subscribe(connection).await.unwrap();
+        assert!(
+            !events.available,
+            "A connected bus is not an available UPower service"
+        );
+        let start = Instant::now();
+        let mut schedule = HostRefreshSchedule::new(start);
+        assert_eq!(schedule.due(start, true, events.available), (true, false));
+        assert_eq!(schedule.power, start + Duration::from_secs(10));
+        for available in [true, false, true] {
+            if available {
+                service
+                    .request_name("org.freedesktop.UPower")
+                    .await
+                    .unwrap();
+            } else {
+                service
+                    .release_name("org.freedesktop.UPower")
+                    .await
+                    .unwrap();
+            }
+            assert!(
+                tokio::time::timeout(Duration::from_secs(2), events.next())
+                    .await
+                    .unwrap()
+            );
+            assert_eq!(events.available, available);
+            assert_eq!(schedule.due(start, true, events.available), (true, false));
+            assert_eq!(
+                schedule.power,
+                start + Duration::from_secs(if available { 60 } else { 10 })
+            );
+        }
+        // More than four queued signals must not backpressure a bus reply.
+        // This uses the same draining seam as initial NameHasOwner setup.
+        let query_connection = events._connection.clone();
+        let burst_then_query = async {
+            for _ in 0..32 {
+                service
+                    .emit_signal(
+                        None::<&str>,
+                        "/org/freedesktop/UPower/devices/battery_BAT0",
+                        "org.freedesktop.DBus.Properties",
+                        "PropertiesChanged",
+                        &(
+                            "org.freedesktop.UPower.Device",
+                            std::collections::HashMap::<String, zbus::zvariant::OwnedValue>::new(),
+                            Vec::<String>::new(),
+                        ),
+                    )
+                    .await?;
+            }
+            let proxy = zbus::Proxy::new(
+                &query_connection,
+                "org.freedesktop.DBus",
+                "/org/freedesktop/DBus",
+                "org.freedesktop.DBus",
+            )
+            .await?;
+            proxy
+                .call::<_, _, bool>("NameHasOwner", &("org.freedesktop.UPower",))
+                .await
+        };
+        assert!(
+            tokio::time::timeout(
+                Duration::from_secs(2),
+                events.while_draining(burst_then_query)
+            )
+            .await
+            .unwrap()
+            .unwrap()
+        );
+        // Initial subscription while the service owns its name also selects the slow fallback.
+        let connection = zbus::connection::Builder::address(address.trim())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        assert!(PowerEvents::subscribe(connection).await.unwrap().available);
+    }
+
+    #[test]
+    fn power_events_do_not_scan_processes_or_starve_their_deadline() {
+        let start = Instant::now();
+        let mut schedule = HostRefreshSchedule::new(start);
+        for second in 1..10 {
+            assert_eq!(
+                schedule.due(start + Duration::from_secs(second), true, true),
+                (true, false)
+            );
+            assert_eq!(schedule.next_deadline(), start + Duration::from_secs(10));
+        }
+        assert_eq!(
+            schedule.due(start + Duration::from_secs(10), true, true),
+            (true, true)
+        );
+        assert_eq!(
+            schedule.due(start + Duration::from_secs(20), false, true),
+            (false, true)
+        );
+    }
+
+    #[test]
+    fn power_polling_slows_only_with_a_healthy_subscription() {
+        let start = Instant::now();
+        let mut schedule = HostRefreshSchedule::new(start);
+        assert_eq!(
+            schedule.due(start + Duration::from_secs(10), false, true),
+            (true, true)
+        );
+        for second in [20, 30, 40, 50, 60] {
+            assert_eq!(
+                schedule.due(start + Duration::from_secs(second), false, true),
+                (false, true)
+            );
+        }
+        assert_eq!(
+            schedule.due(start + Duration::from_secs(70), false, true),
+            (true, true)
+        );
+        // Disconnection triggers immediate reconciliation and restores the fast fallback.
+        assert_eq!(
+            schedule.due(start + Duration::from_secs(71), true, false),
+            (true, false)
+        );
+        assert_eq!(
+            schedule.due(start + Duration::from_secs(81), false, false),
+            (true, true)
+        );
+    }
+
+    #[test]
+    fn vigiland_probe_revalidates_cached_process_and_recovers_after_exit() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("self")).unwrap();
+        let process = root.path().join("123");
+        std::fs::create_dir(&process).unwrap();
+        std::fs::write(process.join("comm"), "vigiland\n").unwrap();
+        let mut probe = VigilandProbe::default();
+        assert!(probe.read_at(root.path()));
+        assert_eq!(probe.process.as_ref(), Some(&process));
+        assert!(probe.read_at(root.path()));
+        // A reused PID must not leave the indicator active.
+        std::fs::write(process.join("comm"), "other\n").unwrap();
+        assert!(!probe.read_at(root.path()));
+        assert!(probe.process.is_none());
+        // Numeric PIDs only, and another instance can replace the cached one.
+        let replacement = root.path().join("456");
+        std::fs::create_dir(&replacement).unwrap();
+        std::fs::write(replacement.join("comm"), "vigiland\n").unwrap();
+        assert!(probe.read_at(root.path()));
+        assert_eq!(probe.process.as_ref(), Some(&replacement));
+        std::fs::remove_dir_all(replacement).unwrap();
+        let unrelated = root.path().join("not-a-pid");
+        std::fs::create_dir(&unrelated).unwrap();
+        std::fs::write(unrelated.join("comm"), "vigiland\n").unwrap();
+        assert!(!probe.read_at(root.path()));
+    }
+
+    #[gpui::test]
+    fn audio_percentage_stays_on_one_line_while_revealing(cx: &mut gpui::TestAppContext) {
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        struct Probe {
+            reveal: f32,
+            bounds: Rc<RefCell<Vec<Bounds<gpui::Pixels>>>>,
+        }
+        impl Render for Probe {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let bounds = self.bounds.clone();
+                div().w(px(80.)).h(px(22.)).flex().items_center().child(
+                    audio_volume_label(
+                        self.reveal,
+                        Some(crate::audio::Volume {
+                            percent: 100,
+                            muted: false,
+                        }),
+                        ThemeColors::default(),
+                    )
+                    .on_children_prepainted(move |children, _, _| *bounds.borrow_mut() = children),
+                )
+            }
+        }
+        let bounds = Rc::new(RefCell::new(Vec::new()));
+        let window = cx.add_window(|_, _| Probe {
+            reveal: 1.,
+            bounds: bounds.clone(),
+        });
+        let mut full_bounds = None;
+        for reveal in [1., 0.02, 0.2, 0.5, 0.8, 1., 0.8, 0.5, 0.2, 0.02] {
+            window
+                .update(cx, |view, _, cx| {
+                    view.reveal = reveal;
+                    cx.notify();
+                })
+                .unwrap();
+            cx.update_window(window.into(), |_, window, cx| {
+                let _ = window.draw(cx);
+            })
+            .unwrap();
+            let observed = bounds.borrow();
+            assert_eq!(observed.len(), 1);
+            let full = *full_bounds.get_or_insert(observed[0]);
+            assert_eq!(
+                observed[0].size, full.size,
+                "Number layout changed at reveal {reveal}"
+            );
+            assert_eq!(
+                observed[0].origin.y, full.origin.y,
+                "Number baseline moved at reveal {reveal}"
+            );
+            assert!(
+                observed[0].origin.y >= px(0.) && observed[0].bottom() <= px(22.),
+                "Volume wrapped at reveal {reveal}: {:?}",
+                observed[0]
+            );
+        }
+    }
 
     #[test]
     fn launcher_button_has_an_input_target_inside_the_left_reserved_edge() {

@@ -10,6 +10,14 @@ use std::time::Duration;
 use anyhow::{Context as _, bail};
 use async_channel::Sender;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LauncherNavigation {
+    Up,
+    Down,
+    Activate,
+    Dismiss,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ControlCommand {
     Toggle,
@@ -17,7 +25,13 @@ pub enum ControlCommand {
     Disable,
     Quit,
     Launcher,
+    LauncherNavigation(LauncherNavigation),
     Theme,
+    Displays,
+    Wifi,
+    SystemMenu,
+    Terminal,
+    TerminalClosed,
     Speech(crate::speech::SpeechEvent),
 }
 
@@ -32,7 +46,16 @@ impl ControlCommand {
             Self::Disable => "disable",
             Self::Quit => "quit",
             Self::Launcher => "launcher",
+            Self::LauncherNavigation(LauncherNavigation::Up) => "launcher-up",
+            Self::LauncherNavigation(LauncherNavigation::Down) => "launcher-down",
+            Self::LauncherNavigation(LauncherNavigation::Activate) => "launcher-activate",
+            Self::LauncherNavigation(LauncherNavigation::Dismiss) => "launcher-dismiss",
             Self::Theme => "theme",
+            Self::Displays => "displays",
+            Self::Wifi => "wifi",
+            Self::SystemMenu => "system-menu",
+            Self::Terminal => "terminal",
+            Self::TerminalClosed => "terminal-closed",
         }
         .to_owned()
     }
@@ -44,7 +67,16 @@ impl ControlCommand {
             "disable" => Some(Self::Disable),
             "quit" => Some(Self::Quit),
             "launcher" => Some(Self::Launcher),
+            "launcher-up" => Some(Self::LauncherNavigation(LauncherNavigation::Up)),
+            "launcher-down" => Some(Self::LauncherNavigation(LauncherNavigation::Down)),
+            "launcher-activate" => Some(Self::LauncherNavigation(LauncherNavigation::Activate)),
+            "launcher-dismiss" => Some(Self::LauncherNavigation(LauncherNavigation::Dismiss)),
             "theme" => Some(Self::Theme),
+            "displays" => Some(Self::Displays),
+            "wifi" => Some(Self::Wifi),
+            "system-menu" => Some(Self::SystemMenu),
+            "terminal" => Some(Self::Terminal),
+            "terminal-closed" => Some(Self::TerminalClosed),
             _ => serde_json::from_str::<crate::speech::SpeechEvent>(value)
                 .ok()
                 .filter(|event| event.validate().is_ok())
@@ -211,6 +243,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn shell_panel_commands_are_delivered() -> anyhow::Result<()> {
+        for (token, expected) in [
+            ("wifi", ControlCommand::Wifi),
+            ("system-menu", ControlCommand::SystemMenu),
+        ] {
+            assert_eq!(ControlCommand::parse(token), Some(expected.clone()));
+            let (sender, receiver) = async_channel::bounded(1);
+            let (server, mut client) = UnixStream::pair()?;
+            client.write_all(format!("{token}\n").as_bytes())?;
+            handle_client(server, &sender);
+            assert_eq!(receiver.try_recv()?, expected);
+            let mut response = String::new();
+            BufReader::new(client).read_line(&mut response)?;
+            assert_eq!(response, "queued\n");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn displays_command_is_delivered_and_acknowledged() -> anyhow::Result<()> {
+        assert_eq!(
+            ControlCommand::parse("displays"),
+            Some(ControlCommand::Displays)
+        );
+        let (sender, receiver) = async_channel::bounded(1);
+        let (server, mut client) = UnixStream::pair()?;
+        client.write_all(b"displays\n")?;
+        handle_client(server, &sender);
+        assert_eq!(receiver.try_recv()?, ControlCommand::Displays);
+        let mut response = String::new();
+        BufReader::new(client).read_line(&mut response)?;
+        assert_eq!(response, "queued\n");
+        Ok(())
+    }
+
+    #[test]
     fn speech_response_survives_socket_delivery() -> anyhow::Result<()> {
         let (sender, receiver) = async_channel::bounded(1);
         let (server, mut client) = UnixStream::pair()?;
@@ -238,6 +306,39 @@ mod tests {
         client.write_all(b"launcher\n")?;
         handle_client(server, &sender);
         assert_eq!(receiver.try_recv()?, ControlCommand::Launcher);
+        let mut response = String::new();
+        BufReader::new(client).read_line(&mut response)?;
+        assert_eq!(response, "queued\n");
+        Ok(())
+    }
+
+    #[test]
+    fn launcher_navigation_tokens_are_exact() {
+        for (token, navigation) in [
+            ("launcher-up", LauncherNavigation::Up),
+            ("launcher-down", LauncherNavigation::Down),
+            ("launcher-activate", LauncherNavigation::Activate),
+            ("launcher-dismiss", LauncherNavigation::Dismiss),
+        ] {
+            assert_eq!(
+                ControlCommand::parse(token),
+                Some(ControlCommand::LauncherNavigation(navigation))
+            );
+            assert!(ControlCommand::parse(&format!("{token} ")).is_none());
+        }
+        assert!(ControlCommand::parse("launcher-next").is_none());
+    }
+
+    #[test]
+    fn launcher_navigation_command_is_delivered_and_acknowledged() -> anyhow::Result<()> {
+        let (sender, receiver) = async_channel::bounded(1);
+        let (server, mut client) = UnixStream::pair()?;
+        client.write_all(b"launcher-activate\n")?;
+        handle_client(server, &sender);
+        assert_eq!(
+            receiver.try_recv()?,
+            ControlCommand::LauncherNavigation(LauncherNavigation::Activate)
+        );
         let mut response = String::new();
         BufReader::new(client).read_line(&mut response)?;
         assert_eq!(response, "queued\n");

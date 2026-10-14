@@ -4,7 +4,7 @@ Status: design draft
 
 ## Intent
 
-Dojo has two theme modes: static presets and algorithmically generated wallpaper-derived themes. Both remain first-class. A shared design system defines what each color means and how components use it. Each mode supplies that contract through its own policy.
+Dojo exposes static presets and the approved refined wallpaper-derived recipe. Wallpaper selection and wallpaper-only Apply remain available as separate operations. Static presets preserve deliberate authored colors and use the shared design system for their consumers.
 
 Static presets preserve deliberate authored colors. Wallpaper themes derive a coherent palette using a reviewed algorithm. Improving wallpaper generation does not turn it into a preset with an accent override, and does not add a third theme mode.
 
@@ -46,7 +46,7 @@ The desktop frame surrounds the workspace without competing with its contents. P
 - Render decorative borders and separators at 20% opacity. This is alpha applied to the border color, not a 20% lighter hex or reduced opacity for the whole component. Use surface color and spacing for hierarchy rather than dense outlines. Native constants live in `src/design.rs`.
 - Use pill-shaped rounding for action buttons, mode controls, compact toggles, and short selection controls. Panels and content containers have generous rounded corners; their shapes still suit multiline content.
 - Keep the overall aesthetic fluid and calming: quiet surfaces, generous spacing, restrained accents, and soft changes between interaction states. Avoid sharp boxes, competing outlines, and abrupt ornamental motion. Motion respects reduced-motion preferences.
-- Keep spacing, typography, radii, and motion consistent across both modes. Start with a shared spacing scale of 4, 8, 12, 16, and 24 pixels. Pill radii follow control height; panel corner radii remain provisional until live evaluation. These are Dojo component rules, not wallpaper parameters or requirements imposed on external apps. Choose type sizes and motion from live shell specimens before centralizing them.
+- Keep spacing, typography, radii, and motion consistent across the shell. Start with a shared spacing scale of 4, 8, 12, 16, and 24 pixels. Pill radii follow control height; panel corner radii remain provisional until live evaluation. These are Dojo component rules, not wallpaper parameters or requirements imposed on external apps. Choose type sizes and motion from live shell specimens before centralizing them.
 
 Generated output checks readable text against every permitted surface, and foregrounds against their own fills. The initial normal/muted text target is 4.5:1. Essential focus indicators have a separate 3:1 target against adjacent surfaces. These are design targets, not a claim that existing themes or the HTML study satisfy every accessibility requirement.
 
@@ -60,13 +60,13 @@ Use a lower-glare canvas with visibly brighter panels and overlays. Darken norma
 
 Keep accents restrained, status text dark, and status fills distinct. Decorative boundaries still use 20% opacity; the font family, `ss01`, and pill controls remain shared with dark mode. Text contrast checks alone do not establish visual clarity. `scripts/audit-theme-study.py` reports the actual specimen colors, luminance, and adjacent-state contrast so each revision can be compared.
 
-Static previews read the real authored preset roles. Do not invent a paper palette to demonstrate static light mode. Generated light appearance can change its recipe; static light appearance preserves each preset's authored colors and hierarchy. Typography, geometry, border opacity, and interaction treatment are the shared design rules.
+Static previews read the real authored preset roles. Do not invent a paper palette to demonstrate static light mode. Static light appearance preserves each preset's authored colors and hierarchy. Typography, geometry, border opacity, and interaction treatment are the shared design rules.
 
 ## User experience
 
-Keep the two theme modes visible in the picker: Presets and Derive. Wallpaper browsing and wallpaper-only Apply remain independent operations, not a third theme mode.
+The picker exposes Wallpaper, Presets, and Derive. Wallpaper browsing and wallpaper-only Apply remain separate from theme selection. Derive uses the refined recipe with constrained semantic colors across all modes.
 
-Open the picker on Wallpaper. Order the tabs Wallpaper, Presets, then Derive. Populate the wallpaper directory immediately, and compute derivation previews only when Derive is opened. Keep derivation an optional attempt; the number of modes is not a headline benefit. A valid wallpaper can be previewed and applied even when it cannot produce a useful palette.
+Open the picker on Wallpaper. Order the tabs Wallpaper, Presets, then Derive. Delegate image selection to the desktop FileChooser portal through a Choose image action rather than embedding a file tree or thumbnail browser. The configured portal chooses the system picker; Yazi being installed as a file manager does not itself make it the FileChooser backend. A cancelled request leaves the preview unchanged. A valid wallpaper can be previewed and applied while preserving the selected preset.
 
 Both mode previews show actual role usage: panel, overlay, hover, selected and focused rows, an accent button, status notices, a code sample, and terminal colors. The preview uses the same resolved palette as export and Apply.
 
@@ -133,7 +133,7 @@ Each generated theme records both extraction and semantic-recipe revisions. An a
 
 Independent candidates compared complete authored palettes with a controlled generated recipe. The shared contract and preservation rules from the authored design provide the base. Typed color pairs, controlled generated surfaces, and component previews come from the generator design.
 
-The initial review favored an authored-first product direction. The user's clarification supersedes that priority: both modes remain peers. Reject an accent-only extension as a replacement for wallpaper-derived theming, and reject a new Compose tab.
+The user requested that the original derivation be disabled because it lost status-color meaning. After reviewing the refined recipe across all 23 modes, the user approved restoring Derive with that recipe. Keep the original Aether port as reference and preserve old stored generations; new derivations use the refined revision.
 
 Also reject refining contrast formulas alone. That leaves ambiguous role meaning and local exporter decisions intact. A complete token editor is outside this work; it asks users to maintain every relationship themselves.
 

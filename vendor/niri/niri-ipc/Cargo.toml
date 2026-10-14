@@ -15,7 +15,10 @@ readme = "README.md"
 clap = { workspace = true, optional = true }
 schemars = { version = "1.2.2", optional = true }
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
 
 [features]
 clap = ["dep:clap"]

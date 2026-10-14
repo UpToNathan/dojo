@@ -1,0 +1,11 @@
+--- a/vendor/cua/driver/crates/cua-driver-core/src/policy.rs
++++ b/vendor/cua/driver/crates/cua-driver-core/src/policy.rs
+@@ -366,7 +366,7 @@
+             .with_context(|| format!("failed to parse YAML policy {}", path.display()))
+     }
+ 
+-    fn from_str(source: &str) -> Result<Self> {
++    pub(crate) fn from_str(source: &str) -> Result<Self> {
+         let document: RawYamlPolicy = serde_yaml_ng::from_str(source)?;
+         let (allowed_tools, raw_rules) = document.allow.into_parts();
+         let denied_tools = document.deny.into_tools();

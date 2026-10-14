@@ -64,6 +64,8 @@ pub enum Sub {
 
 #[derive(Subcommand)]
 pub enum Msg {
+    /// Yield human input ownership without moving the cursor or keyboard focus.
+    YieldHumanInput,
     /// List connected outputs.
     Outputs,
     /// List workspaces.

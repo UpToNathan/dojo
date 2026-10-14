@@ -300,15 +300,15 @@ mod tests {
     }
 
     #[test]
-    fn all_36_presets_validate_and_preserve_authored_ansi_colors() -> anyhow::Result<()> {
+    fn all_41_presets_validate_and_preserve_authored_ansi_colors() -> anyhow::Result<()> {
         let catalog = presets()?;
-        assert_eq!(catalog.len(), 36);
+        assert_eq!(catalog.len(), 41);
         assert_eq!(
             catalog
                 .iter()
                 .filter(|p| p.appearance == Appearance::Light)
                 .count(),
-            12
+            13
         );
         let mocha = catalog
             .iter()
@@ -324,15 +324,16 @@ mod tests {
                 let outputs = theme.outputs(appearance)?;
                 assert!(!outputs.is_empty());
                 let helium: serde_json::Value = serde_json::from_slice(&outputs["helium.json"])?;
+                let crate::extraction::Rgb(r, g, b) =
+                    crate::extraction::Rgb::parse(theme.palette(appearance).color("background"))?;
                 assert_eq!(
-                    helium["BrowserThemeColor"],
-                    theme.palette(appearance).color("background"),
-                    "{} ({}) must export its authored {} browser seed",
-                    preset.id,
-                    preset.name,
-                    appearance.name()
+                    helium["theme"]["colors"]["ntp_background"],
+                    serde_json::json!([r, g, b])
                 );
-                assert_eq!(helium["BrowserColorScheme"], "system");
+                assert_eq!(
+                    helium["theme"]["colors"]["toolbar"],
+                    serde_json::json!([r, g, b])
+                );
                 let niri = std::str::from_utf8(&outputs["niri.kdl"])?;
                 assert!(niri.contains(&format!(
                     "active-color \"{}33\"",

@@ -1,0 +1,15 @@
+{
+  "kind": "original Dojo feasibility prototype",
+  "spec": ".scratch/cua-adoption/issues/16-side-channel-admission.md",
+  "design": ".scratch/cua-adoption/design/decision.md",
+  "cua_baseline": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+  "upstream_code_imported": false,
+  "production_mutations_enabled": false,
+  "proof_scope": "deterministic actor, real loopback WebSocket, authenticated Unix zbus object-server and kernel would-block/partial-write fixtures",
+  "remaining_gate": "Niri actor integration, authenticated FD broker, exact endpoint/window proof, complete command classification, live nested takeover",
+  "writer_source_versions": {
+    "tokio-tungstenite": "0.24.0",
+    "tungstenite": "0.24.0",
+    "zbus": "5.19.0"
+  }
+}

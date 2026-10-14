@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+  "destination": "vendor/cua/upstream",
+  "trees": [
+    "libs/cua-driver/rust",
+    "libs/cua-driver/tests",
+    "libs/cua/crates/cua-agent-setup",
+    "libs/cua/crates/cua-agents",
+    "libs/cua/crates/cua-auth",
+    "libs/cua/crates/cua-byoc",
+    "libs/cua/crates/cua-cli",
+    "libs/cua/crates/cua-contrib",
+    "libs/cua/crates/cua-daemon",
+    "libs/cua/crates/cua-disk",
+    "libs/cua/crates/cua-fleet",
+    "libs/cua/crates/cua-home",
+    "libs/cua/crates/cua-host",
+    "libs/cua/crates/cua-hotspot",
+    "libs/cua/crates/cua-icon-cache",
+    "libs/cua/crates/cua-image",
+    "libs/cua/crates/cua-proto",
+    "libs/cua/crates/cua-sandbox-core",
+    "libs/cua/crates/cua-sdk",
+    "libs/cua/crates/cua-spaces",
+    "libs/cua/crates/cua-spaces-contract",
+    "libs/cua/crates/cua-spacesd-client",
+    "libs/cua/crates/cua-telemetry",
+    "libs/cua/crates/cua-vmm",
+    "libs/fleet/sdk",
+    "libs/fleet/sdk-schema",
+    "libs/fleet/uniffi-builder-derive",
+    "libs/cua/proto",
+    "libs/cua/skills",
+    "libs/cua/spaces-contract",
+    "libs/images",
+    "libs/cua-driver/wayland-helper"
+  ],
+  "files": [
+    "LICENSE.md",
+    "LICENSING.md",
+    "THIRD_PARTY_NOTICES.md",
+    "libs/cua/Cargo.toml",
+    "libs/cua/Cargo.lock",
+    "libs/cua/VERSION",
+    "libs/cua/rust-toolchain.toml",
+    "libs/fleet/Cargo.toml",
+    "libs/fleet/Cargo.lock",
+    "libs/cua-spacesd/VERSION",
+    "libs/python/cua-sandbox/schemas/image-v1alpha1.schema.json",
+    "scripts/images/manifests/windows-2022.json",
+    "scripts/images/manifests/macos-26.json",
+    "scripts/images/check-tag-safety.sh",
+    "docs/content/docs/cua-cli/guides/mcp-server.mdx",
+    "libs/cua/python/src/cua/_native.py",
+    "libs/cua/kotlin/src/main/kotlin/ai/cua/sdk/cua_sdk.kt",
+    "libs/cua/swift/Sources/CuaSDK/CuaSDK.swift",
+    "libs/cua/typescript/src/native/cua_sdk.ts",
+    "libs/cua/crates/cua-teleport/src/ux/targets.json",
+    "libs/cua/crates/cua-teleport/LICENSE"
+  ],
+  "workspaces": [
+    {
+      "file": "libs/cua/Cargo.toml",
+      "members": [
+        "crates/cua-agent-setup",
+        "crates/cua-agents",
+        "crates/cua-auth",
+        "crates/cua-byoc",
+        "crates/cua-cli",
+        "crates/cua-contrib",
+        "crates/cua-daemon",
+        "crates/cua-disk",
+        "crates/cua-fleet",
+        "crates/cua-home",
+        "crates/cua-host",
+        "crates/cua-hotspot",
+        "crates/cua-icon-cache",
+        "crates/cua-image",
+        "crates/cua-proto",
+        "crates/cua-sandbox-core",
+        "crates/cua-sdk",
+        "crates/cua-spaces",
+        "crates/cua-spaces-contract",
+        "crates/cua-spacesd-client",
+        "crates/cua-telemetry",
+        "crates/cua-vmm"
+      ]
+    },
+    {
+      "file": "libs/fleet/Cargo.toml",
+      "members": [
+        "sdk",
+        "sdk-schema",
+        "uniffi-builder-derive"
+      ]
+    }
+  ],
+  "adaptations": [
+    {
+      "file": "libs/cua/Cargo.lock",
+      "metadata": "vendor/cua/metadata/sdk-Cargo.lock",
+      "sha256": "adb6f9c7f6fd494c999a798d66335a09dae718efd02a50f55d629d1ce07fb653"
+    }
+  ],
+  "support_data": [
+    {
+      "file": "libs/cua/crates/cua-teleport/src/ux/targets.json",
+      "license": "FSL-1.1-MIT",
+      "license_file": "libs/cua/crates/cua-teleport/LICENSE",
+      "purpose": "Data catalog embedded by the upstream MIT telemetry schema. Teleport implementation is excluded."
+    }
+  ],
+  "patches": [
+    {
+      "metadata": "vendor/cua/metadata/niri-driver.patch",
+      "sha256": "b52a6b8ef7d0cf2e99480533c867e8360177e66ebe058df7a748f7fb02e10a82",
+      "purpose": "Niri identity, capture and coordinated native seat execution; Dojo worker uses compositor cursor and parent authorization",
+      "files": [
+        {
+          "path": "libs/cua-driver/rust/crates/platform-linux/Cargo.toml",
+          "sha256": "9442b9c8b211cda00c203d5f48d57f2aeff83a6c17d6d46532d9e4d75068d9bd"
+        },
+        {
+          "path": "libs/cua-driver/rust/crates/platform-linux/src/wayland/mod.rs",
+          "sha256": "7de13b1fcb0075ef1a5fca239c43dc138630458a036ad88f8107f6858e11b238"
+        },
+        {
+          "path": "libs/cua-driver/rust/crates/platform-linux/src/wayland/persistent_vptr.rs",
+          "sha256": "69ceecdb4a172cf10f629a2c9e1572c38990d7122c0cea6b3e341eb5c854c0a6"
+        },
+        {
+          "path": "libs/cua-driver/rust/crates/platform-linux/src/tools/impl_.rs",
+          "sha256": "e56d9149211eca9fbb7a6eac202b139632ff8955df4631322ba9488fff905615"
+        },
+        {
+          "path": "libs/cua-driver/rust/Cargo.lock",
+          "sha256": "eaf7ec247543ebd93b96ced266edf69f9b4995a8c93eb452dd3c0dc20bbe4993"
+        },
+        {
+          "path": "libs/cua-driver/rust/crates/platform-linux/src/wayland/niri.rs",
+          "sha256": "e87640a0beeb22f4a486586f6351c84e156c30bf02d5d2d44a3b13d49959ac54",
+          "added": true
+        },
+        {
+          "path": "libs/cua-driver/rust/crates/platform-linux/src/wayland/niri/tests.rs",
+          "sha256": "57b2e39c0fced11bdef9aaf3b7370f924de79f16f7f0b16e2f85787290ebff9d",
+          "added": true
+        },
+        {
+          "path": "libs/cua-driver/rust/crates/platform-linux/src/wayland/niri/capture.rs",
+          "sha256": "3adebff71777031f76b134694d9eb285e80bba4168fd3385d3f1524772cc0d40",
+          "added": true
+        },
+        {
+          "path": "libs/cua-driver/rust/crates/platform-linux/src/wayland/niri/capture/tests.rs",
+          "sha256": "87a7afece6df6fe8c4536915a10e4132bc660e16bcf25e77dffa48b78cde0d54",
+          "added": true
+        },
+        {
+          "path": "libs/cua-driver/rust/crates/platform-linux/src/wayland/niri/native_input.rs",
+          "sha256": "53d6cb5250a508993c806d203c60c4f157c6d049696daa02ae681da0bf00cdf2",
+          "added": true
+        },
+        {
+          "path": "libs/cua-driver/rust/crates/cua-driver/src/private_worker.rs",
+          "sha256": "99de09ea60a84550d35faeea125d6adafd1cd7619962bc10eb4c9a1d2bdc8a7d"
+        }
+      ]
+    },
+    {
+      "metadata": "vendor/cua/metadata/immutable-acquisition.patch",
+      "sha256": "e8757275bac9db4994c7ce94526932ab5c66bbd77fb39f8614a00625d242f9bd",
+      "purpose": "Consume committed catalog image digests and refuse mutable runtime installers; original explicit ManifestSource injection retained",
+      "files": [
+        {
+          "path": "libs/cua/crates/cua-image/src/resolve.rs",
+          "sha256": "bedf8acb078655d83a30373d9060a4f7c6941229b6212d75bbe8327bbd4bf247"
+        },
+        {
+          "path": "libs/cua/crates/cua-image/src/resolve/tests.rs",
+          "sha256": "239cd30a232f5fbddd5b5d34c32d886088ec374f7389c46e1cc4fbf9d8828ba4"
+        },
+        {
+          "path": "libs/cua/crates/cua-vmm/src/qemu/mod.rs",
+          "sha256": "9fff8709caec82aabb3346113352b4d6ee045e8b688d5fd2f548ed3c01826526"
+        },
+        {
+          "path": "libs/cua/crates/cua-vmm/src/lume/mod.rs",
+          "sha256": "bfbab827e8cb74f66d6714dfb416adb8fff37dc6a0feefda5b914c9497dedb3d"
+        },
+        {
+          "path": "libs/cua/crates/cua-vmm/src/container/mod.rs",
+          "sha256": "e4cffcbd211211dccf48a90446b2f2af913f0a1aa4ba50c4833660839f77f7a4"
+        }
+      ]
+    }
+  ]
+}

@@ -31,6 +31,11 @@ The copyright/license for each individual theme belongs to the author of that th
 
 Authored UI and syntax mappings in src/theme/authored-presets.txt additionally use:
 
+- omacom/omarchy, `themes/{osaka-jade,miasma,ristretto,flexoki-light,matte-black}/colors.toml`,
+  revision `4c1b4cb3a94447aff39af98e2fcc0490a9fb32e7` (quattro). Semantic source
+  colors are retained as preset inputs; Dojo's ANSI slots are adapted from the
+  named normal/bright colors. Omarchy wallpaper assets are not included.
+
 - folke/tokyonight.nvim, cdc07ac78467a233fd62c493de29a17e0cf2b2b6.
   Palette values generated with colors.setup({style=..., light_style="night"}).
   The source palette values are retained; Dojo assigns them to shared app roles.

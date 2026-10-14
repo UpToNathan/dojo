@@ -1,0 +1,89 @@
+--- a/crates/dojo-agent-setup/src/registry.rs
++++ b/crates/dojo-agent-setup/src/registry.rs
+@@ -117,7 +117,7 @@
+     p
+ }
+ 
+-/// How the cua entry is shaped in an agent's MCP config.
++/// How the Dojo entry is shaped in an agent's MCP config.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub enum Shape {
+     /// `{command, args, env?}`.
+@@ -209,7 +209,7 @@
+ }
+ 
+ /// An agent CLI that owns its config file and should write it instead of
+-/// cua (the file also holds the agent's live state).
++/// Dojo (the file also holds the agent's live state).
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub enum OwnerCli {
+     /// `claude mcp add-json --scope user <name> <json>` /
+@@ -278,7 +278,7 @@
+     /// User-scope skills directory, when the agent supports Agent Skills.
+     pub skills: Option<Loc>,
+     /// Other user-scope skills directories the agent also loads (from its
+-    /// docs). A cua skill already served from one of these (for example
++    /// docs). A Dojo skill already served from one of these (for example
+     /// `~/.claude/skills` when Claude Code is set up too) is not copied
+     /// into `skills` again, so the agent does not list it twice.
+     pub also_reads: &'static [Loc],
+@@ -609,8 +609,8 @@
+         }),
+         unverified: "the Antigravity.app bundle name; the CLI-only skills dir ~/.gemini/antigravity-cli/skills is not written",
+     },
+-    // Hermes Agent (NousResearch/hermes-agent). Same id as the cua-agents
+-    // harness. Everything lives in the Hermes home: `$HERMES_HOME`, else
++    // Hermes Agent (NousResearch/hermes-agent). Everything lives in the
++    // Hermes home: `$HERMES_HOME`, else
+     // `~/.hermes`, else `%LOCALAPPDATA%\hermes` on Windows
+     // (hermes_constants.py `_get_platform_default_hermes_home`).
+     AgentSpec {
+@@ -623,7 +623,7 @@
+             .windows_local("hermes")],
+         apps: &["Hermes.app"],
+         // The user skills dir; ~/.agents/skills is read only when listed
+-        // in `skills.external_dirs`, so cua writes here.
++        // in `skills.external_dirs`, so Dojo writes here.
+         skills: Some(
+             Loc::home(".hermes/skills")
+                 .env("HERMES_HOME", "skills")
+@@ -672,24 +672,24 @@
+ 
+     #[test]
+     fn shapes_match_each_agents_documented_entry() {
+-        let s = McpServer::new("/bin/cua").with_env("K", "v");
++        let s = McpServer::new("/bin/dojo-agent").with_env("K", "v");
+         let v = |sh: Shape| crate::edit::to_value(&sh.fields(&s));
+         assert_eq!(
+             v(Shape::Plain),
+-            json!({"command": "/bin/cua", "args": ["mcp"], "env": {"K": "v"}})
++            json!({"command": "/bin/dojo-agent", "args": [], "env": {"K": "v"}})
+         );
+         assert_eq!(v(Shape::Typed("stdio"))["type"], "stdio");
+         assert_eq!(v(Shape::WithDisabled)["disabled"], false);
+         assert_eq!(
+             v(Shape::Copilot),
+-            json!({"type": "local", "command": "/bin/cua", "args": ["mcp"], "env": {"K": "v"}, "tools": ["*"]})
++            json!({"type": "local", "command": "/bin/dojo-agent", "args": [], "env": {"K": "v"}, "tools": ["*"]})
+         );
+         assert_eq!(
+             v(Shape::OpenCode),
+-            json!({"type": "local", "command": ["/bin/cua", "mcp"], "environment": {"K": "v"}, "enabled": true})
++            json!({"type": "local", "command": ["/bin/dojo-agent"], "environment": {"K": "v"}, "enabled": true})
+         );
+-        assert_eq!(v(Shape::Goose)["cmd"], "/bin/cua");
+-        let plain = McpServer::new("cua");
++        assert_eq!(v(Shape::Goose)["cmd"], "/bin/dojo-agent");
++        let plain = McpServer::new("dojo-agent");
+         assert!(
+             crate::edit::to_value(&Shape::Plain.fields(&plain))
+                 .get("env")
+@@ -698,7 +698,7 @@
+         for sh in [Shape::Plain, Shape::OpenCode, Shape::Goose, Shape::Copilot] {
+             assert_eq!(
+                 sh.command_of(&v(sh)),
+-                Some(("/bin/cua".into(), vec!["mcp".into()]))
++                Some(("/bin/dojo-agent".into(), vec![]))
+             );
+         }
+     }

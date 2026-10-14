@@ -4048,3 +4048,123 @@ proptest! {
         check_ops_with_options(options, ops);
     }
 }
+
+#[test]
+fn capture_placements_include_tiled_and_floating_windows() {
+    let mut floating = TestWindowParams::new(2);
+    floating.is_floating = true;
+    let layout = check_ops_with_options(
+        Options::default(),
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow { params: floating },
+            Op::CompleteAnimations,
+        ],
+    );
+    let output = layout.outputs().next().unwrap();
+    let mut placements = layout.capture_placements(output).unwrap();
+    placements.sort_by_key(|(window, _, _)| *window.id());
+    assert_eq!(placements.len(), 2);
+    assert_eq!(*placements[0].0.id(), 1);
+    assert!(!placements[0].2);
+    assert_eq!(placements[0].1.size, Size::from((100., 200.)));
+    assert_eq!(*placements[1].0.id(), 2);
+    assert!(placements[1].2);
+    assert_eq!(placements[1].1.size, Size::from((100., 200.)));
+    assert_eq!(placements[1].1.loc, Point::from((590., 260.)));
+}
+
+#[test]
+fn capture_placements_refuse_overview_and_window_motion() {
+    let mut layout = check_ops_with_options(
+        Options::default(),
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::CompleteAnimations,
+        ],
+    );
+    let output = layout.outputs().next().unwrap().clone();
+    layout.toggle_overview();
+    assert_eq!(
+        layout.capture_placements(&output).unwrap_err(),
+        "scene_overview_unsupported"
+    );
+    layout.close_overview();
+    Op::CompleteAnimations.apply(&mut layout);
+    // A permanent bob effect has a render-time displacement even without a finite transition.
+    let mut params = TestWindowParams::new(1);
+    params.rules = Some(ResolvedWindowRules {
+        baba_is_float: Some(true),
+        ..Default::default()
+    });
+    let layout = check_ops_with_options(
+        Options::default(),
+        [
+            Op::AddOutput(1),
+            Op::AddWindow { params },
+            Op::CompleteAnimations,
+        ],
+    );
+    let output = layout.outputs().next().unwrap();
+    assert_eq!(
+        layout.capture_placements(&output).unwrap_err(),
+        "scene_animation_unsupported"
+    );
+}
+
+#[test]
+fn capture_geometry_uses_border_and_render_displacement() {
+    let mut options = Options::default();
+    options.layout.border.off = false;
+    options.layout.border.width = 4.;
+    let tile = tile::Tile::new(
+        TestWindow::new(TestWindowParams::new(1)),
+        Size::from((1280., 720.)),
+        1.25,
+        Clock::with_time(Duration::ZERO),
+        Rc::new(options),
+    );
+    assert_eq!(
+        tile.rendered_window_geometry(Point::from((20., 30.))),
+        Rectangle::new(Point::from((24., 34.)), Size::from((100., 200.)))
+    );
+}
+
+#[test]
+fn ipc_layout_positions_cover_inactive_tiled_workspaces() {
+    let layout = check_ops_with_options(
+        Options::default(),
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::FocusWorkspaceDown,
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::CompleteAnimations,
+        ],
+    );
+    let mut observed = Vec::new();
+    layout.with_windows(|window, output, workspace, metadata| {
+        assert!(output.is_some());
+        assert!(workspace.is_some());
+        observed.push((*window.id(), workspace, metadata));
+    });
+    observed.sort_by_key(|(id, _, _)| *id);
+    assert_eq!(observed.len(), 2);
+    assert_ne!(observed[0].1, observed[1].1);
+    for (_, _, metadata) in observed {
+        assert_eq!(metadata.pos_in_scrolling_layout, Some((1, 1)));
+        let position = metadata.tile_pos_in_workspace_view.unwrap();
+        assert!(position.0.is_finite() && position.1.is_finite());
+        assert_eq!(metadata.window_size, (100, 200));
+    }
+}

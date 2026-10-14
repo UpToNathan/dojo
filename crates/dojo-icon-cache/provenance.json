@@ -1,0 +1,53 @@
+{
+  "upstream": "trycua/cua",
+  "revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+  "crate": "cua-icon-cache",
+  "license": "MIT; LICENSE.md",
+  "units": [
+    {
+      "upstream_path": "libs/cua/crates/cua-icon-cache/src/lib.rs",
+      "archived_path": "provenance/lib.rs",
+      "destination": "src/cache.rs",
+      "status": "modified",
+      "upstream_sha256": "41e7e645fd820a2e272a2b8f09516368facaf5c26ecb614c6f02402e8dacb781",
+      "local_sha256": "4daf5eb5a743e1f2582e264bf76bb6c8023b716c586de97b82a2ce8f78d86729"
+    },
+    {
+      "upstream_path": "libs/cua/crates/cua-icon-cache/src/tests.rs",
+      "archived_path": "provenance/tests.rs",
+      "destination": "src/cache_tests.rs",
+      "status": "modified",
+      "upstream_sha256": "b1f0aa9e9c79aa80b866972a318a70765a64964c6f71a048da8fbaa271533a2a",
+      "local_sha256": "1f5965459b78c72ff452b328cf9cb471f0ab4306e00d7551cb199ccd4e03066f"
+    }
+  ],
+  "new_source": [
+    "src/lib.rs",
+    "src/linux.rs"
+  ],
+  "retained_tests": [
+    "keys_are_stable_app_identities",
+    "pngs_normalize_to_1x_and_2x_squares",
+    "miss_then_memory_hit_then_disk_hit",
+    "concurrent_requests_share_one_fetch",
+    "a_batch_fetches_every_miss_in_one_call",
+    "negatives_expire_and_failures_are_not_remembered",
+    "memory_and_disk_evict_the_least_recently_used",
+    "previews_are_reused_briefly_and_errors_are_not_kept"
+  ],
+  "replaced_test": {
+    "upstream": "tests_never_write_the_real_cua_home",
+    "local": "memory_only_cache_has_no_implicit_directory",
+    "reason": "Dojo requires an explicit directory and does not depend on cua-home or its process-global home/test guard"
+  },
+  "integration_patches": [
+    "Explicit instance/directory ownership; remove shared/default_home and cua-home guard",
+    "RAII canceled-flight cleanup scoped to the original watch channel",
+    "PNG decode and disk/source read bounds; nonblocking regular-file reads",
+    "Negative replacement retires stale positives and variants; disk negative TTL preserves original age",
+    "Unique atomic temporary writes and owned-entry-only pruning",
+    "Linux trusted-root/descriptor/source-revision adapter; retain GPUI SVG and high-DPI path support"
+  ],
+  "dependency_closure": "Cargo.lock; no GPUI or cua-home dependency",
+  "runtime": "Rust local files only; asynchronous cache futures require no Tokio runtime; host background executor owns invocation"
+}

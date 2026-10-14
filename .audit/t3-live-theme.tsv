@@ -1,0 +1,6 @@
+ts	phase	decision	why	evidence	result
+2026-10-13T01:53:38Z	frame	Verify theme publication changes an already-connected client without restarting it	CLI success did not establish the user-visible result	src/theme/apply.rs:67	INCONCLUSIVE
+2026-10-13T01:58:39Z	reproduce	Same published canary updates web client but not desktop	Distinguish publisher from desktop selection and subscription	/tmp/dojo-t3-theme-check/native-canary.png	Web pixel 17,34,51; desktop unchanged
+2026-10-13T01:58:39Z	hypothesis	Check missing primary environment after standalone handoff	Theme atoms require PrimaryConnectionTarget while local backend is disabled	/tmp/t3-web-server.js	open
+2026-10-13T02:12:53Z	handoff	Remove standalone autostart and remote-only activation; prepare separate-unit desktop handoff	Current agent shares the service cgroup and cannot stop it inline	scripts/restore-t3-desktop.py	Check mode and Nix parse pass; restart pending
+2026-10-13T02:14:09Z	handoff	Supersede live restart with next-login migration; keep current service alive	Reviewer found unrelated active jobs in the service cgroup	scripts/restore-t3-desktop.py	Autostart absent; localEnvironmentEnabled=true; live reload pending next login

@@ -1,0 +1,30 @@
+#!/usr/bin/env node
+import fs from 'node:fs';
+import crypto from 'node:crypto';
+import { spawn } from 'node:child_process';
+
+const [executable, bundle, imageFile] = process.argv.slice(2);
+if (!executable || !bundle || !imageFile || process.argv.length !== 5) throw new Error('Usage: check-perception-worker.mjs EXECUTABLE BUNDLE PNG');
+const image = fs.readFileSync(imageFile);
+if (image.length > 8 * 1024 * 1024 || image.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error('Expected bounded PNG');
+const width = image.readUInt32BE(16), height = image.readUInt32BE(20);
+const request = Buffer.from(JSON.stringify({ protocol: 'cua-perception/1', request_id: 'dojo-baseline-inference', method: 'parse', params: { capture_id: 'synthetic-ui', image: { media_type: 'image/png', width, height, byte_length: image.length, data_base64: image.toString('base64') } } }));
+const header = Buffer.alloc(4);
+header.writeUInt32BE(request.length);
+const child = spawn(executable, ['--manifest', `${bundle}/model-manifest.json`, '--onnx-runtime-library', `${bundle}/runtime/libonnxruntime.so`, '--extension-id', 'cua-perception', '--extension-version', '0.2.1'], { stdio: ['pipe', 'pipe', 'pipe'] });
+const chunks = [], errors = [];
+let count = 0, stderrCount = 0;
+const timer = setTimeout(() => child.kill('SIGKILL'), 30_000);
+child.stdout.on('data', chunk => { count += chunk.length; if (count > 16 * 1024 * 1024) child.kill('SIGKILL'); else chunks.push(chunk); });
+child.stderr.on('data', chunk => { stderrCount += chunk.length; if (stderrCount > 64 * 1024) child.kill('SIGKILL'); else errors.push(chunk); });
+const exit = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', (code, signal) => resolve({ code, signal })); });
+child.stdin.end(Buffer.concat([header, request]));
+const status = await exit.finally(() => clearTimeout(timer));
+if (status.code !== 0) throw new Error(`Worker failed: ${JSON.stringify(status)} ${Buffer.concat(errors)}`);
+const output = Buffer.concat(chunks);
+if (output.length < 4 || output.readUInt32BE(0) !== output.length - 4) throw new Error('Invalid response frame');
+const response = JSON.parse(output.subarray(4));
+if (response.status !== 'ok' || response.result.runtime !== 'onnx_runtime_cpu') throw new Error(`Inference refused: ${JSON.stringify(response)}`);
+const regions = response.result.regions;
+if (!Array.isArray(regions) || regions.some(region => region.interactive !== false)) throw new Error('Invalid region authority');
+console.log(JSON.stringify({ image_sha256: crypto.createHash('sha256').update(image).digest('hex'), width, height, result: response.result }, null, 2));

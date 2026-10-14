@@ -1,0 +1,10 @@
+{
+  "upstream_repository": "https://github.com/trycua/cua",
+  "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+  "upstream_files": ["libs/cua-driver/rust/crates/platform-linux/src/wayland/ext_screencopy.rs"],
+  "license": "MIT",
+  "license_file": "LICENSE.md",
+  "method": "Rust behavioral adaptation of standard output capture state machine and pixel conversion; no Python runtime or generated-code execution",
+  "patches": "README.md#changes-from-upstream",
+  "validation": "Rust tests through devenv; live compositor parity pending"
+}

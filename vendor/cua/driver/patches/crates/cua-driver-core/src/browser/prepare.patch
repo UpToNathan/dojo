@@ -1,0 +1,20 @@
+--- upstream/crates/cua-driver-core/src/browser/prepare.rs
++++ dojo/crates/cua-driver-core/src/browser/prepare.rs
+@@ -786,6 +786,9 @@
+ 
+ impl BrowserEngine {
+     pub(crate) fn is_driver_owned_pid_for_session(&self, session: &str, pid: i64) -> bool {
++        if let Some(context) = &self.read_context {
++            if context.key == session && context.process_pid == pid && context.owned.is_some() && context.guard().is_ok() { return true; }
++        }
+         self.managed_browsers.lock().unwrap().iter().any(|browser| {
+             browser.owned_pid == pid && browser.owner_sessions.iter().any(|owner| owner == session)
+         })
+@@ -803,6 +806,7 @@
+         &self,
+         request: PrepareRequest,
+     ) -> Result<PrepareOutcome, BrowserRefusal> {
++        if self.read_context.is_some() { return Err(refusal(BrowserRefusalCode::BrowserRouteUnavailable, "read-only episode refuses browser preparation")); }
+         if request.strategy == Some(PrepareStrategy::ExistingProfile) {
+             return self.attach_existing_profile(request).await;
+         }

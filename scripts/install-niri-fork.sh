@@ -13,13 +13,36 @@ if [[ ! -x "$binary" || -z "${LD_LIBRARY_PATH:-}" ]]; then
     printf 'Build the release compositor and run this installer inside devenv.\n' >&2
     exit 1
 fi
+pin_executable() {
+    local variable=$1 name=$2 executable owner mode
+    executable=$(readlink -e -- "${!variable:-}" || true)
+    if [[ $executable != /nix/store/*/bin/$name || ! -f $executable || ! -x $executable ]]; then
+        printf '%s must pin an installed Nix-store %s.\n' "$variable" "$name" >&2
+        return 1
+    fi
+    owner=$(stat -Lc '%u' -- "$executable")
+    mode=$(stat -Lc '%a' -- "$executable")
+    if [[ $owner != 0 ]] || (( (8#$mode & 8#222) != 0 )); then
+        printf 'The pinned %s must be root-owned and immutable.\n' "$name" >&2
+        return 1
+    fi
+    printf '%s' "$executable"
+}
+broker=$(pin_executable DOJO_BROWSER_CONTROL_BROKER_EXE dojo-browser-control-broker)
+mcp=""
+if [[ -n ${DOJO_BROWSER_CONTROL_MCP_EXE:-} ]]; then
+    mcp=$(pin_executable DOJO_BROWSER_CONTROL_MCP_EXE browser-control-mcp)
+fi
 if ldd "$binary" | rg -q 'not found'; then
     printf 'The compositor has unresolved runtime libraries.\n' >&2
     exit 1
 fi
 "$binary" validate --config "$config_home/niri/config.kdl"
 
-revision=$(sha256sum "$binary" | cut -c1-16)
+revision=$(
+    { sha256sum "$binary"; printf '%s\n' "$LD_LIBRARY_PATH" "$broker" "$mcp"; } |
+        sha256sum | cut -c1-16
+)
 installation_root="$data_home/dojo/niri"
 installation="$installation_root/$revision"
 mkdir -p "$installation/roots"
@@ -28,11 +51,15 @@ if [[ ! -f "$installation/niri" ]] || ! cmp -s "$binary" "$installation/niri"; t
     mv -f -- "$installation/niri.new-$$" "$installation/niri"
 fi
 printf 'export LD_LIBRARY_PATH=%q\n' "$LD_LIBRARY_PATH" > "$installation/environment.sh"
+printf 'export DOJO_BROWSER_CONTROL_BROKER_EXE=%q\n' "$broker" >> "$installation/environment.sh"
+if [[ -n $mcp ]]; then
+    printf 'export DOJO_BROWSER_CONTROL_MCP_EXE=%q\n' "$mcp" >> "$installation/environment.sh"
+fi
 chmod 0644 "$installation/environment.sh"
 
 # Keep both linked libraries and dynamically loaded graphics libraries alive.
 mapfile -t store_paths < <(
-    { ldd "$binary"; printf '%s\n' "$LD_LIBRARY_PATH"; } |
+    { ldd "$binary"; printf '%s\n' "$LD_LIBRARY_PATH" "$broker" "$mcp"; } |
         rg -o '/nix/store/[^/[:space:]:]+' | sort -u
 )
 for store_path in "${store_paths[@]}"; do

@@ -1,0 +1,154 @@
+--- a/vendor/cua/driver/crates/cua-driver-core/src/browser/engine.rs
++++ b/vendor/cua/driver/crates/cua-driver-core/src/browser/engine.rs
+@@ -76,6 +76,7 @@
+     pub(crate) platform: Arc<dyn BrowserPlatform>,
+     pub(crate) store: BrowserStore,
+     pub(crate) pool: CdpPool,
++    pub(crate) read_context: Option<Arc<super::read::ReadContext>>,
+     pub(crate) managed_browsers: ManagedBrowsers,
+     pub(crate) existing_profile_grants: ExistingProfileGrants,
+     pub(crate) approval_broker: Arc<crate::consent::ApprovalBroker>,
+@@ -83,7 +84,7 @@
+     mutation_gates: MutationGates,
+     reconnect_gates: ReconnectGates,
+     pending_existing_profile_cleanups: Mutex<HashMap<String, Vec<ExistingProfileSetupRequest>>>,
+-    session_end_hook: Mutex<Option<crate::session::SessionEndHookRegistration>>,
++    pub(super) session_end_hook: Mutex<Option<crate::session::SessionEndHookRegistration>>,
+ }
+ 
+ fn refuse(code: BrowserRefusalCode, msg: impl Into<String>) -> BrowserRefusal {
+@@ -634,10 +635,22 @@
+         approval_broker: Arc<crate::consent::ApprovalBroker>,
+         protected_resource_ownership: Arc<crate::consent::ProtectedResourceOwnershipStore>,
+     ) -> Arc<Self> {
++        Self::new_with_context(platform, approval_broker, protected_resource_ownership, None)
++    }
++
++    pub(crate) fn new_read_only(platform: Arc<dyn BrowserPlatform>, context: Arc<super::read::ReadContext>) -> Arc<Self> {
++        Self::new_with_context(platform, Arc::new(crate::consent::ApprovalBroker::unavailable()),
++            Arc::new(crate::consent::ProtectedResourceOwnershipStore::default()), Some(context))
++    }
++
++    fn new_with_context(platform: Arc<dyn BrowserPlatform>, approval_broker: Arc<crate::consent::ApprovalBroker>,
++        protected_resource_ownership: Arc<crate::consent::ProtectedResourceOwnershipStore>,
++        read_context: Option<Arc<super::read::ReadContext>>) -> Arc<Self> {
+         let engine = Arc::new(Self {
+             platform,
+             store: BrowserStore::new(),
+-            pool: CdpPool::new(),
++            pool: CdpPool::new_with_read_context(read_context.clone()),
++            read_context,
+             managed_browsers: Default::default(),
+             existing_profile_grants: ExistingProfileGrants::new(),
+             approval_broker,
+@@ -647,6 +660,7 @@
+             pending_existing_profile_cleanups: Mutex::new(HashMap::new()),
+             session_end_hook: Mutex::new(None),
+         });
++        if engine.read_context.is_some() { return engine; }
+         let weak: Weak<Self> = Arc::downgrade(&engine);
+         let registration =
+             register_scoped_fallible_session_end_hook("browser_state", move |session_id| {
+@@ -1200,7 +1214,7 @@
+     }
+ 
+     /// Attach (flattened) to a tab's target and return the CDP session id.
+-    async fn attach(
++    pub(crate) async fn attach(
+         &self,
+         conn: &CdpConnection,
+         cdp_target_id: &str,
+@@ -1384,6 +1398,7 @@
+             quality,
+             tabs,
+         };
++        let _publication = self.read_context.as_ref().map(|context| context.guard()).transpose()?;
+         let target_id = self.store.mint_target(session, record.clone());
+         let record = self.store.get_target(session, &target_id)?;
+         Ok((target_id, record))
+@@ -1419,6 +1434,7 @@
+         target_id: &str,
+         tab_id: Option<&str>,
+     ) -> Result<ValidatedTab, BrowserRefusal> {
++        if self.read_context.is_some() { return Err(refuse(BrowserRefusalCode::BrowserRouteUnavailable, "external mutation admission unproved")); }
+         let record = self.store.get_target(session, target_id)?;
+ 
+         if record.quality != BindingQuality::Exact {
+@@ -1681,6 +1697,7 @@
+         viewport_y: f64,
+         kind: BrowserVisualActionKind,
+     ) {
++        if self.read_context.is_some() { return; }
+         // `document.visibilityState` distinguishes the selected tab without
+         // focusing its native window or invoking any CDP activation command.
+         // Treat an unavailable or malformed proof as inactive: omitting
+@@ -1745,6 +1762,7 @@
+         target_id: &str,
+         tab_id: &str,
+     ) -> Result<tokio::sync::OwnedMutexGuard<()>, BrowserRefusal> {
++        if self.read_context.is_some() { return Err(refuse(BrowserRefusalCode::BrowserRouteUnavailable, "external mutation admission unproved")); }
+         let record = self.store.get_target(session, target_id)?;
+         let tab = record.tabs.get(tab_id).ok_or_else(|| {
+             refuse(
+@@ -2230,6 +2248,7 @@
+         // A new snapshot supersedes prior ones for the tab: only the
+         // latest namespace stays resolvable, so refs can never mix
+         // across snapshots of a mutating page.
++        let _publication = self.read_context.as_ref().map(|context| context.guard()).transpose()?;
+         self.store.update_target(session, target_id, |rec| {
+             if let Some(tab) = rec.tabs.get_mut(tab_id) {
+                 tab.snapshots.clear();
+@@ -2585,6 +2604,7 @@
+                 start_index,
+             );
+             let next_token = outcome.continuation.clone();
++            let _publication = self.read_context.as_ref().map(|context| context.guard()).transpose()?;
+             self.store.update_target(session, target_id, |record| {
+                 if let Some(stored) = record
+                     .tabs
+@@ -2755,6 +2775,7 @@
+             0,
+         );
+         let continuation_token = outcome.continuation.clone();
++        let _publication = self.read_context.as_ref().map(|context| context.guard()).transpose()?;
+         self.store
+             .update_target(session, target_id, |stored_target| {
+                 if let Some(stored_tab) = stored_target.tabs.get_mut(tab_id) {
+@@ -2866,8 +2887,15 @@
+             || INTERACTIVE_ATTRS.iter().any(|a| attr(a).is_some());
+         if interactive {
+             if let Some(backend) = node.get("backendNodeId").and_then(Value::as_i64) {
++                let sensitive_value = attr("type").is_some_and(|value|["password","hidden"].iter().any(|kind|value.eq_ignore_ascii_case(kind)))
++                    || attr("autocomplete").is_some_and(|value|value.split_ascii_whitespace().any(|token|["current-password","new-password","one-time-code"].iter().any(|kind|token.eq_ignore_ascii_case(kind))))
++                    || ["name","id"].iter().filter_map(|key|attr(key)).any(|value| {
++                        let normalized=value.chars().filter(char::is_ascii_alphanumeric).flat_map(char::to_lowercase).collect::<String>();
++                        ["password","passwd","secret","credential","accesstoken","apikey"].iter().any(|marker|normalized.contains(marker))
++                    });
+                 let label = LABEL_ATTRS
+                     .iter()
++                    .filter(|key|**key!="value" || !sensitive_value)
+                     .filter_map(|k| attr(k).map(|v| format!("{k}={v}")))
+                     .collect::<Vec<_>>()
+                     .join(" ");
+@@ -3091,6 +3119,21 @@
+     }
+ 
+     #[test]
++    fn collector_omits_known_sensitive_values_before_labels_are_stored() {
++        let sensitive=[("type","password"),("type","hidden"),("autocomplete","current-password"),("autocomplete","new-password"),("autocomplete","section-login one-time-code"),("name","account_password"),("id","passwd"),("name","client_secret"),("id","credential"),("name","access_token"),("id","API-Key")];
++        for (key,value) in sensitive {
++            let mut out=Vec::new();
++            collect_interactive(&json!({"nodeType":1,"nodeName":"INPUT","backendNodeId":1,"attributes":[key,value,"aria-label","Account","value","DO-NOT-PUBLISH"]}),Some("main"),true,&mut out);
++            let label=out[0].label.as_deref().unwrap();
++            assert!(label.contains("aria-label=Account"));assert!(!label.contains("DO-NOT-PUBLISH"));assert!(!label.contains("value="));
++        }
++        for name in ["INPUT","BUTTON"] {
++            let mut out=Vec::new();collect_interactive(&json!({"nodeType":1,"nodeName":name,"backendNodeId":2,"attributes":["type","text","value","ordinary"]}),None,true,&mut out);
++            assert_eq!(out[0].label.as_deref(),Some("type=text value=ordinary"));
++        }
++    }
++
++    #[test]
+     fn collector_composes_shadow_dom_and_same_process_iframes() {
+         let doc = fixture_doc();
+         let mut out = Vec::new();

@@ -1,0 +1,74 @@
+--- a/vendor/cua/driver/crates/cua-driver-core/src/browser/tools.rs
++++ b/vendor/cua/driver/crates/cua-driver-core/src/browser/tools.rs
+@@ -689,6 +689,11 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if self.engine.read_context.is_some() {
++            return BrowserRefusal::new(BrowserRefusalCode::BrowserRouteUnavailable,
++                "external mutation admission unproved in read-only episode").to_tool_result();
++        }
++
+         let session = match require_explicit_session(&args) {
+             Ok(session) => session,
+             Err(error) => return error,
+@@ -855,6 +860,11 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if self.engine.read_context.is_some() {
++            return BrowserRefusal::new(BrowserRefusalCode::BrowserRouteUnavailable,
++                "external mutation admission unproved in read-only episode").to_tool_result();
++        }
++
+         let (target_id, tab_id, url) = match (
+             args.require_str("target_id"),
+             args.require_str("tab_id"),
+@@ -1012,6 +1022,11 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if self.engine.read_context.is_some() {
++            return BrowserRefusal::new(BrowserRefusalCode::BrowserRouteUnavailable,
++                "external mutation admission unproved in read-only episode").to_tool_result();
++        }
++
+         let (target_id, tab_id) = match (args.require_str("target_id"), args.require_str("tab_id"))
+         {
+             (Ok(t), Ok(tab)) => (t, tab),
+@@ -1629,6 +1644,11 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if self.engine.read_context.is_some() {
++            return BrowserRefusal::new(BrowserRefusalCode::BrowserRouteUnavailable,
++                "external mutation admission unproved in read-only episode").to_tool_result();
++        }
++
+         let (target_id, tab_id, text) = match (
+             args.require_str("target_id"),
+             args.require_str("tab_id"),
+@@ -2205,6 +2225,11 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if self.engine.read_context.is_some() {
++            return BrowserRefusal::new(BrowserRefusalCode::BrowserRouteUnavailable,
++                "external mutation admission unproved in read-only episode").to_tool_result();
++        }
++
+         let (target_id, tab_id, action) = match (
+             args.require_str("target_id"),
+             args.require_str("tab_id"),
+@@ -2421,6 +2446,11 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if self.engine.read_context.is_some() {
++            return BrowserRefusal::new(BrowserRefusalCode::BrowserRouteUnavailable,
++                "external mutation admission unproved in read-only episode").to_tool_result();
++        }
++
+         let (target_id, tab_id, ext_ref) = match (
+             args.require_str("target_id"),
+             args.require_str("tab_id"),

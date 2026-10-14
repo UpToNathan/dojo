@@ -1,0 +1,383 @@
+--- a/crates/dojo-icon-cache/src/cache.rs
++++ b/crates/dojo-icon-cache/src/cache.rs
+@@ -1,6 +1,6 @@
+ //! App icons, cached once for every cua UI (the Spaces apps, the notch, the
+ //! OpenKoalaBots samples, infinite-canvas): a small in-memory LRU over an
+-//! on-disk cache under `$CUA_HOME/cache/icons`.
++//! on-disk cache under an explicitly supplied cache root.
+ //!
+ //! - **Keys** are a stable app identity ([`IconKey`]): a scope (the guest's
+ //!   OS image digest or OS version, or this host), the app's id (bundle id,
+@@ -27,7 +27,7 @@
+ use std::future::Future;
+ use std::io::Cursor;
+ use std::path::{Path, PathBuf};
+-use std::sync::{Arc, Mutex, OnceLock};
++use std::sync::{Arc, Mutex};
+ use std::time::{Duration, Instant, SystemTime};
+ use tokio::sync::watch;
+ 
+@@ -37,6 +37,8 @@
+ pub const SIZE_2X: u32 = 64;
+ /// Largest source image accepted.
+ pub const MAX_SOURCE_BYTES: usize = 4 * 1024 * 1024;
++pub const MAX_SOURCE_DIMENSION: u32 = 4096;
++pub const MAX_DECODED_BYTES: u64 = 64 * 1024 * 1024;
+ 
+ /// A stable app identity.
+ #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+@@ -114,7 +116,7 @@
+             bytes_1x: Vec::new(),
+         }),
+         _ => {
+-            let img = image::load_from_memory_with_format(source, image::ImageFormat::Png).ok()?;
++            let img = decode_png(source, MAX_SOURCE_DIMENSION)?;
+             Some(Icon {
+                 content_type: "image/png",
+                 bytes: square_png(&img, SIZE_2X)?,
+@@ -124,6 +126,36 @@
+     }
+ }
+ 
++fn decode_png(bytes: &[u8], dimension: u32) -> Option<image::DynamicImage> {
++    let mut reader = image::ImageReader::with_format(Cursor::new(bytes), image::ImageFormat::Png);
++    let mut limits = image::Limits::default();
++    limits.max_image_width = Some(dimension);
++    limits.max_image_height = Some(dimension);
++    limits.max_alloc = Some(MAX_DECODED_BYTES);
++    reader.limits(limits);
++    reader.decode().ok()
++}
++
++fn read_bounded(path: &Path) -> std::io::Result<Vec<u8>> {
++    use std::io::Read;
++    use std::os::unix::fs::OpenOptionsExt;
++    let mut file = std::fs::OpenOptions::new()
++        .read(true)
++        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
++        .open(path)?;
++    if !file.metadata()?.is_file() {
++        return Err(std::io::Error::other("icon is not a regular file"));
++    }
++    let mut bytes = Vec::new();
++    file.by_ref()
++        .take(MAX_SOURCE_BYTES as u64 + 1)
++        .read_to_end(&mut bytes)?;
++    if bytes.len() > MAX_SOURCE_BYTES {
++        return Err(std::io::Error::other("icon byte limit exceeded"));
++    }
++    Ok(bytes)
++}
++
+ fn square_png(img: &image::DynamicImage, size: u32) -> Option<Vec<u8>> {
+     use image::GenericImageView;
+     let (w, h) = img.dimensions();
+@@ -150,7 +182,7 @@
+ /// Cache limits.
+ #[derive(Clone, Copy, Debug)]
+ pub struct Config {
+-    /// Icons kept decoded in memory.
++    /// Normalized icons retained in memory.
+     pub memory_entries: usize,
+     /// Disk budget, bytes.
+     pub disk_bytes: u64,
+@@ -198,8 +230,7 @@
+ type Outcome = Option<Option<Arc<Icon>>>;
+ type Pending = watch::Receiver<Outcome>;
+ 
+-/// The icon cache. [`IconCache::shared`] is the process-wide one every
+-/// binding uses; tests make their own with [`IconCache::new`].
++/// The icon cache. The application owns an instance with an explicit root.
+ pub struct IconCache {
+     dir: Option<PathBuf>,
+     config: Config,
+@@ -209,6 +240,24 @@
+     stats: Mutex<Stats>,
+ }
+ 
++struct InflightCleanup<'a> {
++    inflight: &'a Mutex<HashMap<IconKey, Pending>>,
++    owned: Vec<(IconKey, Pending)>,
++}
++impl Drop for InflightCleanup<'_> {
++    fn drop(&mut self) {
++        let mut inflight = self.inflight.lock().expect("inflight");
++        for (key, channel) in &self.owned {
++            if inflight
++                .get(key)
++                .is_some_and(|current| current.same_channel(channel))
++            {
++                inflight.remove(key);
++            }
++        }
++    }
++}
++
+ #[derive(Default)]
+ struct Lru {
+     tick: u64,
+@@ -228,12 +277,6 @@
+         }
+     }
+ 
+-    /// The process-wide cache under `$CUA_HOME/cache/icons`.
+-    pub fn shared() -> &'static IconCache {
+-        static SHARED: OnceLock<IconCache> = OnceLock::new();
+-        SHARED.get_or_init(|| IconCache::new(Some(default_dir()), Config::default()))
+-    }
+-
+     /// The directory, when the cache has one.
+     pub fn dir(&self) -> Option<&Path> {
+         self.dir.as_deref()
+@@ -279,11 +322,11 @@
+                 None => {}
+             }
+         }
+-        if self.disk_negative(key) {
+-            self.negatives
+-                .lock()
+-                .expect("negatives")
+-                .insert(key.clone(), Instant::now());
++        if let Some(age) = self.disk_negative(key) {
++            self.negatives.lock().expect("negatives").insert(
++                key.clone(),
++                Instant::now().checked_sub(age).unwrap_or_else(Instant::now),
++            );
+             self.stats.lock().expect("stats").negative_hits += 1;
+             return Lookup::Negative;
+         }
+@@ -300,6 +343,12 @@
+     /// the negative TTL). Returns the normalized icon.
+     pub fn put(&self, key: &IconKey, source: Option<&[u8]>) -> Option<Arc<Icon>> {
+         let Some(icon) = source.and_then(normalize) else {
++            self.memory.lock().expect("memory").entries.remove(key);
++            if let Some((png2, png1, svg)) = self.paths(key) {
++                for path in [png2, png1, svg] {
++                    let _ = std::fs::remove_file(path);
++                }
++            }
+             self.negatives
+                 .lock()
+                 .expect("negatives")
+@@ -307,6 +356,7 @@
+             self.write_negative(key);
+             return None;
+         };
++        self.negatives.lock().expect("negatives").remove(key);
+         self.write_disk(key, &icon);
+         let icon = Arc::new(icon);
+         self.remember(key, icon.clone());
+@@ -364,6 +414,13 @@
+                 }
+             }
+         }
++        let _cleanup = InflightCleanup {
++            inflight: &self.inflight,
++            owned: owned
++                .iter()
++                .map(|(index, sender)| (keys[*index].clone(), sender.subscribe()))
++                .collect(),
++        };
+         if !owned.is_empty() {
+             let indices: Vec<usize> = owned.iter().map(|(i, _)| *i).collect();
+             {
+@@ -433,49 +490,51 @@
+     }
+ 
+     /// A `<key>.none` file younger than the negative TTL.
+-    fn disk_negative(&self, key: &IconKey) -> bool {
+-        let Some(path) = self.negative_path(key) else {
+-            return false;
+-        };
+-        let Some(age) = std::fs::metadata(&path)
+-            .and_then(|m| m.modified())
+-            .ok()
+-            .and_then(|t| t.elapsed().ok())
+-        else {
+-            return false;
+-        };
++    fn disk_negative(&self, key: &IconKey) -> Option<Duration> {
++        let path = self.negative_path(key)?;
++        let metadata = std::fs::symlink_metadata(&path).ok()?;
++        if !metadata.is_file() || metadata.len() != 0 {
++            return None;
++        }
++        let age = metadata.modified().ok()?.elapsed().ok()?;
+         if age < self.config.negative_ttl {
+-            return true;
++            return Some(age);
+         }
+         let _ = std::fs::remove_file(&path);
+-        false
++        None
+     }
+ 
+     fn write_negative(&self, key: &IconKey) {
+         let (Some(dir), Some(path)) = (self.dir.as_ref(), self.negative_path(key)) else {
+             return;
+         };
+-        if cua_home::guard_write(dir).is_err() {
+-            return;
+-        }
+-        if let Err(error) = std::fs::create_dir_all(dir).and_then(|_| std::fs::write(&path, b"")) {
++        use std::os::unix::fs::OpenOptionsExt;
++        if let Err(error) = std::fs::create_dir_all(dir).and_then(|_| {
++            std::fs::OpenOptions::new()
++                .write(true)
++                .create(true)
++                .truncate(true)
++                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
++                .open(&path)
++                .map(|_| ())
++        }) {
+             tracing::debug!(%error, "icon cache: could not remember a missing icon");
+         }
+     }
+ 
+     fn read_disk(&self, key: &IconKey) -> Option<Icon> {
+         let (png2, png1, svg) = self.paths(key)?;
+-        let icon = if let Ok(bytes) = std::fs::read(&png2) {
++        let icon = if let Ok(bytes) = read_bounded(&png2) {
+             touch(&png2);
+             Icon {
+                 content_type: "image/png",
+                 bytes,
+-                bytes_1x: std::fs::read(&png1)
++                bytes_1x: read_bounded(&png1)
+                     .inspect(|_| touch(&png1))
+                     .unwrap_or_default(),
+             }
+         } else {
+-            let bytes = std::fs::read(&svg).ok()?;
++            let bytes = read_bounded(&svg).ok()?;
+             touch(&svg);
+             Icon {
+                 content_type: "image/svg+xml",
+@@ -483,6 +542,20 @@
+                 bytes_1x: Vec::new(),
+             }
+         };
++        if icon.content_type == "image/png" {
++            let dimensions = decode_png(&icon.bytes, SIZE_2X)?;
++            if dimensions.width() != SIZE_2X || dimensions.height() != SIZE_2X {
++                return None;
++            }
++            if !icon.bytes_1x.is_empty() {
++                let dimensions = decode_png(&icon.bytes_1x, SIZE_1X)?;
++                if dimensions.width() != SIZE_1X || dimensions.height() != SIZE_1X {
++                    return None;
++                }
++            }
++        } else if source_type(&icon.bytes) != Some("image/svg+xml") {
++            return None;
++        }
+         (!icon.bytes.is_empty()).then_some(icon)
+     }
+ 
+@@ -490,18 +563,20 @@
+         let Some(dir) = self.dir.as_ref() else {
+             return;
+         };
+-        if cua_home::guard_write(dir).is_err() {
+-            return;
+-        }
+         let Some((png2, png1, svg)) = self.paths(key) else {
+             return;
+         };
+         let written = std::fs::create_dir_all(dir).and_then(|_| {
+             if icon.content_type == "image/svg+xml" {
+-                write_atomic(&svg, &icon.bytes)
++                write_atomic(&svg, &icon.bytes)?;
++                let _ = std::fs::remove_file(&png2);
++                let _ = std::fs::remove_file(&png1);
++                Ok(())
+             } else {
+                 write_atomic(&png2, &icon.bytes)?;
+-                write_atomic(&png1, &icon.bytes_1x)
++                write_atomic(&png1, &icon.bytes_1x)?;
++                let _ = std::fs::remove_file(&svg);
++                Ok(())
+             }
+         });
+         if let Some(none) = self.negative_path(key) {
+@@ -525,6 +600,10 @@
+         let mut files: Vec<(SystemTime, u64, PathBuf)> = rd
+             .flatten()
+             .filter_map(|e| {
++                let name = e.file_name();
++                if !owned_cache_name(&name.to_string_lossy()) {
++                    return None;
++                }
+                 let m = e.metadata().ok()?;
+                 m.is_file().then(|| {
+                     (
+@@ -551,25 +630,48 @@
+     }
+ }
+ 
+-/// `$CUA_HOME/cache/icons`.
+-pub fn default_dir() -> PathBuf {
+-    cua_home::cua_home().join("cache").join("icons")
++fn owned_cache_name(name: &str) -> bool {
++    let Some((stem, extension)) = name.rsplit_once('.') else {
++        return false;
++    };
++    if !matches!(extension, "png" | "svg" | "none") {
++        return false;
++    }
++    let stem = if extension == "png" {
++        stem.strip_suffix("@1x").unwrap_or(stem)
++    } else {
++        stem
++    };
++    stem.len() == 32 && stem.bytes().all(|byte| byte.is_ascii_hexdigit())
+ }
+ 
+ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+-    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+-    std::fs::write(&tmp, bytes)?;
+-    std::fs::rename(&tmp, path)
++    use std::io::Write;
++    let parent = path
++        .parent()
++        .ok_or_else(|| std::io::Error::other("cache path has no parent"))?;
++    let mut file = tempfile::NamedTempFile::new_in(parent)?;
++    file.write_all(bytes)?;
++    file.persist(path).map_err(|error| error.error)?;
++    Ok(())
+ }
+ 
+ /// Marks a file used (its mtime orders the disk LRU).
+ fn touch(path: &Path) {
+-    if let Ok(f) = std::fs::File::options().append(true).open(path) {
+-        let _ = f.set_modified(SystemTime::now());
++    use std::os::unix::fs::OpenOptionsExt;
++    if let Ok(file) = std::fs::File::options()
++        .append(true)
++        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
++        .open(path)
++    {
++        if file.metadata().is_ok_and(|metadata| metadata.is_file()) {
++            let _ = file.set_modified(SystemTime::now());
++        }
+     }
+ }
+ 
+ #[cfg(test)]
++#[path = "cache_tests.rs"]
+ mod tests;
+ 
+ /// Live window previews (the teleport picker's tiles, window-drag
+@@ -595,12 +697,6 @@
+         }
+     }
+ 
+-    /// The process-wide one: five seconds, 128 previews.
+-    pub fn shared() -> &'static Thumbnails {
+-        static SHARED: OnceLock<Thumbnails> = OnceLock::new();
+-        SHARED.get_or_init(|| Thumbnails::new(Duration::from_secs(5), 128))
+-    }
+-
+     /// How long a preview is reused.
+     pub fn ttl(&self) -> Duration {
+         self.ttl

@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 project_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-t3_node=${DOJO_T3_NODE:-"$HOME/.local/opt/t3code/t3code"}
-export ELECTRON_RUN_AS_NODE=1
-exec "$t3_node" "$project_root/tools/speech/voice.mjs" "$@"
+exec "${DOJO_NODE:-node}" "$project_root/tools/speech/voice.mjs" "$@"

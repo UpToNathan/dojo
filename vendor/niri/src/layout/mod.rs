@@ -2770,6 +2770,42 @@ impl<W: LayoutElement> Layout<W> {
         }
     }
 
+    /// Placements from the same rounded tile/workspace positions used by rendering.
+    /// Refuse states whose render includes animated or independently moved content.
+    pub fn capture_placements(
+        &self,
+        output: &Output,
+    ) -> Result<Vec<(&W, Rectangle<f64, Logical>, bool)>, &'static str> {
+        if self.overview_open || self.overview_progress.is_some() {
+            return Err("scene_overview_unsupported");
+        }
+        if self.interactive_move.is_some() || self.dnd.is_some() {
+            return Err("scene_interactive_move_unsupported");
+        }
+        let mon = self
+            .monitors()
+            .find(|mon| mon.output() == output)
+            .ok_or("scene_output_unavailable")?;
+        if mon.are_transitions_ongoing() || self.are_animations_ongoing(Some(output)) {
+            return Err("scene_animation_unsupported");
+        }
+        let mut placements = Vec::new();
+        for (ws, geo) in mon.workspaces_with_render_geo_cull(true) {
+            for (tile, pos, visible) in ws.tiles_with_render_positions() {
+                if !visible || tile.is_moving_between_workspaces() {
+                    continue;
+                }
+                let mut rect = tile.rendered_window_geometry(pos);
+                rect.loc += geo.loc;
+                if placements.len() == 4096 {
+                    return Err("scene_too_many_windows");
+                }
+                placements.push((tile.window(), rect, ws.is_floating(tile.window().id())));
+            }
+        }
+        Ok(placements)
+    }
+
     pub fn are_animations_ongoing(&self, output: Option<&Output>) -> bool {
         // Keep advancing animations if we might need to scroll the view.
         if let Some(dnd) = &self.dnd {

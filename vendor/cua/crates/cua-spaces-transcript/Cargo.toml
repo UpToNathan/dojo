@@ -1,0 +1,20 @@
+[package]
+name = "cua-spaces-transcript"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+authors = ["trycua"]
+license = "MIT"
+repository = "https://github.com/trycua/cua"
+publish = false
+
+# Standalone import; retains upstream MSRV and relative fixture layout.
+[workspace]
+
+[dependencies]
+serde_json = "1"
+thiserror = "2"
+
+[[bin]]
+name = "cua-spaces-fixtures"
+path = "src/bin/cua-spaces-fixtures.rs"

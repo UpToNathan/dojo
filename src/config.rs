@@ -32,8 +32,7 @@ impl<'de> Deserialize<'de> for Color {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ThemeColors {
     pub primary: Color,
     pub background: Color,
@@ -41,6 +40,10 @@ pub struct ThemeColors {
     pub background_highlight: Color,
     pub border: Color,
     pub foreground_muted: Color,
+    pub primary_foreground: Color,
+    pub selection_foreground: Color,
+    pub surface: Color,
+    pub surface_raised: Color,
 }
 
 impl Default for ThemeColors {
@@ -52,7 +55,73 @@ impl Default for ThemeColors {
             background_highlight: Color(0x45475a),
             border: Color(0x585b70),
             foreground_muted: Color(0x6c7086),
+            primary_foreground: Color(0x000000),
+            selection_foreground: Color(0xcdd6f4),
+            surface: Color(0x1e1e2e),
+            surface_raised: Color(0x45475a),
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for ThemeColors {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Default, Deserialize)]
+        #[serde(default, deny_unknown_fields)]
+        struct Input {
+            primary: Option<Color>,
+            background: Option<Color>,
+            foreground: Option<Color>,
+            background_highlight: Option<Color>,
+            border: Option<Color>,
+            foreground_muted: Option<Color>,
+            primary_foreground: Option<Color>,
+            selection_foreground: Option<Color>,
+            surface: Option<Color>,
+            surface_raised: Option<Color>,
+        }
+        let input = Input::deserialize(deserializer)?;
+        let defaults = ThemeColors::default();
+        let primary = input.primary.unwrap_or(defaults.primary);
+        let background = input.background.unwrap_or(defaults.background);
+        let foreground = input.foreground.unwrap_or(defaults.foreground);
+        let highlight = input
+            .background_highlight
+            .unwrap_or(defaults.background_highlight);
+        let readable = |fill: Color| {
+            let fill =
+                dojo::extraction::Rgb((fill.0 >> 16) as u8, (fill.0 >> 8) as u8, fill.0 as u8);
+            let foreground_rgb = dojo::extraction::Rgb(
+                (foreground.0 >> 16) as u8,
+                (foreground.0 >> 8) as u8,
+                foreground.0 as u8,
+            );
+            if foreground_rgb.contrast(fill) >= 4.5 {
+                return foreground;
+            }
+            let black = dojo::extraction::Rgb(0, 0, 0);
+            let white = dojo::extraction::Rgb(255, 255, 255);
+            if black.contrast(fill) >= white.contrast(fill) {
+                Color(0)
+            } else {
+                Color(0xffffff)
+            }
+        };
+        Ok(Self {
+            primary,
+            background,
+            foreground,
+            background_highlight: highlight,
+            border: input.border.unwrap_or(defaults.border),
+            foreground_muted: input.foreground_muted.unwrap_or(defaults.foreground_muted),
+            primary_foreground: input
+                .primary_foreground
+                .unwrap_or_else(|| readable(primary)),
+            selection_foreground: input
+                .selection_foreground
+                .unwrap_or_else(|| readable(highlight)),
+            surface: input.surface.unwrap_or(background),
+            surface_raised: input.surface_raised.unwrap_or(highlight),
+        })
     }
 }
 
@@ -77,6 +146,10 @@ impl ThemeColors {
             ("background_highlight", self.background_highlight),
             ("border", self.border),
             ("foreground_muted", self.foreground_muted),
+            ("primary_foreground", self.primary_foreground),
+            ("selection_foreground", self.selection_foreground),
+            ("surface", self.surface),
+            ("surface_raised", self.surface_raised),
         ] {
             palette.colors.insert(role.into(), color.hex());
         }
@@ -198,6 +271,64 @@ impl ConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preset_exports_preserve_readable_foreground_pairs() -> anyhow::Result<()> {
+        use dojo::extraction::Rgb;
+        use dojo::theme::{Theme, presets};
+        for preset in presets()? {
+            let theme = Theme::from_palette(preset.palette.clone())?;
+            let outputs = theme.outputs(preset.appearance)?;
+            let colors: ThemeColors = serde_json::from_slice(&outputs["dojo.json"])?;
+            for (role, actual, fill) in [
+                (
+                    "selection_foreground",
+                    colors.selection_foreground,
+                    colors.background_highlight,
+                ),
+                (
+                    "primary_foreground",
+                    colors.primary_foreground,
+                    colors.primary,
+                ),
+            ] {
+                assert_eq!(
+                    actual.hex(),
+                    preset.palette.color(role),
+                    "{} {role}",
+                    preset.id
+                );
+                assert!(
+                    preset.palette.authored
+                        || Rgb::parse(&actual.hex())?.contrast(Rgb::parse(&fill.hex())?) >= 4.5,
+                    "{} {role}",
+                    preset.id
+                );
+            }
+            assert_eq!(colors.surface.hex(), preset.palette.color("surface"));
+            assert_eq!(
+                colors.surface_raised.hex(),
+                preset.palette.color("surface_raised")
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_nord_colors_get_readable_selection_text() -> anyhow::Result<()> {
+        let colors: ThemeColors = serde_json::from_str(
+            r##"{"background":"#2e3440","foreground":"#d8dee9","background_highlight":"#eceff4"}"##,
+        )?;
+        assert_eq!(colors.selection_foreground, Color(0));
+        assert_eq!(colors.surface, colors.background);
+        assert_eq!(colors.surface_raised, colors.background_highlight);
+        let authored: ThemeColors = serde_json::from_str(
+            r##"{"selection_foreground":"#2e3440","primary_foreground":"#3b4252"}"##,
+        )?;
+        assert_eq!(authored.selection_foreground, Color(0x2e3440));
+        assert_eq!(authored.primary_foreground, Color(0x3b4252));
+        Ok(())
+    }
 
     #[test]
     fn empty_config_and_partial_colors_use_defaults() -> anyhow::Result<()> {

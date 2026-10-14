@@ -1,31 +1,27 @@
-# T3 Code server
+# T3 Code backend
 
 `t3-home-manager.nix` exposes the installed T3 Code Electron bundle's CLI as
-`t3` and starts its backend from the graphical session. The wrapper is pinned
-to `/home/nathan/.local/opt/t3code`; it runs Electron in Node mode with the
-bundled `apps/server/dist/bin.mjs` entrypoint, matching T3's own CLI shim.
+`t3`. The wrapper uses `/home/nathan/.local/opt/t3code` and runs the bundled
+`apps/server/dist/bin.mjs` entrypoint in Electron Node mode.
 
-The autostart entry first turns off T3 Desktop's local environment, then runs
-`t3 start --no-browser`. The setting migration runs only while the app is
-closed, keeps a timestamped backup, and atomically replaces the settings file
-while preserving its metadata. If T3 is running or the setting is still
-enabled, autostart refuses to start a second backend. `t3-prepare-client` runs
-the same guarded migration manually; close T3 before using it. The desktop
-settings UI also supports this at **Settings → Connections → Local
-environment**.
+T3 Desktop owns the local backend. Keep **Settings → Connections → Local
+environment** enabled. Dojo does not start a standalone server or disable the
+local environment through Home Manager.
 
-The standalone server and desktop client share T3's default data directory at
-`~/.t3`, so the server sees the existing providers, projects and threads. T3
-Desktop must keep its local environment disabled while this standalone server
-owns that data. To add it as a client connection, create a pairing link with
-`t3 pair` and use **Add Environment** in the desktop app. Keep pairing links
-private.
+The desktop backend and Dojo theme publisher use `~/.t3/userdata`. Themes
+are regular JSON files in `themes/`; Apply publishes `dojo.json` atomically
+and selects it with the bundled CLI.
 
-The T3 CLI's `start` command also checks
-`~/.t3/userdata/server-runtime.json` and refuses to start when its recorded
-process is alive. `serve` does not make that same preflight, so autostart uses
-`start`.
+The installed desktop's theme lookup requires its primary local environment.
+Disabling that environment while connecting to a standalone server lets
+conversations work but leaves desktop theme publication disconnected from
+the theme lookup.
 
-Run `t3 --help` or `t3 <command> --help` to inspect the installed bundle's CLI.
-The wrapper accepts and forwards all arguments, so normal CLI operations use
-the same existing installation and data directory.
+Do not run a second backend against the same data directory. Existing
+threads, providers, and settings remain in `~/.t3/userdata`.
+
+Run `python3 scripts/restore-t3-desktop.py` to remove the previous standalone
+autostart entry and enable the local backend. It saves timestamped backups
+and leaves the running standalone process until logout because its service
+cgroup can contain unrelated agent jobs. Log out and back in before reopening
+T3 Desktop with the local backend.

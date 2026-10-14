@@ -1,0 +1,53 @@
+--- a/crates/dojo-cua-primitives/src/capture_registry.rs
++++ b/crates/dojo-cua-primitives/src/capture_registry.rs
+@@ -1176,6 +1176,20 @@
+         self.registry.read_for_perception_bound(id, binding)
+     }
+ 
++    /// A bound read and its conservative remaining lifetime on the registry clock.
++    pub fn read_for_perception_with_lifetime(
++        &self,
++        id: CaptureId,
++        binding: &CaptureBinding,
++    ) -> Result<(PerceptionCapture, Duration), CaptureLookupError> {
++        let capture = self.registry.read_for_perception_bound(id, binding)?;
++        let remaining = capture.expires_at().saturating_sub(self.registry.clock.now());
++        if remaining.is_zero() {
++            return Err(CaptureLookupError::Expired);
++        }
++        Ok((capture, remaining))
++    }
++
+     pub fn admit_action(
+         &self,
+         request: CaptureActionRequest,
+@@ -1841,6 +1855,29 @@
+     }
+ 
+     #[test]
++    fn perception_lifetime_uses_registry_clock_without_renewal() {
++        let clock = Arc::new(ManualClock::default());
++        let service = CaptureService::with_clock(config(4, 10_000), clock.clone()).unwrap();
++        let owner = service.current_binding("owner").unwrap();
++        let id = service.publish(CapturePublication {
++            png_bytes: png(4, 3, 9), target: CaptureTarget::PrimaryDesktop,
++            encoded_dimensions: EncodedScreenshotDimensions::new(4, 3).unwrap(),
++            native_action_dimensions: NativeActionDimensions::new(4, 3).unwrap(),
++            screenshot_to_action: ScreenshotToActionTransform::identity(),
++            session_id: Arc::from("owner"), session_generation: owner.session_generation(),
++        }).unwrap();
++        let (first, remaining) = service.read_for_perception_with_lifetime(id, &owner).unwrap();
++        assert_eq!(remaining, Duration::from_secs(10));
++        clock.advance(Duration::from_secs(7));
++        let (second, remaining) = service.read_for_perception_with_lifetime(id, &owner).unwrap();
++        assert_eq!(remaining, Duration::from_secs(3));
++        assert!(Arc::ptr_eq(&first.png_bytes(), &second.png_bytes()));
++        clock.advance(Duration::from_secs(3));
++        assert_eq!(service.read_for_perception_with_lifetime(id, &owner).unwrap_err(), CaptureLookupError::Expired);
++        assert!(!first.png_bytes().is_empty());
++    }
++
++    #[test]
+     fn invalid_action_point_does_not_consume_capture() {
+         let service = CaptureService::new(config(4, 10_000)).unwrap();
+         let target = CaptureTarget::PrimaryDesktop;

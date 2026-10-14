@@ -4,6 +4,7 @@ mod apply;
 mod export;
 mod presets;
 mod preview;
+mod refined;
 mod store;
 
 use std::collections::BTreeMap;
@@ -12,13 +13,16 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::extraction::{self, Mode, Palette, Rgb};
+use crate::extraction::{Mode, Palette, Rgb};
+/// Fits an RGBA source within the existing 256 MiB image allocation budget.
+pub const MAX_WALLPAPER_PIXELS: u64 = 64_000_000;
 pub use apply::{
-    ApplyReport, TARGETS, TargetResult, apply, apply_wallpaper, refresh_system, system_appearance,
-    watch,
+    ApplyReport, TARGETS, TargetResult, apply, apply_wallpaper, refresh_system, refresh_target,
+    set_system_appearance, system_appearance, watch,
 };
 pub use presets::{Preset, apply_preset, presets};
 pub use preview::preview;
+pub use refined::{RefinedTheme, derive_wallpaper, derive_wallpaper_mode, derive_wallpaper_modes};
 pub use store::{Paths, Selection, ThemeStore};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -243,8 +247,8 @@ impl Theme {
         reader.limits(limits);
         let image = reader.decode()?;
         anyhow::ensure!(
-            u64::from(image.width()) * u64::from(image.height()) <= 40_000_000,
-            "wallpaper exceeds the 40 million pixel limit"
+            u64::from(image.width()) * u64::from(image.height()) <= MAX_WALLPAPER_PIXELS,
+            "wallpaper exceeds the 64 million pixel limit"
         );
         self.wallpaper = path.to_string_lossy().into_owned();
         self.wallpaper_sha256 = format!("{:x}", Sha256::digest(&bytes));
@@ -272,9 +276,9 @@ impl Theme {
             "wallpaper exceeds the 50 MiB input limit"
         );
         let wallpaper_sha256 = format!("{:x}", Sha256::digest(&image_bytes));
-        let (dark, light) = extraction::extract_pair_bytes(&image_bytes, mode)?;
-        let dark = SemanticPalette::derive(&dark, Appearance::Dark);
-        let light = SemanticPalette::derive(&light, Appearance::Light);
+        let refined = derive_wallpaper_mode(&image_bytes, mode)?;
+        let dark = refined.dark;
+        let light = refined.light;
         dark.validate()?;
         light.validate()?;
         Ok(Self {
@@ -284,7 +288,7 @@ impl Theme {
             image_bytes,
             mode: Some(mode),
             preset: None,
-            algorithm_revision: extraction::UPSTREAM_REVISION.into(),
+            algorithm_revision: refined.revision.into(),
             dark,
             light,
         })

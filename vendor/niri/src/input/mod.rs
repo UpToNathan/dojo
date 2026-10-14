@@ -415,6 +415,7 @@ impl State {
         consumed_by_a11y: &mut bool,
     ) {
         self.human_keyboard_activity();
+        self.niri.last_keyboard_activity = Some(self.niri.clock.now_unadjusted());
         let mod_key = self.backend.mod_key(&self.niri.config.borrow());
 
         let serial = SERIAL_COUNTER.next_serial();

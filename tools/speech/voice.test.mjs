@@ -10,7 +10,6 @@ const directory = await mkdtemp(join(tmpdir(), 'dojo-voice-test-'));
 process.env.XDG_RUNTIME_DIR = directory;
 process.env.XDG_STATE_HOME = directory;
 const { VoiceService, serve, acquireServerLock, socketRequest } = await import('./voice.mjs');
-const { T3Client } = await import('./t3-client.mjs');
 const statePath = join(directory, 'dojo/voice/conversations.json');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function service() {
@@ -20,25 +19,16 @@ function service() {
   result.ui = async () => {};
   return result;
 }
+function serviceWithFakeSpeechWorker() {
+  const result = service(), commands = [];
+  result.speechWorker = { stdin: { write(line) { commands.push(JSON.parse(line)); }, end() {} } };
+  return { result, commands };
+}
 function chat(result) {
   const value = { threadId: 'thread', listenSince: '2026-01-01', activeRunId: null };
   result.state.chats.push(value);
   result.state.activeThreadId = value.threadId;
   return value;
-}
-function backend() {
-  const subscriptions = [];
-  return {
-    socket: { readyState: WebSocket.OPEN }, subscriptions, interrupted: [], closed: false,
-    subscribe(threadId, onValue, afterSequence) {
-      let resolve, reject;
-      const promise = new Promise((ok, fail) => { resolve = ok; reject = fail; });
-      const value = { id: String(subscriptions.length), promise, threadId, onValue, afterSequence, resolve, reject };
-      subscriptions.push(value); return value;
-    },
-    unsubscribe(id) { this.interrupted.push(id); },
-    async call() {}, close() { this.closed = true; },
-  };
 }
 async function request(payload) {
   const socket = net.createConnection(join(directory, 'dojo-voice.sock'));
@@ -78,61 +68,9 @@ test('failed startup releases singleton ownership', async () => {
   lock.stdin.end(); await once(lock, 'exit');
 });
 
-test('follow-ups keep one subscription and reconnect requests sequence replay', async () => {
-  const result = service(); const current = chat(result); current.sequence = 17;
-  let client = backend(); result.connect = async () => client;
-  await result.watch(); await result.watch();
-  assert.equal(client.subscriptions.length, 1);
-  assert.equal(client.subscriptions[0].afterSequence, 17);
-  const previous = client;
-  client = backend();
-  await result.watch();
-  assert.deepEqual(previous.interrupted, ['0']);
-  assert.equal(client.subscriptions[0].afterSequence, 17);
-  await result.shutdown();
-});
-
-test('expired sequence replay falls back to a snapshot subscription', async () => {
-  const result = service(); const current = chat(result); current.sequence = 17;
-  const client = backend(); result.client = client; result.connect = async () => client;
-  await result.watch();
-  client.subscriptions[0].reject(new Error('Replay history expired'));
-  await tick();
-  assert.equal(client.subscriptions.length, 2);
-  assert.equal(client.subscriptions[1].afterSequence, undefined);
-  await result.shutdown();
-});
-
-test('streaming updates coalesce writes and shutdown persists the last sequence', async () => {
-  const result = service(); const current = chat(result);
-  let writes = 0;
-  const save = result.save.bind(result);
-  result.save = () => { writes++; return save(); };
-  for (let sequence = 1; sequence <= 100; sequence++) await result.stream(current, {
-    kind: 'event', sequence, event: { type: 'message.updated', payload: { role: 'assistant', streaming: true } },
-  });
-  assert.equal(writes, 0);
-  await result.shutdown();
-  assert.equal(writes, 1);
-  assert.equal(JSON.parse(await readFile(statePath, 'utf8')).chats[0].sequence, 100);
-});
-
-test('completed assistant messages persist and display once while duplicate sequence is ignored', async () => {
-  const result = service(); const current = chat(result); const displayed = [];
-  result.ui = async (event, text) => displayed.push({ event, text });
-  const item = { kind: 'event', sequence: 1, event: { type: 'message.updated', payload: {
-    role: 'assistant', id: 'message', streaming: false, text: 'Ready.', createdAt: '2026-10-11',
-  } } };
-  await result.stream(current, item); await result.stream(current, item);
-  assert.deepEqual(displayed, [{ event: 'response', text: 'Ready.' }]);
-  assert.deepEqual(JSON.parse(await readFile(statePath, 'utf8')).seenMessages, ['message']);
-  await result.shutdown();
-});
-
-test('settlement uses a single deadline, waits for capture and closes the backend', async t => {
+test('bubble settlement waits for capture without closing the continuous runtime', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 0 });
-  const result = service(); const current = chat(result); const client = backend();
-  result.client = client; result.connect = async () => client;
+  const result = service(); const current = chat(result);
   result.capture = { id: 'recording' }; result.scheduleDeadline();
   assert.equal(result.deadlineTimer, undefined);
   t.mock.timers.tick(40_000); assert.equal(result.active(), current);
@@ -140,7 +78,6 @@ test('settlement uses a single deadline, waits for capture and closes the backen
   t.mock.timers.tick(29_999); await tick(); assert.equal(result.active(), current);
   t.mock.timers.tick(1); await result.queue; await tick();
   assert.equal(result.state.activeThreadId, null);
-  assert.equal(client.closed, true);
   assert.equal(result.deadlineTimer, undefined);
   await result.shutdown();
 });
@@ -164,22 +101,18 @@ test('command queue is bounded without dropping accepted operations', async () =
   await result.shutdown();
 });
 
-test('T3 acknowledges chunks only after their consumer processes them', async () => {
-  const client = new T3Client(); const frames = [];
-  client.socket = { send: text => frames.push(JSON.parse(text)), readyState: WebSocket.OPEN };
-  let release; const gate = new Promise(resolve => { release = resolve; });
-  const consumed = [];
-  const subscription = client.subscribe('thread', async value => { await gate; consumed.push(value); });
-  const receiving = client.receive({ _tag: 'Chunk', requestId: subscription.id, values: ['first', 'second'] });
-  await tick(); assert.equal(frames.some(frame => frame._tag === 'Ack'), false);
-  release(); await receiving;
-  assert.deepEqual(consumed, ['first', 'second']);
-  assert.deepEqual(frames.at(-1), { _tag: 'Ack', requestId: subscription.id });
-  client.unsubscribe(subscription.id); await subscription.promise;
-  assert.equal(client.pending.size, 0);
+test('voice preserves exact request text and keeps the durable conversation after bubble expiry', async () => {
+  const result = service(), received = [];
+  result.runtime = { id: 1, busy: () => false, submit: async text => { received.push(text); return {}; }, close: async () => {} };
+  await result.submit('  preserve this\n');
+  assert.deepEqual(received, ['  preserve this\n']);
+  assert.equal(result.state.activeThreadId, '1');
+  await result.runtimeEvent({ type: 'run', status: 'idle', conversationId: 1 });
+  await result.settle(true);
+  assert.equal(result.state.activeThreadId, null);
+  assert.equal(result.state.chats[0].threadId, '1');
+  await result.shutdown();
 });
-
-test.after(async () => { await rm(directory, { recursive: true, force: true }); });
 
 test('native worker events preserve warm reuse, capture cancellation and stale-result rejection', async () => {
   const { EventEmitter } = await import('node:events');
@@ -212,19 +145,53 @@ test('native worker events preserve warm reuse, capture cancellation and stale-r
   await result.shutdown(); child.stdout.end(); child.stderr.end();
 });
 
-test('reconnect owns one timer and backs off repeated backend failures', async t => {
-  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 0 });
-  const result = service(); chat(result).activeRunId = 'run';
-  let attempts = 0;
-  result.watch = async () => { attempts++; if (attempts < 3) throw new Error('Stub disconnected backend'); };
-  result.scheduleReconnect(); const first = result.reconnectTimer;
-  result.scheduleReconnect(); assert.equal(result.reconnectTimer, first);
-  t.mock.timers.tick(1000); await tick(); assert.equal(attempts, 1);
-  t.mock.timers.tick(1999); await tick(); assert.equal(attempts, 1);
-  t.mock.timers.tick(1); await tick(); assert.equal(attempts, 2);
-  t.mock.timers.tick(4000); await tick(); assert.equal(attempts, 3);
-  assert.equal(result.reconnecting, false);
-  assert.equal(result.reconnectTimer, undefined);
+test('controller begin leaves a keyboard-owned capture unchanged', async () => {
+  const { result, commands } = serviceWithFakeSpeechWorker();
+  const capture = { id: 'keyboard-capture' };
+  result.capture = capture;
+  result.recording = true;
+
+  const reply = await result.handle({ action: 'controller-begin', owner: '4b43d7be-e2f7-4d91-a08e-0e6741e65b92' });
+
+  assert.deepEqual(reply, { recording: true, owned: false, busy: true });
+  assert.equal(result.capture, capture);
+  assert.equal(result.recording, true);
+  assert.deepEqual(commands, []);
+});
+
+test('controller ownership is atomic, idempotent, and required to finish or cancel', async () => {
+  const { result, commands } = serviceWithFakeSpeechWorker();
+  const owner = '4b43d7be-e2f7-4d91-a08e-0e6741e65b92';
+  const other = '5c54e8cf-f308-4ea2-b19f-1f7852f76ca3';
+
+  const first = await result.handle({ action: 'controller-begin', owner });
+  const capture = result.capture;
+  const duplicate = await result.handle({ action: 'controller-begin', owner });
+  assert.deepEqual(first, { recording: true, owned: true, busy: false });
+  assert.deepEqual(duplicate, { recording: true, owned: true, busy: false });
+  assert.equal(result.capture, capture);
+  assert.deepEqual(commands.map(({ action }) => action), ['begin']);
+
+  assert.deepEqual(await result.handle({ action: 'controller-finish', owner: other }), { recording: true, owned: false });
+  assert.deepEqual(await result.handle({ action: 'controller-cancel', owner: other }), { recording: true, owned: false });
+  assert.equal(result.capture, capture);
+  assert.equal(result.recording, true);
+  assert.deepEqual(commands.map(({ action }) => action), ['begin']);
+
+  assert.deepEqual(await result.handle({ action: 'controller-finish', owner }), { recording: false, owned: true });
+  assert.deepEqual(commands.map(({ action }) => action), ['begin', 'finish']);
+  await result.shutdown();
+});
+
+test('controller cancellation is limited to the owner and invalid owner IDs are rejected', async () => {
+  const { result, commands } = serviceWithFakeSpeechWorker();
+  const owner = '4b43d7be-e2f7-4d91-a08e-0e6741e65b92';
+
+  await assert.rejects(result.handle({ action: 'controller-begin', owner: '../not-a-uuid' }), /owner must be a UUID/);
+  await result.handle({ action: 'controller-begin', owner });
+  assert.deepEqual(await result.handle({ action: 'controller-cancel', owner }), { recording: false, owned: true });
+  assert.equal(result.capture, null);
+  assert.deepEqual(commands.map(({ action }) => action), ['begin', 'cancel']);
   await result.shutdown();
 });
 

@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Preview or restore Dojo's package/configuration baseline on an existing Arch host."""
+
+import argparse
+import datetime as dt
+import os
+from pathlib import Path
+import re
+import shlex
+import subprocess
+import sys
+import tempfile
+
+from arch_packages import archive_config
+
+
+def read_names(path, pattern):
+    names = []
+    for line in path.read_text().splitlines():
+        name = line.split("#", 1)[0].strip()
+        if not name:
+            continue
+        if not re.fullmatch(pattern, name) or name.startswith("-"):
+            raise ValueError(f"invalid entry in {path}: {name!r}")
+        names.append(name)
+    return sorted(set(names))
+
+
+def restore_plan(repo, pacman_config=None):
+    package_pattern = r"[a-zA-Z0-9@._+:-]+"
+    packages = set(read_names(repo / "system-config/packages/official-explicit.txt", package_pattern))
+    packages.update(read_names(repo / "system-config/packages/required.txt", package_pattern))
+    if not packages:
+        raise ValueError("official package baseline is empty")
+    unit_pattern = r"[a-zA-Z0-9@._:-]+\.(?:service|socket|timer|path|target|mount|automount)"
+    system_units = read_names(repo / "system-config/services/system-enabled.txt", unit_pattern)
+    # Template units use their packaged DefaultInstance when enabled.
+    pacman = ["sudo", "pacman"]
+    if pacman_config is not None:
+        pacman.extend(["--config", pacman_config])
+    commands = [
+        [*pacman, "-Syyu", "--needed", *sorted(packages)],
+        ["bash", str(repo / "scripts/install-system-config.sh")],
+        ["devenv", "machines", "deploy", "venus"],
+    ]
+    if system_units:
+        commands.append(["sudo", "systemctl", "enable", *system_units])
+    return commands
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--apply", action="store_true", help="execute the displayed plan; default is preview only")
+    parser.add_argument("--buffer-days", type=int, default=3, help="minimum package age (default: 3)")
+    args = parser.parse_args(argv)
+    if args.buffer_days < 0 or args.buffer_days > 36500:
+        parser.error("buffer days must be between 0 and 36500")
+    repo = Path(__file__).resolve().parent.parent
+    temporary = None
+    try:
+        config_path = None
+        if args.buffer_days:
+            date = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=args.buffer_days + 1)).strftime("%Y/%m/%d")
+            config = archive_config(Path("/etc/pacman.conf").read_text(), date)
+            config_path = f"<snapshot-{date}>"
+            if args.apply:
+                temporary = tempfile.NamedTemporaryFile(mode="w", prefix="dojo-pacman-", suffix=".conf")
+                temporary.write(config)
+                temporary.flush()
+                config_path = temporary.name
+        commands = restore_plan(repo, config_path)
+    except (OSError, ValueError) as error:
+        print(str(error), file=sys.stderr)
+        return 1
+    print("Existing Arch host required, with Nix/devenv installed and this checkout at /home/nathan/Dojo.", flush=True)
+    print(f"Package version buffer: {args.buffer_days} days, using signed official Arch repositories.", flush=True)
+    print("Installer applies maintained privileged files and the firewalld setup. Services are enabled for next boot.", flush=True)
+    print("Review docs/system-inventory.md for unmanaged configuration and separate secret provisioning.", flush=True)
+    if args.apply and os.geteuid() == 0:
+        print("Run as the desktop user; individual system steps use sudo.", file=sys.stderr)
+        return 1
+    for command in commands:
+        print("\n" + shlex.join(command), flush=True)
+        if args.apply:
+            try:
+                result = subprocess.run(command, cwd=repo, check=False)
+            except OSError as error:
+                print(str(error), file=sys.stderr)
+                return 1
+            if result.returncode:
+                return result.returncode
+    print("\nForeign packages, per-user secrets/services, Dojo/Niri builds, and host boot/storage setup need the documented follow-up.")
+    if temporary is not None:
+        temporary.close()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

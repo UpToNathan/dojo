@@ -1,0 +1,15 @@
+[package]
+name = "dojo-capture-wayland"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+libc = "0.2"
+memmap2 = "0.9"
+socket2 = "0.6"
+tempfile = "3"
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }

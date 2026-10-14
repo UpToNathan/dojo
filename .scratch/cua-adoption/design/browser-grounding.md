@@ -1,0 +1,46 @@
+# Browser admission grounding
+
+## Overview
+
+Browser navigation already has a strict last-mile admission path: a trusted Rust broker prepares one upgraded page connection, then Niri validates the live target and writes one compositor-built `Page.navigate` frame. Niri is the final writer, so target ownership and human coordination are checked at the point the effect enters the kernel. This boundary exists to prevent a service-side check followed by a separate CDP write from racing with compositor state changes ([owner findings](browser-ground-owner.md); [actor findings](browser-ground-actor.md); [ticket 16](../issues/16-side-channel-admission.md)).
+
+The mismatch is broker enrollment. Niri pins a broker PID and process start time when it starts, while Dojo's Rust service is launched lazily and can restart with a new process generation. A new service cannot update that listener pin. The design question is how a lazy Rust service generation can be admitted as a trusted broker without weakening exact page/window binding, exclusive-writer assumptions, Niri's final authority, or Pi's durable unknown-effect recovery.
+
+## Concepts
+
+- **Pi extension:** sole durable conversation, scheduler, replay policy, pretransport reservation, and recovery barrier owner. It records an unsafe navigation as unknown before sending it. `pi-ai` remains the transport owner.
+- **MCP adapter:** forwards typed navigation inputs to the service. Model-visible arguments include capture ID and URL; they are not proof of durable intent.
+- **Lazy Rust service:** execution and browser transport owner. It owns per-connection sessions, capture/read episodes, optional seat controller, and isolated browser lifetime. Its process identity is ephemeral.
+- **Agent peer/seat:** Niri currently assigns a connection-local numeric peer ID. It identifies a connection/seat, but current `ClientCtx` and `AgentSeat` do not bind authenticated PID, UID, or process start time. Seat ownership alone is not broker trust.
+- **Broker:** authenticates Niri, upgrades the exact `/devtools/page/{target}` endpoint, and transfers a single writable FD. Its attestation links that page connection to the native browser/window; Niri's endpoint-listener check alone cannot establish the page identity or exclusive writer.
+- **Niri actor/writer:** validates the pending request, resolves the live target, rechecks coordination and geometry, constructs the only permitted navigation frame, then performs one nonblocking write on its event thread. This is the final mutation authority.
+- **Unknown-effect barriers:** Rust and Niri keep in-memory coordination state; Pi owns cross-restart durable uncertainty. A service or compositor restart, fresh observation, or registration refresh is not settlement.
+
+## Flow
+
+1. Niri startup reads the external-admission socket and trusted broker PID/start once (`vendor/niri/src/niri.rs:2633`; `vendor/niri/src/external_admission.rs:212`). It does not have a dynamic enrollment operation. The lazy service connects to or launches the per-compositor service (`src/bin/dojo-agent/service.rs:172`), so its process generation need not match the startup pin.
+2. Pi commits the unsafe tool reservation and `externalUnknown=true` before transport (`tools/speech/desktop-extension.mjs:136`). MCP forwards `{capture_id, url}` (`src/bin/dojo-agent.rs:475`). A transport loss is unknown, not permission to retry.
+3. Rust authorizes policy, checks enablement and URL, validates the current read episode against capture and native-window identity, consumes capture authority, retires the episode, creates/uses its Niri controller, and mints internal single-use intent/grant IDs (`src/bin/dojo-agent/service.rs:637`; `:671`; `:697`; `:709`). These internal IDs are ephemeral reservations, not durable Pi consent or ToolCall identity.
+4. The browser engine rebinds the selected page and endpoint and returns a navigation binding; it refuses unsupported split native-client/browser-root identity (`vendor/cua/driver/crates/cua-driver-core/src/browser/read.rs:421`). The broker authenticates the compositor, upgrades the exact page target, and transfers one FD (`crates/dojo-external-admission/src/broker.rs:59`; `:254`; `:309`). Before transfer, cancellation can stop preparation. After transfer, cancellation or receipt loss cannot prove the writer was revoked or the effect did not happen.
+5. Niri authenticates the broker process generation, checks bounded request/FD data, verifies endpoint ownership, resolves the exact native target and current coordination state, then registers a pending writer (`vendor/niri/src/external_admission.rs:256`; `:294`; `:450`). On event-loop readiness it repeats the live authority, target, geometry, and generation checks and makes one nonblocking send (`:128`). No partial-frame continuation is allowed.
+6. Any attempted dispatch is unknown, even if the full frame was accepted. Niri blocks follow-on effects for the unresolved target; Rust marks its session barrier and drops the controller; Pi clears its durable barrier only on an explicit refusal with zero accepted bytes (`external_admission.rs:173`; `:201`; `service.rs:740`; `desktop-extension.mjs:143`). The inspected Niri path has no barrier-clear operation, and the extension has no explicit durable recovery-clear operation.
+
+## Boundaries and gotchas
+
+- A configured static process-generation pin is an explicit operator trust enrollment. The Niri startup comment says ordinary config must not silently create a trusted broker (`vendor/niri/src/niri.rs:2633`). Replacing it requires an equally explicit trust boundary. No source establishes that same UID, a peer ID, a caller-supplied PID/start, socket path, environment flag, or executable path alone is sufficient.
+- Adding IPC peer credentials can bind a seat to its process generation, but does not by itself authorize that process as broker or prove its page/window relationship and exclusive write ownership.
+- Niri verifies the listening endpoint's owner against the browser PID, while the broker attests the upgraded page target. Native window PID, browser-root PID, and CDP listener PID can differ in supported process topologies; do not collapse them into one identity without proof.
+- Transferred pending FDs outlive the service's direct cancellation flag. Current source evidence does not prove immediate cancellation on client disconnect, service death, seat expiry, or activation replacement. A new design must define and prove revocation ordering at transfer and final-write boundaries.
+- Writer intents, pending counts, unresolved targets, service sessions, and capture grants are bounded/in-memory coordination records. Pi remains the only cross-restart durable scheduler and recovery owner. Registration must not clear either Pi or compositor uncertainty.
+- The historical record is incomplete: the gate/ticket/provenance files are untracked and have no historical commit. The older commit `7e7f587419` shows the lazy service predating the gate; it does not establish the intended rationale for every later choice. Treat design motivation beyond explicit comments/spec text as inference.
+- No accepted approval semantics are established by these findings. Navigation authorization, operator trust enrollment, and outcome-oriented approval handling in existing Pi state remain distinct questions; do not invent a consent protocol in the design.
+
+## Constraints for two competing designs
+
+Both designs must keep the Rust service lazy, use `pi-ai` for transport, preserve Pi as the sole scheduler and durable state owner, and leave the compositor as the final writer. They must retain exact page-target attestation plus native window/process binding, a single transferred writer with no retry after ambiguous handoff, fresh capture authority, Niri's final coordination checks, and durable unknown recovery. They must not rely on same-UID identity or arbitrary seat ownership as broker trust, add a deployed Python service or second durable store/scheduler, clear unresolved state during registration/restart, or assume a service cancellation flag revokes an FD already transferred to Niri. Do not change installed deployment as part of either design.
+
+The competing designs may differ in **who attests lazy-service activation**—for example a compositor-owned activation channel versus a separately trusted launcher—but the trust proof must be explicit, operator-authorized, generation-bound, and revocable. Each must state how live service generation is bound to its permitted peers/sessions, how transferred pending writers are revoked on process/seat/activation loss, and how unresolved outcomes survive service and compositor restart. They must identify approval behavior as unresolved unless an existing Pi mechanism supplies the semantics.
+
+## Unknowns to carry forward
+
+The inspected sources do not settle the activation credential/provenance protocol, the pending-FD revocation guarantee, an explicit recovery/settlement path, or whether all real Chromium/Nix launch topologies satisfy the current exact-PID and endpoint-owner assumptions. Existing nested fixture evidence is not proof of the live isolated Chromium-to-MCP route. These require design decisions and route-specific proof; they are not facts to assume in either proposal.

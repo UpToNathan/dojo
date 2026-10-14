@@ -51,6 +51,8 @@ readme = "README.md"
 keywords = ["wayland", "compositor", "tiling", "smithay", "wm"]
 
 [dependencies]
+dojo-browser-control = { path = "../../crates/dojo-browser-control" }
+cua-cursor-motion = { path = "../cua/crates/cua-cursor-motion" }
 accesskit = { version = "0.25", optional = true }
 accesskit_unix = { version = "0.23", optional = true }
 anyhow.workspace = true
@@ -82,6 +84,7 @@ pango = { version = "0.21.5", features = ["v1_44"] }
 pangocairo = "0.21.5"
 pipewire = { version = "0.10", optional = true, features = ["v0_3_33"] }
 png = "0.18.1"
+base64 = "0.22"
 portable-atomic = "1"
 profiling = "1.0.18"
 sd-notify = "0.5.0"
@@ -116,6 +119,8 @@ features = [
 ]
 
 [dev-dependencies]
+dojo-external-admission = { path = "../../crates/dojo-external-admission" }
+tungstenite = "0.24"
 approx = "0.5.1"
 calloop-wayland-source = "0.4.1"
 insta.workspace = true

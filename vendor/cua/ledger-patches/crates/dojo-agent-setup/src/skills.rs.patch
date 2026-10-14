@@ -1,0 +1,72 @@
+--- a/crates/dojo-agent-setup/src/skills.rs
++++ b/crates/dojo-agent-setup/src/skills.rs
+@@ -1,4 +1,4 @@
+-//! The default cua skills, bundled from `libs/cua/skills/` at build time.
++//! The Dojo desktop skill, bundled from this crate at build time.
+ //! Each is an Agent Skills folder (`<name>/SKILL.md` with `name` and
+ //! `description` front matter, plus optional reference files).
+ 
+@@ -7,7 +7,7 @@
+ use sha2::{Digest, Sha256};
+ use std::path::Path;
+ 
+-static BUNDLED: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../skills");
++static BUNDLED: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/skills");
+ 
+ /// One bundled skill.
+ #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+@@ -16,7 +16,7 @@
+     pub name: String,
+     /// Front matter `description`.
+     pub description: String,
+-    /// Front matter `version`, or the cua version.
++    /// Front matter `version`, or the Dojo version.
+     pub version: String,
+     /// Tree hash of the bundled files (same scheme as `fsutil::hash_dir`).
+     pub hash: String,
+@@ -54,7 +54,7 @@
+     bundled().into_iter().find(|s| s.name == name)
+ }
+ 
+-/// Writes skill `name` into `dest` (created; files cua does not ship are
++/// Writes skill `name` into `dest` (created; files Dojo does not ship are
+ /// removed first so an update never leaves stale references behind).
+ pub fn write_to(name: &str, dest: &Path) -> Result<()> {
+     let d = BUNDLED
+@@ -191,13 +191,7 @@
+     #[test]
+     fn default_skills_are_bundled_and_well_formed() {
+         let names: Vec<String> = bundled().into_iter().map(|s| s.name).collect();
+-        for want in [
+-            "cua-driver",
+-            "cua-sandboxes",
+-            "cua-spaces",
+-            "cua-volume",
+-            "gui-automation",
+-        ] {
++        for want in ["dojo-desktop"] {
+             assert!(
+                 names.iter().any(|n| n == want),
+                 "{want} missing from {names:?}"
+@@ -214,21 +208,6 @@
+         }
+     }
+ 
+-    #[test]
+-    fn our_skill_texts_have_no_em_dashes() {
+-        for name in ["cua-sandboxes", "cua-spaces", "cua-volume"] {
+-            let d = BUNDLED.get_dir(name).unwrap();
+-            for f in files_of(d) {
+-                let t = f.contents_utf8().unwrap();
+-                assert!(
+-                    !t.contains('\u{2014}'),
+-                    "{} has an em dash",
+-                    f.path().display()
+-                );
+-            }
+-        }
+-    }
+-
+     #[test]
+     fn written_tree_hashes_like_the_bundle() {
+         let d = tempfile::tempdir().unwrap();

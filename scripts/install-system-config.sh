@@ -11,6 +11,10 @@ as_root() {
     fi
 }
 
+theme_only=false
+if [[ ${1:-} == --chromium-theme-only ]]; then theme_only=true; shift; fi
+[[ $# -eq 0 ]] || { echo "Usage: $0 [--chromium-theme-only]" >&2; exit 2; }
+
 config_links=(
     '1password/custom_allowed_browsers|/etc/1password/custom_allowed_browsers'
     'nix/nix.conf|/etc/nix/nix.conf'
@@ -22,6 +26,7 @@ config_links=(
     'bin/update-nix-gl|/usr/local/bin/update-nix-gl'
 )
 
+if $theme_only; then config_links=(); fi
 for config_link in "${config_links[@]}"; do
     source_relative=${config_link%%|*}
     target_file=${config_link#*|}
@@ -83,5 +88,12 @@ for policy_dir in /etc/chromium /etc/chromium/policies /etc/chromium/policies/ma
     fi
 done
 
-as_root systemctl daemon-reload
-as_root udevadm control --reload-rules
+if $theme_only; then
+    printf 'Installed Chromium theme integration; active policy preserved.\n'
+fi
+
+if ! $theme_only; then
+    "$repo_root/system-config/bin/configure-firewalld"
+    as_root systemctl daemon-reload
+    as_root udevadm control --reload-rules
+fi

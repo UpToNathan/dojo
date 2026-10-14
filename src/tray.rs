@@ -8,6 +8,55 @@ use futures_lite::future;
 use gpui::{RenderImage, Window};
 use image::{Frame, RgbaImage};
 use zbus::blocking::{Connection, Proxy, connection::Builder as ConnectionBuilder};
+
+#[cfg(test)]
+mod runtime_regression {
+    use super::*;
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+
+    #[test]
+    fn status_notifier_executor_runs_without_a_tokio_context() {
+        let directory = tempfile::tempdir().unwrap();
+        let configuration = directory.path().join("bus.conf");
+        std::fs::write(&configuration, format!("<busconfig><type>session</type><listen>unix:tmpdir={}</listen><auth>EXTERNAL</auth><policy context=\"default\"><allow own=\"*\"/><allow send_destination=\"*\"/><allow receive_sender=\"*\"/></policy></busconfig>", directory.path().display())).unwrap();
+        let mut daemon = Command::new("dbus-daemon")
+            .arg("--config-file")
+            .arg(&configuration)
+            .args(["--nofork", "--print-address=1"])
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("start private D-Bus fixture");
+        struct Daemon(std::process::Child);
+        impl Drop for Daemon {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let mut address = String::new();
+        BufReader::new(daemon.stdout.take().unwrap())
+            .read_line(&mut address)
+            .unwrap();
+        let _daemon = Daemon(daemon);
+        let address = address.trim().to_owned();
+        std::thread::spawn(move || {
+            assert!(tokio::runtime::Handle::try_current().is_err());
+            let connection = ConnectionBuilder::address(address.as_str())
+                .unwrap()
+                .build()
+                .unwrap();
+            // This is the bridge-spawn boundary used by run_host on its std thread.
+            let bridge = connection
+                .inner()
+                .executor()
+                .spawn(async { true }, "dojo-tray-runtime-regression");
+            assert!(future::block_on(bridge).unwrap());
+        })
+        .join()
+        .expect("tray bridge must work without a Tokio runtime");
+    }
+}
 use zbus::fdo;
 use zbus::interface;
 use zbus::message::Header;

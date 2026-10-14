@@ -1,0 +1,161 @@
+--- a/crates/dojo-icon-cache/src/cache_tests.rs
++++ b/crates/dojo-icon-cache/src/cache_tests.rs
+@@ -189,19 +189,10 @@
+ }
+ 
+ #[test]
+-fn tests_never_write_the_real_cua_home() {
+-    // A test process pointed at the real ~/.cua writes nothing there.
+-    let Some(real) = cua_home::real_cua_home() else {
+-        return;
+-    };
+-    let dir = real.join("cache").join("icons-guard-probe");
+-    let c = IconCache::new(Some(dir.clone()), Config::default());
+-    c.put(&key("probe"), Some(&png(8, 8)));
+-    assert!(
+-        !dir.exists(),
+-        "the test guard let a test write {}",
+-        dir.display()
+-    );
++fn memory_only_cache_has_no_implicit_directory() {
++    let cache = IconCache::new(None, Config::default());
++    cache.put(&key("probe"), Some(&png(8, 8)));
++    assert_eq!(cache.dir(), None);
+ }
+ 
+ #[test]
+@@ -229,3 +220,134 @@
+     t.put("c", Some(vec![3]));
+     assert!(t.get("a").is_none() && t.get("c").is_some());
+ }
++
++#[tokio::test]
++async fn canceling_the_fetch_owner_does_not_poison_single_flight() {
++    let cache = Arc::new(IconCache::new(None, Config::default()));
++    let entered = Arc::new(tokio::sync::Notify::new());
++    let owner_cache = cache.clone();
++    let notice = entered.clone();
++    let owner = tokio::spawn(async move {
++        owner_cache
++            .get_or_fetch(&key("cancelled"), || async {
++                notice.notify_one();
++                std::future::pending::<Result<Option<Vec<u8>>, ()>>().await
++            })
++            .await
++    });
++    entered.notified().await;
++    owner.abort();
++    assert!(owner.await.unwrap_err().is_cancelled());
++    let fetched = tokio::time::timeout(
++        Duration::from_secs(1),
++        cache.get_or_fetch(&key("cancelled"), || async {
++            Ok::<_, ()>(Some(png(24, 24)))
++        }),
++    )
++    .await
++    .unwrap()
++    .unwrap();
++    assert!(fetched.is_some());
++    assert!(cache.inflight.lock().unwrap().is_empty());
++}
++
++#[test]
++fn replacing_a_positive_with_a_negative_retires_the_old_icon() {
++    let dir = tempfile::tempdir().unwrap();
++    let cache = cache(dir.path(), Config::default());
++    cache.put(&key("app"), Some(&png(24, 24)));
++    cache.put(&key("app"), None);
++    assert_eq!(cache.lookup(&key("app")), Lookup::Negative);
++    cache.clear_memory();
++    assert_eq!(cache.lookup(&key("app")), Lookup::Negative);
++}
++
++#[test]
++fn changing_cached_source_format_replaces_disk_variant() {
++    let dir = tempfile::tempdir().unwrap();
++    let cache = cache(dir.path(), Config::default());
++    cache.put(&key("app"), Some(&png(24, 24)));
++    cache.put(
++        &key("app"),
++        Some(b"<svg xmlns='http://www.w3.org/2000/svg'/>"),
++    );
++    cache.clear_memory();
++    let Lookup::Hit(icon) = cache.lookup(&key("app")) else {
++        panic!("SVG hit");
++    };
++    assert_eq!(icon.content_type, "image/svg+xml");
++}
++
++#[test]
++fn oversized_or_corrupt_disk_entries_are_cache_misses() {
++    let dir = tempfile::tempdir().unwrap();
++    let cache = cache(dir.path(), Config::default());
++    let path = dir.path().join(format!("{}.png", key("app").stem()));
++    let file = std::fs::File::create(&path).unwrap();
++    file.set_len(MAX_SOURCE_BYTES as u64 + 1).unwrap();
++    assert_eq!(cache.lookup(&key("app")), Lookup::Miss);
++    std::fs::write(path, b"\x89PNG\r\n\x1a\ncorrupt").unwrap();
++    assert_eq!(cache.lookup(&key("app")), Lookup::Miss);
++}
++
++#[test]
++fn png_dimension_budget_is_checked_before_allocation() {
++    let valid = png(MAX_SOURCE_DIMENSION + 1, 1);
++    assert_eq!(
++        image::load_from_memory(&valid).unwrap().width(),
++        MAX_SOURCE_DIMENSION + 1
++    );
++    assert!(normalize(&valid).is_none());
++}
++
++#[tokio::test]
++async fn loading_disk_negative_does_not_restart_its_ttl() {
++    let dir = tempfile::tempdir().unwrap();
++    let cache = cache(
++        dir.path(),
++        Config {
++            negative_ttl: Duration::from_millis(250),
++            ..Config::default()
++        },
++    );
++    cache.put(&key("missing"), None);
++    let path = cache.negative_path(&key("missing")).unwrap();
++    std::fs::File::options()
++        .write(true)
++        .open(path)
++        .unwrap()
++        .set_modified(SystemTime::now() - Duration::from_millis(200))
++        .unwrap();
++    cache.clear_memory();
++    assert_eq!(cache.lookup(&key("missing")), Lookup::Negative);
++    tokio::time::sleep(Duration::from_millis(100)).await;
++    assert_eq!(cache.lookup(&key("missing")), Lookup::Miss);
++}
++
++#[test]
++fn nonregular_disk_entries_refuse_without_blocking() {
++    use std::ffi::CString;
++    use std::os::unix::ffi::OsStrExt;
++    let dir = tempfile::tempdir().unwrap();
++    let cache = cache(dir.path(), Config::default());
++    let path = dir.path().join(format!("{}.png", key("pipe").stem()));
++    let name = CString::new(path.as_os_str().as_bytes()).unwrap();
++    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
++    assert_eq!(cache.lookup(&key("pipe")), Lookup::Miss);
++}
++
++#[test]
++fn eviction_never_removes_unrelated_files_from_explicit_root() {
++    let dir = tempfile::tempdir().unwrap();
++    let unrelated = dir.path().join("user-file.png");
++    std::fs::write(&unrelated, b"keep me").unwrap();
++    let cache = cache(
++        dir.path(),
++        Config {
++            disk_bytes: 1,
++            ..Config::default()
++        },
++    );
++    cache.put(&key("app"), Some(&png(24, 24)));
++    assert_eq!(std::fs::read(unrelated).unwrap(), b"keep me");
++}

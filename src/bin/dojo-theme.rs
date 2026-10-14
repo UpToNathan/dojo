@@ -16,7 +16,7 @@ fn run() -> anyhow::Result<()> {
     let command = args.next().unwrap_or_else(|| "help".into());
     if command == "help" || command == "--help" {
         println!(
-            "Usage:\n  dojo-theme preview IMAGE OUTPUT.html\n  dojo-theme presets\n  dojo-theme preset ID [--targets LIST]\n  dojo-theme generate IMAGE [--mode MODE]\n  dojo-theme apply IMAGE [--mode MODE] [--appearance system|dark|light] [--targets LIST]\n  dojo-theme select GENERATION [--appearance system|dark|light] [--targets LIST]\n  dojo-theme rollback\n  dojo-theme status\n  dojo-theme watch\nTargets: {}",
+            "Usage:\n  dojo-theme preview IMAGE OUTPUT.html\n  dojo-theme generate IMAGE [--mode MODE]\n  dojo-theme apply IMAGE [--mode MODE] [--appearance system|dark|light] [--targets LIST]\n  dojo-theme presets\n  dojo-theme preset ID [--targets LIST]\n  dojo-theme select GENERATION [--appearance system|dark|light] [--targets LIST]\n  dojo-theme rollback\n  dojo-theme status\n  dojo-theme watch\nTargets: {}",
             theme::TARGETS.join(",")
         );
         return Ok(());
@@ -61,6 +61,15 @@ fn run() -> anyhow::Result<()> {
         return print_report(theme::apply_preset(&store, &preset, targets)?);
     }
     match command.as_str() {
+        "refresh-target" => {
+            let target = args.next().context("refresh-target requires a target")?;
+            anyhow::ensure!(args.next().is_none(), "refresh-target takes one target");
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&theme::refresh_target(&store, &target)?)?
+            );
+            return Ok(());
+        }
         "preview" => {
             let image = args.next().context("preview requires an image")?;
             let output = args

@@ -1,0 +1,87 @@
+{
+  "upstream": "https://github.com/trycua/cua",
+  "revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+  "license": "MIT",
+  "state": "translated",
+  "upstream_sources": [
+    {
+      "path": "libs/python/agent/cua_agent/responses.py",
+      "sha256": "e92ea45dc6b07efaa5db4807ff349764a77080eb3c3547bd52c6529eeeea776f"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/loops/uitars.py",
+      "sha256": "61bcaa51a4ca1c32bc8fbfe5d77ce2b76a10ddfb6c66f4c2af9b0d85602ae897"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/loops/qwen35.py",
+      "sha256": "1b581d97d3f2eca499132360442e7a1af93833851473cdc3535b4219e7662eab"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/loops/generic_vlm.py",
+      "sha256": "6272bde95a879c66919dd22f7ace6b880121ddb63794a3f96653bdd0debc56cf"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/loops/anthropic.py",
+      "sha256": "ae111ad726e5b8bc0cb49102787b83fa65319491b1210cb8da6b1596f035b010"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/loops/openai.py",
+      "sha256": "e75f301380272d164b8cf3cf9d1b9cbad0ccaea0be75ce818c1e2ea28dc555f7"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/loops/gemini.py",
+      "sha256": "3489f53db463af799949d298fa359f941f9cd9a3fa7daf39b0adeefa3e6e6ace"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/loops/uitars2.py",
+      "sha256": "a35532b82f52cff7af16234ad567715bb574f304f8de73eee2dcea69e5607734"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/loops/opencua.py",
+      "sha256": "3675417b5a38578ceb7abba77b2c7bf2f4c7e76d019723e8c60668f7d422878f"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/loops/fara/helpers.py",
+      "sha256": "c3573d5dd17b216b9c55cd30277caa7c653368b10932b08fed6f528690becf2f"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/loops/composed_grounded.py",
+      "sha256": "09ce70f6053ee43d0c3fe5a36f85cb723b8d20df4479129737232d2f0468abc2"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/callbacks/image_retention.py",
+      "sha256": "a967bf5cbca2b2f655627fbf587c888074a973176a752d2d24a23866f5721172"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/callbacks/budget_manager.py",
+      "sha256": "450d0fe2cfb0eb1bed2d0b08c606799fea1c7dc627aa58d29467ed986d5c564f"
+    },
+    {
+      "path": "libs/cua-s1/python/src/cua_s1/schema.py",
+      "sha256": "89091773b050f538cb914a4da4cda59da0afa772b245b8e1264aa55e7e4b0e57"
+    },
+    {
+      "path": "libs/cua-s1/python/src/cua_s1/planner.py",
+      "sha256": "1d6474c3448373c4fd1da03f4670bff7450826bcf0e25e2db528d7a68c374119"
+    },
+    {
+      "path": "libs/cua-s1/python/src/cua_s1/driver.py",
+      "sha256": "ef6cb1b6d1e85e32d73d03ee65dc30a7fd1d337603dd3fedd4cb196a97993aa0"
+    },
+    {
+      "path": "libs/cua-s1/python/src/cua_s1/model.py",
+      "sha256": "7538cb4c9730d70a0b325050f370f981a9e109a1b182b8c66be3ba0fa2474344"
+    },
+    {
+      "path": "libs/cua-s1/python/src/cua_s1/nano.py",
+      "sha256": "ddd121ff003ac895741857827ad5ad3409837b4684c161a49191a0159b67d0b7"
+    }
+  ],
+  "local_scope": "bounded action/native-block decoders, resize metadata plans, capture/model scoped grounding, pure budgets/retention, S1 schema/planner/driver policy and byte collator; no transport/model weights/tensor inference",
+  "parity": "Rust literal behavioral gold cases, malformed output, exact snapshot binding and security regressions; no Python/native wire/tensor parity claim",
+  "divergences_documented_in": "README.md",
+  "license_audit": {
+    "s1_python": "libs/cua-s1/python/LICENSE: MIT Copyright (c) 2025 Cua AI, Inc.; included notice matches LICENSE.md",
+    "weights": "not imported, downloaded or licensed by this source audit"
+  }
+}

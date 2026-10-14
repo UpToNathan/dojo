@@ -1,0 +1,34 @@
+--- a/crates/dojo-agent-setup/src/fsutil.rs
++++ b/crates/dojo-agent-setup/src/fsutil.rs
+@@ -42,7 +42,7 @@
+         .file_name()
+         .map(|n| n.to_string_lossy().to_string())
+         .unwrap_or_else(|| "config".into());
+-    let tmp = dir.join(format!(".{name}.cua-tmp-{}", std::process::id()));
++    let tmp = dir.join(format!(".{name}.dojo-tmp-{}", std::process::id()));
+     let res = (|| {
+         let mut f = std::fs::File::create(&tmp)?;
+         f.write_all(bytes)?;
+@@ -66,7 +66,7 @@
+     Ok(())
+ }
+ 
+-/// Copies `path` to `<path>.cua-backup-<UTC timestamp>` and returns the
++/// Copies `path` to `<path>.dojo-backup-<UTC timestamp>` and returns the
+ /// backup path. `None` when `path` does not exist.
+ pub fn backup(path: &Path) -> Result<Option<PathBuf>> {
+     let target = write_target(path);
+@@ -78,11 +78,11 @@
+         .file_name()
+         .map(|n| n.to_string_lossy().to_string())
+         .unwrap_or_default();
+-    let mut dest = target.with_file_name(format!("{name}.cua-backup-{stamp}"));
++    let mut dest = target.with_file_name(format!("{name}.dojo-backup-{stamp}"));
+     // Two backups in the same second get a numeric suffix.
+     let mut n = 1;
+     while dest.exists() && n < 1000 {
+-        dest = target.with_file_name(format!("{name}.cua-backup-{stamp}-{n}"));
++        dest = target.with_file_name(format!("{name}.dojo-backup-{stamp}-{n}"));
+         n += 1;
+     }
+     std::fs::copy(&target, &dest).map_err(|e| Error::io(&target, e))?;

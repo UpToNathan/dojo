@@ -1,0 +1,652 @@
+# Browser Control
+
+Browser Control lets trusted coding agents run Playwright against your existing
+Chromium-family browser. It uses your real browser profile, including logged-in
+sessions and installed extensions, instead of launching a separate headless
+browser.
+
+```text
+Agent or CLI -> local relay -> browser extension -> your browser
+```
+
+The driver runs locally and does not contain an LLM or make planning decisions.
+Its primary interface is code: an agent sends a Playwright snippet and receives
+the result, logs, warnings, and a summary of what changed.
+
+## Quick Start
+
+Browser Control requires Node.js 22.19 or newer and a Chromium-family browser such
+as Chrome, Brave, Edge, Arc, or Chromium.
+
+OpenCode can install Browser Control as one managed plugin. Other agents use
+the manual CLI, skill, and optional MCP setup below. Every path still requires
+the user-approved browser extension.
+
+### OpenCode plugin
+
+Install the package through OpenCode:
+
+```bash
+opencode plugin add @opencode-ai/browser-control
+```
+
+OpenCode installs the package and its dependencies in its managed cache,
+registers the packaged MCP entrypoint, and registers its bundled workflow as the
+`browser` skill. OpenCode's existing skill autocomplete then exposes `@browser`.
+Do not separately install the Browser Control skill or add an MCP configuration
+when using this path.
+
+```text
+@browser Open example.com and return the page title.
+```
+
+Selecting `@browser` attaches the complete bundled workflow through OpenCode's
+existing skill system. The Chromium extension remains a manual, user-approved
+installation. If it is not connected, ask:
+
+```text
+@browser Check Browser Control setup and show me the extension directory.
+```
+
+The registered skill supplies the exact unpacked-extension directory from
+OpenCode's managed package installation.
+
+### Manual setup
+
+Manual setup has three parts: install the npm package, install the agent skill,
+and load the included browser extension. Add MCP only when your agent prefers
+MCP tools over shell commands.
+
+### 1. Install the CLI
+
+```bash
+npm install --global @opencode-ai/browser-control
+```
+
+This installs two commands:
+
+- `browser-control` for CLI and skill-driven agents
+- `browser-control-mcp` for MCP clients
+
+### 2. Connect your agent
+
+The packaged skill teaches coding agents how to inspect before acting, preserve
+session identity, handle human-only steps, and recover from browser failures.
+Install it with the [skills CLI](https://skills.sh):
+
+```bash
+npx skills add anomalyco/browser-control --skill browser-control -g
+```
+
+Choose the agents you use when prompted. The global `-g` installation makes the
+skill available across projects.
+
+Browser Control does not edit agent configuration itself. To inspect or install
+the skill manually, print the exact bundled text:
+
+```bash
+browser-control skill
+```
+
+#### Optional MCP server
+
+The skill and MCP server do different jobs. The skill teaches the workflow; MCP
+exposes Browser Control as tools. Agents that can run shell commands need only
+the skill. Add MCP when your client prefers MCP tools.
+
+For OpenCode installations that do not use the package plugin:
+
+```jsonc
+// opencode.json
+{
+  "mcp": {
+    "browser-control": {
+      "type": "local",
+      "command": ["browser-control-mcp"]
+    }
+  }
+}
+```
+
+For Claude Code:
+
+```bash
+claude mcp add browser-control -- browser-control-mcp
+```
+
+CLI and MCP clients share the detached relay, but each execute session keeps its
+own default page and persistent JavaScript `state`. Restarting an MCP process
+does not stop the relay or interrupt an active CLI session.
+
+MCP initialization, tool discovery, `skill`, and `session_current` do not contact
+or start the relay. The first operational call (such as `execute`, `session_new`,
+or `session_adopt`) starts it if needed. Relay-backed observational tools report
+an unavailable relay rather than starting one.
+
+### 3. Load the extension
+
+Browser Control currently ships its extension as an unpacked extension inside
+the npm package.
+
+1. Print the extension directory:
+
+   ```bash
+   printf '%s\n' "$(npm root --global)/@opencode-ai/browser-control/extension/dist"
+   ```
+
+2. Open `chrome://extensions` or your browser's equivalent, such as
+   `brave://extensions`.
+3. Enable **Developer mode**.
+4. Select **Load unpacked** and choose the printed directory.
+5. Pin the Browser Control toolbar button.
+
+### 4. Run your first browser command
+
+Ask the configured agent to use Browser Control, or verify the installation
+directly:
+
+```bash
+browser-control execute 'await page.goto("https://example.com"); return { title: await page.title(), url: page.url() }'
+```
+
+The command starts a detached local relay when needed, opens a browser tab, and
+prints a readable session ID with the exact `--session` command needed to
+continue. The relay listens on `127.0.0.1:19989` and stays running between CLI
+calls.
+
+A successful run returns the `Example Domain` title, a generated session ID,
+and a continuation command. `browser-control status` then reports the extension
+as connected.
+
+Check the installation at any time with:
+
+```bash
+browser-control doctor
+browser-control status
+```
+
+`doctor` and `status` are read-only. They report a stopped relay but never start
+one. Use `browser-control serve` only for foreground debugging.
+
+## TypeScript Client
+
+The package also exports an Effect client for applications that need structured
+browser-authenticated requests without executing generated JavaScript:
+
+```ts
+import { BrowserControlClient } from "@opencode-ai/browser-control"
+import { Effect, Schema } from "effect"
+
+const program = Effect.gen(function* () {
+  const client = yield* BrowserControlClient.make()
+  const browserSession = yield* client.ensureSession({ id: "my-app" })
+  const account = yield* browserSession.authenticatedOrigin({
+    origin: "https://app.example.com",
+    startUrl: "/account",
+  })
+
+  const sensitive = yield* account.json({
+    path: "/api/session",
+    method: "POST",
+    body: {},
+    response: Schema.Struct({ accessToken: Schema.String }),
+    sensitive: true,
+  })
+  const credentials = BrowserControlClient.reveal(sensitive)
+
+  const profile = yield* account.json({
+    path: "/api/profile",
+    response: Schema.Struct({ name: Schema.String }),
+  })
+  return { credentials, profile }
+})
+```
+
+Requests use `window.fetch` in the session's current page, so ambient browser
+cookies stay in the browser. Paths must be same-origin, redirects are blocked,
+responses are bounded, and mutations are never retried automatically. Set
+`sensitive: true` to receive `Redacted<A>`; sensitive requests bypass execute
+journals and are rejected while session network capture is active. Reveal a
+sensitive result with `BrowserControlClient.reveal`; this keeps unwrapping in
+the same Effect runtime that created the redacted value, including when an
+application and Browser Control resolve separate Effect package instances.
+Client construction waits through a bounded extension reconnect window even
+when the matching relay was already running. A session summary reports
+`connected: true` only when its Playwright transport and live default page are
+both available.
+Use `resetSession(id)` to replace a persisted session generation that is no
+longer connected before creating a new authenticated-origin capability.
+
+Applications with a generated direct client can also consume a Secret Profile
+without requiring users to wrap the application in `browser-control secrets
+run`:
+
+```ts
+import { SecretProfile } from "@opencode-ai/browser-control"
+import { Effect } from "effect"
+
+const result = await Effect.runPromise(SecretProfile.run({
+  name: "github",
+  command: process.execPath,
+  args: ["./github-cli.js", "repositories"],
+}))
+
+process.stdout.write(result.stdout)
+process.stderr.write(result.stderr)
+process.exitCode = result.exitCode
+```
+
+The trusted child receives `BC_SECRET_N` variables. The parent never receives
+their raw values, and known values are redacted from bounded child output. `status()`
+returns metadata only; the public SDK intentionally does not expose raw profile
+reads.
+
+## Work in Sessions
+
+A bare `execute` creates a fresh session. Pass its ID to continue with the same
+page and `state`:
+
+```bash
+browser-control session new docs
+browser-control execute --session docs 'await page.goto("https://example.com/docs"); state.visits = (state.visits ?? 0) + 1; return state.visits'
+browser-control execute --session docs 'return { url: page.url(), visits: state.visits }'
+browser-control journal --session docs
+```
+
+The journal is a best-effort local activity record stored under
+`~/.browser-control/sessions/<id>/journal.jsonl`. It includes bounded script and
+result previews and remains after session deletion. Do not embed passwords,
+tokens, or other credentials directly in execute code.
+
+Single expressions return automatically, so this shorter form also works:
+
+```bash
+browser-control execute --session docs 'await page.title()'
+```
+
+Use `--file script.js` for longer programs and `--json` for a machine-readable
+result envelope. Delete the session when you finish:
+
+```bash
+browser-control session delete docs
+```
+
+Deletion is idempotent for an explicit session id, so cleanup can be safely
+retried when that session is already absent.
+
+## Control an Existing Tab
+
+Relay-created pages are isolated from other Browser Control sessions. To use a
+tab that is already logged in:
+
+1. Open the tab in your browser.
+2. Click the Browser Control toolbar button to attach it.
+3. Adopt it into a session using a unique URL substring:
+
+```bash
+browser-control session new github
+browser-control session adopt --session github --target-url github.com
+browser-control execute --session github 'return { title: await page.title(), url: page.url() }'
+```
+
+Adoption is exclusive to one Browser Control session. Resetting or deleting the
+session releases an adopted user tab without closing it.
+
+## Inspect Before Acting
+
+Execute code receives normal Playwright `browser`, `context`, and `page`
+objects, plus Browser Control helpers. `snapshot()` is the compact default for
+reading a page before interaction:
+
+```bash
+browser-control execute --session github 'return await snapshot()'
+```
+
+Snapshot controls include refs such as `[ref=e12]`. Use a ref in the next call:
+
+```bash
+browser-control execute --session github 'await ref("e12").click(); return await snapshot({ diff: true })'
+```
+
+Compatible refs keep their ids across repeated same-document captures and become
+stale after navigation. They combine structural and accessible identity so DOM
+drift fails closed instead of silently targeting a different control.
+
+Use automatic deltas or semantic search when a full snapshot would be noisy:
+
+```js
+return await snapshot({ delta: true })
+return await snapshot({ find: /checkout|payment/i, context: 2 })
+```
+
+Other inspection helpers include:
+
+- `ariaSnapshot()` for a deeper accessibility-tree view with native text-control
+  values, custom ARIA range values, and editable content omitted; await it
+  separately from other operations on the same page
+- `screenshotWithLabels()` for an annotated screenshot and element metadata
+- `screenshotDiff({ baseline })` for changed-pixel metrics and a red-highlighted
+  PNG against a saved baseline; capture both at the same CSS viewport scale
+- `fillInput()` and `fillInputs()` for input, textarea, and contenteditable
+  fields when browser extensions interfere with Playwright's normal fill
+- `webmcp.list()` and `webmcp.call(name, input, { frame? })` for structured
+  tools registered by WebMCP-enabled pages
+
+The agent skill gives the operating workflow and canonical examples; command
+`--help` output remains the source of truth for detailed options.
+
+## Pause for Human-Only Steps
+
+Use `handoff()` for CAPTCHA, 2FA, payment confirmation, or another step that a
+person must complete:
+
+```js
+await handoff("Complete 2FA, then use the in-page continue control")
+await page.getByRole("heading", { name: "Dashboard" }).waitFor()
+return page.url()
+```
+
+If the click itself can block on native WebAuthn or payment UI, register the
+handoff before triggering it:
+
+```js
+await handoff("Complete the security-key prompt, then continue", {
+  timeoutMs: 600_000,
+  start: () => page.getByRole("button", { name: "Use security key" }).click({ timeout: 600_000 }),
+})
+```
+
+The page displays an accessible completion control and the script waits. Always
+verify the expected URL or element after the handoff; human acknowledgment does
+not prove that the requested step succeeded. Browser Control waits for the
+extension to acknowledge WAIT before calling `start`. If the handoff times out
+or its target disappears first, it disconnects that sandbox's Playwright
+connection before releasing the execute permit, preventing a still-pending
+prompt action from mutating the page later. Keep `start` limited to the bounded
+browser action that opens the native prompt.
+
+Use `demonstrate()` when a person can show a workflow faster than describing it.
+It records the exact-tab handoff as editable Playwright code:
+
+```js
+return await demonstrate("Perform the workflow once, then continue")
+```
+
+The result includes structured steps and generated code for clicks, edits,
+checkbox/select changes, and navigations. Password values are replaced with a
+secret-source comment. Add independent outcome assertions before replaying it.
+
+## Use Read-Only Sessions
+
+Read-only sessions reject mouse and keyboard CDP commands while allowing
+navigation, inspection, and screenshots:
+
+```bash
+browser-control session new inspect --read-only
+browser-control execute --session inspect 'await page.goto("https://example.com"); return await snapshot()'
+```
+
+Read-only mode prevents accidental Playwright input. It is not a security
+sandbox: trusted code can still mutate a page with `page.evaluate()`.
+
+## Record a Session
+
+```bash
+browser-control recording start ./demo.webm --session github
+browser-control recording status --session github
+browser-control recording stop --session github
+```
+
+Recording start/stop/status support `--json`. CDP quality receipts distinguish
+output fps from received/retained source frames and report coalescing, drops,
+dimensions, and screenshot fallback. These counters do not prove distinct motion.
+Explicit frame rates must be integers from 1 to 60; unsupported values are rejected.
+
+Visual comparison stays code-first:
+
+```ts
+await page.screenshot({ path: "/absolute/before.png", scale: "css" })
+// Make the intended UI change, keeping the viewport unchanged.
+return await screenshotDiff({ baseline: "/absolute/before.png" })
+```
+
+The result includes a diff image, `matches`, `changedPixels`, and `changedRatio`.
+Use `path` for a new absolute PNG output instead of inline media. `threshold`
+(default 0.1) controls pixel color tolerance, not allowed changed area. Different
+dimensions fail without resizing. Images are bounded to 32 MiB / 16 megapixels;
+existing output files are never overwritten. Review visible private content
+before sharing either screenshots or diffs.
+
+Automatic mode uses browser tab capture for user-owned tabs and CDP screencast
+for relay-created tabs. Tab capture writes WebM and can include audio. CDP mode
+writes WebM or MP4, requires `ffmpeg` on `PATH`, and does not capture audio.
+
+For intermittent failures, retain a rolling video window and save it afterward
+without stopping the buffer:
+
+```bash
+browser-control flight-recorder start --session github --retention-ms 60000
+browser-control flight-recorder save-last ./failure.mp4 --session github --duration-ms 30000
+browser-control flight-recorder cancel --session github
+```
+
+The bounded in-memory recorder reports retained frames, bytes, duration, and
+drops, and writes a JSON receipt next to each clip. Recording and flight-recorder
+lifecycle commands are also available over MCP.
+
+## Derive a Direct Client
+
+Capture authenticated API exchanges across as many execute calls or human
+handoffs as the workflow needs:
+
+```bash
+browser-control network start --session github --url /api/ \
+  --resource-type fetch --resource-type xhr
+browser-control execute --session github --file ./perform-flow.js
+browser-control network stop --session github \
+  --output ./github.har --secrets github
+```
+
+Browser Control records normalized request/response exchanges itself; HAR is an
+interoperable export, not the internal capture model. Written artifacts replace
+cookies, authorization headers, CSRF tokens, API keys, and token-like query or
+body fields with stable `${BC_SECRET_N}` references. Lossless values are stored
+separately in a mode-`0600` profile under `~/.browser-control/secrets`.
+Bodies that cannot be reliably redacted, including binary and file-bearing
+multipart content, are omitted and reported as truncated.
+Unknown-length and compressed response bodies are also omitted so Browser
+Control never materializes them before it can enforce the configured budget.
+
+Generated clients read the referenced environment variables and run without
+printing or embedding the values:
+
+```bash
+browser-control secrets status github
+browser-control secrets run github -- ./github-cli repositories
+browser-control secrets refresh github --session github
+```
+
+`secrets refresh` reloads the session page and preserves references while
+updating values observed at the same source. If reauthentication requires a
+human flow, log in through the browser and repeat the capture with the same
+profile name instead. Child stdout and stderr are redacted before Browser
+Control returns them.
+
+## Safety Boundaries
+
+Browser Control trusts the local agent code it executes. It is a driver, not an
+untrusted-code sandbox.
+
+The extension requires broad browser permissions, including `debugger`,
+`tabCapture`, and a status content script on all URLs. Attaching a user tab gives
+Browser Control access to that tab through your existing browser profile.
+
+The relay blocks destructive browser-wide CDP commands that clear cookies,
+clear cache, or close the browser. It also keeps session-owned tabs private from
+other Browser Control sessions. These guardrails reduce accidents, but scripts
+still have access to the selected page, its logged-in state, and a limited set
+of Node.js filesystem and network APIs.
+
+Current limitations:
+
+- The extension is installed unpacked; Chrome Web Store distribution is not
+  available yet. The repository can produce the review artifact with
+  `pnpm package:extension`; the first Store release will begin as an unlisted
+  beta.
+- Playwright download artifacts are unavailable because Chromium blocks the
+  required download commands through `chrome.debugger`. Fetch exposed response
+  bytes and write them with the provided `fs` module instead.
+- CDP recording requires `ffmpeg`, activates the recorded tab, and has no audio.
+- Browser Control is intended for trusted local use. It does not provide an
+  authenticated remote relay.
+
+## Troubleshooting and Upgrades
+
+- **`browser-control: command not found`**: confirm npm's global binary
+  directory is on `PATH`, then rerun the global install.
+- **Extension disconnected**: confirm the unpacked extension is enabled, then
+  reload it from the browser's extensions page. The extension reconnects to a
+  running relay automatically.
+- **After an npm upgrade**: reload the unpacked extension. Extension and relay
+  versions may differ when they use the same reported protocol version.
+- **Stale relay warning**: ordinary commands never replace a running relay.
+  Coordinate with other users, finish recordings and raw CDP work, then run
+  `browser-control relay restart`. It drains accepted work and preserves tabs
+  and durable session identity, but JavaScript state and snapshot refs reset.
+  A busy/timeout result leaves the relay running. Legacy relays without safe
+  shutdown protocol 2 need a one-time coordinated manual stop; the new CLI will
+  not force-kill them or downgrade a newer relay.
+- **Who restarted the relay?** Inspect the private
+  `~/.browser-control/relays/<port>/lifecycle.jsonl` records for requester, build,
+  instance, and outcome metadata. Browser URLs and executed code are not recorded
+  there.
+For PowerShell, print the unpacked extension path with:
+
+```powershell
+Join-Path (npm root --global) "@opencode-ai/browser-control/extension/dist"
+```
+
+## Development
+
+```bash
+git clone git@github.com:anomalyco/browser-control.git
+cd browser-control
+pnpm install
+pnpm typecheck
+pnpm test
+pnpm check:unused
+pnpm check:locals
+pnpm audit:duplicates
+
+# Fresh paths outside this checkout; parent directories must exist.
+mkdir -p "$HOME/.browser-control/builds" "$HOME/.browser-control/runtimes"
+pnpm runtime:prepare \
+  --staging "$HOME/.browser-control/builds/candidate-1" \
+  --install "$HOME/.browser-control/runtimes/candidate-1"
+
+# Select only after validation. This does not restart the relay.
+pnpm runtime:select \
+  --install "$HOME/.browser-control/runtimes/candidate-1" \
+  --active "$HOME/.browser-control/active"
+export PATH="$HOME/.browser-control/active/bin:$PATH"
+```
+
+For occasional whole-codebase audits, `pnpm exec knip --production` excludes test
+usage. Review its findings rather than requiring a clean result: an export used
+only by tests can still have production callers inside its own module. Normal
+`pnpm check:unused` remains the CI gate.
+
+### Gauntlet
+
+`pnpm gauntlet:isolated` builds this checkout and runs the gauntlet through a
+disposable Chromium profile, the real MV3 extension, and a private relay. It
+needs no installed Browser Control runtime and does not touch your browser.
+Install Chromium once with `pnpm exec playwright-core install chromium`.
+
+```bash
+GAUNTLET_CASE=cross-origin-payment-iframe pnpm gauntlet:isolated
+GAUNTLET_WARMUP=1 GAUNTLET_REPEAT=9 pnpm gauntlet:isolated
+```
+
+Each run prints its evidence directory with JSON results, timings, and logs.
+See [the reliability loop](docs/RELIABILITY.md) for options, CI lanes, evidence
+boundaries, and the next fault-injection work.
+
+`pnpm gauntlet` runs an adversarial suite of locally served hostile pages against
+the live relay and browser. Each case reproduces one real-world behaviour that
+has broken agents before (bot protection stalling the main world, typing that
+freezes a form, a cross-origin payment iframe that ignores autofill, a sign-in
+redirect during a handoff, click-through overlays, a heavy SPA bootstrapping
+after a navigation) and asserts two things: the outcome an agent should see (a
+successful read or a named diagnosis) and the tab-preservation invariants (the
+session still owns exactly one tab, on the fixture URL, never replaced with
+`about:blank`, no silent new page). Every case has a wall-time budget.
+
+```bash
+pnpm gauntlet                                   # all cases
+GAUNTLET_CASE=stalled-main-world pnpm gauntlet  # comma-separated filter
+GAUNTLET_REPEAT=3 pnpm gauntlet                 # repeat for flake detection
+GAUNTLET_VERBOSE=1 pnpm gauntlet                # print each case's return value
+GAUNTLET_CLI=/abs/path/dist/cli.js pnpm gauntlet
+```
+
+The runner needs a running relay with the extension connected, like `pnpm smoke`.
+It drives Browser Control through the CLI the way a shell agent would, so it
+must use a CLI whose build matches the running relay: by default it tries the
+checkout's `src/cli.ts` and then the installed `browser-control` binary, and
+fails fast if neither matches. `GAUNTLET_CLI=source|installed|<path>` pins one.
+Fixtures are served on `127.0.0.1:19801` and `localhost:19802` (different sites
+allow OOPIF testing with Chromium site isolation); override with `GAUNTLET_PRIMARY_PORT` /
+`GAUNTLET_SECONDARY_PORT`. Sessions are created through bare `execute`, so the
+run never changes your current session.
+
+Exit status is non-zero for `fail`, `unexpected-pass`, or `budget-exceeded`.
+Cases marked `expectedFailure` document behaviour Browser Control does not
+deliver yet; only their exact named assertion can report `xfail`. Unrelated
+failures and cleanup leaks always fail. An unexpected pass prompts removal of
+the obsolete expectation. `GAUNTLET_REPORT=/absolute/report.json` saves results
+for this already-running-browser mode as well.
+
+To add a fixture: drop a self-contained `gauntlet/fixtures/<name>.html` (no
+external network; explain the hostile mechanism in a leading HTML comment; take
+tunables from the query string), add any dynamic route to `gauntlet/server.ts`,
+and add a `GauntletCase` to `gauntlet/cases.ts` whose `run` drives the CLI via
+`ctx.execute`, usually inside `withSession`, which asserts the session kept its
+original tab and target (or call `assertTabPreserved` directly). Cases that need a user-owned
+tab receive one as `page`; set `userTabCleanupGraceMs` if the fixture can leave
+that tab's renderer busy at cleanup time.
+
+`pnpm smoke:snapshot` runs native-role/ref, portal-dialog, and dense-list
+regressions against an isolated Chromium browser using the real snapshot code.
+Install its browser with `pnpm exec playwright-core install chromium` if needed.
+It does not connect to the user's relay. `pnpm repro:screenshot-zoom` is a
+separate standalone reproduction of stock Playwright's full-page clipping at
+110% browser zoom; it intentionally fails while that upstream issue remains.
+
+Use the same `active/bin/browser-control-mcp` path in MCP configuration. Do not
+`bun link` the active tool into the checkout: changing dependencies or rebuilding
+`dist` would also change what other agents execute. Retain previous installation
+directories while existing processes may still load resources from them. Selecting
+an older installation does not authorize a daemon downgrade.
+
+`pnpm runtime:check-lifecycle --previous /absolute/install-a --candidate
+/absolute/install-b` checks two validated protocol-2 installations on a private
+temporary home and loopback port using a fake extension. The candidate must have
+a later build id. It verifies non-replacement by ordinary CLI/MCP clients,
+explicit restart attribution, synthetic adopted-target restoration, and downgrade
+refusal. It does not prove real-browser tab continuity or cross-release
+compatibility when both installations came from the same source revision.
+
+For a build-only check, `pnpm build:cli --outdir /absolute/fresh-external-directory`
+redirects bundles and declarations together. Candidate preparation never writes
+checkout `dist`, `node_modules`, or the loaded `extension/dist`. Explicitly run
+`browser-control relay restart` when ready to replace the active daemon.
+
+Extension source changes require `pnpm build:extension` and reloading the
+unpacked extension. Relay-only changes require rebuilding or restarting the
+relay, not reloading the extension.
+
+See [`PLAN.md`](./PLAN.md) for architecture and roadmap decisions,
+[`AGENTS.md`](./AGENTS.md) for contributor invariants, and
+[`skills/browser-control/SKILL.md`](./skills/browser-control/SKILL.md) for the
+complete agent workflow.

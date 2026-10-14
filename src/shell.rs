@@ -1,10 +1,14 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::process::Command;
 use std::rc::Rc;
 use std::time::Duration;
 
 use anyhow::{Context as _, bail};
-use gpui::{App, AppContext, DisplayChanges, DisplayEvent, DisplayId, QuitMode, Subscription};
+use gpui::{
+    App, AppContext, DisplayChanges, DisplayEvent, DisplayId, Pixels, Point, QuitMode,
+    Subscription, px,
+};
 use gpui_platform::application;
 
 use crate::config::{ConfigStore, ThemeColors};
@@ -17,6 +21,52 @@ use crate::niri_layout::NiriLayout;
 use crate::state::{Preferences, StateStore};
 use crate::tray::{TrayHandle, TrayService};
 
+#[derive(serde::Deserialize)]
+struct FocusedOutput {
+    logical: OutputLogicalBounds,
+}
+
+#[derive(serde::Deserialize)]
+struct OutputLogicalBounds {
+    x: f32,
+    y: f32,
+    scale: f32,
+}
+
+fn focused_display_id(cx: &App) -> Option<DisplayId> {
+    let output = Command::new("niri")
+        .args(["msg", "--json", "focused-output"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let focused: FocusedOutput = serde_json::from_slice(&output.stdout).ok()?;
+    let displays = cx.displays();
+    let wayland_scale = focused.logical.scale.ceil();
+    let origin = Point::new(
+        px(focused.logical.x / wayland_scale),
+        px(focused.logical.y / wayland_scale),
+    );
+    display_at_origin(
+        origin,
+        displays
+            .into_iter()
+            .map(|display| (display.id(), display.bounds().origin)),
+    )
+}
+
+fn display_at_origin(
+    origin: Point<Pixels>,
+    displays: impl IntoIterator<Item = (DisplayId, Point<Pixels>)>,
+) -> Option<DisplayId> {
+    displays.into_iter().find_map(|(id, display_origin)| {
+        ((f32::from(display_origin.x) - f32::from(origin.x)).abs() < 2.
+            && (f32::from(display_origin.y) - f32::from(origin.y)).abs() < 2.)
+            .then_some(id)
+    })
+}
+
 struct ShellController {
     enabled: bool,
     state: StateStore,
@@ -27,6 +77,7 @@ struct ShellController {
     display_generation: u64,
     launcher: Launcher,
     theme_picker: crate::theme_picker::ThemePicker,
+    quick_terminal: crate::quick_terminal::QuickTerminal,
 }
 
 impl ShellController {
@@ -41,6 +92,7 @@ impl ShellController {
             display_generation: 0,
             launcher,
             theme_picker: crate::theme_picker::ThemePicker::default(),
+            quick_terminal: crate::quick_terminal::QuickTerminal::default(),
         }
     }
 
@@ -117,6 +169,11 @@ impl ShellController {
     }
 
     fn disable(&mut self, cx: &mut App, persist: bool) -> anyhow::Result<()> {
+        crate::bluetooth_ui::close(cx);
+        crate::displays_ui::close(cx);
+        crate::wifi_ui::close(cx);
+        crate::system_menu::close(cx);
+        self.quick_terminal.close(cx);
         if !self.enabled {
             if persist {
                 self.state.save(Preferences {
@@ -338,6 +395,12 @@ fn run_with_surfaces(
             cx.set_global(initial_colors);
             cx.set_global(crate::speech::SpeechUi::default());
             crate::frame::initialize_host_state(cx);
+            crate::audio::initialize(cx);
+            crate::clock::initialize(cx);
+            if let Err(error) = crate::wifi_ui::initialize(cx) {
+                eprintln!("Dojo could not start its Wi-Fi controls: {error:#}");
+            }
+            crate::bluetooth_ui::initialize(cx);
             if let Err(error) = crate::wallpaper::start(cx, wallpaper_events) {
                 eprintln!("Dojo could not start its wallpaper surfaces: {error:#}");
             }
@@ -369,6 +432,7 @@ fn run_with_surfaces(
             cx.spawn(async move |cx| {
                 let mut theme_store = dojo::theme::ThemeStore::new(theme_paths);
                 while theme_events.recv().await.is_ok() {
+                    while theme_events.try_recv().is_ok() {}
                     let (store, returned_theme_store, result) = cx
                         .background_executor()
                         .spawn(async move {
@@ -381,9 +445,6 @@ fn run_with_surfaces(
                         .await;
                     config_store = store;
                     theme_store = returned_theme_store;
-                    if !theme_events.is_empty() {
-                        continue;
-                    }
                     match result {
                         Ok(Some(colors)) => cx.update(|cx| {
                             if *cx.global::<ThemeColors>() != colors {
@@ -419,23 +480,25 @@ fn run_with_surfaces(
 
             if show_launcher {
                 if let Err(error) =
-                    controller.update(cx, |controller, cx| controller.launcher.toggle(cx))
+                    controller.update(cx, |controller, cx| controller.launcher.toggle(None, cx))
                 {
                     eprintln!("Dojo could not open launcher: {error:#}");
                 }
             }
             if show_theme {
-                if let Err(error) =
-                    controller.update(cx, |controller, cx| controller.theme_picker.toggle(cx))
-                {
+                if let Err(error) = controller.update(cx, |controller, cx| {
+                    controller.theme_picker.toggle(None, cx)
+                }) {
                     eprintln!("Dojo could not open theme picker: {error:#}");
                 }
             }
 
             let controller_for_theme = controller.downgrade();
-            cx.on_action(move |_: &crate::theme_picker::ToggleThemePicker, cx| {
+            cx.on_action(move |action: &crate::theme_picker::ToggleThemePicker, cx| {
                 if let Err(error) = controller_for_theme
-                    .update(cx, |controller, cx| controller.theme_picker.toggle(cx))
+                    .update(cx, |controller, cx| {
+                        controller.theme_picker.toggle(action.display_id, cx)
+                    })
                     .and_then(|result| result)
                 {
                     eprintln!("Dojo could not toggle theme picker: {error:#}");
@@ -443,10 +506,10 @@ fn run_with_surfaces(
             });
 
             let controller_for_launcher = controller.downgrade();
-            cx.on_action(move |_: &crate::launcher::ToggleLauncher, cx| {
-                match controller_for_launcher
-                    .update(cx, |controller, cx| controller.launcher.toggle(cx))
-                {
+            cx.on_action(move |action: &crate::launcher::ToggleLauncher, cx| {
+                match controller_for_launcher.update(cx, |controller, cx| {
+                    controller.launcher.toggle(action.display_id, cx)
+                }) {
                     Ok(Ok(())) => {}
                     Ok(Err(error)) | Err(error) => {
                         eprintln!("Dojo could not open launcher: {error:#}")
@@ -500,8 +563,40 @@ fn run_with_surfaces(
                             ControlCommand::Enable => controller.set_enabled(true, cx),
                             ControlCommand::Disable => controller.set_enabled(false, cx),
                             ControlCommand::Quit => controller.quit(cx),
-                            ControlCommand::Launcher => controller.launcher.toggle(cx),
-                            ControlCommand::Theme => controller.theme_picker.toggle(cx),
+                            ControlCommand::Launcher => {
+                                controller.launcher.toggle(focused_display_id(cx), cx)
+                            }
+                            ControlCommand::LauncherNavigation(navigation) => {
+                                controller.launcher.navigate(navigation, cx)
+                            }
+                            ControlCommand::Theme => controller.theme_picker.toggle(None, cx),
+                            ControlCommand::Displays => {
+                                let display = focused_display_id(cx)
+                                    .or_else(|| cx.primary_display().map(|display| display.id()))
+                                    .ok_or_else(|| {
+                                        anyhow::anyhow!("no output available for display settings")
+                                    })?;
+                                crate::displays_ui::toggle(display, cx)
+                            }
+                            ControlCommand::Wifi | ControlCommand::SystemMenu => {
+                                let display = focused_display_id(cx)
+                                    .or_else(|| cx.primary_display().map(|display| display.id()))
+                                    .ok_or_else(|| {
+                                        anyhow::anyhow!("no output available for shell controls")
+                                    })?;
+                                if command == ControlCommand::Wifi {
+                                    crate::wifi_ui::toggle(display, cx)
+                                } else {
+                                    crate::system_menu::toggle(display, cx)
+                                }
+                            }
+                            ControlCommand::Terminal => controller
+                                .set_enabled(true, cx)
+                                .and_then(|()| controller.quick_terminal.toggle(cx)),
+                            ControlCommand::TerminalClosed => {
+                                controller.quick_terminal.session_ended(cx);
+                                Ok(())
+                            }
                             ControlCommand::Speech(event) => {
                                 cx.update_global::<crate::speech::SpeechUi, _>(|speech, _| {
                                     speech.apply(event, std::time::Instant::now());
@@ -576,4 +671,29 @@ async fn follow_appearance(sender: &async_channel::Sender<()>) -> anyhow::Result
         invalidate_theme(sender);
     }
     anyhow::bail!("darkman signal stream ended")
+}
+
+#[cfg(test)]
+mod focused_display_tests {
+    use super::{FocusedOutput, display_at_origin};
+    use gpui::{DisplayId, Point, px};
+
+    #[test]
+    fn focused_output_selects_the_matching_external_display() {
+        let focused: FocusedOutput = serde_json::from_str(
+            r#"{"name":"eDP-1","logical":{"x":1920,"y":0,"width":1645,"height":1028,"scale":1.75}}"#,
+        )
+        .unwrap();
+        let id = display_at_origin(
+            Point::new(
+                px(focused.logical.x / focused.logical.scale.ceil()),
+                px(focused.logical.y / focused.logical.scale.ceil()),
+            ),
+            [
+                (DisplayId::from(1), Point::new(px(0.), px(0.))),
+                (DisplayId::from(2), Point::new(px(960.), px(0.))),
+            ],
+        );
+        assert_eq!(id, Some(DisplayId::from(2)));
+    }
 }

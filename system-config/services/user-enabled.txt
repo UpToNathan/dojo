@@ -1,0 +1,12 @@
+clipvault-history.service
+darkman.service
+dojo-yazi-filemanager.service
+gnome-keyring.service
+p11-kit-server.socket
+pipewire-pulse.socket
+pipewire.socket
+polkit-gnome.service
+speech-dispatcher.socket
+stasis.service
+wireplumber.service
+wl-clip-persist.service

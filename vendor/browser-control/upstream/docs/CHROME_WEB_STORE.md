@@ -1,0 +1,163 @@
+# Chrome Web Store Submission
+
+This document is the source copy for the Browser Control Chrome Web Store
+listing and review questionnaire. The initial distribution should be
+**unlisted**.
+
+## Current Review Status
+
+September 6, 2026: version **0.0.24** was submitted for review on the existing
+item `gmjpoplfomnnjipeiojccjbpjlodkjhn`, with the replacement handoff screenshot
+and **Unlisted** visibility. The dashboard explicitly confirmed **Pending
+Review** and that the item had been submitted for compliance review. Google
+warned that broad host permissions may require an in-depth review. Approval and
+publication remain pending; the preparation steps below are retained as history.
+
+## Single Purpose
+
+Connect user-authorized local browser automation programs to controlled tabs in
+the user's existing Chromium browser.
+
+## Short Description
+
+Connect controlled browser tabs to the local Browser Control driver for
+user-authorized automation.
+
+## Detailed Description
+
+When enabled, trusted local programs can read and modify controlled pages, use
+their signed-in state, create and close tabs, capture matching page network
+activity, and record a controlled tab when requested. Data is sent only to the
+Browser Control driver on this computer at `127.0.0.1:19989`; Anomaly does not
+operate a Browser Control cloud relay.
+
+Browser Control lets trusted agents and programs running on your computer
+control tabs in your existing browser. It uses a local Node driver for
+Playwright execution and a small extension adapter for Chrome debugging APIs.
+
+The extension connects only to `127.0.0.1:19989`. Browser data is not sent to a
+Browser Control cloud service. A visible page indicator identifies controlled
+tabs, and the toolbar button attaches or detaches the active tab. Human handoff
+controls keep authentication, payment confirmation, CAPTCHAs, and other
+user-presence steps with the user rather than bypassing them.
+
+Browser Control is intended for trusted local use. The extension requires the
+local `@opencode-ai/browser-control` package.
+
+## Permission Justifications
+
+- `activeTab`: grants the user-initiated tab access required by
+  `chrome.tabCapture.getMediaStreamId` when recording a toolbar-clicked tab.
+- `alarms`: wakes the Manifest V3 worker periodically so it can reconnect to a
+  local driver that starts after the browser.
+- `debugger`: provides the Chrome DevTools Protocol transport required for
+  Playwright to inspect and control user-authorized tabs.
+- `offscreen`: hosts `MediaRecorder` while recording an authorized tab because
+  a Manifest V3 service worker has no DOM media environment.
+- `tabCapture`: records a controlled user tab only after an explicit local
+  recording request.
+- `tabGroups`: groups session-owned tabs under the visible `control` group and
+  restores their prior ungrouped state when released.
+- Content script on `<all_urls>`: installs the small status and human-handoff control in controlled
+  pages across navigations and origins. It does not collect page content by
+  itself; page access occurs through explicit local driver commands.
+
+## Remote Code Declaration
+
+The extension does not download or execute remotely hosted code in the
+extension runtime. All extension JavaScript is bundled in the submitted
+Manifest V3 package. As its disclosed purpose, the extension relays local
+Chrome DevTools Protocol commands, including page-context evaluation, to tabs
+controlled by the user.
+
+## Data Use Disclosure
+
+Declare access to website content; controlled-page and captured request URLs;
+matching request and response headers and optional bodies; user activity on
+controlled pages; authentication information available to controlled pages;
+and screen or tab recordings requested by an authorized local caller. The data
+is used only to provide the extension's single purpose. It is
+not sold, used for advertising, used for credit decisions, or transferred to
+the publisher. See `docs/PRIVACY.md`.
+
+## Reviewer Instructions
+
+1. Install Node.js 22.19 or later.
+2. Run `npm install --global @opencode-ai/browser-control`.
+3. Install the submitted Browser Control extension.
+4. Run:
+
+   ```bash
+   browser-control execute 'await page.goto("https://example.com"); return { title: await page.title(), url: page.url() }'
+   ```
+
+5. Confirm that a controlled tab opens and the command returns `Example
+   Domain`.
+6. Open another ordinary web page and click the extension toolbar button once
+   to attach it. Click again to detach it.
+7. Run `browser-control doctor` to see local driver, extension protocol,
+   session, and target diagnostics.
+
+No account credentials are required for review. Recording is optional and
+requires a separate explicit CLI request.
+
+## Submission Artifact
+
+### September 6, 2026 resubmission preparation
+
+The existing item is `gmjpoplfomnnjipeiojccjbpjlodkjhn`. The last recorded
+rejection (July 22) was **Inaccurate Description — Irrelevant info**, specifically
+submitted media. Kit's September 6 dashboard screenshot confirms the item is
+still **Rejected**, with uploaded version **0.0.23**, last updated July 22.
+Chrome protects its developer dashboard from extension-driven automation; the
+remaining dashboard steps require a human.
+
+Prepared and inspected locally:
+
+- ZIP: `artifacts/browser-control-extension-0.0.24.zip`
+- SHA-256: `c39df8fd4f058ff95e03ffccfac264baefad0d11d2d2a50dbb244dcb48c1c49a`
+- Nine allowlisted runtime/icon files, Manifest V3, no source maps or unpacked key.
+- Replacement screenshot: `docs/chrome-web-store/browser-control-handoff-1280x800.png`
+  (1280×800). Captured from the real extension's WAIT prompt over the explicitly
+  labeled synthetic local `demo.html` page, using CLI/relay 0.6.0 and shim 0.0.24.
+  The form was filled through Playwright and the demonstration completed through
+  the real handoff control. It contains no account or payment data.
+
+Before submitting:
+
+1. Open the existing item in the Developer Dashboard. Do not create a duplicate
+   listing.
+2. Upload the prepared 0.0.24 ZIP over rejected version 0.0.23. If the draft has
+   changed since the screenshot, reconcile its uploaded version first.
+3. Replace the old Example Domain screenshot with the handoff screenshot below.
+   Remove other media that does not directly demonstrate the extension.
+4. Check the description, privacy declarations, reviewer instructions, and
+   initial **unlisted** distribution against the source copy in this document.
+5. Submit for review and record the dashboard receipt/status. Update install
+   documentation only after approval/publication is independently verified.
+
+Snapshot bug fixes in the local driver require a separate npm/runtime release;
+uploading this shim ZIP does not install those fixes in an already-running relay.
+
+Store assets live under `docs/chrome-web-store/`:
+
+- `icon-128.png`
+- `browser-control-handoff-1280x800.png` (use this replacement, not the old
+  `browser-control-1280x800.jpg` Example Domain capture)
+- `small-promo-440x280.png`
+
+Run:
+
+```bash
+pnpm package:extension
+```
+
+Upload `artifacts/browser-control-extension-<version>.zip`. Record the printed
+SHA-256 digest with the release notes.
+
+The production relay accepts Store extension ID
+`gmjpoplfomnnjipeiojccjbpjlodkjhn` and stable unpacked ID
+`eibhgjafffkigblngnhafgbcipofaeon`. The source manifest carries the unpacked
+public key; `package:extension` strips it from the Store ZIP so the Store keeps
+its assigned ID. Source-mode relays additionally accept development extension
+origins.

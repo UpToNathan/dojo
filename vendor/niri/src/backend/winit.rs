@@ -8,7 +8,7 @@ use anyhow::Context as _;
 use niri_config::{Config, OutputName};
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::drm::DrmNode;
-use smithay::backend::egl::EGLDevice;
+use smithay::backend::egl::{ffi, EGLDevice};
 use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::{DebugFlags, ImportDma, ImportEgl, Renderer};
@@ -323,14 +323,30 @@ impl Winit {
 
         // Hand them over to winit.
         let res = {
+            let display = self
+                .backend
+                .renderer()
+                .egl_context()
+                .display()
+                .get_display_handle();
             let (renderer, mut framebuffer) = self.backend.bind().unwrap();
             // FIXME: currently impossible to call due to a mutable borrow.
             //
             // let age = self.backend.buffer_age().unwrap();
             let age = 0;
-            self.damage_tracker
+            let result = self
+                .damage_tracker
                 .render_output(renderer, &mut framebuffer, age, &elements, [0.; 4])
-                .unwrap()
+                .unwrap();
+            // render_output made the EGL draw surface current. bind() only
+            // constructs a framebuffer and may leave a surfaceless context.
+            // The nested event loop must not wait for hidden-host frame callbacks.
+            if result.damage.is_some()
+                && unsafe { ffi::egl::SwapInterval(**display, 0) } == ffi::egl::FALSE
+            {
+                warn!("failed to disable nested EGL swap interval");
+            }
+            result
         };
 
         niri.update_primary_scanout_output(output, &res.states);

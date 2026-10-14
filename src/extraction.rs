@@ -321,7 +321,9 @@ mod tests {
 
     #[test]
     fn current_wallpaper_generates_every_mode_in_both_appearances() -> anyhow::Result<()> {
-        let pixels = sampling::load(&Path::new(env!("CARGO_MANIFEST_DIR")).join("astro.jpg"))?;
+        let pixels = sampling::load(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/astro.jpg"),
+        )?;
         let (colors, counts) = quantize::dominant(&pixels, 48);
         for mode in Mode::ALL {
             for light in [false, true] {

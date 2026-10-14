@@ -79,6 +79,16 @@ pub enum Request {
     Workspaces,
     /// Request information about open windows.
     Windows,
+    /// Capture one named output and its rendered window placements in one operation.
+    CaptureScene {
+        /// Exact output connector name.
+        output: String,
+    },
+    /// Observe current rendered window placements without capturing image pixels.
+    WindowPlacements {
+        /// Exact output connector name.
+        output: String,
+    },
     /// Request information about layer-shell surfaces.
     Layers,
     /// Request information about the configured keyboard layouts.
@@ -141,6 +151,10 @@ pub type Reply = Result<Response, String>;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 pub enum Response {
+    /// Geometry-only observation. It does not authorize input or contain an image.
+    WindowPlacements(WindowPlacements),
+    /// Pixels and placements from the same compositor render.
+    CapturedScene(CapturedScene),
     /// A request that does not need a response was handled successfully.
     Handled,
     /// The pointer started moving. Send AgentInput::Wait before acting at its destination.
@@ -156,6 +170,8 @@ pub enum Response {
     InputCoordination(InputCoordination),
     /// An agent seat was created for this connection.
     AgentInputCreated {
+        /// Opaque compositor connection identity for trusted session adapters.
+        peer_id: u64,
         /// The advertised Wayland seat name.
         seat_name: String,
     },
@@ -189,15 +205,57 @@ pub enum Response {
     Casts(Vec<Cast>),
 }
 
+/// Geometry authority published with a compositor-rendered capture.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct CapturedInputGeometry {
+    /// Exact window root.
+    pub window_id: u64,
+    /// Process owning the Wayland connection.
+    pub pid: u32,
+    /// Compositor generation process.
+    pub compositor_pid: u32,
+    /// Compositor /proc start time.
+    pub compositor_start_time: u64,
+    /// Ownership revision pinned by the observation.
+    pub coordination_revision: u64,
+    /// Exact output connector.
+    pub output: String,
+    /// Output origin, size, scale and transform.
+    pub output_geometry: LogicalOutput,
+    /// Full rendered window rectangle, before clipping.
+    pub rect: (f64, f64, f64, f64),
+}
+
 /// Input commands for a connection-owned agent seat.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 pub enum AgentInput {
+    /// Preserve exact capture geometry during a bounded operation.
+    Captured {
+        /// Exact compositor-rendered identity and geometry.
+        geometry: CapturedInputGeometry,
+        /// Input command bound to that geometry.
+        command: Box<AgentInput>,
+    },
     /// Reject a stale action before it can affect client state.
     Coordinated {
         /// Ownership revision observed by the controller.
         revision: u64,
         /// Command to run only if ownership is unchanged.
+        command: Box<AgentInput>,
+    },
+    /// Deliver input only to the specified mapped window root.
+    ///
+    /// Nest this inside `Coordinated` to also guard ownership. Only Button, Axis, Key, TextKey, and Move
+    /// commands are accepted. Button/key presses and scrolling recheck the destination at
+    /// dispatch (after pointer arrival). Subsurfaces and popups rooted in this exact window
+    /// are allowed; other windows on the same client are not. Releases skip the identity
+    /// check so held input can always be cleaned up.
+    Targeted {
+        /// Expected mapped window ID from the Windows request.
+        window_id: u64,
+        /// A supported input command to deliver.
         command: Box<AgentInput>,
     },
     /// Create a seat. One seat may exist per persistent IPC connection.
@@ -226,6 +284,13 @@ pub enum AgentInput {
         /// Linux evdev button code, such as 272 for the left button.
         button: u32,
         /// Whether to press or release the button.
+        state: AgentInputState,
+    },
+    /// Physical text key, refused unless the agent uses a plain US layout.
+    TextKey {
+        /// Linux evdev keyboard code without the XKB offset.
+        evdev: u32,
+        /// Press or release; releases remain available for cleanup.
         state: AgentInputState,
     },
     /// Press or release a keyboard key without compositor shortcuts.
@@ -1424,6 +1489,66 @@ pub enum MaxBpc {
     /// 16-bit.
     #[serde(rename = "16")]
     _16 = 16,
+}
+
+/// Current rendered window geometry on one output, without image readback.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct WindowPlacements {
+    /// Unique observation serial within this compositor process.
+    pub observation_serial: u64,
+    /// Kernel process identity of the compositor producing this observation.
+    pub compositor_pid: u32,
+    /// Output connector name.
+    pub output: String,
+    /// Output placement, scale and transform observed with the window geometry.
+    pub logical_output: LogicalOutput,
+    /// Upright physical output dimensions.
+    pub width: u32,
+    /// Upright physical output dimensions.
+    pub height: u32,
+    /// Rendered windows intersecting this output. Occlusion is not asserted.
+    pub windows: Vec<CapturedWindow>,
+}
+
+/// A composited output capture. This is observation evidence, not an input grant.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct CapturedScene {
+    /// Serial unique within this compositor process.
+    pub frame_serial: u64,
+    /// Compositor process which produced this capture.
+    pub compositor_pid: u32,
+    /// Exact output connector name.
+    pub output: String,
+    /// Output placement, scale and transform at capture.
+    pub logical_output: LogicalOutput,
+    /// Pixel width after the output transform has been applied.
+    pub width: u32,
+    /// Pixel height after the output transform has been applied.
+    pub height: u32,
+    /// PNG in upright output orientation, with no pointer overlays.
+    pub png_base64: String,
+    /// Rendered window geometry. Other windows, popups and shell layers may occlude it.
+    pub windows: Vec<CapturedWindow>,
+}
+
+/// A window placement associated with the capture's pixels.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct CapturedWindow {
+    /// Niri window identity.
+    pub id: u64,
+    /// Process which owns the window's Wayland connection, when known.
+    pub pid: Option<i32>,
+    /// Whether the window is in the floating layout.
+    pub is_floating: bool,
+    /// Window geometry in output-relative logical coordinates, before output clipping.
+    pub rect: (f64, f64, f64, f64),
+    /// Intersection with the output. This does not assert freedom from occlusion.
+    pub output_clip: (f64, f64, f64, f64),
+    /// Whether screen-capture privacy rules replace this window's contents.
+    pub blocked_out: bool,
 }
 
 /// Toplevel window.

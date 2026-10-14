@@ -1,0 +1,22 @@
+[package]
+name = "dojo-external-admission"
+version = "0.1.0"
+edition = "2024"
+default-run = "dojo-external-admission"
+license = "MIT"
+
+[features]
+default = ["socket-fixtures"]
+socket-fixtures = ["dep:zbus", "dep:tokio"]
+
+[dependencies]
+niri-ipc = { path = "../../vendor/niri/niri-ipc" }
+serde = { version = "1", features = ["derive"] }
+anyhow = "1"
+libc = "0.2"
+getrandom = "0.2"
+serde_json = "1"
+sha2 = "=0.10.9"
+tungstenite = "0.24"
+zbus = { version = "5.19", features = ["p2p"], optional = true }
+tokio = { version = "1", features = ["rt", "net", "sync", "time", "macros"], optional = true }

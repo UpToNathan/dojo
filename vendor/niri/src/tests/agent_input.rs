@@ -20,6 +20,69 @@ fn window(f: &mut Fixture) -> (ClientId, WlSurface, u64) {
     (client, surface, id)
 }
 
+#[test]
+fn typing_preserves_focus_until_keyboard_idle() {
+    let config = niri_config::Config::parse_mem("input { focus-follows-mouse; }").unwrap();
+    let mut f = Fixture::with_config(config);
+    f.add_output(1, (1920, 1080));
+    f.niri().clock.set_complete_instantly(true);
+    let (_, _, other) = window(&mut f);
+    let (_, _, focused) = window(&mut f);
+    let output = f.niri_output(1);
+    let placements = f.niri().layout.capture_placements(&output).unwrap();
+    let rect = placements
+        .iter()
+        .find(|(w, _, _)| w.id().get() == other)
+        .unwrap()
+        .1;
+    let position = rect.loc
+        + smithay::utils::Point::<f64, smithay::utils::Logical>::from((
+            rect.size.w / 2.,
+            rect.size.h / 2.,
+        ));
+    let under = f.niri().contents_under(position);
+    assert!(under.window.is_some());
+    f.niri()
+        .clock
+        .set_unadjusted(std::time::Duration::from_secs(1));
+    for state in [KeyState::Pressed, KeyState::Released] {
+        f.niri_state()
+            .process_input_event(InputEvent::<TestInputBackend>::Keyboard {
+                event: TestKeyboardKeyEvent {
+                    time: InputTime::now(),
+                    code: Keycode::from(30_u32 + 8),
+                    state,
+                    count: u32::from(state == KeyState::Pressed),
+                },
+            });
+    }
+    f.niri().handle_focus_follows_mouse(&under);
+    assert_eq!(
+        f.niri().layout.focus().unwrap().id().get(),
+        focused,
+        "typing must preserve keyboard focus"
+    );
+    f.add_output(2, (1920, 1080));
+    let second_output = f.niri_output(2);
+    let other_output = crate::niri::PointContents {
+        output: Some(second_output.clone()),
+        ..Default::default()
+    };
+    f.niri().handle_focus_follows_mouse(&other_output);
+    assert_eq!(f.niri().layout.active_output(), Some(&output));
+    f.niri()
+        .clock
+        .set_unadjusted(std::time::Duration::from_secs(2));
+    f.niri().handle_focus_follows_mouse(&under);
+    assert_eq!(
+        f.niri().layout.focus().unwrap().id().get(),
+        other,
+        "mouse focus must resume after keyboard idle"
+    );
+    f.niri().handle_focus_follows_mouse(&other_output);
+    assert_eq!(f.niri().layout.active_output(), Some(&second_output));
+}
+
 fn keys(
     f: &mut Fixture,
     client: ClientId,
@@ -1119,4 +1182,192 @@ fn agent_motion_queues_current_and_destination_outputs_without_animating_others(
         .apply_agent_input(1, AgentInput::Reset)
         .unwrap();
     assert!(!f.niri().agent_pointers_are_moving(&second));
+}
+
+#[test]
+fn preexisting_human_ownership_pauses_targeted_pointer_input_without_effects() {
+    for press in [false, true] {
+        let mut f = Fixture::with_agent_input();
+        f.add_output(1, (1920, 1080));
+        f.niri().clock.set_complete_instantly(true);
+        let (client, surface, target) = window(&mut f);
+        let window = f.client(client).window(&surface);
+        window.set_size(1000, 1000);
+        window.commit();
+        f.double_roundtrip(client);
+        f.niri_state()
+            .apply_agent_input(
+                1,
+                AgentInput::Create {
+                    name: "preowned".into(),
+                },
+            )
+            .unwrap();
+        let output = f.niri().global_space.outputs().next().unwrap().name();
+        let move_command = AgentInput::Move {
+            output,
+            x: 500.,
+            y: 500.,
+        };
+        if press {
+            f.niri_state()
+                .apply_agent_input(1, move_command.clone())
+                .unwrap();
+        }
+        f.niri_state()
+            .process_input_event(InputEvent::<TestInputBackend>::PointerMotionAbsolute {
+                event: super::test_input_backend::TestPointerMotionAbsoluteEvent {
+                    x: 500.,
+                    y: 500.,
+                },
+            });
+        f.double_roundtrip(client);
+        assert_eq!(
+            f.niri_state()
+                .input_coordination_snapshot()
+                .human_owned_windows,
+            vec![target]
+        );
+        f.client(client).state.pointer_events.clear();
+        let pointer = f.niri().agent_seats[&1].seat.get_pointer().unwrap();
+        let before = pointer.current_location();
+        let command = if press {
+            AgentInput::Button {
+                button: 272,
+                state: AgentInputState::Pressed,
+            }
+        } else {
+            move_command
+        };
+        let response = f
+            .niri_state()
+            .apply_agent_input(
+                1,
+                AgentInput::Targeted {
+                    window_id: target,
+                    command: Box::new(command),
+                },
+            )
+            .unwrap();
+        assert!(
+            matches!(response, niri_ipc::Response::AgentInputPaused { .. }),
+            "press={press}: {response:?}"
+        );
+        assert_eq!(pointer.current_location(), before);
+        f.double_roundtrip(client);
+        assert!(!f
+            .client(client)
+            .state
+            .pointer_events
+            .iter()
+            .any(|event| matches!(event, PointerEvent::Button { .. })));
+    }
+}
+
+#[test]
+fn captured_unheld_pointer_motion_never_focuses_another_application() {
+    let mut f = Fixture::with_agent_input();
+    f.add_output(1, (1920, 1080));
+    f.niri().clock.set_complete_instantly(true);
+    let (other_client, _, other_id) = window(&mut f);
+    let (target_client, _, target_id) = window(&mut f);
+    let output = f.niri_output(1);
+    let revision = f.niri_state().input_coordination_snapshot().revision;
+    let placements = f.niri().layout.capture_placements(&output).unwrap();
+    let other_rect = placements
+        .iter()
+        .find(|(window, _, _)| window.id().get() == other_id)
+        .unwrap()
+        .1;
+    let (target, target_rect, _) = placements
+        .iter()
+        .find(|(window, _, _)| window.id().get() == target_id)
+        .unwrap();
+    let stat = std::fs::read_to_string(format!("/proc/{}/stat", std::process::id())).unwrap();
+    let geometry = niri_ipc::CapturedInputGeometry {
+        window_id: target_id,
+        pid: target.credentials().unwrap().pid as u32,
+        compositor_pid: std::process::id(),
+        compositor_start_time: stat
+            .rsplit_once(')')
+            .unwrap()
+            .1
+            .split_whitespace()
+            .nth(19)
+            .unwrap()
+            .parse()
+            .unwrap(),
+        coordination_revision: revision,
+        output: output.name(),
+        output_geometry: crate::utils::logical_output(&output),
+        rect: (
+            target_rect.loc.x,
+            target_rect.loc.y,
+            target_rect.size.w,
+            target_rect.size.h,
+        ),
+    };
+    let destination = (
+        target_rect.loc.x + target_rect.size.w / 2.,
+        target_rect.loc.y + target_rect.size.h / 2.,
+    );
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Create {
+                name: "captured-path".into(),
+            },
+        )
+        .unwrap();
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Move {
+                output: output.name(),
+                x: other_rect.loc.x + other_rect.size.w / 2.,
+                y: other_rect.loc.y + other_rect.size.h / 2.,
+            },
+        )
+        .unwrap();
+    let pointer = f.niri().agent_seats[&1].seat.get_pointer().unwrap();
+    assert!(
+        pointer.current_focus().is_some(),
+        "legacy move should still reach another application"
+    );
+    f.niri().clock.set_complete_instantly(false);
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Captured {
+                geometry,
+                command: Box::new(AgentInput::Move {
+                    output: output.name(),
+                    x: destination.0,
+                    y: destination.1,
+                }),
+            },
+        )
+        .unwrap();
+    f.double_roundtrip(other_client);
+    assert!(
+        pointer.current_focus().is_none(),
+        "captured animation delivered pointer focus outside its target"
+    );
+    f.niri().clock.set_complete_instantly(true);
+    f.niri_state().refresh_agents();
+    f.double_roundtrip(target_client);
+    let focus = pointer
+        .current_focus()
+        .expect("captured animation must arrive at its target");
+    let root = f.niri().find_root_shell_surface(&focus);
+    assert_eq!(
+        f.niri()
+            .layout
+            .find_window_and_output(&root)
+            .unwrap()
+            .0
+            .id()
+            .get(),
+        target_id
+    );
 }

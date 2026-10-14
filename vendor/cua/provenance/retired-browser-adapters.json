@@ -1,0 +1,38 @@
+{
+  "reason": "Superseded by pinned anomalyco/browser-control integration",
+  "upstream": {
+    "acquisition": "git clone --no-checkout; git checkout --detach REV outside maintained source; verify committed objects with verify-import.mjs --source",
+    "repository": "https://github.com/trycua/cua",
+    "revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
+  },
+  "files": [
+    {
+      "path": "src/bin/dojo-agent/browser.rs",
+      "state": "local",
+      "unit": "dojo-root-integration",
+      "owner": "Dojo CUA integration maintainers",
+      "sha256": "2c5845d0e1bf81532bc74e2ddb32d951fa6bbac704205cf1b920617950f59048"
+    },
+    {
+      "path": "src/bin/dojo-agent/browser_mutation.rs",
+      "state": "local",
+      "unit": "dojo-root-integration",
+      "owner": "Dojo CUA integration maintainers",
+      "sha256": "dfa60c90c66ae4c7a679ed974d28f4bb4c51f69d35cad40c99dbfbbb8375c352"
+    },
+    {
+      "path": "src/bin/dojo-agent/browser_owned.rs",
+      "state": "local",
+      "unit": "dojo-root-integration",
+      "owner": "Dojo CUA integration maintainers",
+      "sha256": "e2b5bb60df52f73b8516e435f701e2867f03d3158f3011f3dd728b1ec1714ee5"
+    },
+    {
+      "path": "tests/browser_owned_desktop.rs",
+      "state": "local",
+      "unit": "dojo-root-integration",
+      "owner": "Dojo CUA integration maintainers",
+      "sha256": "35b0b31891b7ed39ce807259122bf7d9c4b4806b636af78aab69ceb225b997ab"
+    }
+  ]
+}

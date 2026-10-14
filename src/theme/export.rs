@@ -29,6 +29,10 @@ pub(super) fn render(
         "background_highlight",
         "border",
         "foreground_muted",
+        "primary_foreground",
+        "selection_foreground",
+        "surface",
+        "surface_raised",
     ]
     .into_iter()
     .map(|role| (role.to_string(), json!(p.color(role))))
@@ -61,18 +65,42 @@ pub(super) fn render(
     add("yazi.toml", yazi(p).into_bytes());
     add("tmtheme.xml", textmate(p).into_bytes());
     add("zen.json", json_bytes(&zen(p))?);
-    add(
-        "helium.json",
-        json_bytes(&json!({
-            "BrowserThemeColor": p.color("background"),
-            "BrowserColorScheme": "system"
-        }))?,
-    );
+    add("helium.json", json_bytes(&chromium_theme(p))?);
     add("gtk-3.0.css", gtk(p, 3).into_bytes());
     add("gtk-4.0.css", gtk(p, 4).into_bytes());
     add("qt5.conf", qt(p, 21).into_bytes());
     add("qt6.conf", qt(p, 22).into_bytes());
     Ok(out)
+}
+
+fn chromium_theme(p: &SemanticPalette) -> Value {
+    let colors = [
+        ("frame", "background"),
+        ("frame_inactive", "background"),
+        ("frame_incognito", "background"),
+        ("frame_incognito_inactive", "background"),
+        ("toolbar", "background"),
+        ("ntp_background", "background"),
+        ("omnibox_background", "surface"),
+        ("button_background", "surface"),
+        ("tab_text", "foreground"),
+        ("tab_background_text", "foreground_muted"),
+        ("bookmark_text", "foreground"),
+        ("toolbar_button_icon", "foreground"),
+        ("omnibox_text", "foreground"),
+        ("ntp_text", "foreground"),
+        ("ntp_link", "primary"),
+        ("ntp_header", "border"),
+    ]
+    .into_iter()
+    .map(|(key, role)| {
+        let Rgb(r, g, b) = Rgb::parse(p.color(role)).expect("validated semantic palette");
+        (key.to_owned(), json!([r, g, b]))
+    })
+    .collect::<serde_json::Map<_, _>>();
+    json!({"manifest_version":3,"name":"Dojo","version":"1.0.0",
+        "description":"Dojo semantic palette shared with T3 Code",
+        "theme":{"colors":colors,"properties":{"ntp_logo_alternate":1}}})
 }
 
 fn kitty(p: &SemanticPalette) -> String {
@@ -209,7 +237,7 @@ fn opencode_mode(p: &SemanticPalette) -> anyhow::Result<Value> {
             "base":p.color("background"),"raised":{"base":p.color("surface"),"high":p.color("surface_raised"),"max":p.color("background_highlight")},
             "action":{"primary":{"base":"transparent","$hovered":p.color("background_highlight"),"$focused":p.color("primary"),"$selected":"transparent"},"secondary":{"base":"transparent"},"destructive":{"base":p.color("error")}},
             "formfield":{"base":p.color("background")},
-            "feedback":{"error":{"base":p.color("background")},"warning":{"base":p.color("background")},"success":{"base":p.color("background")},"info":{"base":p.color("background")}}
+            "feedback":{"error":{"base":p.color_or("error_background","background")},"warning":{"base":p.color_or("warning_background","background")},"success":{"base":p.color_or("success_background","background")},"info":{"base":p.color_or("info_background","background")}}
         },
         "border":{"base":p.color("border")},"scrollbar":{"base":p.color("foreground_muted")},
         "diff":{"text":{"added":added,"removed":removed,"context":p.color("foreground_muted"),"hunkHeader":p.color("info")},"background":{"added":p.color("diff_added_background"),"removed":p.color("diff_removed_background"),"context":p.color("background")},"highlight":{"added":p.color("success"),"removed":p.color("error")},"lineNumber":{"text":p.color("foreground_muted"),"background":{"added":p.color("diff_added_background"),"removed":p.color("diff_removed_background")}}},
@@ -405,6 +433,28 @@ fn t3_colors(p: &SemanticPalette) -> Value {
             colors.insert((*key).into(), json!(p.color(role)));
         }
     }
+    for (role, foreground, surface, fallback) in [
+        ("warning", "warningForeground", "warningSurface", "surface"),
+        (
+            "error",
+            "errorForeground",
+            "errorSurface",
+            "diff_removed_background",
+        ),
+    ] {
+        if p.colors.contains_key(&format!("{role}_background")) {
+            colors.insert(foreground.into(), json!(p.color(role)));
+            colors.insert(
+                surface.into(),
+                json!(p.color_or(&format!("{role}_background"), fallback)),
+            );
+        }
+    }
+    if p.colors.contains_key("background_hover") {
+        for role in ["toolbarControlHover", "sidebarRowHover"] {
+            colors.insert(role.into(), json!(p.color("background_hover")));
+        }
+    }
     Value::Object(colors)
 }
 
@@ -522,7 +572,7 @@ fn zed_style(p: &SemanticPalette) -> Value {
         json!(p.color("surface_raised")),
     );
     for (name, foreground, background) in [
-        ("info", "primary", "background_highlight"),
+        ("info", "info", "background_highlight"),
         ("hint", "info", "background_highlight"),
         ("warning", "warning", "surface_raised"),
         ("modified", "warning", "surface_raised"),
@@ -532,7 +582,10 @@ fn zed_style(p: &SemanticPalette) -> Value {
         ("success", "success", "diff_added_background"),
         ("created", "success", "diff_added_background"),
     ] {
-        style.insert(format!("{name}.background"), json!(p.color(background)));
+        style.insert(
+            format!("{name}.background"),
+            json!(p.color_or(&format!("{name}_background"), background)),
+        );
         style.insert(format!("{name}.border"), json!(p.color(foreground)));
     }
     Value::Object(style)
@@ -682,7 +735,7 @@ fn zen(p: &SemanticPalette) -> Value {
         ("tab_background_text", "foreground"),
         ("tab_selected", "surface_raised"),
         ("tab_text", "foreground"),
-        ("toolbar", "surface"),
+        ("toolbar", "background"),
         ("toolbar_text", "foreground"),
         ("toolbar_field", "background"),
         ("toolbar_field_text", "foreground"),
@@ -797,6 +850,24 @@ fn qt(p: &SemanticPalette, count: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn chromium_and_t3_share_exact_semantic_background_and_surfaces() {
+        let preset = crate::theme::presets()
+            .unwrap()
+            .into_iter()
+            .find(|preset| preset.id == "catppuccin-mocha")
+            .unwrap();
+        let theme = super::chromium_theme(&preset.palette);
+        assert_eq!(theme["theme"]["colors"]["frame"], json!([30, 30, 46]));
+        assert_eq!(
+            theme["theme"]["colors"]["ntp_background"],
+            json!([30, 30, 46])
+        );
+        assert_eq!(theme["theme"]["colors"]["toolbar"], json!([30, 30, 46]));
+        assert_eq!(super::t3_colors(&preset.palette)["canvas"], "#1e1e2e");
+        assert_eq!(super::zen(&preset.palette)["colors"]["toolbar"], "#1e1e2e");
+    }
+
     use super::*;
     use crate::extraction::{Mode, Palette, Rgb};
 
@@ -897,8 +968,12 @@ mod tests {
             theme.dark.color("primary")
         )));
         let helium: Value = serde_json::from_slice(&outputs["helium.json"])?;
-        assert_eq!(helium["BrowserThemeColor"], theme.dark.color("background"));
-        assert_eq!(helium["BrowserColorScheme"], "system");
+        let Rgb(r, g, b) = Rgb::parse(theme.dark.color("background"))?;
+        assert_eq!(
+            helium["theme"]["colors"]["ntp_background"],
+            json!([r, g, b])
+        );
+        assert_eq!(helium["manifest_version"], 3);
         Ok(())
     }
 }

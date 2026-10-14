@@ -13,7 +13,13 @@ use gpui::{
 
 use crate::config::ThemeColors;
 
-gpui::actions!(theme_picker, [ToggleThemePicker]);
+mod portal;
+
+#[derive(Clone, Debug, Default, PartialEq, gpui::Action)]
+#[action(namespace = theme_picker, no_json)]
+pub struct ToggleThemePicker {
+    pub display_id: Option<gpui::DisplayId>,
+}
 
 struct Candidate {
     mode: Mode,
@@ -30,25 +36,20 @@ struct Analysis {
 
 fn analyze(preview_edge: u32) -> anyhow::Result<Analysis> {
     let store = ThemeStore::new(Paths::user_default()?);
-    let path = if let Some(selection) = store.selection()? {
-        let theme = store.theme(&selection.generation)?;
-        let snapshot = store
-            .paths
-            .root
-            .join("generations")
-            .join(selection.generation)
-            .join("wallpaper");
-        if snapshot.is_file() {
-            snapshot
-        } else if !theme.wallpaper.is_empty() {
-            PathBuf::from(theme.wallpaper)
-        } else {
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("astro.jpg")
-        }
+    let selection = store.selection()?.context("Choose an image to preview.")?;
+    let theme = store.theme(&selection.generation)?;
+    let snapshot = store
+        .paths
+        .root
+        .join("generations")
+        .join(selection.generation)
+        .join("wallpaper");
+    let path = if snapshot.is_file() {
+        snapshot
+    } else if !theme.wallpaper.is_empty() {
+        PathBuf::from(theme.wallpaper)
     } else {
-        // The repo's current btrbg wallpaper is the initial source until wallpaper
-        // selection is provided by the appearance UI.
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("astro.jpg")
+        anyhow::bail!("Choose an image to preview.")
     };
     analyze_image(path, preview_edge)
 }
@@ -72,7 +73,9 @@ fn analyze_image(path: PathBuf, preview_edge: u32) -> anyhow::Result<Analysis> {
     );
     let (width, height) = reader.into_dimensions()?;
     anyhow::ensure!(
-        width <= 16_384 && height <= 16_384 && u64::from(width) * u64::from(height) <= 40_000_000,
+        width <= 16_384
+            && height <= 16_384
+            && u64::from(width) * u64::from(height) <= dojo::theme::MAX_WALLPAPER_PIXELS,
         "wallpaper exceeds image dimension limits"
     );
     let preview = wallpaper_thumbnail(&bytes, preview_edge)?;
@@ -166,50 +169,16 @@ fn preview_edge(window: &Window) -> u32 {
 }
 
 fn derive_candidates(bytes: &[u8]) -> anyhow::Result<Vec<Candidate>> {
-    dojo::extraction::extract_all_pairs(bytes)?
+    dojo::theme::derive_wallpaper_modes(bytes)?
         .into_iter()
-        .map(|(mode, dark, light)| {
-            let dark = SemanticPalette::derive(&dark, Appearance::Dark);
-            let light = SemanticPalette::derive(&light, Appearance::Light);
-            dark.validate()?;
-            light.validate()?;
-            Ok(Candidate { mode, dark, light })
+        .map(|theme| {
+            Ok(Candidate {
+                mode: theme.mode,
+                dark: theme.dark,
+                light: theme.light,
+            })
         })
         .collect()
-}
-
-fn wallpaper_entries(directory: &std::path::Path) -> anyhow::Result<Vec<(PathBuf, bool)>> {
-    let mut entries = Vec::new();
-    for entry in std::fs::read_dir(directory)? {
-        let entry = entry?;
-        let path = entry.path();
-        let directory = path.is_dir();
-        if directory
-            || (path.is_file()
-                && path
-                    .extension()
-                    .and_then(|s| s.to_str())
-                    .is_some_and(|extension| {
-                        matches!(
-                            extension.to_ascii_lowercase().as_str(),
-                            "jpg" | "jpeg" | "png" | "webp"
-                        )
-                    }))
-        {
-            entries.push((path, directory));
-        }
-    }
-    entries.sort_by_key(|(path, directory)| {
-        (
-            !*directory,
-            path.file_name().map(|s| s.to_string_lossy().to_lowercase()),
-        )
-    });
-    anyhow::ensure!(
-        entries.len() <= 1024,
-        "folder has more than 1024 images/subfolders; choose a smaller folder"
-    );
-    Ok(entries)
 }
 
 #[derive(Default)]
@@ -218,7 +187,11 @@ pub struct ThemePicker {
 }
 
 impl ThemePicker {
-    pub fn toggle(&mut self, cx: &mut App) -> anyhow::Result<()> {
+    pub fn toggle(
+        &mut self,
+        display_id: Option<gpui::DisplayId>,
+        cx: &mut App,
+    ) -> anyhow::Result<()> {
         if let Some(window) = self.window.take() {
             if window
                 .update(cx, |view, window, _| view.close(window))
@@ -227,17 +200,12 @@ impl ThemePicker {
                 return Ok(());
             }
         }
-        let display = cx
-            .primary_display()
+        let display = display_id
+            .and_then(|id| cx.displays().into_iter().find(|display| display.id() == id))
+            .or_else(|| cx.primary_display())
             .or_else(|| cx.displays().into_iter().next())
             .context("no display for theme picker")?;
         let presets = dojo::theme::presets()?;
-        let home = PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?);
-        let directory = if home.join("Pictures").is_dir() {
-            home.join("Pictures")
-        } else {
-            home
-        };
         self.window = Some(cx.open_window(
             WindowOptions {
                 display_id: Some(display.id()),
@@ -253,7 +221,8 @@ impl ThemePicker {
                         | layer_shell::Anchor::LEFT
                         | layer_shell::Anchor::RIGHT,
                     exclusive_zone: Some(px(-1.)),
-                    keyboard_interactivity: layer_shell::KeyboardInteractivity::Exclusive,
+                    // The portal dialog must be able to take keyboard focus.
+                    keyboard_interactivity: layer_shell::KeyboardInteractivity::OnDemand,
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -263,37 +232,46 @@ impl ThemePicker {
                     let focus = cx.focus_handle();
                     window.focus(&focus, cx);
                     cx.on_release_in(window, |view: &mut PickerView, window, _| {
+                        view.file_request.take();
                         view.release_preview(window);
-                    }).detach();
+                    })
+                    .detach();
                     let preview_edge = preview_edge(window);
                     cx.spawn_in(window, async move |this, cx| {
-                        let result = cx.background_executor().spawn(async move { analyze(preview_edge) }).await;
-                        if let Err(error) = this.update_in(cx, |view: &mut PickerView, window, cx| {
-                            if view.analysis_revision != 0 {
-                                return;
-                            }
-                            view.loading = false;
-                            match result {
-                                Ok(analysis) => {
-                                    if !view.show_presets {
-                                        view.appearance = analysis.appearance;
-                                    }
-                                    view.replace_analysis(analysis, window);
-                                    if view.show_wallpaper {
-                                        view.message = "Choose an image, or keep the current wallpaper. Derivation is optional.".into();
-                                    } else if !view.show_presets {
-                                        view.derive(window, cx);
-                                    }
+                        let result = cx
+                            .background_executor()
+                            .spawn(async move { analyze(preview_edge) })
+                            .await;
+                        if let Err(error) =
+                            this.update_in(cx, |view: &mut PickerView, window, cx| {
+                                if view.analysis_revision != 0 {
+                                    return;
                                 }
-                                Err(error) => view.message = format!("{error:#}"),
-                            }
-                            cx.notify();
-                        }) {
+                                view.loading = false;
+                                match result {
+                                    Ok(analysis) => {
+                                        if !view.show_presets {
+                                            view.appearance = analysis.appearance;
+                                        }
+                                        view.replace_analysis(analysis, window);
+                                        if view.show_wallpaper {
+                                            view.message =
+                                                "Choose an image, or keep the current wallpaper."
+                                                    .into();
+                                        } else if !view.show_presets {
+                                            view.derive(window, cx);
+                                        }
+                                    }
+                                    Err(error) => view.message = format!("{error:#}"),
+                                }
+                                cx.notify();
+                            })
+                        {
                             eprintln!("Theme picker closed during analysis: {error:#}");
                         }
                     })
                     .detach();
-                    let mut view = PickerView {
+                    PickerView {
                         focus,
                         analysis: None,
                         selected: None,
@@ -305,13 +283,15 @@ impl ThemePicker {
                         message: "Choose a wallpaper. No desktop changes until Apply.".into(),
                         panel: None,
                         show_wallpaper: true,
-                        directory,
-                        entries: Vec::new(),
-                        browsing: false,
+                        file_request: None,
+                        file_request_revision: 0,
+                        file_request_error: None,
                         analysis_revision: 0,
-                    };
-                    view.browse(view.directory.clone(), window, cx);
-                    view
+                        reveal: crate::design::MenuReveal::opening_for(
+                            std::time::Instant::now(),
+                            std::time::Duration::from_millis(250),
+                        ),
+                    }
                 })
             },
         )?);
@@ -331,28 +311,11 @@ struct PickerView {
     message: String,
     panel: Option<gpui::Bounds<gpui::Pixels>>,
     show_wallpaper: bool,
-    directory: PathBuf,
-    entries: Vec<(PathBuf, bool)>,
-    browsing: bool,
+    file_request: Option<portal::Request>,
+    file_request_revision: u64,
+    file_request_error: Option<String>,
     analysis_revision: u64,
-}
-
-fn button_label(background: gpui::Rgba) -> gpui::Rgba {
-    let linear = |channel: f32| {
-        if channel <= 0.04045 {
-            channel / 12.92
-        } else {
-            ((channel + 0.055) / 1.055).powf(2.4)
-        }
-    };
-    let luminance = 0.2126 * linear(background.r)
-        + 0.7152 * linear(background.g)
-        + 0.0722 * linear(background.b);
-    if (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) {
-        gpui::rgb(0x000000)
-    } else {
-        gpui::rgb(0xffffff)
-    }
+    reveal: crate::design::MenuReveal,
 }
 
 fn confirmable(selected: Option<usize>, count: usize, loading: bool, applying: bool) -> bool {
@@ -417,8 +380,12 @@ impl PickerView {
 
     fn close(&mut self, window: &mut Window) {
         self.analysis_revision += 1;
+        self.file_request_revision += 1;
+        self.file_request.take();
+        window.set_input_region(None);
         self.release_preview(window);
-        window.remove_window();
+        self.reveal.set_open(false, std::time::Instant::now());
+        window.refresh();
     }
 
     fn derive(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -472,33 +439,68 @@ impl PickerView {
         .detach();
     }
 
-    fn browse(&mut self, directory: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        if self.applying || self.browsing {
+    fn choose_image(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.choose_image_with(window, cx, portal::Request::start);
+    }
+
+    fn choose_image_with(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        start: impl FnOnce() -> anyhow::Result<(
+            portal::Request,
+            async_channel::Receiver<anyhow::Result<Option<PathBuf>>>,
+        )>,
+    ) {
+        if self.file_request.is_some() || self.loading || self.applying || !self.reveal.is_open() {
             return;
         }
-        self.browsing = true;
-        cx.notify();
-        cx.spawn_in(window, async move |this, cx| {
-            let path = directory.clone();
-            let result = cx
-                .background_executor()
-                .spawn(async move { wallpaper_entries(&path) })
-                .await;
-            if let Err(error) = this.update_in(cx, |view, _, cx| {
-                view.browsing = false;
-                match result {
-                    Ok(entries) => {
-                        view.directory = directory;
-                        view.entries = entries;
-                    }
-                    Err(error) => view.message = format!("Could not browse folder: {error:#}"),
-                }
-                cx.notify();
-            }) {
-                eprintln!("Wallpaper browser closed: {error:#}");
+        self.file_request_error = None;
+        match start() {
+            Ok((request, response)) => {
+                self.file_request_revision += 1;
+                let revision = self.file_request_revision;
+                self.file_request = Some(request);
+                window.set_input_region(Some(&[]));
+                cx.spawn_in(window, async move |this, cx| {
+                    let result = response.recv().await.unwrap_or_else(|error| {
+                        Err(anyhow::anyhow!("File picker stopped: {error}"))
+                    });
+                    let _ = this.update_in(cx, |view, window, cx| {
+                        view.finish_image_request(revision, result, window, cx);
+                    });
+                })
+                .detach();
             }
-        })
-        .detach();
+            Err(error) => {
+                self.file_request_error = Some(format!("Could not open file picker: {error:#}"))
+            }
+        }
+        cx.notify();
+    }
+
+    fn finish_image_request(
+        &mut self,
+        revision: u64,
+        result: anyhow::Result<Option<PathBuf>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.file_request_revision != revision || !self.reveal.is_open() {
+            return;
+        }
+        self.file_request.take();
+        window.set_input_region(None);
+        window.activate_window();
+        window.focus(&self.focus, cx);
+        match result {
+            Ok(Some(path)) => self.choose_wallpaper(path, window, cx),
+            Ok(None) => {} // Cancel leaves the preview and selection unchanged.
+            Err(error) => {
+                self.file_request_error = Some(format!("Could not choose image: {error:#}"))
+            }
+        }
+        cx.notify();
     }
 
     fn choose_wallpaper(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
@@ -509,30 +511,43 @@ impl PickerView {
         let revision = self.analysis_revision;
         self.loading = true;
         self.selected = None;
+        self.release_preview(window);
         self.message = "Loading wallpaper preview…".into();
         cx.notify();
         let preview_edge = preview_edge(window);
         cx.spawn_in(window, async move |this, cx| {
-            let result = cx.background_executor().spawn(async move {analyze_image(path, preview_edge)}).await;
+            let result = cx
+                .background_executor()
+                .spawn(async move { analyze_image(path, preview_edge) })
+                .await;
             if let Err(error) = this.update_in(cx, |view, window, cx| {
-                if view.analysis_revision != revision {return;}
+                if view.analysis_revision != revision {
+                    return;
+                }
                 view.loading = false;
                 match result {
                     Ok(analysis) => {
                         view.replace_analysis(analysis, window);
-                        view.message="Preview only. Apply wallpaper keeps your theme; Derive attempts a new palette.".into();
+                        view.message =
+                            "Preview only. Apply wallpaper keeps your selected theme.".into();
                         if !view.show_wallpaper && !view.show_presets {
                             view.derive(window, cx);
                         }
-                    },
-                    Err(error) => view.message=format!("Could not load wallpaper: {error:#}"),
+                    }
+                    Err(error) => view.message = format!("Could not load wallpaper: {error:#}"),
                 }
                 cx.notify();
-            }) {eprintln!("Wallpaper picker closed: {error:#}");}
-        }).detach();
+            }) {
+                eprintln!("Wallpaper picker closed: {error:#}");
+            }
+        })
+        .detach();
     }
 
     fn apply(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.file_request.is_some() || !self.reveal.is_open() {
+            return;
+        }
         if self.show_wallpaper {
             if self.loading || self.applying {
                 return;
@@ -643,8 +658,9 @@ impl PickerView {
             return;
         };
         let mode = candidate.mode;
+        let appearance = self.appearance;
         self.applying = true;
-        self.message = "Applying selected mode across supported apps…".into();
+        self.message = format!("Applying {} theme…", appearance.name());
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
             let result = cx
@@ -656,14 +672,14 @@ impl PickerView {
                         mode,
                     )?;
                     let store = ThemeStore::new(Paths::user_default()?);
-                    let appearance = dojo::theme::system_appearance()?;
                     let generation = store.generate(&theme)?;
+                    dojo::theme::set_system_appearance(appearance)?;
                     dojo::theme::apply(
                         &store,
                         Selection {
                             generation,
                             appearance,
-                            follow_system: true,
+                            follow_system: false,
                             targets: picker_targets(),
                         },
                     )
@@ -673,8 +689,9 @@ impl PickerView {
                 view.applying = false;
                 view.message = match result {
                     Ok(report) => format!(
-                        "Selected {}. Appearance follows darkman.\n{}",
+                        "Selected {}. Darkman is {}.\n{}",
                         mode.name(),
+                        appearance.name(),
                         apply_results(&report)
                     ),
                     Err(error) => format!("Could not apply: {error:#}"),
@@ -690,79 +707,60 @@ impl PickerView {
 
 impl Render for PickerView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let (progress, moving) = self
+            .reveal
+            .sample_with_motion(std::time::Instant::now(), cx.reduce_motion());
+        if moving {
+            window.request_animation_frame();
+        } else if !self.reveal.is_open() {
+            self.release_preview(window);
+            window.remove_window();
+        }
+        let choosing = self.file_request.is_some();
         let colors = *cx.global::<ThemeColors>();
-        let width = (f32::from(window.viewport_size().width) - 48.)
-            .min(940.)
-            .max(320.);
-        let height = (f32::from(window.viewport_size().height) - 96.)
-            .min(720.)
-            .max(300.);
-        let modes_width = (width * 0.43).min(400.);
+        let width = (f32::from(window.viewport_size().width) - 24.).clamp(1., 940.);
+        let height = (f32::from(window.viewport_size().height)
+            - crate::geometry::TOP_BAR_HEIGHT as f32
+            - 24.)
+            .clamp(1., 720.);
+        let narrow = width < 650.;
+        let modes_width = if narrow {
+            width - 32.
+        } else {
+            (width * 0.43).min(400.)
+        };
         let mut mode_buttons = Vec::new();
         if self.show_wallpaper {
-            if let Some(parent) = self.directory.parent() {
-                let parent = parent.to_path_buf();
-                mode_buttons.push(
-                    div()
-                        .id("wallpaper-parent")
-                        .w_full()
-                        .h(px(32.))
-                        .child("↑ Parent folder")
-                        .cursor_pointer()
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(move |view, _, window, cx| {
-                                view.browse(parent.clone(), window, cx)
-                            }),
-                        ),
-                );
-            }
+            let choosing = self.file_request.is_some();
+            let enabled = !choosing && !self.loading && !self.applying;
             mode_buttons.push(
                 div()
-                    .id("wallpaper-directory")
-                    .w_full()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .text_size(px(11.))
-                    .text_color(colors.foreground_muted.rgb())
-                    .child(self.directory.display().to_string()),
+                    .id("choose-wallpaper-image")
+                    .px(px(12.))
+                    .py(px(10.))
+                    .rounded(px(crate::design::PILL_RADIUS))
+                    .bg(colors.background_highlight.rgb())
+                    .text_color(colors.selection_foreground.rgb())
+                    .when(enabled, |button| button.cursor_pointer())
+                    .child(if choosing {
+                        "Choosing image…"
+                    } else if self.loading {
+                        "Loading preview…"
+                    } else {
+                        "Choose image…"
+                    })
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|view, _, window, cx| view.choose_image(window, cx)),
+                    ),
             );
-            for (index, (path, directory)) in self.entries.iter().enumerate() {
-                let path = path.clone();
-                let directory = *directory;
-                let name = path
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_default();
+            mode_buttons.push(div().id("wallpaper-picker-hint").w_full().text_color(colors.foreground_muted.rgb()).child("Choose a JPEG, PNG, or WebP with the system file picker. Preview it here, then Apply."));
+            if let Some(error) = &self.file_request_error {
                 mode_buttons.push(
                     div()
-                        .id(("wallpaper-file", index))
+                        .id("wallpaper-picker-error")
                         .w_full()
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .h(px(34.))
-                        .px(px(8.))
-                        .rounded(px(6.))
-                        .cursor_pointer()
-                        .child(format!("{} {name}", if directory { "▸" } else { "▧" }))
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(move |view, _, window, cx| {
-                                if directory {
-                                    view.browse(path.clone(), window, cx);
-                                } else {
-                                    view.choose_wallpaper(path.clone(), window, cx);
-                                }
-                            }),
-                        ),
-                );
-            }
-            if self.browsing {
-                mode_buttons.push(
-                    div()
-                        .id("wallpaper-folder-loading")
-                        .w_full()
-                        .child("Loading folder…"),
+                        .child(error.clone()),
                 );
             }
         } else if self.show_presets {
@@ -780,7 +778,7 @@ impl Render for PickerView {
                     previous_family = &preset.family;
                 }
                 let appearance = preset.appearance;
-                mode_buttons.push(div().id(("static-preset",index)).w_full().h(px(34.)).px(px(8.)).flex().items_center().justify_between().rounded(px(6.)).cursor_pointer().bg(if self.selected == Some(index) {colors.background_highlight.rgb()} else {colors.background.rgb()}).text_color(if self.selected == Some(index) {button_label(colors.background_highlight.rgb())} else {colors.foreground.rgb()}).child(preset.name.clone()).child(div().text_size(px(10.)).child(appearance.name())).on_mouse_down(MouseButton::Left,cx.listener(move |view,_,_,cx| {
+                mode_buttons.push(div().id(("static-preset",index)).w_full().h(px(34.)).px(px(8.)).flex().items_center().justify_between().rounded(px(6.)).cursor_pointer().bg(if self.selected == Some(index) {colors.background_highlight.rgb()} else {colors.background.rgb()}).text_color(if self.selected == Some(index) { colors.selection_foreground.rgb() } else { colors.foreground.rgb() }).child(preset.name.clone()).child(div().text_size(px(10.)).child(appearance.name())).on_mouse_down(MouseButton::Left,cx.listener(move |view,_,_,cx| {
                     if view.applying {return;}
                     view.selected = Some(index);
                     view.appearance = appearance;
@@ -805,7 +803,7 @@ impl Render for PickerView {
                             colors.background.rgb()
                         })
                         .text_color(if self.selected == Some(index) {
-                            button_label(colors.background_highlight.rgb())
+                            colors.selection_foreground.rgb()
                         } else {
                             colors.foreground.rgb()
                         })
@@ -837,10 +835,38 @@ impl Render for PickerView {
             preview = preview.child(
                 img(analysis.preview.clone())
                     .w_full()
-                    .h(px(if self.show_wallpaper { 300. } else { 160. }))
+                    .h(px(if narrow {
+                        130.
+                    } else if self.show_wallpaper {
+                        300.
+                    } else {
+                        160.
+                    }))
                     .object_fit(gpui::ObjectFit::Cover)
                     .rounded(px(10.)),
             );
+        }
+        if self.show_wallpaper {
+            if let Some(analysis) = &self.analysis {
+                preview = preview.child(div().text_size(px(12.)).child(format!("Selected · {}",
+                    analysis.path.file_name().unwrap_or_default().to_string_lossy())));
+            } else {
+                preview = preview.child(
+                    div()
+                        .h(px(if narrow { 100. } else { 220. }))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(colors.background_highlight.rgb())
+                        .text_color(colors.selection_foreground.rgb())
+                        .rounded(px(10.))
+                        .child(if self.loading {
+                            "Loading preview…"
+                        } else {
+                            "Select an image to preview"
+                        }),
+                );
+            }
         }
         let selected_palette = if self.show_wallpaper {
             None
@@ -922,22 +948,41 @@ impl Render for PickerView {
                     ),
             );
         } else {
-            preview = preview.child(if self.show_wallpaper {"Choose an image from a folder. Apply wallpaper keeps your existing theme; Derive is optional."} else {"Choose a theme to preview its colors."});
+            preview = preview.child(if self.show_wallpaper {
+                "Choose an image from a folder. Apply wallpaper keeps your existing theme."
+            } else {
+                "Choose a theme to preview its colors."
+            });
         }
         let mut appearance_buttons = div().flex().gap(px(8.));
         for appearance in [Appearance::Dark, Appearance::Light] {
             appearance_buttons = appearance_buttons.child(
                 div()
                     .id(format!("theme-preview-{}", appearance.name()))
+                    .cursor_pointer()
                     .px(px(12.))
                     .py(px(7.))
                     .rounded(px(crate::design::PILL_RADIUS))
-                    .bg(colors.background_highlight.rgb())
-                    .text_color(button_label(colors.background_highlight.rgb()))
-                    .child(format!("{} preview", appearance.name()))
+                    .bg(if self.appearance == appearance {
+                        colors.primary.rgb()
+                    } else {
+                        colors.background_highlight.rgb()
+                    })
+                    .text_color(if self.appearance == appearance {
+                        colors.primary_foreground.rgb()
+                    } else {
+                        colors.selection_foreground.rgb()
+                    })
+                    .child(match appearance {
+                        Appearance::Dark => "Dark",
+                        Appearance::Light => "Light",
+                    })
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |view, _, _, cx| {
+                            if view.applying {
+                                return;
+                            }
                             view.appearance = appearance;
                             cx.notify();
                         }),
@@ -947,31 +992,34 @@ impl Render for PickerView {
         if !self.show_presets && !self.show_wallpaper {
             preview = preview.child(appearance_buttons);
         }
-        let ready = if self.show_wallpaper {
-            self.analysis.is_some() && !self.loading && !self.applying
-        } else {
-            confirmable(
-                self.selected,
-                if self.show_presets {
-                    self.presets.len()
-                } else {
-                    self.analysis
-                        .as_ref()
-                        .map_or(0, |analysis| analysis.candidates.len())
-                },
-                !self.show_presets && self.loading,
-                self.applying,
-            )
-        };
+        let ready = !choosing
+            && if self.show_wallpaper {
+                self.analysis.is_some() && !self.loading && !self.applying
+            } else {
+                confirmable(
+                    self.selected,
+                    if self.show_presets {
+                        self.presets.len()
+                    } else {
+                        self.analysis
+                            .as_ref()
+                            .map_or(0, |analysis| analysis.candidates.len())
+                    },
+                    !self.show_presets && self.loading,
+                    self.applying,
+                )
+            };
         let mut source_buttons = div().flex().gap(px(8.));
         for (show_wallpaper, show_presets, label) in [
             (true, false, "Wallpaper"),
-            (false, true, "Presets · 36 themes"),
+            (false, true, "Presets"),
             (false, false, "Derive"),
         ] {
             source_buttons = source_buttons.child(
                 div()
-                    .id(if show_wallpaper {"wallpaper-browser-source"} else if show_presets {
+                    .id(if show_wallpaper {
+                        "wallpaper-picker-source"
+                    } else if show_presets {
                         "preset-source"
                     } else {
                         "wallpaper-source"
@@ -980,21 +1028,32 @@ impl Render for PickerView {
                     .py(px(8.))
                     .rounded(px(crate::design::PILL_RADIUS))
                     .cursor_pointer()
-                    .bg(if self.show_presets == show_presets && self.show_wallpaper == show_wallpaper {
-                        colors.background_highlight.rgb()
-                    } else {
-                        colors.background.rgb()
-                    })
-                    .text_color(if self.show_presets == show_presets && self.show_wallpaper == show_wallpaper {
-                        button_label(colors.background_highlight.rgb())
-                    } else {
-                        colors.foreground.rgb()
-                    })
+                    .bg(
+                        if self.show_presets == show_presets
+                            && self.show_wallpaper == show_wallpaper
+                        {
+                            colors.background_highlight.rgb()
+                        } else {
+                            colors.background.rgb()
+                        },
+                    )
+                    .text_color(
+                        if self.show_presets == show_presets
+                            && self.show_wallpaper == show_wallpaper
+                        {
+                            colors.selection_foreground.rgb()
+                        } else {
+                            colors.foreground.rgb()
+                        },
+                    )
                     .child(label)
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |view, _, window, cx| {
-                            if view.applying || (view.show_presets == show_presets && view.show_wallpaper == show_wallpaper) {
+                            if view.applying
+                                || (view.show_presets == show_presets
+                                    && view.show_wallpaper == show_wallpaper)
+                            {
                                 return;
                             }
                             view.show_presets = show_presets;
@@ -1002,8 +1061,8 @@ impl Render for PickerView {
                             view.selected = None;
                             view.message = "Choose a theme. No desktop changes until Apply.".into();
                             if show_wallpaper {
-                                view.message = "Choose an image, or keep the current wallpaper. Derivation is optional.".into();
-                                view.browse(view.directory.clone(),window,cx);
+                                view.message =
+                                    "Choose an image, or keep the current wallpaper.".into();
                             } else if !show_presets {
                                 view.derive(window, cx);
                             }
@@ -1014,13 +1073,12 @@ impl Render for PickerView {
         }
         let panel = div()
             .id("theme-picker-panel")
+            .absolute()
+            .top(px(0.))
+            .left(px(0.))
             .w(px(width))
             .h(px(height))
-            .p(px(22.))
-            .rounded(px(18.))
-            .bg(colors.background.rgb())
-            .border_1()
-            .border_color(colors.border.rgb().opacity(crate::design::BORDER_OPACITY))
+            .p(px(16.))
             .flex()
             .flex_col()
             .gap(px(14.))
@@ -1029,17 +1087,28 @@ impl Render for PickerView {
             .child(source_buttons)
             .child(
                 theme_content_row()
+                    .when(narrow, |row| row.flex_col().gap(px(8.)))
                     .child(
                         div()
-                            .id("theme-mode-list")
                             .w(px(modes_width))
                             .min_w(px(0.))
-                            .overflow_y_scroll()
+                            .min_h(px(0.))
+                            .when(narrow, |list| list.flex_1())
                             .flex()
-                            .flex_wrap()
-                            .content_start()
+                            .flex_col()
                             .gap(px(8.))
-                            .children(mode_buttons),
+                            .child(
+                                div()
+                                    .id("theme-mode-list")
+                                    .flex_1()
+                                    .min_h(px(0.))
+                                    .overflow_y_scroll()
+                                    .flex()
+                                    .flex_wrap()
+                                    .content_start()
+                                    .gap(px(8.))
+                                    .children(mode_buttons),
+                            ),
                     )
                     .child(preview),
             )
@@ -1058,9 +1127,13 @@ impl Render for PickerView {
                     .flex()
                     .justify_between()
                     .items_center()
-                    .child(div().text_size(px(12.)).child(
-                        "Preview only until Apply. Per-app setup and reload results appear above.",
-                    ))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .text_size(px(11.))
+                            .child("Preview only. Nothing changes until Apply."),
+                    )
                     .child(
                         div()
                             .id("apply-theme-mode")
@@ -1072,11 +1145,11 @@ impl Render for PickerView {
                             } else {
                                 colors.background_highlight.rgb()
                             })
-                            .text_color(button_label(if ready {
-                                colors.primary.rgb()
+                            .text_color(if ready {
+                                colors.primary_foreground.rgb()
                             } else {
-                                colors.background_highlight.rgb()
-                            }))
+                                colors.selection_foreground.rgb()
+                            })
                             .child(if self.applying {
                                 "Applying…"
                             } else if self.show_wallpaper {
@@ -1093,27 +1166,33 @@ impl Render for PickerView {
         self.panel = Some(gpui::Bounds {
             origin: point(
                 (window.viewport_size().width - px(width)) / 2.,
-                (window.viewport_size().height - px(height)) / 2.,
+                px(crate::geometry::TOP_BAR_HEIGHT as f32),
             ),
             size: gpui::Size::new(px(width), px(height)),
         });
         let mut scrim = colors.background.rgb();
-        scrim.a = 0.65;
+        scrim.a = 0.18;
         div()
             .size_full()
+            // Layer-shell overlays sit above normal portal windows: hide our
+            // surface and let input through while the system dialog is open.
+            .opacity(if choosing { 0. } else { 1. })
             .bg(scrim)
             .font_family(crate::power::FONT_FAMILY)
             .font_features(crate::power::font_features())
             .text_size(px(12.))
             .text_color(colors.foreground.rgb())
             .flex()
-            .items_center()
+            .items_start()
             .justify_center()
+            .pt(px(crate::geometry::TOP_BAR_HEIGHT as f32))
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|view, event: &KeyDownEvent, window, cx| {
                 match event.keystroke.key.as_str() {
                     "escape" if !view.applying => view.close(window),
-                    "enter" if !event.is_held => view.apply(window, cx),
+                    "enter" if !event.is_held && view.file_request.is_none() => {
+                        view.apply(window, cx)
+                    }
                     _ => {}
                 }
             }))
@@ -1129,15 +1208,53 @@ impl Render for PickerView {
                     }
                 }),
             )
-            .child(panel)
+            .child(crate::design::shell_extension(
+                gpui::Bounds::new(
+                    gpui::point(
+                        (window.viewport_size().width - px(width)) / 2.,
+                        px(crate::geometry::TOP_BAR_HEIGHT as f32),
+                    ),
+                    gpui::size(px(width), px(height * progress)),
+                ),
+                colors.background.rgb(),
+                false,
+            ))
+            .child(
+                div()
+                    .relative()
+                    .w(px(width))
+                    .h(px(height * progress))
+                    .overflow_hidden()
+                    .child(panel),
+            )
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{button_label, confirmable, theme_content_row};
+    use super::{confirmable, theme_content_row};
     use anyhow::Context as _;
     use gpui::{Styled, px};
+    use std::path::PathBuf;
+
+    #[gpui::test]
+    fn picker_opens_on_the_requested_monitor(cx: &mut gpui::TestAppContext) {
+        let external = gpui::DisplayId::from(2);
+        cx.simulate_display_added(external, None);
+        let mut picker = super::ThemePicker::default();
+        cx.update(|cx| {
+            cx.set_global(crate::config::ThemeColors::default());
+            picker.toggle(Some(external), cx).unwrap();
+            picker
+                .window
+                .unwrap()
+                .update(cx, |_, window, cx| {
+                    assert_eq!(window.display(cx).unwrap().id(), external);
+                })
+                .unwrap();
+            picker.toggle(None, cx).unwrap();
+        });
+    }
 
     fn animated_webp(frame_count: usize) -> anyhow::Result<Vec<u8>> {
         fn chunk(output: &mut Vec<u8>, name: &[u8; 4], payload: &[u8]) {
@@ -1169,6 +1286,48 @@ mod tests {
         encoded.extend_from_slice(&(body.len() as u32).to_le_bytes());
         encoded.extend(body);
         Ok(encoded)
+    }
+
+    #[test]
+    fn derived_apply_matches_all_mode_previews_and_exports_semantic_feedback() -> anyhow::Result<()>
+    {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            8,
+            8,
+            image::Rgb([40, 160, 90]),
+        ))
+        .write_to(&mut bytes, image::ImageFormat::Png)?;
+        for candidate in super::derive_candidates(bytes.get_ref())? {
+            let theme = dojo::theme::Theme::from_snapshot(
+                std::path::Path::new("/test-wallpaper.png"),
+                bytes.get_ref().clone(),
+                candidate.mode,
+            )?;
+            assert_eq!(theme.algorithm_revision, "dojo-semantic-wallpaper-2");
+            for (appearance, preview) in [
+                (dojo::theme::Appearance::Dark, candidate.dark),
+                (dojo::theme::Appearance::Light, candidate.light),
+            ] {
+                assert_eq!(
+                    serde_json::to_value(theme.palette(appearance))?,
+                    serde_json::to_value(preview)?
+                );
+                let outputs = theme.outputs(appearance)?;
+                let t3: serde_json::Value = serde_json::from_slice(&outputs["t3code.json"])?;
+                let colors = &t3["variants"][appearance.name()];
+                assert_eq!(
+                    colors["warningSurface"],
+                    theme.palette(appearance).color("warning_background")
+                );
+                assert_eq!(
+                    colors["errorSurface"],
+                    theme.palette(appearance).color("error_background")
+                );
+                assert_eq!(colors.as_object().unwrap().len(), 61);
+            }
+        }
+        Ok(())
     }
 
     #[test]
@@ -1235,8 +1394,54 @@ mod tests {
         let image = image::load_from_memory(preview.bytes.as_ref())?.to_rgb8();
         assert_eq!(image.get_pixel(0, 0).0, [200, 30, 50]);
         assert!(preview.candidates.is_empty());
-        assert!(super::derive_candidates(preview.bytes.as_ref()).is_err());
+        assert_eq!(super::derive_candidates(preview.bytes.as_ref())?.len(), 23);
         std::fs::remove_file(path)?;
+        Ok(())
+    }
+
+    #[test]
+    fn wallpaper_preview_accepts_large_photographs_before_monitor_scaling() -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = match std::env::var_os("DOJO_TEST_WALLPAPER") {
+            Some(path) => PathBuf::from(path),
+            None => {
+                let path = directory.path().join("alley-sized.jpg");
+                image::RgbImage::from_pixel(7952, 5304, image::Rgb([200, 30, 50])).save(&path)?;
+                path
+            }
+        };
+        let analysis = super::analyze_image(path, 8)?;
+        assert_eq!(
+            analysis.preview.size(0),
+            gpui::size(gpui::DevicePixels(8), gpui::DevicePixels(5))
+        );
+        let palette = crate::config::ThemeColors::default()
+            .semantic_palette(dojo::theme::Appearance::Dark)?;
+        let store = super::ThemeStore::new(super::Paths {
+            home: directory.path().join("home"),
+            config: directory.path().join("config"),
+            data: directory.path().join("data"),
+            root: directory.path().join("themes"),
+        });
+        let report = dojo::theme::apply_wallpaper(
+            &store,
+            &analysis.path,
+            analysis.bytes.as_ref().clone(),
+            Some(palette),
+        )?;
+        assert_eq!(report.targets[0].target, "dojo");
+        assert_eq!(report.targets[0].status, "published");
+        assert_eq!(
+            std::fs::read(
+                store
+                    .paths
+                    .root
+                    .join("generations")
+                    .join(report.selection.generation)
+                    .join("wallpaper")
+            )?,
+            analysis.bytes.as_ref().clone()
+        );
         Ok(())
     }
 
@@ -1359,26 +1564,110 @@ mod tests {
         assert!(message.contains("opencode: blocked — settings conflict"));
     }
 
-    #[test]
-    fn wallpaper_browser_lists_directories_and_supported_images_only() -> anyhow::Result<()> {
-        let root = std::env::temp_dir().join(format!(
-            "dojo-wallpaper-browser-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)?
-                .as_nanos()
-        ));
-        std::fs::create_dir(&root)?;
-        std::fs::create_dir(root.join("folder"))?;
-        std::fs::write(root.join("image.JPG"), b"fixture")?;
-        std::fs::write(root.join("notes.txt"), b"fixture")?;
-        let entries = super::wallpaper_entries(&root)?;
-        assert_eq!(
-            entries,
-            vec![(root.join("folder"), true), (root.join("image.JPG"), false)]
-        );
-        std::fs::remove_dir_all(root)?;
-        Ok(())
+    #[gpui::test]
+    fn choosing_an_image_is_preview_only_and_invalidates_old_apply_source(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let mut picker = super::ThemePicker::default();
+        cx.update(|cx| {
+            cx.set_global(crate::config::ThemeColors::default());
+            picker.toggle(None, cx).unwrap();
+            picker
+                .window
+                .unwrap()
+                .update(cx, |view, window, cx| {
+                    assert!(view.show_wallpaper);
+                    assert!(!view.show_presets);
+                    let path = PathBuf::from("/missing/preview.png");
+                    let revision = view.file_request_revision;
+                    view.finish_image_request(revision, Ok(Some(path)), window, cx);
+                    assert!(view.loading);
+                    assert!(view.analysis.is_none());
+                    assert!(!view.applying);
+                    assert!(view.selected.is_none());
+                    // Enter/Apply while loading must not publish anything.
+                    view.apply(window, cx);
+                    assert!(!view.applying);
+                    view.close(window);
+                })
+                .unwrap();
+        });
+    }
+
+    #[gpui::test]
+    fn repeated_choose_clicks_do_not_start_another_request_and_close_cancels(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let mut picker = super::ThemePicker::default();
+        cx.update(|cx| {
+            cx.set_global(crate::config::ThemeColors::default());
+            picker.toggle(None, cx).unwrap();
+            picker
+                .window
+                .unwrap()
+                .update(cx, |view, window, cx| {
+                    view.loading = false;
+                    let (request, mut cancelled) = super::portal::Request::pending_for_test();
+                    let (_sender, response) = async_channel::bounded(1);
+                    view.choose_image_with(window, cx, || Ok((request, response)));
+                    let revision = view.file_request_revision;
+                    assert!(view.file_request.is_some());
+                    view.choose_image_with(window, cx, || panic!("duplicate portal request"));
+                    assert_eq!(view.file_request_revision, revision);
+                    view.apply(window, cx);
+                    assert!(!view.applying);
+                    view.close(window);
+                    assert!(view.file_request.is_none());
+                    assert_eq!(cancelled.try_recv(), Ok(()));
+                    view.choose_image_with(window, cx, || panic!("request after close"));
+                })
+                .unwrap();
+        });
+    }
+
+    #[gpui::test]
+    fn portal_cancel_errors_and_late_responses_do_not_change_selection(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let mut picker = super::ThemePicker::default();
+        cx.update(|cx| {
+            cx.set_global(crate::config::ThemeColors::default());
+            picker.toggle(None, cx).unwrap();
+            picker
+                .window
+                .unwrap()
+                .update(cx, |view, window, cx| {
+                    view.loading = false;
+                    view.selected = Some(3);
+                    view.message = "Existing preview".into();
+                    let revision = view.file_request_revision;
+                    let analysis_revision = view.analysis_revision;
+                    view.finish_image_request(revision, Ok(None), window, cx);
+                    assert_eq!(view.selected, Some(3));
+                    assert_eq!(view.message, "Existing preview");
+                    assert_eq!(view.analysis_revision, analysis_revision);
+                    view.finish_image_request(
+                        revision,
+                        Err(anyhow::anyhow!("portal unavailable")),
+                        window,
+                        cx,
+                    );
+                    assert!(
+                        view.file_request_error
+                            .as_ref()
+                            .unwrap()
+                            .contains("portal unavailable")
+                    );
+                    assert_eq!(view.selected, Some(3));
+                    assert_eq!(view.message, "Existing preview");
+                    view.close(window);
+                    view.finish_image_request(revision, Ok(Some("/late.png".into())), window, cx);
+                    assert_eq!(view.selected, Some(3));
+                    assert!(!view.loading);
+                    assert!(!view.applying);
+                })
+                .unwrap();
+        });
     }
 
     #[test]
@@ -1402,13 +1691,6 @@ mod tests {
     fn theme_content_can_shrink_below_the_full_preset_list_height() {
         let mut row = theme_content_row();
         assert_eq!(row.style().min_size.height, Some(px(0.).into()));
-    }
-    #[test]
-    fn button_label_contrasts_with_light_and_dark_backgrounds() {
-        assert_eq!(button_label(gpui::rgb(0xcba6f7)), gpui::rgb(0x000000));
-        assert_eq!(button_label(gpui::rgb(0x45475a)), gpui::rgb(0xffffff));
-        assert_eq!(button_label(gpui::rgb(0xffffff)), gpui::rgb(0x000000));
-        assert_eq!(button_label(gpui::rgb(0x000000)), gpui::rgb(0xffffff));
     }
     #[test]
     fn applying_requires_an_explicit_ready_selection() {

@@ -28,21 +28,42 @@ are not part of this extraction-mode port.
 
 ## Interface and ownership
 
+An experimental replacement in `src/theme/refined.rs` derives complete semantic
+palettes directly from wallpaper samples using standard OKLab/OKLCH math. Its
+23 mode profiles propose hue families, chroma, tint, and preferred lightness.
+Error, warning, success, and information colors then fit into semantic hue
+ranges with contrast checks against their actual surfaces. RGB rounding is
+checked as well. Syntax receives separate mode-dependent roles.
+The existing Aether port and static presets keep their current behavior. The
+live picker and theme CLI now use the refined recipe for derivation.
+
+Generate a read-only study from the two local wallpapers:
+
+```sh
+devenv shell -- cargo run --release --example refined-theme-study -- /tmp/refined.json "$HOME/Pictures/astro.jpg" "$HOME/Pictures/osaka-jade.jpg"
+python3 scripts/render-refined-theme-study.py /tmp/refined.json /tmp/refined-study.html
+```
+
+The renderer reads the exact saved Rust palette data for all modes and both
+appearances. Its mode selector and expandable mappings compare aesthetic
+proposals with fitted semantic colors. It does not derive or change colors.
+See `.scratch/refined-theme/spec.md` for the recipe and scope.
+
 `extract(path, light, mode)` reads a local JPEG/PNG/WebP image and returns a palette.
 `extract_pixels(pixels, light, mode)` uses already-sampled straight-alpha RGB pixels
 and runs the same quantization and generation stages. `Palette::hex_colors()` exposes
 16 `#rrggbb` strings. Invalid modes, insufficient pixels/colors, and decoding errors
 are returned to the caller rather than silently selecting another mode or image.
 
-The CLI prints JSON, keeping generation separate from activation. Selecting a theme
-must eventually use the shared palette to derive Dojo roles and app-specific outputs,
-not replace application configs with ANSI slots or overwrite the user-owned config.
+The Aether extraction implementation remains available for reference. The theme
+CLI uses the refined recipe for preview, generate, and image-based apply commands. Selecting a static preset uses the shared
+palette and app-specific exporters without overwriting the user-owned config.
 
 ## Verification and fidelity
 
 Checked-in fixtures are generated from the **unmodified upstream Go algorithm**:
 four synthetic dominant-color sets (chromatic, grayscale, blue-tinted, warm) and
-Go's dominant colors from the repository's `astro.jpg`. Each exercises 23 modes ×
+Go's dominant colors from the repository's `tests/fixtures/astro.jpg`. Each exercises 23 modes ×
 2 appearances: **230 exact RGB palette comparisons**. Fixture generation disables
 upstream caching and uses minimal image-decoding glue instead of Aether's desktop
 application. The harness never launches Aether or modifies desktop settings.
@@ -71,7 +92,7 @@ Coverage weights come from the **chroma-boosted** quantization pool, not an inde
 count of original-image coverage. The upstream sampling stride calculation is also
 preserved: it is not a strict 50,000-pixel cap (for example, 400×200 samples use stride
 1 and yield 80,000 samples). JPEG/PNG/WebP support uses Rust decoders; input is bounded
-to 16,384 pixels per side, 40 million pixels, and a 256 MiB decoder allocation limit.
+to 16,384 pixels per side, 64 million pixels, and a 256 MiB decoder allocation limit.
 
 ## Reproducing fixtures
 

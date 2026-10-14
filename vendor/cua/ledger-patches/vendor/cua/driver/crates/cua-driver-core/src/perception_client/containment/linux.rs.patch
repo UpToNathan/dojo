@@ -1,0 +1,57 @@
+--- a/vendor/cua/driver/crates/cua-driver-core/src/perception_client/containment/linux.rs
++++ b/vendor/cua/driver/crates/cua-driver-core/src/perception_client/containment/linux.rs
+@@ -28,10 +28,10 @@
+ 
+ use cua_driver_contract::VisualParseError;
+ 
+-use super::unix::{apply_resource_limits, base_command, ProcessGroupGuard};
++use super::unix::{ProcessGroupGuard, apply_resource_limits, base_command};
+ use super::{
+-    containment_error, os_detail, spawn_error, unsupported_error, ContainedChild,
+-    ContainmentLimits, FilesystemBoundary,
++    ContainedChild, ContainmentLimits, FilesystemBoundary, containment_error, os_detail,
++    spawn_error, unsupported_error,
+ };
+ 
+ pub(super) type Guard = ProcessGroupGuard;
+@@ -220,6 +220,14 @@
+     let mut filter = build_seccomp_filter()?;
+ 
+     let mut command = base_command(executable, working_directory);
++    if !limits.loader_search_paths.is_empty() {
++        command.env(
++            "LD_LIBRARY_PATH",
++            std::env::join_paths(&limits.loader_search_paths).map_err(|cause| {
++                containment_error("invalid host loader search paths", Some(cause.to_string()))
++            })?,
++        );
++    }
+     command.args(args).current_dir(working_directory);
+     command.process_group(0);
+ 
+@@ -349,13 +357,22 @@
+         add_rule(&ruleset, path, LANDLOCK_WRITABLE_TREE, true)?;
+     }
+     for path in &boundary.readable {
+-        add_rule(&ruleset, path, LANDLOCK_READ_TREE, true)?;
++        let rights = if path.is_file() {
++            LANDLOCK_READ_FILE_ONLY
++        } else {
++            LANDLOCK_READ_TREE
++        };
++        add_rule(&ruleset, path, rights, true)?;
+     }
+     for path in &boundary.executables {
+         add_rule(&ruleset, path, LANDLOCK_EXECUTABLE_FILE, true)?;
+     }
+-    for path in SYSTEM_READ_TREES {
+-        add_rule(&ruleset, Path::new(path), LANDLOCK_SYSTEM_READ_TREE, false)?;
++    if boundary.allow_system_runtime_trees {
++        for path in SYSTEM_READ_TREES {
++            add_rule(&ruleset, Path::new(path), LANDLOCK_SYSTEM_READ_TREE, false)?;
++        }
++    } else {
++        add_rule(&ruleset, Path::new("/sys/devices/system/cpu"), LANDLOCK_READ_TREE, false)?;
+     }
+     for path in SYSTEM_READ_FILES {
+         add_rule(&ruleset, Path::new(path), LANDLOCK_READ_FILE_ONLY, false)?;

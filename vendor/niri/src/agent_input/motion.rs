@@ -44,7 +44,9 @@ impl Motion {
         }
         let seconds = self.duration.as_secs_f64();
         let t = (now.saturating_sub(self.start).as_secs_f64() / seconds).clamp(0., 1.);
-        let progress = t.powi(3) * (10. + t * (-15. + 6. * t));
+        // Pinned CUA minimum-jerk easing; local Hermite correction retains
+        // redirected velocity without introducing overshoot/settle after arrival.
+        let progress = cua_cursor_motion::ease::min_jerk(t);
         let tangent = t - 6. * t.powi(3) + 8. * t.powi(4) - 3. * t.powi(5);
         let speed = 30. * t.powi(2) * (1. - t).powi(2) / seconds;
         let tangent_speed = 1. - 18. * t.powi(2) + 32. * t.powi(3) - 15. * t.powi(4);

@@ -1,0 +1,3291 @@
+diff --git a/extension/src/background.ts b/extension/src/background.ts
+index 61cd533..baa03b7 100644
+--- a/extension/src/background.ts
++++ b/extension/src/background.ts
+@@ -1,4 +1,4 @@
+-import { extensionProtocolVersion, isJsonObject, parseExtensionCommand, type ExtensionCommand as ShimCommand, type JsonObject } from "../../src/protocol.ts"
++import { dojoExtensionCommandRejection, extensionProtocolVersion, isJsonObject, parseExtensionCommand, parseJsonObject, type ExtensionCommand as ShimCommand, type JsonObject } from "../../src/protocol.ts"
+ import { encodeRecordingFrame } from "../../src/recording-protocol.ts"
+ import type {
+   OffscreenCancelRecordingResult,
+@@ -14,7 +14,9 @@ import { getOwnedDebuggerTabIds } from "./debugger-ownership.ts"
+ import { completeExtensionHandshake, reconnectAlarmName, startConnectionLifecycle, startSocketKeepAlive } from "./connection-lifecycle.ts"
+ 
+ const relayHost = "127.0.0.1"
+-const relayPort = 19989
++declare const __BROWSER_CONTROL_DOJO_NATIVE__: boolean
++const dojoNativeMode = __BROWSER_CONTROL_DOJO_NATIVE__
++const relayPort = dojoNativeMode ? 19988 : 19989
+ const offscreenDocumentPath = "offscreen.html"
+ const maxRecordingSocketBufferedBytes = 16 * 1024 * 1024
+ 
+@@ -29,6 +31,7 @@ const tabGroupingCommands = new Map<number, Promise<unknown>>()
+ const sessionGroups = new Map<string, number>()
+ const attachedTabUrls = new Map<number, string>()
+ const pendingTabRequests = new Map<string, (approved: boolean) => void>()
++const dojoRetiredGenerations = new Set<string>()
+ 
+ const STORAGE_ATTACHED_TABS_KEY = "browserControlAttachedTabs"
+ let storageRestored: Promise<void> | undefined
+@@ -115,8 +118,10 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
+   const rawParams = toJsonObject(params)
+   let eventParams = rawParams
+   if (method === "Page.screencastFrame" && typeof rawParams.sessionId === "number") {
+-    void chrome.debugger.sendCommand(source, "Page.screencastFrameAck", { sessionId: rawParams.sessionId }).catch(() => {})
+-    eventParams = { ...rawParams, acked: true }
++    if (!dojoNativeMode) {
++      void chrome.debugger.sendCommand(source, "Page.screencastFrameAck", { sessionId: rawParams.sessionId }).catch(() => {})
++      eventParams = { ...rawParams, acked: true }
++    }
+   }
+   sendMessage({
+     method: "debugger.event",
+@@ -237,6 +242,11 @@ chrome.debugger.onDetach.addListener((source, reason) => {
+   const sessionId = (source as chrome.debugger.DebuggerSession).sessionId
+   if (sessionId === undefined && !explicitlyDetachingTabs.has(tabId)) {
+     void (async () => {
++      if (dojoNativeMode) {
++        forgetAttachedTab(tabId)
++        sendMessage(debuggerDetachedEvent({ tabId, reason, sessionId }))
++        return
++      }
+       const tab = await chrome.tabs.get(tabId).catch(() => undefined)
+       if (tab && (await recoverTabDebugger(tabId, reason !== "target_closed"))) {
+         sendMessage(debuggerDetachedEvent({ tabId, reason: "target_closed", sessionId }))
+@@ -258,6 +268,7 @@ chrome.debugger.onDetach.addListener((source, reason) => {
+ })
+ 
+ chrome.tabs.onCreated.addListener((tab) => {
++  if (dojoNativeMode) return
+   const tabId = tab.id
+   const openerTabId = tab.openerTabId
+   if (tabId === undefined || openerTabId === undefined || !attachedTabUrls.has(openerTabId)) {
+@@ -278,17 +289,21 @@ chrome.tabs.onCreated.addListener((tab) => {
+ 
+ chrome.tabs.onRemoved.addListener((tabId) => {
+   forgetAttachedTab(tabId)
+-  void cleanupRecordingForTab(tabId)
+-  void guardedUngroupBrowserControlTab(tabId)
++  if (!dojoNativeMode) {
++    void cleanupRecordingForTab(tabId)
++    void guardedUngroupBrowserControlTab(tabId)
++  }
+   sendMessage({ method: "tabs.removed", params: { tabId } })
+ })
+ 
+ chrome.runtime.onStartup.addListener(() => {
++  if (dojoNativeMode) return
+   attachedTabUrls.clear()
+   writeStoredJson(STORAGE_ATTACHED_TABS_KEY, [])
+ })
+ 
+ chrome.tabs.onUpdated.addListener((tabId, change) => {
++  if (dojoNativeMode) return
+   if (!change.url && !change.title) return
+   if (attachedTabUrls.has(tabId)) {
+     if (change.url) {
+@@ -444,14 +459,16 @@ function startGroupReconciliation(currentGeneration: number): void {
+ async function reannounceAttachedTabs(currentSocket: WebSocket): Promise<void> {
+   await restorePersistentState()
+   const ownedBefore = await getOwnedDebuggerTabIds(chrome.debugger)
+-  for (const [tabId, storedUrl] of Array.from(attachedTabUrls)) {
+-    if (ownedBefore.has(tabId)) continue
+-    const tab = await chrome.tabs.get(tabId).catch(() => undefined)
+-    if (!tab || !storedUrl || (storedUrl !== "about:blank" && tab.url !== storedUrl)) {
+-      attachedTabUrls.delete(tabId)
+-      continue
++  if (!dojoNativeMode) {
++    for (const [tabId, storedUrl] of Array.from(attachedTabUrls)) {
++      if (ownedBefore.has(tabId)) continue
++      const tab = await chrome.tabs.get(tabId).catch(() => undefined)
++      if (!tab || !storedUrl || (storedUrl !== "about:blank" && tab.url !== storedUrl)) {
++        attachedTabUrls.delete(tabId)
++        continue
++      }
++      await chrome.debugger.attach({ tabId }, "1.3").catch(() => {})
+     }
+-    await chrome.debugger.attach({ tabId }, "1.3").catch(() => {})
+   }
+   const ownedNow = await getOwnedDebuggerTabIds(chrome.debugger)
+   for (const tabId of ownedNow) {
+@@ -466,6 +483,25 @@ function sendOnSocket(currentSocket: WebSocket, message: JsonObject): void {
+ }
+ 
+ async function handleSocketMessage(currentSocket: WebSocket, data: unknown): Promise<void> {
++  if (dojoNativeMode) {
++    try {
++      const raw = parseJsonObject(String(data))
++      if (raw.method === "dojo.retire") {
++        const params = raw.params
++        if (!isJsonObject(params) || typeof params.lease !== "string" || !Number.isSafeInteger(params.generation) || typeof params.generation !== "number") {
++          throw new Error("Invalid Dojo retirement notification")
++        }
++        const generation = params.generation
++        if (generation < 1) throw new Error("Invalid Dojo retirement generation")
++        const key = dojoGenerationKey(params.lease, generation)
++        dojoRetiredGenerations.add(key)
++        sendOnCurrentSocket(currentSocket, { method: "dojo.retired", params: { lease: params.lease, generation } })
++        return
++      }
++    } catch {
++      // Continue to the normal parser, which emits the protocol error response.
++    }
++  }
+   let command: ShimCommand
+   try {
+     command = parseExtensionCommand(String(data))
+@@ -474,6 +510,7 @@ async function handleSocketMessage(currentSocket: WebSocket, data: unknown): Pro
+     return
+   }
+   try {
++    assertDojoCommandAdmitted(command)
+     const result = await handleCommand(command, currentSocket)
+     sendOnCurrentSocket(currentSocket, { id: command.id, result })
+   } catch (error) {
+@@ -481,6 +518,22 @@ async function handleSocketMessage(currentSocket: WebSocket, data: unknown): Pro
+   }
+ }
+ 
++function dojoGenerationKey(lease: string, generation: number): string {
++  return `${lease}\u0000${generation}`
++}
++
++function assertDojoCommandAdmitted(command: ShimCommand): void {
++  if (!dojoNativeMode) return
++  const lease = command.dojoLease
++  const generation = command.dojoGeneration
++  if (!lease || generation === undefined) throw new Error("Dojo command is missing its lease generation")
++  if (dojoRetiredGenerations.has(dojoGenerationKey(lease, generation))) {
++    throw new Error("Dojo command belongs to a retired browser lease")
++  }
++  const rejection = dojoExtensionCommandRejection(command)
++  if (rejection) throw new Error(rejection)
++}
++
+ function sendOnCurrentSocket(currentSocket: WebSocket, message: JsonObject): void {
+   if (isCurrentSocket(currentSocket)) {
+     currentSocket.send(JSON.stringify(message))
+@@ -512,9 +565,11 @@ async function handleCommand(command: ShimCommand, currentSocket: WebSocket): Pr
+     } finally {
+       explicitlyDetachingTabs.delete(tabId)
+     }
+-    await runTabGroupingCommand(tabId, () => guardedUngroupBrowserControlTab(tabId, {
+-      assertCurrent: () => assertCurrentSocket(currentSocket),
+-    }))
++    if (!dojoNativeMode) {
++      await runTabGroupingCommand(tabId, () => guardedUngroupBrowserControlTab(tabId, {
++        assertCurrent: () => assertCurrentSocket(currentSocket),
++      }))
++    }
+     return {}
+   }
+   if (command.method === "debugger.sendCommand") {
+@@ -526,6 +581,7 @@ async function handleCommand(command: ShimCommand, currentSocket: WebSocket): Pr
+     try {
+       return toJsonObject(await chrome.debugger.sendCommand(debuggee, cdpMethod, params))
+     } catch (error) {
++      if (dojoNativeMode) throw error
+       const message = error instanceof Error ? error.message : String(error)
+       if (/Cannot access a chrome-extension:\/\/ URL|Debugger is not attached to the tab/i.test(message)) {
+         for (let attempt = 0; attempt < 2; attempt += 1) {
+@@ -911,6 +967,12 @@ async function handleRuntimeMessage(message: unknown, sender: chrome.runtime.Mes
+   if (!isJsonObject(message)) {
+     return
+   }
++  if (dojoNativeMode) {
++    if (message.action === "tab.detach" && typeof sender.tab?.id === "number") {
++      sendMessage({ method: "human.takeover.requested", params: { tabId: sender.tab.id, source: "browser-control-tab-ui" } })
++    }
++    return
++  }
+   const pageStatusMessage = message as { readonly action?: unknown; readonly handoffId?: unknown }
+   if (pageStatusMessage.action === "page-status.ready") {
+     if (typeof sender.tab?.id === "number") {
+diff --git a/scripts/build-cli.ts b/scripts/build-cli.ts
+index e3e0cd4..20a51f7 100644
+--- a/scripts/build-cli.ts
++++ b/scripts/build-cli.ts
+@@ -18,7 +18,11 @@ const dist = await prepareBuildOutput(root, defaultOutput, await Effect.runPromi
+ const packageJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Struct({ version: Schema.String })))(
+   await fs.readFile(path.join(root, "package.json"), "utf8"),
+ )
+-const buildId = new Date().toISOString()
++const dojoBuildId = process.env.DOJO_BROWSER_CONTROL_BUILD_ID
++if (process.env.DOJO_BROWSER_CONTROL_MODE === "1" && !dojoBuildId) {
++  throw new Error("DOJO_BROWSER_CONTROL_BUILD_ID must identify the pinned source and patch in Dojo mode")
++}
++const buildId = dojoBuildId ?? new Date().toISOString()
+ const execFileAsync = promisify(execFile)
+ 
+ await Promise.all([
+diff --git a/scripts/build-extension.ts b/scripts/build-extension.ts
+index 782a88a..e281382 100644
+--- a/scripts/build-extension.ts
++++ b/scripts/build-extension.ts
+@@ -8,6 +8,7 @@ import { buildIntoOutput } from "./build-output.ts"
+ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
+ const { values } = parseArgs({ options: { outdir: { type: "string" } } })
+ const defaultOutput = path.join(root, "extension", "dist")
++const dojoNativeMode = process.env.DOJO_BROWSER_CONTROL_MODE === "1"
+ await buildIntoOutput(root, defaultOutput, values.outdir ?? defaultOutput, async (dist) => {
+   await Promise.all([
+     build({
+@@ -19,6 +20,7 @@ await buildIntoOutput(root, defaultOutput, values.outdir ?? defaultOutput, async
+       format: "esm",
+       platform: "browser",
+       target: "chrome120",
++      define: { __BROWSER_CONTROL_DOJO_NATIVE__: JSON.stringify(dojoNativeMode) },
+       outdir: dist,
+     }),
+     build({
+diff --git a/skills/browser-control/SKILL.md b/skills/browser-control/SKILL.md
+index 6d25dbc..09de6d2 100644
+--- a/skills/browser-control/SKILL.md
++++ b/skills/browser-control/SKILL.md
+@@ -1,703 +1,122 @@
+ ---
+ name: browser-control
+-description: Drive the user's existing Chromium-family browser with deterministic Playwright. Use when asked to inspect, automate, test, or interact with a visible browser tab; continue an authenticated browser workflow; handle 2FA, passkeys, CAPTCHAs, or payment confirmation; record browser behavior; or capture an authenticated network flow.
++description: Inspect or operate an existing browser tab in Dojo through the browser_control MCP server. Use for browser navigation, authenticated web workflows, forms, and human steps such as passkeys, 2FA, CAPTCHAs, or payment confirmation.
+ ---
+ 
+-# Browser Control
++# Browser Control in Dojo
+ 
+-Browser Control is a **driver**, not an agent. The calling agent decides what to
+-do; Browser Control runs deterministic Playwright code in the user's visible
+-browser.
++Use the installed `browser_control` MCP server. Its commands run through Dojo's
++native browser admission and the Browser Control extension in the user's Helium
++profile. The calling agent chooses the task and verifies its outcome.
+ 
+-When Browser Control is installed as an OpenCode plugin, the plugin already
+-registers this MCP server and exposes the packaged workflow as the `@browser`
+-skill. Do not ask the user to install this skill separately or add an MCP
+-configuration. Browser extension approval remains a separate user step.
++Use the MCP tools for browser work. Do not launch another relay, use a raw CDP
++connection, call an upstream npm installation, change the wrapper's Dojo mode, or
++retry a refused desktop action through browser tools. CLI `doctor` and `status`
++are available for setup diagnosis. Direct CLI `execute` does not carry this MCP
++client's task ownership and must not replace its browser tools.
+ 
+-Use one loop throughout: **inspect, act, verify**. Inspect the real page before
+-choosing locators, act through the narrowest stable control, then verify the
+-result through a URL or fresh page read. Never treat a successful click or human
+-acknowledgment as proof that the task succeeded.
++## Start a task
+ 
+-## Core Workflow
++1. Call `session_resume` to obtain this client's session and a new native lease
++   generation. Keep the returned session ID for subsequent tool calls. Use the
++   current implicit session when no explicit session ID is needed.
++2. Select the intended page. For an existing user tab, the user must attach it
++   with the Browser Control toolbar button. Call `session_adopt` with the exact
++   attached target selector when the task should keep using that tab. A selector
++   chooses a tab and does not navigate it.
++3. Call `execute` to inspect the page before choosing an action:
+ 
+-### 1. Run The Task Directly
++   ```js
++   return { url: page.url(), title: await page.title(), outline: await snapshot() }
++   ```
+ 
+-Start with the requested browser work. Relay-backed commands start the detached
+-relay and wait for the extension; do not start `browser-control serve` first.
++Completion means the session has an active native generation and the inspected
++page is the intended target. A tool result acknowledging an action is not proof
++that the requested outcome happened.
+ 
+-```bash
+-browser-control execute 'return { url: page.url(), title: await page.title() }'
+-```
+-
+-Use `browser-control doctor` only when setup or runtime behavior is unclear.
+-`status` and `doctor` are observational and never start the relay.
+-
+-MCP startup, tool discovery, `skill`, and `session_current` do not contact the
+-relay. The first operational tool call starts it if needed; relay-backed
+-observational tools report unavailability instead of starting it.
+-
+-For an externally supervised relay, set `BROWSER_CONTROL_AUTOSTART=false` to
+-make ordinary calls fail when that relay is absent instead of launching another
+-process. Existing relay connections and explicit `relay restart` still work.
+-
+-Ordinary CLI/MCP/SDK calls never replace a running relay. On a build mismatch,
+-coordinate with other agents before running `browser-control relay restart`.
+-It preserves browser tabs and durable sessions but resets JavaScript state and
+-snapshot refs. A busy or timed-out drain leaves the old relay running; finish
+-recordings/captures and disconnect raw CDP clients rather than forcing a stop.
+-
+-```bash
+-browser-control doctor
+-browser-control status --json
+-```
+-
+-Completion: one execute returns a page result and a readable session id, or
+-`doctor` identifies the concrete setup failure.
+-
+-### 2. Choose The Page Deliberately
+-
+-The bundled shim 0.0.25 verifies debugger ownership during reconnection. Reload
+-the unpacked extension after installing this shim update. DevTools-attached tabs
+-are excluded from Browser Control's inventory. `page.title()` reads time out
+-after five seconds if the page execution context remains unavailable; the read
+-timeout does not close or replace the tab.
+-
+-A bare CLI execute creates a fresh session-owned page and prints the exact
+-`--session <id>` continuation command, or you can pass a descriptive session
+-name (including an optional emoji, which appears directly on the browser tab
+-group and in-page status pill). Every later CLI call must pass that id or set
+-`BROWSER_CONTROL_SESSION`; bare execute never guesses from human-shell current
+-state.
+-
+-```bash
+-browser-control session new "🎙️ elevenlabs"
+-browser-control execute --session "🎙️ elevenlabs" 'return page.url()'
+-browser-control execute 'return page.url()'
+-```
+-
+-MCP keeps one implicit process session. Omit `session` for that normal path, or
+-call `session_new` and pass an explicit id when one MCP process needs multiple
+-sessions.
+-
+-To control a tab already open in the user's browser, ask the user to click the
+-Browser Control toolbar button on that tab. Select it for one execute or adopt
+-it for sticky reuse (omit `--target-url` / `targetUrl` when only one user tab is
+-attached):
+-
+-```bash
+-browser-control session adopt --session github
+-browser-control session adopt --target-url github.com --session github
+-browser-control execute --target-url github.com 'return page.url()'
+-```
+-
+-`execute --target-url` selects a page for that call only. Continuing with just
+-`--session` uses the session's default page, which may still be `about:blank`.
+-For a multi-step task in an existing user tab, adopt it first. Always include
+-`page.url()` when diagnosing an empty snapshot. Snapshot labels are compact
+-descriptions; use `ref()` for actions rather than assuming their text is an
+-exact Playwright accessible name.
++`session_new` can create another owned session when needed. An MCP client cannot
++resume, adopt, execute, or cancel another client's session by guessing its ID.
++The MCP process retains its owner identity. Closing it retires its sessions;
++use a fresh generation when a new process begins.
+ 
+-`targetUrl` and `targetIndex` select existing attached pages; they never
+-navigate. A URL selector must match exactly one page, and URL and index selectors
+-cannot be combined. Adoption makes that tab the session default, closes the
+-session's previous relay-created page, and is exclusive to one Browser Control
+-session. Reset or delete releases an adopted user tab without closing it.
++## Inspect, act, and verify
+ 
+-Adoption binds ownership and exact target identity before initializing automation.
+-Until the first execute resolves the page, session status reports `connected:
+-false` and `pageUrl: null`; `adoptedUrl` is the registry-selected URL, not a fresh
+-page read. A busy page can produce `session-page/adopted-initialization-timeout`
+-on execute: user code did not run, and the exact adopted target is retained.
+-Retry after the page settles; do not reset or adopt a different tab to recover.
+-
+-Prefer adoption for authenticated browser state rather than reproducing login
+-in a fresh page.
+-
+-Each relay controls one browser/profile at a time. A second extension connection
+-cannot replace a healthy active connection. If `status` or `doctor` reports
+-rejected competing connections, keep the extension enabled only in the intended
+-browser/profile. To switch browsers, disconnect the incumbent extension first;
+-creating a new execute session does not switch browsers.
+-
+-Completion: the selected page URL is the intended page, and later work either
+-retains the returned session id or intentionally uses the MCP process session.
+-
+-### 3. Inspect, Act, Verify
+-
+-Inspect before guessing roles or selectors:
+-
+-```js
+-return await snapshot()
+-```
+-
+-Then act from the returned structure and verify the destination:
++Use the fresh snapshot's references or Playwright roles and labels. Keep actions
++small enough to inspect their results before proceeding.
+ 
+ ```js
+ await ref("e12").click()
+ await page.getByRole("heading", { name: "Settings" }).waitFor()
+-if (!page.url().includes("/settings")) {
+-  throw new Error(`Unexpected destination: ${page.url()}`)
+-}
+-return { url: page.url(), heading: await page.getByRole("heading").first().innerText() }
+-```
+-
+-Use normal Playwright first. Keep dependent interactions in one execute when
+-they rely on transient UI such as an open menu, selected rows, hover state, or
+-an in-progress form.
+-
+-If native `locator.fill()` hangs, inspect the failure before using the explicit
+-input, textarea, or contenteditable fallback. A `target/cross-extension-page`
+-diagnostic requires human dismissal or completion first; `fillInput` is not a
+-way around protected extension UI:
+-
+-```js
+-await fillInput(page.getByPlaceholder("Username"), "standard_user")
+-```
+-
+-Completion: the final return value contains evidence of the requested outcome,
+-not merely evidence that an action was attempted.
+-
+-#### Forms and outward mutations
+-
+-A click returning, HTTP 200, a redirect, or cleared fields do not prove delivery.
+-Register any expected navigation before clicking once, then read the destination
+-and assert the workflow's specific receipt or confirmation. Coordinate rejection
+-and confirmation checks with the actual page you inspected; the driver cannot
+-infer business success from generic page text.
+-
+-```ts
+-await Promise.all([
+-  page.waitForURL(expectedDestination, { waitUntil: "domcontentloaded", timeout: 15_000 }),
+-  ref(sendRef).click({ timeout: 15_000 }),
+-])
+-const observed = await snapshot()
+-await expectedReceipt.waitFor({ state: "visible", timeout: 5_000 })
+-return { url: page.url(), observed, receipt: await expectedReceipt.innerText() }
+-```
+-
+-`expectedDestination`, `sendRef`, and `expectedReceipt` come from the inspected
+-workflow, not guessed selectors. For same-URL navigation, register a main-frame
+-navigation or response wait instead. A mouse coordinate click need not wait for
+-navigation; an immediate snapshot can still be the old document.
+-
+-If submission timed out or the destination cannot be read, report **unverified**
+-and inspect once without clicking again. Re-read only after the exact tab/context
+-settles. Never replay an uncertain send, booking, purchase, or payment. An explicit
+-site rejection means **rejected**, not delivered; protection requiring human
+-interaction means hand off the ordinary page to the user. Do not modify protection
+-tokens, spoof human signals, or dispatch DOM clicks to evade a security boundary.
+-
+-### 4. Continue Or Finish Cleanly
+-
+-Named sessions preserve their default page across short-lived CLI and MCP
+-processes. They also survive relay restarts: Browser Control restores the id,
+-read-only mode, and exact default target. JavaScript `state` and snapshot refs
+-are process-local and reset after a relay restart with an explicit warning.
+-
+-```bash
+-browser-control session list
+-browser-control session reset github
+-browser-control session delete github
+-```
+-
+-Deletion is idempotent for an explicit session id, so cleanup can be safely
+-retried when that session is already absent.
+-
+-Every execute is journaled under
+-`~/.browser-control/sessions/<id>/journal.jsonl`. The journal records code,
+-status, duration, URL movement, warnings, handoffs, and bounded diagnostics.
+-Never place credentials directly in execute source.
+-
+-```bash
+-browser-control journal --session github --limit 50
+-```
+-
+-Completion: retain the session only when follow-up work is expected; otherwise
+-reset or delete session-owned pages and report any warnings that affect later
+-work.
+-
+-## Canonical Authenticated Flow
+-
+-The distinguishing Browser Control workflow is an authenticated tab plus a
+-human-only prompt:
+-
+-Attach and adopt the existing tab, inspect its real UI, fill ordinary fields,
+-then register `handoff` before triggering WebAuthn, 2FA, CAPTCHA, or payment UI.
+-After the user completes it, verify the authenticated destination. The same
+-session can continue after an MCP process or relay restart.
+-
+-When the prompt-triggering action may itself block, put only that action in
+-`start`. Browser Control presents and acknowledges WAIT before invoking it:
+-
+-```js
+-await handoff("Complete the security-key prompt, then continue", {
+-  timeoutMs: 600_000,
+-  start: () => page
+-    .getByRole("button", { name: /passkey|security key|sign in/i })
+-    .click({ timeout: 600_000 }),
+-})
+-
+-await page.waitForURL((url) => !url.pathname.startsWith("/login"))
+-await page.getByRole("heading", { name: /account|dashboard/i }).waitFor()
+-return { authenticatedUrl: page.url(), title: await page.title() }
+-```
+-
+-After a resolved handoff, Browser Control waits through transient destination
+-context replacement before returning, so this verification can remain in the
+-same execute.
+-
+-With `start`, the handoff deadline and target cancellation remain active until
+-the action settles, even if the user has already pressed Continue. An early
+-acknowledgment does not authorize an indefinitely pending action.
+-
+-For a handoff on another page, pass `{ page: otherPage }`. Readiness checks that
+-page, not the session default. If a non-default page was replaced or closed,
+-inspect the remaining pages rather than assuming an old Playwright reference
+-now identifies its replacement.
+-
+-Tell the user what action is waiting. Human acknowledgment is not verification:
+-always assert the expected URL or stable element after `handoff`. If the action
+-was already completed and only the human step remains, call `handoff(message)`
+-without `start`. The default timeout is ten minutes.
+-
+-Completion: the prompt was presented only after WAIT was registered, the action
+-settled, and the authenticated result was independently verified.
+-
+-To turn a user-demonstrated flow into reusable Playwright, use `demonstrate()`.
+-It uses the same exact-tab handoff, records clicks, edits, checkbox/select
+-changes, and same-tab navigations, then returns editable code:
+-
+-```ts
+-return await demonstrate("Perform the workflow once, then continue")
+-```
+-
+-Password fields become explicit secret-source comments rather than copied
+-values. Review selectors and add outcome assertions before reusing generated
+-code; a demonstration records actions, not proof that the workflow succeeded.
+-
+-### Password Manager Prompts
+-
+-Ordinary webpage fields and accessible open-shadow-root controls remain usable.
+-1Password's inline menus are extension-owned iframes, not ordinary webpage DOM.
+-Chromium blocks one extension from debugging another extension's pages; toolbar
+-popups and native unlock, Touch ID, and Windows Hello prompts are not supported
+-Playwright control surfaces.
+-
+-Focusing or filling a card-number or credential field can open the inline menu
+-by itself, even inside a third-party payment iframe. While it is open, Chrome
+-rejects every automation command for that tab; Playwright shows this as
+-"Execution context was destroyed" or a locator timeout, so the execute result
+-carries the `target/cross-extension-page` diagnostic and warning, and
+-`browser-control status` marks the tab `protected-ui=true`.
+-
+-`target/cross-extension-page` means a permission boundary. Ask the user to finish
+-or dismiss the prompt and retry; do not reset the page, read vault contents, or
+-weaken browser security to get around it. The page itself is healthy: do not
+-treat the failure as an unresponsive tab or create a new page. Register `handoff` on the originating
+-webpage before triggering a human-only prompt when possible. If the prompt
+-already prevents attachment, give the user the required action directly rather
+-than assuming an in-page handoff can be displayed. Verify the intended webpage
+-state after the prompt is completed.
+-
+-A page's leftover password-manager status text is not evidence that its menu is
+-still open. Use current relay diagnostics and a fresh ordinary-page read after
+-human dismissal, without inspecting the extension's private frame contents.
+-
+-## Inspection Tools
+-
+-Use the least expensive view that answers the question:
+-
+-- `snapshot()` is the compact read-before-act default. It prioritizes semantic
+-  groups, alerts, lists, tables, headings, links, and controls. Text input and
+-  textarea values are omitted.
+-- The default snapshot scopes to a single visible modal when present; portal
+-  dialogs outside `main` remain discoverable. Use an explicit `within` scope
+-  when you intentionally need background content. Repeated list wrappers have
+-  a bounded reservation so product links can still fit in a dense page.
+-- Native number/search inputs are `spinbutton`/`searchbox`. Native disclosure
+-  controls are labeled `summary`, which is an element kind rather than an ARIA
+-  role; use the returned `ref()` to operate them.
+-- `ref("e12")` resolves a control from the latest snapshot. Refs fail closed
+-  after navigation or incompatible DOM drift. Compatible refs keep the same id
+-  across repeated same-document captures.
+-- `snapshot({ diff: true })` reports semantic changes from the compatible prior
+-  baseline. `snapshot({ delta: true })` returns a full first baseline and compact
+-  deltas afterward. Existing compatible refs remain usable.
+-- `snapshot({ find: "checkout", context: 2 })` searches the bounded semantic
+-  snapshot and returns matching lines with nearby context and actionable refs.
+-- `ariaSnapshot(target?, { timeout })` returns Playwright's detailed YAML aria
+-  tree when the compact snapshot omits needed structure. Native text-control
+-  values, custom ARIA range values, and editable content are omitted so they do
+-  not enter tool output. Await it separately; do not run other operations on
+-  the same page concurrently.
+-- `screenshotWithLabels({ page?, path? })` adds visual labels and metadata when
+-  layout matters, and registers its `e1..eN` labels for `ref()`.
+-- `screenshotDiff({ baseline, path?, threshold?, fullPage? })` compares a saved
+-  PNG (absolute path or Buffer) with the current session page at CSS-pixel scale.
+-  It returns `matches`, `changedPixels`, `changedRatio` (0..1), dimensions, and a
+-  red-highlighted PNG. Omit `path` to return the image as execute media; otherwise
+-  supply a fresh absolute `.png` path. Existing output files are never overwritten.
+-
+-```js
+-return await snapshot({ within: "main", maxItems: 200 })
+-return await snapshot({ find: /checkout|payment/i, context: 2 })
+-return await snapshot({ delta: true })
+-// When layout matters, return the image through MCP so it can be inspected.
+-return await screenshotWithLabels({ page })
+-```
+-
+-Saving an image and returning only `"ok"` proves file creation, not visual
+-correctness. Return screenshot buffers through MCP when visual evidence matters.
+-
+-For visual regression checks, save a baseline before changing the UI:
+-
+-```ts
+-await page.screenshot({ path: "/absolute/before.png", scale: "css" })
+-// After the intended UI change, in the same viewport:
+-return await screenshotDiff({ baseline: "/absolute/before.png" })
++return { url: page.url(), outline: await snapshot() }
+ ```
+ 
+-The threshold defaults to 0.1 and controls per-pixel color tolerance, not the
+-allowed changed area. Set it to 0 for exact pixels. Antialiasing changes count.
+-Settle animations yourself and use the same viewport and `fullPage` setting for
+-both captures. Dimension mismatches fail explicitly; images are never resized.
+-Comparisons are limited to PNGs of 32 MiB / 16 megapixels each. Screenshots and
+-diffs include visible page content: inspect for private information before sharing.
++Use `page.goto` for requested navigation and ordinary Playwright locators for
++page controls. Derive selectors from the real page. If a native fill fails,
++inspect the failure before using the explicit `fillInput` helper. Protected
++extension UI requires the user's action.
+ 
+-## Execute Interface
++For an outward action such as sending a message, submitting a form, booking, or
++payment, act once and read the specific receipt or confirmation. A click return,
++HTTP status, redirect, or cleared field alone does not prove delivery. If the
++result is refused, cancelled, partial, timed out, or unknown, inspect after a
++new authorized generation and report what is known. Do not repeat the mutation
++to resolve uncertainty.
+ 
+-Execute code can use `page`, `context`, `browser`, persistent `state`, selected
+-Node modules through `modules` and aliases such as `fs` and `path`, plus the
+-Browser Control helpers documented here. Execute code runs in Node. Use
+-`page.evaluate` for `window`, `document`, storage, and same-origin `fetch`
+-with page cookies. Single expressions auto-return;
+-multi-statement scripts need `return`. Use `--file` for longer scripts:
++Browser Control observations identify a browser tab. Do not describe them as an
++exact native-window match or as a screenshot-authorized desktop input receipt.
+ 
+-```bash
+-browser-control execute --session github --file ./perform-flow.js
+-```
++## Yield to the human
+ 
+-Human CLI output includes logs, warnings, and a concise aftermath. Use `--json`
+-when another command needs to branch on `ok`, `value`, `error`, `warnings`, or
+-`aftermath`:
+-
+-```bash
+-browser-control execute --json --session github '({ url: page.url() })' | jq .value.url
+-```
++When a passkey, login, 2FA, CAPTCHA, protected extension, payment confirmation, or
++other human step is needed, stop browser execution and call `execute_cancel` for
++this session before handing control to the user. Dojo calls this transition
++`YieldHuman`. State the concrete step the user must complete and wait for their
++response. Dojo's voice runtime performs the retirement as part of its human
++request lifecycle; other MCP clients must call `execute_cancel` themselves.
+ 
+-`page.waitForEvent("download")` intercepts both `Content-Disposition: attachment`
+-responses (via CDP `Fetch`) and `<a download>` / `blob:` / `data:` links without
+-opening Chrome's native Save confirmation dialog, returning a `Download` with
+-`suggestedFilename()`, `await dl.path()`, and `await dl.saveAs(targetPath)`:
++Cancellation retires the current generation, rejects queued work, and disconnects
++its Playwright transport. It keeps the tab open. Already admitted Chrome work
++may finish, so report any unresolved outcome and never replay it automatically.
++An extension progress pill or in-page handoff acknowledgement alone does not
++retire the native lease.
+ 
+-```ts
+-const dl = page.waitForEvent("download", { timeout: 30_000 })
+-await page.getByRole("button", { name: /Generate a private key/i }).click()
+-const download = await dl
+-await download.saveAs("/tmp/private-key.pem")
+-return { filename: download.suggestedFilename(), savedPath: await download.path() }
+-```
+-
+-Pages with WebMCP enabled can expose structured page tools. Discover and call
+-them through the execute helper; names, descriptions, schemas, and results come
+-from the page:
+-
+-```ts
+-const tools = await webmcp.list()
+-const result = await webmcp.call("search_catalog", { query: "adapter" })
+-return { tools, result }
+-```
++After the user reports completion, call `session_resume` to obtain a fresh
++generation. Reinspect the same adopted tab and verify the actual destination or
++receipt. Human activity on a browser window can retire a generation even when
++the agent did not request a handoff. Treat that refusal as a handover and follow
++the same resume and inspection sequence.
+ 
+-Discovery covers all frames. If the same name appears in multiple frames, pass
+-the exact reported frame label as `{ frame }`. Browser Control re-discovers the
+-tool immediately before invoking it, so stale registrations fail directly.
++## Finish or interrupt
+ 
+-## Safety
++Call `execute_cancel` when the task completes, is cancelled, is replaced by a new
++task, or must yield to a human. Do not retain an active generation between tasks.
++Keep the adopted tab open for the user. A later task starts with `session_resume`
++and a new observation. Cancellation is safe to repeat for a retired generation.
+ 
+-Browser Control blocks CDP commands that would destroy shared browser state,
+-including browser close and cookie/cache clearing. Never work around those
+-guardrails.
+-
+-For inspect-only work, use a read-only session:
+-
+-```bash
+-browser-control session new inspect-prod --read-only
+-browser-control execute --session inspect-prod 'await page.goto("https://example.com"); return page.title()'
+-```
+-
+-Read-only sessions reject `Input.*`, so they cannot click or type through
+-Playwright. `page.evaluate` can still mutate the DOM; read-only prevents trusted
+-mistakes, not malicious code.
+-
+-For destructive UI work, use a two-phase **read, confirm, verify** flow:
+-
+-1. Read candidates and return exact stable identifiers or row text.
+-2. Obtain user approval for those exact items.
+-3. Re-select only approved items and assert the selected count.
+-4. Read the confirmation dialog and throw unless it matches the approved action.
+-5. Confirm, then verify through a fresh page read or independent CLI/API path.
+-
+-Do not discover and confirm destructive candidates in one script unless the
+-user already approved exact stable identifiers. Never globally auto-accept
+-native dialogs; wait for the expected dialog and assert its type and message
+-before accepting it.
+-
+-## TypeScript Client
+-
+-Applications and CLI tools can use `BrowserControlClient.origin()` for direct
+-same-origin JSON requests authenticated by a session page (with optional default
+-headers and automatic in-page `handoff` recovery when a session expires or
+-redirects to login):
+-
+-```ts
+-import { BrowserControlClient } from "@opencode-ai/browser-control"
+-
+-const ubereats = BrowserControlClient.origin("https://www.ubereats.com", {
+-  session: "🥤 karma-cafe",
+-  startUrl: "/feed",
+-  headers: { "x-csrf-token": "x" },
+-  handoffOnAuthFailure: true,
+-})
+-
+-const store = await ubereats.post("/_p/api/getStoreV1", {
+-  storeUuid: "78cb1602-9f58-57bb-ad08-f6b8f80bb788",
+-  diningMode: "DELIVERY",
+-})
+-```
+-
+-For Effect-native applications with schema decoding or `sensitive: true`
+-`Redacted` responses, use `BrowserControlClient.Service`:
+-
+-```ts
+-import { BrowserControlClient } from "@opencode-ai/browser-control"
+-
+-const sensitive = yield* origin.json({
+-  path: "/api/session",
+-  method: "POST",
+-  body: {},
+-  response: SessionResponse,
+-  sensitive: true,
+-})
+-const session = BrowserControlClient.reveal(sensitive)
+-```
++Do not reset or delete sessions to escape a refusal or clear an unknown effect.
++Those upstream operations are unavailable through the Dojo MCP tool set.
+ 
+-## Authenticated Network Capture
++## Setup and recovery
+ 
+-Use network capture when the browser is needed to authenticate or discover a
+-workflow, but repeated direct HTTP calls would be faster and more reliable.
+-Capture each flow at least twice with different inputs so constants and
+-parameters can be distinguished.
++The unpacked extension has a stable installed path:
+ 
+-```bash
+-browser-control network start --session github --url /api/ \
+-  --resource-type fetch --resource-type xhr
+-browser-control execute --session github --file ./perform-flow.js
+-browser-control network status --session github
+-browser-control network stop --session github \
+-  --output ./github.har --secrets github
++```text
++~/.local/share/dojo/browser-control/extension
+ ```
+ 
+-Written artifacts replace credential-bearing headers, cookies, query fields,
+-OAuth fragment fields, and structured body fields with stable references such as `${BC_SECRET_1}`.
+-`--secrets github` stores lossless values separately in a mode-`0600` Secret
+-Profile. Never copy profile values into source, output, diagnostics, or journals,
+-and never deliberately return or log credentials.
+-
+-Inspect the redacted artifact offline, generate one typed function per observed
+-flow, then verify each function with a harmless live request. Run generated
+-clients without exposing values:
+-
+-```bash
+-browser-control secrets status github
+-browser-control secrets run github -- ./github-cli repositories
+-```
+-
+-Generated TypeScript applications can own that wrapper internally through the
+-public SDK:
+-
+-```ts
+-import { SecretProfile } from "@opencode-ai/browser-control"
+-import { Effect } from "effect"
+-
+-const result = await Effect.runPromise(SecretProfile.run({
+-  name: "github",
+-  command: process.execPath,
+-  args: ["./github-cli.js", "repositories"],
+-}))
+-```
+-
+-The trusted worker receives `BC_SECRET_N` variables and its bounded output is
+-redacted. The public SDK exposes profile metadata but never raw profile values.
+-
+-Refresh credentials normally renewed by a page reload with:
+-
+-```bash
+-browser-control secrets refresh github --session github --url /api/
+-```
+-
+-If refresh requires login or a human prompt, reauthenticate in the adopted tab
+-and repeat capture with the same profile. MCP exposes equivalent `network_*`
+-and `secrets_*` tools.
+-
+-Completion: the artifact contains references rather than credential values, the
+-generated operation passes a harmless live check, and no secret value appears
+-in source or output.
+-
+-## Recording
+-
+-Record an attached or session-owned tab with:
+-
+-```bash
+-browser-control recording start ./tmp/demo.mp4 --session github --mode cdp
+-browser-control recording status --session github
+-browser-control recording stop --session github
+-```
+-
+-Start, stop, and status accept `--json`. CDP stop/status results include a
+-`quality` receipt: output dimensions/rate, source and retained-image counts/rates,
+-coalesced/dropped frames, and `screenshotFallback`. The fallback means no
+-compositor frames arrived and the video holds one stop-time screenshot; do not
+-present that as recorded motion. Source counters count compositor events, not
+-visually distinct frames. Low rates can be normal on a static page. Tab capture
+-and older relays omit quality telemetry rather than inventing measurements.
+-
+-Explicit frame rates must be integers from 1 through 60 in either mode; invalid
+-values fail instead of silently clamping. The start result reports the chosen rate.
+-
+-`--mode auto` uses tab capture for user-owned tabs and CDP for relay-owned tabs.
+-Tab capture can include audio; CDP requires `ffmpeg` and has no audio. Use the
+-command's `--help` for format and cursor options.
+-
+-Playwright mouse actions automatically reveal the on-page Ghost Cursor
+-(`distance-glide` motion + `tactile-bloom` click shockwave). When recording a
+-user-facing proof or PR walkthrough video, opt into the `ghostCursor` helpers
+-inside `execute` to focus attention on key steps and verified postconditions:
+-
+-```ts
+-await showGhostCursor()
+-await ghostCursor.caption("Verify cluster & promote release", { step: "01", tone: "neutral" })
+-await ghostCursor.zoom("#release-card", { scale: 1.45 })
+-await page.locator("#promote-btn").click()
+-await ghostCursor.keys("⌘+⇧+P", "Promote Release")
+-await ghostCursor.resetZoom()
+-await ghostCursor.spotlight("#status-badge", { label: "Verified", detail: "200 OK", tone: "success" })
+-```
+-
+-CDP recordings preserve the starting CSS viewport (not a fixed 720p canvas),
+-use high-quality source frames, and default to 60 fps. Use `--frame-rate 30`
+-for smaller files. Actual motion still depends on Chrome delivering new frames;
+-60 fps output does not guarantee 60 distinct frames. Larger viewports cost more
+-CPU, transport bandwidth, and storage. Set the viewport before recording and do
+-not change viewport/emulation mid-recording. Odd dimensions round down to even.
+-
+-For failures that are hard to reproduce, keep a rolling CDP frame buffer and
+-save recent history after the problem occurs:
+-
+-```bash
+-browser-control flight-recorder start --session github --retention-ms 60000
+-browser-control flight-recorder status --session github
+-browser-control flight-recorder save-last ./tmp/failure.mp4 --session github --duration-ms 30000
+-browser-control flight-recorder cancel --session github
+-```
+-
+-Saving does not stop buffering. The recorder is memory-bounded, reports retained
+-duration/frame/byte/drop counters, writes a JSON receipt beside each clip, and is
+-mutually exclusive with ordinary recording on the same tab. CLI recording and
+-flight-recorder lifecycle operations are also available as MCP tools.
+-
+-Inspect an encoded frame at native size before sharing: the whole viewport must
+-fill the frame, small text must be readable, and motion must not be a repeated
+-still image. Do not crop and upscale a low-resolution capture to call it HD.
+-On an older installed relay that shrinks the page into a padded corner, record
+-the defect and coordinate a recorder update; changing the file's resolution is
+-not a repair.
+-
+-Completion: stop the recorder, inspect the resulting media rather than only its
+-existence, and report the viewport, state, and interaction path actually tested.
+-
+-## Troubleshooting
+-
+-1. Run `browser-control doctor`; it checks package metadata, CLI/relay build
+-   identity, extension protocol compatibility, sessions, targets, and artifacts.
+-2. Use `status --json` to inspect exact sessions and target ownership.
+-3. Reproduce once with the smallest execute before changing code.
+-
+-Common diagnoses:
+-
+-- `session-page/context-read-timeout; operation=page.title; timeoutMs=5000`:
+-  the title read did not finish within its budget. The execution context may be
+-  unavailable or busy; this does not prove a frozen renderer. The watchdog does
+-  not cancel the underlying read or trigger page replacement. A cached
+-  `page.url()` read can still work; retry the page read after the page settles.
+-  Ordinary missing-locator timeouts do not receive this diagnostic.
+-- `connected:false`: run a relay-backed command and allow the extension startup
+-  or alarm wake-up to reconnect. A sleeping extension wakes on a 30-second
+-  alarm, so the command waits up to 35 seconds. Reload the unpacked extension
+-  only if that loop does not recover.
+-- Incompatible extension protocol: update either the extension or npm package;
+-  exact extension and relay release versions do not need to match.
+-- Competing browser/profile connections: the active browser is preserved and
+-  additional connections are rejected. Use one browser/profile per relay;
+-  repeatedly creating sessions or resetting tabs does not switch browsers.
+-- Stale relay build: inspect `doctor`, then coordinate an explicit
+-  `browser-control relay restart`. It requires an exact managed instance and
+-  safe shutdown protocol 2. Legacy relays need a one-time coordinated manual
+-  stop; foreground/source or newer relays are never force-killed or downgraded.
+-  MCP observational tools remain available on a mismatch.
+-- Unexpected restart: inspect private endpoint-scoped
+-  `~/.browser-control/relays/<port>/lifecycle.jsonl` for requester/build/instance
+-  metadata. Preparing or selecting a development candidate must not restart the
+-  daemon. Use isolated `runtime:prepare` / `runtime:select`, not a live checkout
+-  link, when developing Browser Control itself.
+-- `Target not found`: attach the intended tab, then select or adopt it using a
+-  unique URL substring or explicit index.
+-- All targets disappeared: dismissing Chromium's debugging banner detaches every
+-  tab. Reattach through the toolbar.
+-- Relay restarted: named sessions reclaim exact targets, but JavaScript `state`
+-  and snapshot refs reset. Continue after the warning.
+-- Reset/delete after an extension update may wait briefly for target
+-  re-announcement; if the old relay-owned target is absent from the completed
+-  inventory, Browser Control forgets the dead identity without closing a
+-  guessed tab.
+-- Repeated execution-context errors: run one short follow-up so Browser Control
+-  can health-check the page. A live page is kept: Browser Control reconnects and
+-  re-resolves the same tab once, then fails with a `session-page/*-unresponsive`
+-  diagnosis if the page still does not answer. Blank or unknown URLs are preserved:
+-  they can contain unsaved content. Only a crashed or
+-  `chrome-error://` relay-owned page is closed and recreated. It never replaces
+-  an adopted user tab. Main-frame navigation clears an earlier crash diagnosis;
+-  child-frame navigation does not. When a page stays unresponsive (bot-protected sites can
+-  stall the main world for automation while rendering normally for the human),
+-  open a fresh tab with `context.newPage()` or hand the tab to the user.
+-- Handoff ends with "page execution context did not become available": the user
+-  finished; only Browser Control's view of the tab is stale. Run a short
+-  follow-up execute so the page is re-checked instead of assuming it was lost.
+-- Fill timeout on login fields: inspect first, then try `fillInput` after
+-  confirming the selector or locator resolves. String selectors search open
+-  shadow roots recursively; closed shadow roots remain unavailable.
+-- Click blocked by a verified dialog backdrop: inspect the exact target and
+-  blocker first. If the target is the approved action and Playwright actionability
+-  alone is stale, dispatch `await locator.evaluate((element) => element.click())`,
+-  then verify the result. Do not make dispatched clicks the default.
+-- Hidden checkbox/radio input: click its visible associated label or wrapper,
+-  then verify `isChecked()`. Do not force-click an invisible input or infer an
+-  arbitrary ancestor.
+-- Download wait fails: use fetch plus `fs`; extension-backed Playwright cannot
+-  retain a native download artifact.
+-- Hover on an infinitely animated target: Playwright may never consider the
+-  element stable. Read its current `getBoundingClientRect()` and use
+-  `page.mouse.move()` when coordinate input is appropriate.
+-- Chromium-protected pages such as the Chrome Web Store developer dashboard may
+-  detach `chrome.debugger`. Do not retry or bypass that boundary; open the page
+-  for manual operation.
++Helium's maintained launcher loads this directory. A browser process already
++running before package activation needs a normal browser restart to read new
++launch flags. Do not stop the user's browser to complete an agent task. If setup
++requires manual approval, open the browser's extension page and have the user
++approve this installed extension.
+ 
+-For deeper relay diagnosis, restart with `BROWSER_CONTROL_DEBUG=1`. Debug traces
+-must never include expressions, arguments, results, headers, cookies, or form
+-values.
++`browser-control doctor` and `browser-control status --json` report relay and
++extension state without starting a relay. Missing native admission, a missing
++broker, extension disconnection, or a stale build is a setup failure. Preserve
++its diagnostic and stop browser actions until the configured path works.
++Ordinary operations never replace a running relay. A coordinated
++`browser-control relay restart` drains work and preserves tabs; never force-kill
++another agent's relay or bypass the native transport to repair it.
+ 
+-Whenever Browser Control fails, wedges, replaces a page/session, or behaves
+-unexpectedly, create or update a `browser-control` project todo with the Browser
+-Control version, safe session/page context, exact error, deterministic
+-reproduction, expected versus actual behavior, and recovery attempted. Never
+-include credentials, form values, or private account data.
++Never put credentials in execute source or logs. Inspect the minimum page data
++needed for the requested task and return concrete evidence of its outcome.
+diff --git a/src/cdp-client-pool.ts b/src/cdp-client-pool.ts
+index 473199c..458b996 100644
+--- a/src/cdp-client-pool.ts
++++ b/src/cdp-client-pool.ts
+@@ -19,6 +19,7 @@ type CdpClientState = {
+   readonly aliases: Map<string, ClientCdpSessionAlias>
+   readonly announcements: Map<string, AnnouncedTarget>
+   readonly browserControlSessionId?: string
++  readonly dojoGeneration?: number
+   readonly kind: "raw" | "sandbox"
+   autoAttachParams?: JsonObject
+ }
+@@ -34,13 +35,14 @@ export class CdpClientPool<Client extends object> implements Iterable<Client> {
+     private readonly retired: (client: Client, sessionId: string) => void,
+   ) {}
+ 
+-  register(client: Client, browserControlSessionId?: string, kind: "raw" | "sandbox" = "raw"): void {
++  register(client: Client, browserControlSessionId?: string, kind: "raw" | "sandbox" = "raw", dojoGeneration?: number): void {
+     if (this.states.has(client)) throw new Error("CDP client is already registered")
+     this.states.set(client, {
+       aliases: new Map(),
+       announcements: new Map(),
+       kind: browserControlSessionId ? kind : "raw",
+       ...(browserControlSessionId ? { browserControlSessionId } : {}),
++      ...(dojoGeneration === undefined ? {} : { dojoGeneration }),
+     })
+     this.connectionGeneration += 1
+   }
+@@ -66,6 +68,10 @@ export class CdpClientPool<Client extends object> implements Iterable<Client> {
+     return this.states.get(client)?.browserControlSessionId
+   }
+ 
++  dojoGeneration(client: Client): number | undefined {
++    return this.states.get(client)?.dojoGeneration
++  }
++
+   isSandbox(client: Client): boolean {
+     return this.states.get(client)?.kind === "sandbox"
+   }
+diff --git a/src/cli.ts b/src/cli.ts
+index 4d6cc61..eb1b2ae 100755
+--- a/src/cli.ts
++++ b/src/cli.ts
+@@ -281,6 +281,9 @@ const execute = Command.make(
+   },
+   Effect.fn("Cli.execute")(function* ({ code, file, session, targetUrl, targetIndex, json }) {
+     const run = Effect.gen(function* () {
++      if (process.env.DOJO_BROWSER_CONTROL_MODE === "1") {
++        return yield* Effect.fail(new Error("Direct CLI execute is disabled in Dojo mode. Use the Browser Control MCP session_resume and execute tools."))
++      }
+       const relay = yield* RelayClient.Service
+       const filePath = Option.getOrUndefined(file)
+       if (code.length > 0 && filePath) {
+diff --git a/src/dojo-browser-transport.ts b/src/dojo-browser-transport.ts
+new file mode 100644
+index 0000000..3de6976
+--- /dev/null
++++ b/src/dojo-browser-transport.ts
+@@ -0,0 +1,165 @@
++import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
++import { createInterface } from "node:readline"
++import { isExtensionEvent, isExtensionResponse, parseJsonObject, type ExtensionCommand, type ExtensionEvent, type ExtensionResponse, type JsonObject } from "./protocol.ts"
++
++export type DojoLease = Readonly<{ lease: string; generation: number }>
++
++export const dojoBrokerMaxLineBytes = 1_048_576
++
++export function dojoLeaseId(owner: string, sessionId: string): string {
++  return JSON.stringify([owner, sessionId])
++}
++
++type BrokerResult = {
++  readonly op: "result"
++  readonly id: number
++  readonly status: "admitted" | "refused" | "unknown" | "retired" | "bound"
++  readonly reason?: string
++}
++
++type Pending = {
++  readonly resolve: (result: BrokerResult) => void
++  readonly reject: (error: Error) => void
++  readonly timeout: ReturnType<typeof setTimeout>
++}
++
++export class DojoBrowserTransport {
++  private readonly child: ChildProcessWithoutNullStreams
++  private readonly pending = new Map<number, Pending>()
++  private nextId = 1
++  private connectedState = false
++  private closed = false
++
++  constructor(
++    executable: string,
++    private readonly onExtensionMessage: (message: ExtensionEvent | ExtensionResponse) => void,
++    private readonly onConnectionChange: (connected: boolean) => void,
++  ) {
++    this.child = spawn(executable, ["--stdio"], { stdio: ["pipe", "pipe", "pipe"] })
++    this.child.stderr.pipe(process.stderr)
++    this.child.stdin.on("error", (cause: Error) => {
++      this.connectedState = false
++      this.onConnectionChange(false)
++      this.failAll(new Error("Write to native Browser Control broker", { cause }))
++    })
++    const lines = createInterface({ input: this.child.stdout })
++    lines.on("line", (line) => this.handleLine(line))
++    this.child.once("error", (cause) => this.failAll(new Error("Start native Browser Control broker", { cause })))
++    this.child.once("exit", (code, signal) => {
++      this.connectedState = false
++      this.onConnectionChange(false)
++      this.failAll(new Error(`Native Browser Control broker exited (${code ?? signal ?? "unknown"})`))
++    })
++  }
++
++  get connected(): boolean {
++    return this.connectedState && !this.closed
++  }
++
++  send(options: { readonly lease: DojoLease; readonly command: ExtensionCommand }): Promise<BrokerResult> {
++    return this.request({
++      op: "send",
++      lease: options.lease.lease,
++      generation: options.lease.generation,
++      command: {
++        ...options.command,
++        dojoLease: options.lease.lease,
++        dojoGeneration: options.lease.generation,
++      },
++    })
++  }
++
++  retire(options: { readonly lease: DojoLease }): Promise<BrokerResult> {
++    return this.request({ op: "retire", lease: options.lease.lease, generation: options.lease.generation })
++  }
++
++  bind(options: { readonly lease: DojoLease }): Promise<BrokerResult> {
++    return this.request({ op: "bind", lease: options.lease.lease, generation: options.lease.generation })
++  }
++
++  close(): void {
++    this.closed = true
++    this.child.kill("SIGTERM")
++    this.failAll(new Error("Native Browser Control transport closed"))
++  }
++
++  private request(request: object): Promise<BrokerResult> {
++    if (this.closed || this.child.stdin.destroyed) {
++      return Promise.reject(new Error("Native Browser Control broker is unavailable"))
++    }
++    const id = this.nextId
++    const body = `${JSON.stringify({ ...request, id })}\n`
++    const byteLength = Buffer.byteLength(body, "utf8")
++    if (byteLength > dojoBrokerMaxLineBytes) {
++      return Promise.resolve({
++        op: "result",
++        id: 0,
++        status: "refused",
++        reason: `Native browser request exceeds the ${dojoBrokerMaxLineBytes}-byte line limit (${byteLength} bytes)`,
++      })
++    }
++    this.nextId += 1
++    return new Promise((resolve, reject) => {
++      const timeout = setTimeout(() => {
++        this.pending.delete(id)
++        reject(new Error(`Native Browser Control broker response timed out for request ${id}`))
++      }, 10_000)
++      this.pending.set(id, { resolve, reject, timeout })
++      this.child.stdin.write(body, (cause) => {
++        if (cause) {
++          const pending = this.pending.get(id)
++          this.pending.delete(id)
++          if (pending) clearTimeout(pending.timeout)
++          const error = new Error("Write to native Browser Control broker", { cause })
++          this.failAll(error)
++          reject(error)
++        }
++      })
++    })
++  }
++
++  private handleLine(line: string): void {
++    let value: JsonObject
++    try {
++      value = parseJsonObject(line)
++    } catch {
++      this.failAll(new Error("Native Browser Control broker emitted invalid JSON"))
++      return
++    }
++    if (value.op === "result") {
++      const id = value.id
++      const status = value.status
++      const reason = value.reason
++      if (typeof id !== "number" || !Number.isSafeInteger(id) || typeof status !== "string") return
++      if (status !== "admitted" && status !== "refused" && status !== "unknown" && status !== "retired" && status !== "bound") return
++      const result: BrokerResult = { op: "result", id, status, ...(typeof reason === "string" ? { reason } : {}) }
++      const pending = this.pending.get(id)
++      if (!pending) return
++      this.pending.delete(id)
++      clearTimeout(pending.timeout)
++      pending.resolve(result)
++      return
++    }
++    if (value.op === "extension") {
++      const message = value.message
++      if (message && typeof message === "object" && !Array.isArray(message)) {
++        if (isExtensionEvent(message)) this.onExtensionMessage(message)
++        else if (isExtensionResponse(message)) this.onExtensionMessage(message)
++      }
++      return
++    }
++    if (value.op === "connected" || value.op === "disconnected") {
++      const connected = value.op === "connected"
++      this.connectedState = connected
++      this.onConnectionChange(connected)
++    }
++  }
++
++  private failAll(error: Error): void {
++    for (const pending of this.pending.values()) {
++      clearTimeout(pending.timeout)
++      pending.reject(error)
++    }
++    this.pending.clear()
++  }
++}
+diff --git a/src/execute.ts b/src/execute.ts
+index d10df8d..5114f81 100644
+--- a/src/execute.ts
++++ b/src/execute.ts
+@@ -270,6 +270,7 @@ export async function finishHandoff(options: {
+     throw new Error(`Handoff timed out after ${options.timeoutMs}ms waiting for the user: ${options.message}`)
+   }
+   if (options.outcome !== "resolved") {
++    if (options.outcome.reason === "lease-retired") throw new Error("Handoff cancelled because the Browser Control task lease was retired")
+     const targetEvent = options.outcome.reason === "target-crashed" ? "crashed" : "detached"
+     throw new Error(`Handoff cancelled because its target ${targetEvent}: ${options.message}`)
+   }
+@@ -445,6 +446,7 @@ type ExecuteSandboxOptions = {
+   readonly requestHandoff?: RequestHandoff
+   readonly requestTabAttach?: RequestTabAttach
+   readonly onDefaultTargetChange?: (target: SessionTarget | undefined) => void
++  readonly getDojoUncertainCommandIds?: (generation?: number) => readonly number[]
+   /** Health-check budget per attempt for a page that failed with an execution-context error. */
+   readonly pageHealthCheckTimeoutMs?: number
+ }
+@@ -460,6 +462,8 @@ export type ExecuteResult = {
+   readonly diagnostic?: string
+   readonly aftermath?: ExecuteAftermath
+   readonly setupFailed?: true
++  readonly effect?: "unknown"
++  readonly unknownCommandIds?: readonly number[]
+ }
+ 
+ class ExecuteCodeError extends Error {
+@@ -479,6 +483,7 @@ class ExecuteCodeError extends Error {
+ 
+ export type ExecuteOptions = {
+   readonly targetSelection?: ExecuteTargetSelection
++  readonly dojoGeneration?: number
+ }
+ 
+ export class ExecuteSandbox {
+@@ -502,13 +507,20 @@ export class ExecuteSandbox {
+     readonly close: () => void
+     readonly navigate: (frame: Frame) => void
+   } | undefined
++  private dojoGeneration: number | undefined
+ 
+   constructor(readonly options: ExecuteSandboxOptions) {}
+ 
++  setDojoGeneration(generation: number): void {
++    this.dojoGeneration = generation
++  }
++
+   execute(code: string, options: ExecuteOptions = {}): Effect.Effect<ExecuteResult> {
++    const dojoGeneration = options.dojoGeneration ?? this.dojoGeneration
++    const executionOptions = { ...options, ...(dojoGeneration === undefined ? {} : { dojoGeneration }) }
+     return Effect.tryPromise({
+       try: async () => {
+-        const globals = await this.getGlobals(options, code)
++        const globals = await this.getGlobals(executionOptions, code)
+         const initialPages = new Set(typeof globals.context.pages === "function" ? globals.context.pages() : [])
+         const { result, logs, logSummary, aftermath } = await runUserCode({ code, globals })
+         const openedPages = (typeof globals.context.pages === "function" ? globals.context.pages() : [])
+@@ -547,6 +559,8 @@ export class ExecuteSandbox {
+       Effect.tapError(() => Effect.promise(() => this.networkCapture.settleForOutput())),
+       Effect.match({
+         onFailure: (error): ExecuteResult => {
++          const unknownCommandIds = this.options.getDojoUncertainCommandIds?.(dojoGeneration) ?? []
++          const effectUnknown = unknownCommandIds.length > 0
+           const logSummary = error instanceof ExecuteCodeError ? error.logSummary : emptyExecuteLogSummary()
+           const aftermath = error instanceof ExecuteCodeError ? error.aftermath : undefined
+           const diagnostic = error instanceof SessionPageRecoveryError
+@@ -567,14 +581,17 @@ export class ExecuteSandbox {
+               : formatLocatorFailurePageWarning(error instanceof ExecuteCodeError ? error.originalError : error, aftermath, this.recreatedFromClosedUrl),
+           )
+           return {
+-            text: this.networkCapture.redactText(error instanceof ExecuteCodeError ? error.stack ?? error.message : error.message),
++            text: this.networkCapture.redactText(effectUnknown
++              ? `${error instanceof ExecuteCodeError ? error.stack ?? error.message : error.message}. Browser effect outcome is unknown for command ids: ${unknownCommandIds.join(", ")}.`
++              : error instanceof ExecuteCodeError ? error.stack ?? error.message : error.message),
+             isError: true,
++            ...(effectUnknown ? { effect: "unknown" as const, unknownCommandIds } : {}),
+             logs: this.redactCaptureLogs(error instanceof ExecuteCodeError ? error.logs : []),
+             logSummary,
+             warnings,
+             ...(diagnostic ? { diagnostic: this.networkCapture.redactText(diagnostic) } : {}),
+             ...(aftermath ? { aftermath: this.redactCaptureAftermath(aftermath) } : {}),
+-            ...(error instanceof ExecuteCodeError ? {} : { setupFailed: true as const }),
++            ...(!effectUnknown && !(error instanceof ExecuteCodeError) ? { setupFailed: true as const } : {}),
+           }
+         },
+         onSuccess: (result) => {
+@@ -764,7 +781,7 @@ export class ExecuteSandbox {
+     if (options.notify) this.notifyDefaultTargetChange()
+   }
+ 
+-  private async connectContext(): Promise<{ readonly browser: Browser; readonly context: BrowserContext }> {
++  private async connectContext(dojoGeneration = this.dojoGeneration): Promise<{ readonly browser: Browser; readonly context: BrowserContext }> {
+     if (!this.browser?.isConnected()) {
+       const hadBrowser = this.browser !== undefined
+       const staleBrowser = this.browser
+@@ -781,7 +798,11 @@ export class ExecuteSandbox {
+         // a connect promise that could bind a page after reporting failure.
+         this.browser = await chromium.connectOverCDP(this.options.endpointUrl, {
+           timeout: adoptedDefaultTarget ? adoptedPageConnectTimeoutMs : playwrightConnectTimeoutMs,
+-          ...(this.options.sessionId ? { headers: { "Browser-Control-Session-Id": encodeURIComponent(this.options.sessionId), "Browser-Control-Client-Kind": "sandbox" } } : {}),
++          ...(this.options.sessionId ? { headers: {
++            "Browser-Control-Session-Id": encodeURIComponent(this.options.sessionId),
++            "Browser-Control-Client-Kind": "sandbox",
++            ...(dojoGeneration === undefined ? {} : { "Browser-Control-Generation": String(dojoGeneration) }),
++          } } : {}),
+         })
+       } catch (cause) {
+         if (adoptedDefaultTarget && cause instanceof errors.TimeoutError) {
+@@ -837,6 +858,7 @@ export class ExecuteSandbox {
+   private async acquireSessionPage(
+     targetSelection?: ExecuteTargetSelection,
+     requestTabHint?: RequestTabOptions,
++    dojoGeneration = this.dojoGeneration,
+   ): Promise<{
+     readonly browser: Browser
+     readonly context: BrowserContext
+@@ -846,21 +868,21 @@ export class ExecuteSandbox {
+     if (!this.page && !this.defaultPageTargetId && !hasExplicitTargetSelection(targetSelection) && requestTabHint && this.options.requestTabAttach) {
+       const { targetId } = await this.options.requestTabAttach(requestTabHint)
+       this.unbindDefaultPage(targetId, { ownsPage: false, notify: true })
+-      const { browser, context } = await this.connectContext()
++      const { browser, context } = await this.connectContext(dojoGeneration)
+       const page = await this.getSessionPage({ context })
+       installPageReadTimeout(page)
+       this.installViewportZoomGuard(page)
+       this.networkCapture.bindPage(page)
+       return { browser, context, page, preApprovedTab: true }
+     }
+-    let { browser, context } = await this.connectContext()
++    let { browser, context } = await this.connectContext(dojoGeneration)
+     let page: Page
+     try {
+       page = await this.getSessionPage({ context, ...(targetSelection ? { targetSelection } : {}) })
+     } catch (error) {
+       if (!(error instanceof SessionPageRepairRequired)) throw error
+       await this.repairSessionPage()
+-      ;({ browser, context } = await this.connectContext())
++      ;({ browser, context } = await this.connectContext(dojoGeneration))
+       page = await this.getSessionPage({ context, ...(targetSelection ? { targetSelection } : {}) })
+     }
+     installPageReadTimeout(page)
+@@ -869,9 +891,9 @@ export class ExecuteSandbox {
+     return { browser, context, page }
+   }
+ 
+-  private ensureSessionPage(label: string): Effect.Effect<Page, Error> {
++  private ensureSessionPage(label: string, dojoGeneration = this.dojoGeneration): Effect.Effect<Page, Error> {
+     return Effect.tryPromise({
+-      try: async () => (await this.acquireSessionPage()).page,
++      try: async () => (await this.acquireSessionPage(undefined, undefined, dojoGeneration)).page,
+       catch: (cause) => cause instanceof Error ? cause : new Error(label, { cause }),
+     })
+   }
+@@ -881,7 +903,7 @@ export class ExecuteSandbox {
+     const requestTabHint: RequestTabOptions | undefined = requestTabCallMatch
+       ? (requestTabCallMatch[2] ? { urlIncludes: requestTabCallMatch[2] } : {})
+       : undefined
+-    const { browser, context, page, preApprovedTab } = await this.acquireSessionPage(options.targetSelection, requestTabHint)
++    const { browser, context, page, preApprovedTab } = await this.acquireSessionPage(options.targetSelection, requestTabHint, options.dojoGeneration)
+     let consumedPreApprovedTab = false
+     const showGhostCursor = async (options?: ShowGhostCursorOptions) => {
+       const { page: targetPage = page, ...cursorOptions } = options ?? {}
+diff --git a/src/extension-rpc.ts b/src/extension-rpc.ts
+index 30f0c9f..b19f33e 100644
+--- a/src/extension-rpc.ts
++++ b/src/extension-rpc.ts
+@@ -2,6 +2,7 @@ import { Effect, Predicate } from "effect"
+ import { WebSocket } from "ws"
+ import {
+   extensionProtocolCompatibility,
++  dojoExtensionCommandRejection,
+   type ExtensionCommand,
+   type ExtensionProtocolCompatibility,
+   type ExtensionResponse,
+@@ -9,6 +10,7 @@ import {
+   type JsonValue,
+ } from "./protocol.ts"
+ import type { PendingExtensionRequest } from "./relay-types.ts"
++import type { DojoBrowserTransport, DojoLease } from "./dojo-browser-transport.ts"
+ 
+ export type ExtensionRpcTimeouts = {
+   readonly commandTimeoutMs?: number
+@@ -26,9 +28,14 @@ export type ExtensionRpcTimeouts = {
+  */
+ export class ExtensionRpc {
+   private socket: WebSocket | undefined
++  private dojoTransport: Pick<DojoBrowserTransport, "connected" | "send" | "close"> | undefined
++  private dojoConnected = false
+   private ready = false
+   private nextRequestId = 1
+   private readonly pendingRequests = new Map<number, PendingExtensionRequest>()
++  private readonly uncertainDojoCommands = new Map<number, DojoLease>()
++  private readonly retirementAcks = new Set<string>()
++  private readonly retirementWaiters = new Map<string, (acknowledged: boolean) => void>()
+   private livenessProbe: { readonly timeout: NodeJS.Timeout; readonly socket: WebSocket; readonly onPong: () => void } | undefined
+   version: string | undefined
+   protocolVersion: number | null | undefined
+@@ -38,11 +45,80 @@ export class ExtensionRpc {
+   constructor(private readonly timeouts: ExtensionRpcTimeouts = {}) {}
+ 
+   get connected(): boolean {
+-    return this.socket?.readyState === WebSocket.OPEN && this.ready && this.protocolCompatible !== false
++    return (this.dojoTransport ? this.dojoConnected : this.socket?.readyState === WebSocket.OPEN) && this.ready && this.protocolCompatible !== false
+   }
+ 
+   get acceptsEvents(): boolean {
+-    return this.socket?.readyState === WebSocket.OPEN && this.protocolCompatible === true
++    return (this.dojoTransport ? this.dojoConnected : this.socket?.readyState === WebSocket.OPEN) && this.protocolCompatible === true
++  }
++
++  useDojoTransport(transport: Pick<DojoBrowserTransport, "connected" | "send" | "close">): void {
++    this.dojoTransport = transport
++    this.dojoConnected = transport.connected
++  }
++
++  markDojoConnected(connected: boolean): void {
++    this.dojoConnected = connected
++    if (!connected) {
++      this.ready = false
++      this.protocolVersion = undefined
++      this.protocolCompatible = undefined
++      this.protocolLegacy = undefined
++      this.rejectPending(new Error("Native Browser Control transport disconnected"))
++    }
++  }
++
++  get isDojoTransport(): boolean {
++    return this.dojoTransport !== undefined
++  }
++
++  acknowledgeDojoRetirement(lease: DojoLease): void {
++    const key = this.dojoLeaseKey(lease)
++    const waiter = this.retirementWaiters.get(key)
++    if (waiter) {
++      this.retirementWaiters.delete(key)
++      waiter(true)
++    } else {
++      this.retirementAcks.add(key)
++    }
++  }
++
++  awaitDojoRetirementAck(lease: DojoLease, timeoutMs = 2_000): Promise<boolean> {
++    const key = this.dojoLeaseKey(lease)
++    if (this.retirementAcks.delete(key)) return Promise.resolve(true)
++    return new Promise((resolve) => {
++      const timeout = setTimeout(() => {
++        this.retirementWaiters.delete(key)
++        resolve(false)
++      }, timeoutMs)
++      this.retirementWaiters.set(key, (acknowledged) => {
++        clearTimeout(timeout)
++        resolve(acknowledged)
++      })
++    })
++  }
++
++  retireDojoGeneration(lease: DojoLease): readonly number[] {
++    const unknownCommandIds = new Set<number>()
++    for (const [id, pendingLease] of this.uncertainDojoCommands) {
++      if (pendingLease.lease === lease.lease && pendingLease.generation === lease.generation) {
++        unknownCommandIds.add(id)
++        this.uncertainDojoCommands.delete(id)
++      }
++    }
++    for (const [id, pending] of this.pendingRequests) {
++      if (pending.dojoLease !== lease.lease || pending.dojoGeneration !== lease.generation) continue
++      if (pending.nativeAdmitted) unknownCommandIds.add(id)
++      pending.reject(new Error("Browser lease retired while command was in flight; outcome is unknown"), true)
++      this.uncertainDojoCommands.delete(id)
++    }
++    return Array.from(unknownCommandIds)
++  }
++
++  uncertainCommandIds(lease: DojoLease): readonly number[] {
++    return Array.from(this.uncertainDojoCommands)
++      .filter(([, pendingLease]) => pendingLease.lease === lease.lease && pendingLease.generation === lease.generation)
++      .map(([id]) => id)
+   }
+ 
+   isCurrent(socket: WebSocket): boolean {
+@@ -92,6 +168,7 @@ export class ExtensionRpc {
+   close(): void {
+     this.cancelLivenessProbe()
+     this.socket?.close()
++    this.dojoTransport?.close()
+   }
+ 
+   rejectPending(error: Error): void {
+@@ -111,24 +188,74 @@ export class ExtensionRpc {
+ 
+   handleResponse(response: ExtensionResponse): boolean {
+     const pending = this.pendingRequests.get(response.id)
+-    if (!pending) {
+-      return false
+-    }
++    if (!pending) return this.uncertainDojoCommands.delete(response.id)
+     if (response.error) {
+-      pending.reject(new Error(response.error))
++      pending.reject(new Error(response.error), pending.nativeAttempted === true)
+       return true
+     }
+     pending.resolve(response.result ?? {})
+     return true
+   }
+ 
+-  send(command: Omit<ExtensionCommand, "id">): Effect.Effect<JsonObject, Error> {
++  send(command: Omit<ExtensionCommand, "id" | "dojoLease" | "dojoGeneration">, lease?: DojoLease): Effect.Effect<JsonObject, Error> {
++    if (this.dojoTransport) {
++      const rejection = dojoExtensionCommandRejection(command)
++      if (rejection) return Effect.fail(new Error(rejection))
++    }
+     return Effect.callback<JsonObject, Error>((resume) => {
+       const socket = this.socket
++      const dojoTransport = this.dojoTransport
+       if (this.protocolCompatible === false) {
+         resume(Effect.fail(new Error(`Browser Control extension protocol ${this.protocolVersion ?? "unknown"} is incompatible`)))
+         return Effect.void
+       }
++      if (dojoTransport) {
++        if (!lease || !this.dojoConnected || !this.acceptsEvents) {
++          resume(Effect.fail(new Error("Dojo browser command has no active lease or native extension connection")))
++          return Effect.void
++        }
++        const id = this.nextRequestId++
++        const message: ExtensionCommand = { ...command, id, dojoLease: lease.lease, dojoGeneration: lease.generation }
++        let completed = false
++        const timeoutMs = command.method === "debugger.sendCommand"
++          ? this.timeouts.debuggerCommandTimeoutMs ?? 60_000
++          : this.timeouts.commandTimeoutMs ?? 15_000
++        const finish = (effect: Effect.Effect<JsonObject, Error>, outcomeUnknown = false) => {
++          if (completed) return
++          completed = true
++          clearTimeout(timeout)
++          const pending = this.pendingRequests.get(id)
++          if (outcomeUnknown && (pending?.nativeAdmitted || pending?.nativeAttempted)) this.uncertainDojoCommands.set(id, lease)
++          this.pendingRequests.delete(id)
++          resume(effect)
++        }
++        const timeout = setTimeout(() => finish(Effect.fail(new Error(`Extension command timed out after ${timeoutMs}ms: ${command.method}`)), true), timeoutMs)
++        this.pendingRequests.set(id, {
++          resolve: (value) => finish(Effect.succeed(value)),
++          reject: (error, outcomeUnknown = true) => finish(Effect.fail(error), outcomeUnknown),
++          ...(command.method === "debugger.sendCommand" && Predicate.isNumber(command.params?.tabId) ? { debuggerTabId: command.params.tabId } : {}),
++          dojoLease: lease.lease,
++          dojoGeneration: lease.generation,
++          nativeAttempted: true,
++        })
++        void dojoTransport.send({ lease, command: message }).then((result) => {
++          if (result.status === "admitted") {
++            const pending = this.pendingRequests.get(id)
++            if (pending) pending.nativeAdmitted = true
++          } else if (result.status === "unknown") {
++            const pending = this.pendingRequests.get(id)
++            if (pending) pending.nativeAdmitted = true
++            finish(Effect.fail(new Error(result.reason ?? "Native browser command outcome is unknown")), true)
++          } else {
++            finish(Effect.fail(new Error(result.reason ?? `Native browser command ${result.status}`)), false)
++          }
++        }, (error: unknown) => finish(Effect.fail(error instanceof Error ? error : new Error(String(error)))))
++        return Effect.sync(() => {
++          completed = true
++          clearTimeout(timeout)
++          this.pendingRequests.delete(id)
++        })
++      }
+       if (!socket || socket.readyState !== WebSocket.OPEN || !this.acceptsEvents) {
+         resume(Effect.fail(new Error("Browser Control extension is not connected")))
+         return Effect.void
+@@ -186,6 +313,10 @@ export class ExtensionRpc {
+     })
+   }
+ 
++  private dojoLeaseKey(lease: DojoLease): string {
++    return `${lease.lease}\u0000${lease.generation}`
++  }
++
+   probeLiveness(socket = this.socket): void {
+     if (!socket || this.socket !== socket || this.livenessProbe || socket.readyState !== WebSocket.OPEN) {
+       return
+diff --git a/src/handoff.ts b/src/handoff.ts
+index c6ffb37..23c2d9f 100644
+--- a/src/handoff.ts
++++ b/src/handoff.ts
+@@ -7,7 +7,7 @@
+  * matching handoff id or the timeout elapses.
+  */
+ 
+-export type HandoffCancellationReason = "target-detached" | "target-crashed"
++export type HandoffCancellationReason = "target-detached" | "target-crashed" | "lease-retired"
+ 
+ export type HandoffOutcome =
+   | "resolved"
+@@ -244,6 +244,12 @@ export class HandoffRegistry {
+     return cancelled
+   }
+ 
++  cancelForSession(sessionId: string): void {
++    for (const pending of Array.from(this.pending.values())) {
++      if (pending.sessionId === sessionId) pending.resolve({ type: "cancelled", reason: "lease-retired" })
++    }
++  }
++
+   /** Cancel every pending handoff, resolving waiters as timeouts. */
+   cancelAll(): void {
+     for (const pending of Array.from(this.pending.values())) {
+diff --git a/src/http-api.ts b/src/http-api.ts
+index 8130106..b140197 100644
+--- a/src/http-api.ts
++++ b/src/http-api.ts
+@@ -23,6 +23,7 @@ import {
+   AuthRefreshRequest,
+   AuthRunRequest,
+   ExecuteRequest,
++  ExecuteCancelRequest,
+   FlightRecorderSaveRequest,
+   FlightRecorderStartRequest,
+   NetworkSessionRequest,
+@@ -36,6 +37,7 @@ import {
+   SessionIdRequest,
+   SessionEnsureRequest,
+   SessionNewRequest,
++  SessionResumeRequest,
+   type ExtensionStatus,
+   type TargetSummary,
+ } from "./relay-schema.ts"
+@@ -422,6 +424,20 @@ function handleCliRequest(options: {
+       sendJson(options.response, { session: options.sessions.summary(session.id) })
+       return
+     }
++    if (options.pathname === "/cli/session/resume" && options.request.method === "POST") {
++      const body = yield* readJsonBody(options.request)
++      const request = yield* decodeRequest(SessionResumeRequest, body, "session resume")
++      const session = yield* options.sessions.sessionResume(request.sessionId, request.dojoOwner)
++      sendJson(options.response, { session: options.sessions.summary(session.id) })
++      return
++    }
++    if (options.pathname === "/cli/execute/cancel" && options.request.method === "POST") {
++      const body = yield* readJsonBody(options.request)
++      const request = yield* decodeRequest(ExecuteCancelRequest, body, "execute cancel")
++      const result = yield* options.sessions.executeCancel(request.sessionId, request.dojoOwner)
++      sendJson(options.response, result)
++      return
++    }
+     if (options.pathname === "/cli/session/delete" && options.request.method === "POST") {
+       const body = yield* readJsonBody(options.request)
+       const request = yield* decodeRequest(SessionIdRequest, body, "session delete")
+@@ -470,6 +486,8 @@ function handleCliRequest(options: {
+         createIfMissing: request.createIfMissing,
+         targetId: adoptedTargetId,
+         targetUrl: selectedTarget.targetInfo.url,
++        ...(request.dojoOwner ? { dojoOwner: request.dojoOwner } : {}),
++        ...(request.dojoGeneration ? { dojoGeneration: request.dojoGeneration } : {}),
+       })
+       sendJson(options.response, { session, adoptedUrl, adoptedTargetId })
+       return
+@@ -483,6 +501,8 @@ function handleCliRequest(options: {
+         code: request.code,
+         createIfMissing: request.createIfMissing,
+         ...(request.targetSelection ? { targetSelection: request.targetSelection } : {}),
++        ...(request.dojoOwner ? { dojoOwner: request.dojoOwner } : {}),
++        ...(request.dojoGeneration ? { dojoGeneration: request.dojoGeneration } : {}),
+       })
+       const { setupFailed: _setupFailed, ...wireResult } = result
+       sendJson(options.response, { ...wireResult, session })
+diff --git a/src/mcp.ts b/src/mcp.ts
+index 440350f..7e37544 100644
+--- a/src/mcp.ts
++++ b/src/mcp.ts
+@@ -12,7 +12,13 @@ import type { TargetSelection } from "./relay-schema.ts"
+ import { browserControlVersion } from "./version.ts"
+ 
+ const packageRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
+-type CurrentSession = { id: string; established: boolean }
++type CurrentSession = {
++  id: string
++  established: boolean
++  readonly ownedSessions: Set<string>
++  owner?: string
++  readonly generations: Map<string, number>
++}
+ 
+ type ToolSpec = {
+   readonly name: string
+@@ -44,13 +50,13 @@ const sessionOnlyInputSchema = objectSchema({
+   session: sessionSchemaProperty,
+ })
+ 
+-function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSession): readonly ToolSpec[] {
++function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSession, dojoMode: boolean): readonly ToolSpec[] {
+   const resolveSessionId = (input: unknown, field = "session") => optionalStringField(input, field) ?? currentSession.id
+   const establishCurrentSession = (id: string) => {
+     currentSession.id = id
+     currentSession.established = true
+   }
+-  return [
++  const specs: readonly ToolSpec[] = [
+     {
+       name: "execute",
+       description: "Execute trusted Playwright JavaScript against the Browser Control session. The result includes console logs, warnings, a bounded execution-context diagnostic when relevant, and an aftermath summary (URL movement, navigations, error counts, handoffs).",
+@@ -67,20 +73,67 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
+         const args = yield* Effect.try(() => parseExecuteArguments(input))
+         yield* RelayLifecycle.ensureExtensionConnected({ relay, waitForReconnect: true })
+         const sessionId = args.session ?? currentSession.id
++        if (dojoMode && !currentSession.ownedSessions.has(sessionId)) {
++          return yield* Effect.fail(new Error("This Browser Control client does not own the requested session"))
++        }
++        if (dojoMode && (!currentSession.owner || currentSession.generations.get(sessionId) === undefined)) {
++          return yield* Effect.fail(new Error("Call session_resume before browser execution"))
++        }
++        const generation = currentSession.generations.get(sessionId)
+         const result = yield* relay.execute({
+           sessionId,
+           code: args.code,
+           createIfMissing: !args.session,
+           ...(args.targetSelection ? { targetSelection: args.targetSelection } : {}),
++          ...(dojoMode && currentSession.owner && generation !== undefined ? { dojoOwner: currentSession.owner, dojoGeneration: generation } : {}),
+         })
+         const recreated = !args.session && currentSession.established && result.session.created === true
+         establishCurrentSession(sessionId)
++        currentSession.ownedSessions.add(sessionId)
++        if (result.session.dojoGeneration !== undefined) currentSession.generations.set(sessionId, result.session.dojoGeneration)
+         return {
+           ...result,
+           ...(recreated ? { notice: `Recreated session '${sessionId}' — relay had no such session; page and state were reset.` } : {}),
+         }
+       }),
+     },
++    {
++      name: "execute_cancel",
++      description: "Retire this task's browser lease, reject queued and future commands, and close its Playwright transport. Effects already admitted to Chrome may continue with unknown outcome; the tab remains open.",
++      inputSchema: sessionOnlyInputSchema,
++      readOnly: false,
++      destructive: true,
++      idempotent: true,
++      handle: (input) => Effect.gen(function* () {
++        if (!dojoMode) return yield* Effect.fail(new Error("execute_cancel is available only in Dojo mode"))
++        const sessionId = resolveSessionId(input)
++        if (!currentSession.ownedSessions.has(sessionId)) {
++          return yield* Effect.fail(new Error("This Browser Control client does not own the requested session"))
++        }
++        return yield* relay.executeCancel({ sessionId, ...(currentSession.owner ? { dojoOwner: currentSession.owner } : {}) })
++      }),
++    },
++    {
++      name: "session_resume",
++      description: "Start a new browser lease generation after the prior task was cancelled. The session's adopted tab remains open and owned by this Browser Control session.",
++      inputSchema: sessionOnlyInputSchema,
++      readOnly: false,
++      destructive: false,
++      idempotent: false,
++      handle: (input) => Effect.gen(function* () {
++        if (!dojoMode || !currentSession.owner) return yield* Effect.fail(new Error("session_resume is available only in Dojo mode"))
++        const sessionId = resolveSessionId(input)
++        if (input !== undefined && optionalStringField(input, "session") !== undefined && !currentSession.ownedSessions.has(sessionId)) {
++          return yield* Effect.fail(new Error("This Browser Control client does not own the requested session"))
++        }
++        yield* RelayLifecycle.ensureExtensionConnected({ relay, waitForReconnect: true })
++        const session = yield* relay.sessionResume({ sessionId, dojoOwner: currentSession.owner })
++        currentSession.ownedSessions.add(sessionId)
++        currentSession.generations.set(sessionId, session.dojoGeneration ?? 1)
++        establishCurrentSession(sessionId)
++        return { session, generation: session.dojoGeneration }
++      }),
++    },
+     {
+       name: "status",
+       description: "Return relay, extension, target, and session status.",
+@@ -107,6 +160,17 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
+       handle: (input) => Effect.gen(function* () {
+         const requestedId = optionalStringField(input, "id")
+         const readOnly = optionalBooleanField(input, "readOnly")
++        if (dojoMode) {
++          if (readOnly) return yield* Effect.fail(new Error("Dojo mode does not expose Browser Control read-only sessions"))
++          if (!currentSession.owner) return yield* Effect.fail(new Error("DOJO_BROWSER_OWNER is required"))
++          const id = requestedId ?? currentSession.id
++          yield* RelayLifecycle.ensureExtensionConnected({ relay, waitForReconnect: true })
++          const resumed = yield* relay.sessionResume({ sessionId: id, dojoOwner: currentSession.owner })
++          currentSession.ownedSessions.add(id)
++          currentSession.generations.set(id, resumed.dojoGeneration ?? 1)
++          establishCurrentSession(id)
++          return { session: resumed }
++        }
+         const session = yield* relay.sessionNew(requestedId, readOnly ? { readOnly: true } : {})
+         establishCurrentSession(session.id)
+         return { session }
+@@ -195,10 +259,15 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
+       handle: (input) => Effect.gen(function* () {
+         const args = yield* Effect.try(() => parseAdoptArguments(input))
+         const sessionId = args.session ?? currentSession.id
++        if (dojoMode && (!currentSession.ownedSessions.has(sessionId) || currentSession.generations.get(sessionId) === undefined)) {
++          return yield* Effect.fail(new Error("Call session_resume before adopting a tab, and use a session owned by this Browser Control client"))
++        }
++        const generation = currentSession.generations.get(sessionId)
+         const result = yield* relay.sessionAdopt({
+           sessionId,
+           createIfMissing: !args.session,
+           ...(args.targetSelection ? { targetSelection: args.targetSelection } : {}),
++          ...(dojoMode && currentSession.owner && generation !== undefined ? { dojoOwner: currentSession.owner, dojoGeneration: generation } : {}),
+         })
+         establishCurrentSession(sessionId)
+         return { ...result, confirmation: `Adopted session '${result.session.id}' default page: ${result.adoptedUrl}` }
+@@ -492,17 +561,54 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
+       }),
+     },
+   ]
++  if (!dojoMode) return specs.filter((spec) => spec.name !== "execute_cancel" && spec.name !== "session_resume")
++  const dojoTools = new Set(["execute", "execute_cancel", "session_resume", "status", "session_current", "session_list", "session_new", "session_adopt", "skill"])
++  return specs.filter((spec) => dojoTools.has(spec.name))
+ }
+ 
+ const registerTools = Effect.gen(function* () {
+   const server = yield* McpServer.McpServer
+   const relay = yield* RelayClient.Service
+   const configuredSession = Option.getOrUndefined(yield* Config.option(Config.String("BROWSER_CONTROL_SESSION")))
++  const dojoMode = process.env.DOJO_BROWSER_CONTROL_MODE === "1"
++  const configuredDojoOwner = Option.getOrUndefined(yield* Config.option(Config.String("DOJO_BROWSER_OWNER")))
++  const dojoOwner = dojoMode ? configuredDojoOwner ?? `browser-control-${crypto.randomUUID()}` : undefined
+   const currentSession: CurrentSession = {
+     id: configuredSession || `mcp-${crypto.randomUUID().slice(0, 8)}`,
+     established: Boolean(configuredSession),
++    ownedSessions: new Set(configuredSession ? [configuredSession] : []),
++    generations: new Map(),
++    ...(dojoOwner ? { owner: dojoOwner } : {}),
++  }
++  const retireOwnedSessions = Effect.suspend(() => Effect.forEach(
++    Array.from(currentSession.ownedSessions).filter((id) => currentSession.generations.has(id)),
++    (sessionId) => relay.executeCancel({ sessionId, ...(dojoOwner ? { dojoOwner } : {}) }).pipe(
++      Effect.timeout("3 seconds"),
++      Effect.tap((result) => Effect.sync(() => {
++        console.error(`Retired Browser Control session ${sessionId} on MCP shutdown; native=${result?.nativeRetired ?? false}; unknown=${result?.unknownCommandIds.join(",") || "none"}`)
++      })),
++      Effect.catch((error) => Effect.sync(() => console.error(`Could not retire Browser Control session ${sessionId} on MCP shutdown: ${error instanceof Error ? error.message : String(error)}`))),
++    ),
++    { concurrency: "unbounded", discard: true },
++  ))
++  const onSignal = (signal: NodeJS.Signals) => {
++    process.removeListener("SIGTERM", onSigterm)
++    process.removeListener("SIGINT", onSigint)
++    process.exitCode = signal === "SIGINT" ? 130 : 143
++    void Effect.runPromise(retireOwnedSessions).finally(() => process.exit())
++  }
++  const onSigterm = () => onSignal("SIGTERM")
++  const onSigint = () => onSignal("SIGINT")
++  if (dojoMode) {
++    process.once("SIGTERM", onSigterm)
++    process.once("SIGINT", onSigint)
++    yield* Effect.addFinalizer(() => Effect.gen(function* () {
++      process.removeListener("SIGTERM", onSigterm)
++      process.removeListener("SIGINT", onSigint)
++      yield* retireOwnedSessions
++    }))
+   }
+-  yield* Effect.forEach(makeToolSpecs(relay, currentSession), (spec) => {
++  yield* Effect.forEach(makeToolSpecs(relay, currentSession, dojoMode), (spec) => {
+     return server.addTool({
+       tool: new McpSchema.Tool({
+         name: spec.name,
+diff --git a/src/protocol.ts b/src/protocol.ts
+index 0926064..9e7763b 100644
+--- a/src/protocol.ts
++++ b/src/protocol.ts
+@@ -108,6 +108,15 @@ const extensionCommandMethodValues = [
+   "recording.cancel",
+ ] as const
+ 
++const dojoExtensionCommandMethodValues = [
++  "debugger.attach",
++  "debugger.detach",
++  "debugger.sendCommand",
++  "tabs.create",
++  "tabs.remove",
++  "action.setAttached",
++] as const
++
+ const extensionEventMethodValues = [
+   "hello",
+   "ready",
+@@ -121,6 +130,8 @@ const extensionEventMethodValues = [
+   "log",
+   "recording.cancelled",
+   "pageStatus.requested",
++  "dojo.retired",
++  "human.takeover.requested",
+ ] as const
+ 
+ type ExtensionCommandMethod = typeof extensionCommandMethodValues[number]
+@@ -130,6 +141,18 @@ export type ExtensionCommand = {
+   readonly id: number
+   readonly method: ExtensionCommandMethod
+   readonly params?: JsonObject
++  readonly dojoLease?: string
++  readonly dojoGeneration?: number
++}
++
++export function dojoExtensionCommandRejection(command: Pick<ExtensionCommand, "method" | "params">): string | undefined {
++  if (!dojoExtensionCommandMethodValues.some((method) => method === command.method)) {
++    return `Browser Control command is disabled in Dojo mode: ${command.method}`
++  }
++  if (command.method === "tabs.create" && command.params?.active === true) {
++    return "Dojo mode does not activate newly created tabs"
++  }
++  return undefined
+ }
+ 
+ export type ExtensionResponse = {
+@@ -157,11 +180,16 @@ const extensionEventMethods = new Set<string>(extensionEventMethodValues)
+ 
+ export function parseExtensionCommand(input: string): ExtensionCommand {
+   const parsed = parseJsonObject(input)
++  const hasDojoLease = parsed.dojoLease !== undefined
++  const hasDojoGeneration = parsed.dojoGeneration !== undefined
+   if (
+     typeof parsed.id !== "number" ||
+     typeof parsed.method !== "string" ||
+     !extensionCommandMethods.has(parsed.method) ||
+-    (parsed.params !== undefined && !isJsonObject(parsed.params))
++    (parsed.params !== undefined && !isJsonObject(parsed.params)) ||
++    (hasDojoLease !== hasDojoGeneration) ||
++    (hasDojoLease && (typeof parsed.dojoLease !== "string" || parsed.dojoLease.length === 0)) ||
++    (hasDojoGeneration && (typeof parsed.dojoGeneration !== "number" || !Number.isSafeInteger(parsed.dojoGeneration) || parsed.dojoGeneration < 1))
+   ) {
+     throw new Error("Invalid extension command")
+   }
+diff --git a/src/relay-client.ts b/src/relay-client.ts
+index f8d9e90..4ccd239 100644
+--- a/src/relay-client.ts
++++ b/src/relay-client.ts
+@@ -12,6 +12,7 @@ import {
+   ErrorEnvelope,
+   type ExecuteRequest,
+   ExecuteResponse,
++  type ExecuteCancelRequest,
+   ExtensionStatus,
+   FlightRecorderCancelResponse,
+   type FlightRecorderSaveRequest,
+@@ -37,6 +38,8 @@ import {
+   SessionAdoptResponse,
+   SessionContainer,
+   SessionDeleted,
++  SessionLifecycleResponse,
++  type SessionResumeRequest,
+   SessionsContainer,
+   TargetSummaries,
+   type SessionAdoptRequest,
+@@ -124,6 +127,8 @@ export interface Interface {
+   readonly sessionAdopt: (request: SessionAdoptRequest) => Effect.Effect<SessionAdoptResponse, RelayClientError>
+   readonly sessionDelete: (id: string) => Effect.Effect<SessionDeleted, RelayClientError>
+   readonly execute: (request: ExecuteRequest) => Effect.Effect<ExecuteResponse, RelayClientError>
++  readonly executeCancel: (request: ExecuteCancelRequest) => Effect.Effect<SessionLifecycleResponse, RelayClientError>
++  readonly sessionResume: (request: SessionResumeRequest) => Effect.Effect<SessionSummary, RelayClientError>
+   readonly authenticatedJson: (request: AuthenticatedJsonRequest) => Effect.Effect<AuthenticatedJsonOutcome, RelayClientError>
+   readonly networkStart: (request: NetworkStartRequest) => Effect.Effect<NetworkStatusResponse, RelayClientError>
+   readonly networkStatus: (request: NetworkSessionRequest) => Effect.Effect<NetworkStatusResponse, RelayClientError>
+@@ -280,6 +285,8 @@ export const make = Effect.fn("RelayClient.make")(function* (options?: { readonl
+         ...request,
+         ...(sessionId ? { sessionId } : {}),
+       }, ExecuteResponse),
++    executeCancel: (request) => postJson("/cli/execute/cancel", request, SessionLifecycleResponse),
++    sessionResume: (request) => postJson("/cli/session/resume", request, SessionContainer).pipe(Effect.map((container) => container.session)),
+     authenticatedJson: (request) => postJson("/v1/authenticated-origin/json", { ...request }, AuthenticatedJsonOutcome),
+     networkStart: (request) => postJson("/network/start", { ...request }, NetworkStatusResponse),
+     networkStatus: (request) => postJson("/network/status", { ...request }, NetworkStatusResponse),
+diff --git a/src/relay-schema.ts b/src/relay-schema.ts
+index 7d4857c..bea6bd2 100644
+--- a/src/relay-schema.ts
++++ b/src/relay-schema.ts
+@@ -17,6 +17,8 @@ export const SessionSummary = Schema.Struct({
+   pageUrl: Schema.NullOr(Schema.String),
+   stateKeys: Schema.Array(Schema.String),
+   readOnly: Schema.optionalKey(Schema.Boolean),
++  dojoGeneration: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
++  dojoRetired: Schema.optionalKey(Schema.Boolean),
+ })
+ 
+ export interface SessionSummary extends Schema.Schema.Type<typeof SessionSummary> {}
+@@ -62,14 +64,38 @@ export const ExecuteRequest = Schema.Struct({
+   code: Schema.String,
+   createIfMissing: Schema.Boolean,
+   targetSelection: Schema.optionalKey(TargetSelection),
++  dojoOwner: Schema.optionalKey(Schema.NonEmptyString),
++  dojoGeneration: Schema.optionalKey(Schema.Number),
+ })
+ 
++export const ExecuteCancelRequest = Schema.Struct({
++  sessionId: Schema.NonEmptyString,
++  dojoOwner: Schema.optionalKey(Schema.NonEmptyString),
++})
++export interface ExecuteCancelRequest extends Schema.Schema.Type<typeof ExecuteCancelRequest> {}
++
++export const SessionResumeRequest = Schema.Struct({
++  sessionId: Schema.NonEmptyString,
++  dojoOwner: Schema.NonEmptyString,
++})
++export interface SessionResumeRequest extends Schema.Schema.Type<typeof SessionResumeRequest> {}
++
++export const SessionLifecycleResponse = Schema.Struct({
++  session: SessionSummary,
++  nativeRetired: Schema.Boolean,
++  extensionAcknowledged: Schema.Boolean,
++  unknownCommandIds: Schema.Array(Schema.Number),
++})
++export interface SessionLifecycleResponse extends Schema.Schema.Type<typeof SessionLifecycleResponse> {}
++
+ export interface ExecuteRequest extends Schema.Schema.Type<typeof ExecuteRequest> {}
+ 
+ export const SessionAdoptRequest = Schema.Struct({
+   sessionId: Schema.optionalKey(Schema.String),
+   createIfMissing: Schema.Boolean,
+   targetSelection: Schema.optionalKey(TargetSelection),
++  dojoOwner: Schema.optionalKey(Schema.NonEmptyString),
++  dojoGeneration: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
+ })
+ 
+ export interface SessionAdoptRequest extends Schema.Schema.Type<typeof SessionAdoptRequest> {}
+@@ -164,6 +190,8 @@ export const ExecuteResponse = Schema.Struct({
+   warnings: Schema.optionalKey(Schema.Array(Schema.String)),
+   diagnostic: Schema.optionalKey(Schema.String),
+   aftermath: Schema.optionalKey(ExecuteAftermath),
++  effect: Schema.optionalKey(Schema.Literal("unknown")),
++  unknownCommandIds: Schema.optionalKey(Schema.Array(Schema.Number)),
+   session: ExecuteSessionSummary,
+ })
+ 
+diff --git a/src/relay-types.ts b/src/relay-types.ts
+index 6b53aa7..93f0708 100644
+--- a/src/relay-types.ts
++++ b/src/relay-types.ts
+@@ -45,8 +45,12 @@ export type StoredFrameEvents = {
+ 
+ export type PendingExtensionRequest = {
+   readonly resolve: (value: JsonObject) => void
+-  readonly reject: (error: Error) => void
++  readonly reject: (error: Error, outcomeUnknown?: boolean) => void
+   readonly debuggerTabId?: number
++  readonly dojoLease?: string
++  readonly dojoGeneration?: number
++  nativeAdmitted?: boolean
++  nativeAttempted?: boolean
+ }
+ 
+ /**
+@@ -54,6 +58,7 @@ export type PendingExtensionRequest = {
+  * implementation; tests can substitute a fake.
+  */
+ export interface ExecuteSandboxLike {
++  setDojoGeneration?(generation: number): void
+   execute(code: string, options?: ExecuteOptions): Effect.Effect<ExecuteResult>
+   authenticatedJson(request: Omit<AuthenticatedJsonRequest, "sessionId">): Effect.Effect<AuthenticatedJsonOutcome, Error>
+   adoptPage(targetId: string): Effect.Effect<void, Error>
+@@ -84,11 +89,17 @@ export type BrowserControlSession = {
+   readonly id: string
+   readonly createdAt: string
+   readonly readOnly: boolean
+-  readonly sandbox: ExecuteSandboxLike
++  sandbox: ExecuteSandboxLike
++  sandboxVersion: number
+   readonly executeSemaphore: Semaphore.Semaphore
+   /** Durable default-target identity. Authoritative live ownership remains in TargetRegistry. */
+   target?: SessionTarget
+   updatedAt: string
++  /** Dojo-only task owner. Bound once, then advanced only after native retirement. */
++  dojoOwner?: string
++  dojoGeneration: number
++  dojoRetired: boolean
++  dojoRetirement?: { readonly nativeRetired: boolean; readonly extensionAcknowledged: boolean; readonly unknownCommandIds: readonly number[] }
+ }
+ 
+ export type { SessionSummary }
+diff --git a/src/relay.ts b/src/relay.ts
+index dab5e90..ca12e0a 100644
+--- a/src/relay.ts
++++ b/src/relay.ts
+@@ -1,6 +1,7 @@
+ import http from "node:http"
+ import stream from "node:stream"
+ import crypto from "node:crypto"
++import { AsyncLocalStorage } from "node:async_hooks"
+ import fs from "node:fs"
+ import path from "node:path"
+ import { fileURLToPath } from "node:url"
+@@ -16,6 +17,7 @@ import { CdpClientPool } from "./cdp-client-pool.ts"
+ import { CdpRouter } from "./cdp-router.ts"
+ import { CdpRuntime } from "./cdp-runtime.ts"
+ import { ExtensionRpc } from "./extension-rpc.ts"
++import { DojoBrowserTransport, dojoLeaseId, type DojoLease } from "./dojo-browser-transport.ts"
+ import { createHttpRequestHandler } from "./http-api.ts"
+ import type { CdpEvent, CdpRequest, JsonObject, PageStatus } from "./protocol.ts"
+ import { extensionProtocolCompatibility, isCdpRequest, isExtensionEvent, isExtensionResponse, makePageStatus, parseJsonObject } from "./protocol.ts"
+@@ -159,6 +161,10 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+ } = {}) {
+   const host = defaultHost
+   const port = options.port ?? defaultPort
++  const dojoMode = process.env.DOJO_BROWSER_CONTROL_MODE === "1"
++  const dojoBrokerExecutable = process.env.DOJO_BROWSER_CONTROL_BROKER_EXE
++  if (dojoMode && !dojoBrokerExecutable) return yield* Effect.fail(new Error("DOJO_BROWSER_CONTROL_BROKER_EXE is required in Dojo mode"))
++  const dojoCommandContext = new AsyncLocalStorage<{ readonly sessionId: string; readonly generation: number }>()
+   const releaseTargetGraceMs = Math.max(0, options.releaseTargetGraceMs ?? 10_000)
+   const browserId = crypto.randomUUID()
+   const endpointUrl = `http://${formatHostForUrl(host)}:${port}`
+@@ -177,9 +183,28 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+   const pendingTabGrouping = new Map<number, TabGroupingMethod>()
+   const tabGroupingWorkers = new Map<number, Promise<void>>()
+   let extensionGeneration = 0
++  const pendingDojoRootTabs = new Map<number, boolean>()
+   let rejectedExtensionConnections = 0
+   const extensionRpc = new ExtensionRpc()
+-  const sendToExtension = (command: Parameters<ExtensionRpc["send"]>[0]) => extensionRpc.send(command)
++  let dojoTransport: DojoBrowserTransport | undefined
++  const resolveDojoLease = (context: ReturnType<typeof dojoCommandContext.getStore>): DojoLease | undefined => {
++    if (!dojoMode) return undefined
++    if (!context) throw new Error("Dojo browser command is missing its captured session generation")
++    const sessionId = context.sessionId
++    const lease = sessions.dojoLease(sessionId)
++    if (!sessionId || !lease || lease.retired) throw new Error("Dojo browser command has no active owning session generation")
++    if (lease.generation !== context.generation || lease.retired) {
++      throw new Error("CDP client belongs to a retired Dojo session generation")
++    }
++    return { lease: dojoLeaseId(lease.owner, sessionId), generation: lease.generation }
++  }
++  const sendToExtension = (command: Parameters<ExtensionRpc["send"]>[0]) => {
++    const context = dojoCommandContext.getStore()
++    return Effect.try({
++      try: () => resolveDojoLease(context),
++      catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
++    }).pipe(Effect.flatMap((lease) => extensionRpc.send(command, lease)))
++  }
+   const sendExtensionBestEffort = (command: Parameters<ExtensionRpc["send"]>[0]): void => {
+     Effect.runPromise(Effect.ignore(sendToExtension(command))).catch(() => {})
+   }
+@@ -379,6 +404,13 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+         endpointUrl,
+         sessionId: id,
+         onDefaultTargetChange,
++        ...(dojoMode ? {
++          getDojoUncertainCommandIds: (generation) => {
++            const lease = sessions.dojoLease(id)
++            if (!lease?.owner || generation === undefined) return []
++            return extensionRpc.uncertainCommandIds({ lease: dojoLeaseId(lease.owner, id), generation })
++          },
++        } : {}),
+         requestHandoff: ({ message, timeoutMs, target, start, cancelStart, until }) => requestHandoff({
+           sessionId: id,
+           message,
+@@ -432,6 +464,7 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+         }
+       },
+       onExecuteRecord: (record) => {
++        if (dojoMode) return
+         const entry = makeJournalEntry({
+           sessionId: record.sessionId,
+           code: record.code,
+@@ -455,6 +488,58 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+       onSessionsChanged: async (entries) => {
+         if (catalogWritesEnabled) await sessionCatalog?.save(entries)
+       },
++      onDojoRetire: (lease) => Effect.tryPromise({
++        try: async () => {
++          if (!dojoTransport) return { nativeRetired: false, extensionAcknowledged: false, unknownCommandIds: [] }
++          const nativeLease = { lease: dojoLeaseId(lease.owner, lease.sessionId), generation: lease.generation }
++          const native = await dojoTransport.retire({ lease: nativeLease })
++          const extensionAcknowledged = await extensionRpc.awaitDojoRetirementAck(nativeLease)
++          const unknownCommandIds = extensionRpc.retireDojoGeneration(nativeLease)
++          return {
++            nativeRetired: native.status === "retired",
++            extensionAcknowledged,
++            unknownCommandIds,
++          }
++        },
++        catch: (cause) => cause instanceof Error ? cause : new Error("Retire native browser lease", { cause }),
++      }),
++      onDojoBind: (lease) => Effect.tryPromise({
++        try: async () => {
++          if (!dojoTransport) return false
++          const nativeLease = { lease: dojoLeaseId(lease.owner, lease.sessionId), generation: lease.generation }
++          const result = await dojoTransport.bind({ lease: nativeLease })
++          return result.status === "bound"
++        },
++        catch: (cause) => cause instanceof Error ? cause : new Error("Bind native browser lease", { cause }),
++      }),
++      onDojoResume: (lease) => Effect.tryPromise({
++        try: async () => {
++          if (!dojoMode || pendingDojoRootTabs.size === 0) return
++          const pendingTabs = Array.from(pendingDojoRootTabs)
++          for (const [tabId, alreadyAttached] of pendingTabs) {
++            pendingDojoRootTabs.delete(tabId)
++            dojoCommandContext.run({ sessionId: lease.sessionId, generation: lease.generation }, () => {
++              rootLifecycle.queue({
++                tabId,
++                attachIfMissing: true,
++                alreadyAttached,
++                verificationRetries: 0,
++                errorMessage: "Debugger re-announce failed",
++                generation: extensionGeneration,
++              })
++            })
++          }
++          const reconciled = await dojoCommandContext.run(
++            { sessionId: lease.sessionId, generation: lease.generation },
++            () => Effect.runPromise(rootLifecycle.settle(extensionGeneration)),
++          )
++          if (!reconciled) {
++            for (const [tabId, alreadyAttached] of pendingTabs) pendingDojoRootTabs.set(tabId, alreadyAttached)
++            console.error("Could not reconcile all attached tabs under the resumed browser lease")
++          }
++        },
++        catch: (cause) => cause instanceof Error ? cause : new Error("Reconcile extension inventory", { cause }),
++      }),
+     },
+     registry,
+   )
+@@ -539,6 +624,7 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+     tabGroupingWorkers.set(tabId, worker)
+   }
+   function refreshTabGrouping(tabId: number): void {
++    if (dojoMode) return
+     const target = registry.tabTargets.get(tabId)
+     scheduleTabGrouping(tabId, target && pageStatusSessionId(target) ? "tabs.group" : "tabs.ungroup")
+   }
+@@ -775,6 +861,10 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+     const requestUrl = new URL(request.url ?? "/", endpointUrl)
+     const origin = Array.isArray(request.headers.origin) ? request.headers.origin[0] : request.headers.origin
+     if (requestUrl.pathname === "/extension") {
++      if (dojoMode) {
++        sendUpgradeError({ socket, status: 403, message: "Dojo mode routes the extension directly through the native browser broker" })
++        return
++      }
+       const originError = validateWebSocketOrigin({
+         origin,
+         requireChromeExtension: true,
+@@ -792,6 +882,19 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+     }
+     if (requestUrl.pathname.startsWith("/devtools/browser/")) {
+       const sessionId = requestUrl.searchParams.get("browserControlSessionId") ?? headerValue(request.headers["browser-control-session-id"])
++      const rawDojoGeneration = headerValue(request.headers["browser-control-generation"])
++      const dojoGeneration = rawDojoGeneration === undefined ? undefined : Number(rawDojoGeneration)
++      if (dojoMode && (headerValue(request.headers["browser-control-client-kind"]) !== "sandbox" || !sessionId || dojoGeneration === undefined || !Number.isSafeInteger(dojoGeneration) || dojoGeneration < 1)) {
++        sendUpgradeError({ socket, status: 403, message: "Dojo mode requires a bound Browser Control session generation" })
++        return
++      }
++      if (dojoMode) {
++        const lease = sessionId ? sessions.dojoLease(sessionId) : undefined
++        if (!lease || lease.retired || lease.generation !== dojoGeneration) {
++          sendUpgradeError({ socket, status: 403, message: "Browser Control session generation is not active" })
++          return
++        }
++      }
+       if (!shutdownControl.accepting && (headerValue(request.headers["browser-control-client-kind"]) !== "sandbox" || !sessionId || !sessions.hasPendingWork(sessionId))) {
+         sendUpgradeError({ socket, status: 503, message: "Relay is draining for an explicit restart" })
+         return
+@@ -855,15 +958,28 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+     }
+ 
+     const browserControlSessionId = requestUrl.searchParams.get("browserControlSessionId") ?? headerValue(request.headers["browser-control-session-id"])
+-    cdpClients.register(socket, browserControlSessionId, headerValue(request.headers["browser-control-client-kind"]) === "sandbox" ? "sandbox" : "raw")
++    const rawDojoGeneration = headerValue(request.headers["browser-control-generation"])
++    const dojoGeneration = rawDojoGeneration === undefined ? undefined : Number(rawDojoGeneration)
++    cdpClients.register(socket, browserControlSessionId, headerValue(request.headers["browser-control-client-kind"]) === "sandbox" ? "sandbox" : "raw", dojoGeneration)
+     debugLog?.(`client+ ${browserControlSessionId ?? "raw"} total=${cdpClients.size}`)
+     socket.on("message", (data) => {
+-      Effect.runPromise(shutdownControl.trackTransport(handleCdpMessage(socket, data.toString()))).catch((error: unknown) => {
++      const sessionId = cdpClients.sessionId(socket)
++      const generation = cdpClients.dojoGeneration(socket)
++      if (dojoMode && sessionId && generation !== undefined) {
++        const lease = sessions.dojoLease(sessionId)
++        if (!lease || lease.retired || lease.generation !== generation) {
++          sendCdpResponse(socket, { id: 0, error: { message: "Browser Control session generation is retired" } })
++          return
++        }
++      }
++      const dispatch = () => Effect.runPromise(shutdownControl.trackTransport(handleCdpMessage(socket, data.toString()))).catch((error: unknown) => {
+         sendCdpResponse(socket, {
+           id: 0,
+           error: { message: error instanceof Error ? error.message : String(error) },
+         })
+       })
++      if (dojoMode && sessionId && generation !== undefined) dojoCommandContext.run({ sessionId, generation }, dispatch)
++      else dispatch()
+     })
+     socket.on("close", () => {
+       debugLog?.(`client- ${cdpClients.sessionId(socket) ?? "raw"} total=${cdpClients.size - 1}`)
+@@ -931,7 +1047,7 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+     })
+   }
+ 
+-  function handleExtensionMessage(socket: WebSocket, raw: string, generation: number, announcedRootTabIds: Set<number>): void {
++  function handleExtensionMessage(socket: WebSocket | undefined, raw: string, generation: number, announcedRootTabIds: Set<number>): void {
+     const message = parseJsonObject(raw)
+     if (isExtensionResponse(message)) {
+       extensionRpc.handleResponse(message)
+@@ -946,6 +1062,15 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+     if (extensionMethod === "hello") {
+       return
+     }
++    if (extensionMethod === "dojo.retired") {
++      const lease = getString(message.params, "lease")
++      const generation = getNumber(message.params, "generation")
++      if (lease && generation !== undefined) extensionRpc.acknowledgeDojoRetirement({ lease, generation })
++      return
++    }
++    if (extensionMethod === "human.takeover.requested") {
++      return
++    }
+     if (extensionMethod === "log") {
+       const text = getString(message.params, "message")
+       if (!text) return
+@@ -955,7 +1080,8 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+     }
+     if (extensionMethod === "ready") {
+       void Effect.runPromise(rootLifecycle.settle(generation)).then((reconciled) => {
+-        if (!extensionRpc.isCurrent(socket) || generation !== extensionGeneration) return
++        const current = socket ? extensionRpc.isCurrent(socket) : extensionRpc.isDojoTransport && dojoTransport?.connected === true
++        if (!current || generation !== extensionGeneration) return
+         if (reconciled) {
+           for (const target of registry.listRootTargets()) {
+             if (!announcedRootTabIds.has(target.tabId)) detachTargetState(target.tabId)
+@@ -963,7 +1089,8 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+           extensionRpc.markReady()
+           for (const target of registry.listRootTargets()) refreshTabGrouping(target.tabId)
+         } else {
+-          socket.close(1011, "Target inventory reconciliation failed")
++          if (socket) socket.close(1011, "Target inventory reconciliation failed")
++          else dojoTransport?.close()
+         }
+       })
+       return
+@@ -971,6 +1098,10 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+     if (extensionMethod === "debugger.attached") {
+       if (eventTabId) {
+         announcedRootTabIds.add(eventTabId)
++        if (dojoMode) {
++          pendingDojoRootTabs.set(eventTabId, true)
++          return
++        }
+         const openerTabId = getNumber(message.params, "openerTabId")
+         const openerTarget = openerTabId !== undefined ? registry.routingRootTarget(openerTabId) : undefined
+         rootLifecycle.queue({
+@@ -990,6 +1121,10 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+     if (extensionMethod === "toolbar.clicked") {
+       if (eventTabId) {
+         announcedRootTabIds.add(eventTabId)
++        if (dojoMode) {
++          if (!pendingDojoRootTabs.has(eventTabId)) pendingDojoRootTabs.set(eventTabId, false)
++          return
++        }
+         handleToolbarClick(eventTabId)
+       }
+       return
+@@ -1273,6 +1408,28 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+     }
+   }
+ 
++  if (dojoMode && dojoBrokerExecutable) {
++    const announcedRootTabIds = new Set<number>()
++    dojoTransport = new DojoBrowserTransport(dojoBrokerExecutable, (message) => {
++      if (isExtensionResponse(message)) {
++        extensionRpc.handleResponse(message)
++        return
++      }
++      if (message.method === "hello") {
++        extensionGeneration += 1
++        rejectedExtensionConnections = 0
++        clearLiveExtensionState("Native extension connected")
++        extensionRpc.markHandshake(getString(message.params, "version"), message.params?.protocolVersion)
++        return
++      }
++      handleExtensionMessage(undefined, JSON.stringify(message), extensionGeneration, announcedRootTabIds)
++    }, (connected) => {
++      extensionRpc.markDojoConnected(connected)
++      if (!connected) clearLiveExtensionState("Native extension disconnected")
++    })
++    extensionRpc.useDojoTransport(dojoTransport)
++  }
++
+   function handleToolbarClick(tabId: number): void {
+     const target = registry.tabTargets.get(tabId)
+     if (target) {
+@@ -1350,6 +1507,9 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+   }
+ 
+   const routeCdpCommand = Effect.fn("Relay.routeCdpCommand")(function* (socket: WebSocket, message: CdpRequest) {
++    if (dojoMode && ["Page.bringToFront", "Target.activateTarget", "Browser.setWindowBounds"].includes(message.method)) {
++      return yield* Effect.fail(new Error(`Focus-changing CDP command is disabled in Dojo mode: ${message.method}`))
++    }
+     const clientBrowserControlSessionId = cdpClients.sessionId(socket)
+     if (!shutdownControl.accepting && (!cdpClients.isSandbox(socket) || !clientBrowserControlSessionId || !sessions.hasPendingWork(clientBrowserControlSessionId))) {
+       return yield* Effect.fail(new Error("Relay is draining for an explicit restart"))
+diff --git a/src/root-target-lifecycle.ts b/src/root-target-lifecycle.ts
+index c1a0fa0..c8b0fac 100644
+--- a/src/root-target-lifecycle.ts
++++ b/src/root-target-lifecycle.ts
+@@ -48,6 +48,7 @@ type Worker = {
+   readonly generation: number
+   readonly done: Latch.Latch
+   attachIfMissing: boolean
++  alreadyAttached: boolean
+   pending: boolean
+   verificationRetries: number
+ }
+@@ -101,6 +102,7 @@ export class RootTargetLifecycle {
+   queue(options: {
+     readonly tabId: number
+     readonly attachIfMissing: boolean
++    readonly alreadyAttached?: boolean
+     readonly verificationRetries: number
+     readonly errorMessage: string
+     readonly generation?: number
+@@ -121,6 +123,7 @@ export class RootTargetLifecycle {
+     if (existing) {
+       existing.pending = true
+       existing.attachIfMissing ||= options.attachIfMissing
++      existing.alreadyAttached ||= options.alreadyAttached === true
+       existing.verificationRetries = Math.max(existing.verificationRetries, options.verificationRetries)
+       return
+     }
+@@ -129,6 +132,7 @@ export class RootTargetLifecycle {
+       generation,
+       done: Latch.makeUnsafe(),
+       attachIfMissing: options.attachIfMissing,
++      alreadyAttached: options.alreadyAttached ?? true,
+       pending: false,
+       verificationRetries: options.verificationRetries,
+     }
+@@ -145,7 +149,7 @@ export class RootTargetLifecycle {
+             ? lifecycle.attachUnlocked(transition, {
+               tabId: options.tabId,
+               owner: options.owner ?? "user",
+-              alreadyAttached: true,
++              alreadyAttached: worker.alreadyAttached,
+               ...(options.browserControlSessionId ? { browserControlSessionId: options.browserControlSessionId } : {}),
+             }).pipe(Effect.asVoid)
+             : Effect.void
+diff --git a/src/session-manager.ts b/src/session-manager.ts
+index a1977a0..698a9b1 100644
+--- a/src/session-manager.ts
++++ b/src/session-manager.ts
+@@ -46,6 +46,14 @@ export type SessionHooks = {
+   readonly onReleaseRelayTarget?: (targetId: string) => Effect.Effect<void, Error>
+   /** Persist session identity and target continuity after durable lifecycle changes. */
+   readonly onSessionsChanged?: (sessions: readonly PersistedSession[]) => unknown | Promise<unknown>
++  /** Retire the exact Dojo owner generation without taking the session execute permit. */
++  readonly onDojoRetire?: (lease: { readonly sessionId: string; readonly owner: string; readonly generation: number }) => Effect.Effect<{ readonly nativeRetired: boolean; readonly extensionAcknowledged: boolean; readonly unknownCommandIds: readonly number[] }, Error>
++  /** Confirm that the generation is still admitted immediately before JavaScript begins. */
++  readonly onDojoBind?: (lease: { readonly sessionId: string; readonly owner: string; readonly generation: number }) => Effect.Effect<boolean, Error>
++  /** Commands which timed out after the native broker may have admitted them. */
++  readonly getDojoUncertainCommandIds?: (lease: { readonly sessionId: string; readonly owner: string; readonly generation: number }) => readonly number[]
++  /** Admit deferred extension inventory only after a task generation is active. */
++  readonly onDojoResume?: (lease: { readonly sessionId: string; readonly owner: string; readonly generation: number }) => Effect.Effect<void, Error>
+ }
+ 
+ export class SessionError extends Schema.TaggedError<SessionError>()(
+@@ -416,6 +424,8 @@ export class BrowserControlSessions {
+     readonly code: string
+     readonly createIfMissing: boolean
+     readonly targetSelection?: ExecuteTargetSelection
++    readonly dojoOwner?: string
++    readonly dojoGeneration?: number
+   }): Effect.Effect<ExecutionResponse, Error> {
+     const manager = this
+     return this.withAdmission(options.sessionId, Effect.uninterruptibleMask((restore) => Effect.gen(function* () {
+@@ -424,20 +434,60 @@ export class BrowserControlSessions {
+       const response = yield* Deferred.make<ExecutionResponse, Error>()
+       let started = false
+       let cancelled = false
++      const executionLease = options.dojoOwner && options.dojoGeneration !== undefined
++        ? { sessionId: session.id, owner: options.dojoOwner, generation: options.dojoGeneration }
++        : undefined
+       const operation = Effect.gen(function* () {
++          const sandbox = session.sandbox
+           if (cancelled) {
+             return yield* sessionError("inactive", `Session execute was cancelled before starting: ${session.id}`, session.id)
+           }
+           if (manager.sessions.get(session.id) !== session) {
+             return yield* sessionError("inactive", `Session is no longer active: ${session.id}`, session.id)
+           }
++          yield* manager.bindDojoLease(session, options.dojoOwner, options.dojoGeneration)
++          if (session.dojoOwner && manager.hooks.onDojoBind) {
++            const admitted = yield* manager.hooks.onDojoBind({
++              sessionId: session.id,
++              owner: session.dojoOwner,
++              generation: session.dojoGeneration,
++            })
++            if (!admitted) {
++              session.dojoRetired = true
++              session.dojoRetirement = manager.hooks.onDojoRetire
++                ? yield* manager.hooks.onDojoRetire({ sessionId: session.id, owner: session.dojoOwner, generation: session.dojoGeneration }).pipe(
++                  Effect.catch(() => Effect.succeed({ nativeRetired: false, extensionAcknowledged: false, unknownCommandIds: [] })),
++                )
++                : { nativeRetired: true, extensionAcknowledged: false, unknownCommandIds: [] }
++              return yield* sessionError("inactive", "Native browser lease is not admitted; yield control and resume again", session.id)
++            }
++          }
++          yield* manager.bindDojoLease(session, options.dojoOwner, options.dojoGeneration)
+           started = true
+           session.updatedAt = new Date().toISOString()
+           manager.setExecuting(session.id, true)
+           const startedAt = Date.now()
+-          const result = yield* session.sandbox
+-            .execute(options.code, { ...(options.targetSelection ? { targetSelection: options.targetSelection } : {}) })
++          let result = yield* sandbox
++            .execute(options.code, {
++              ...(options.targetSelection ? { targetSelection: options.targetSelection } : {}),
++              ...(options.dojoGeneration === undefined ? {} : { dojoGeneration: options.dojoGeneration }),
++            })
+             .pipe(Effect.ensuring(Effect.sync(() => manager.setExecuting(session.id, false))))
++          if (executionLease && (session.dojoOwner !== executionLease.owner || session.dojoGeneration !== executionLease.generation || session.dojoRetired)) {
++            return yield* sessionError("inactive", `Session lease generation was retired during execution: ${session.id}`, session.id)
++          }
++          if (result.effect === "unknown" && executionLease) {
++            const isCurrentLease = session.dojoOwner === executionLease.owner && session.dojoGeneration === executionLease.generation
++            if (isCurrentLease) session.dojoRetired = true
++            const retirement = manager.hooks.onDojoRetire
++              ? yield* manager.hooks.onDojoRetire(executionLease).pipe(
++                Effect.catch(() => Effect.succeed({ nativeRetired: false, extensionAcknowledged: false, unknownCommandIds: [] })),
++              )
++              : { nativeRetired: false, extensionAcknowledged: false, unknownCommandIds: [] }
++            if (isCurrentLease) session.dojoRetirement = retirement
++            const unknownCommandIds = Array.from(new Set([...(result.unknownCommandIds ?? []), ...retirement.unknownCommandIds]))
++            result = { ...result, unknownCommandIds }
++          }
+           if (resolved.created && result.setupFailed) {
+             return yield* sessionError("setup-failed", result.text, session.id)
+           }
+@@ -453,7 +503,7 @@ export class BrowserControlSessions {
+           session.updatedAt = new Date().toISOString()
+           yield* manager.recordExecute({
+             sessionId: session.id,
+-            code: session.sandbox.redactNetworkCaptureText(options.code),
++            code: sandbox.redactNetworkCaptureText(options.code),
+             durationMs: Date.now() - startedAt,
+             result: resultWithHint,
+           })
+@@ -461,9 +511,34 @@ export class BrowserControlSessions {
+           return { result: resultWithHint, session: manager.createdSummary(session, resolved.created) }
+         })
+       const worker = session.executeSemaphore.withPermit(operation.pipe(Effect.matchEffect({
+-        onFailure: (error) => (resolved.created
+-          ? manager.cleanupCreatedSession(session)
+-          : Effect.void).pipe(Effect.andThen(Deferred.fail(response, error))),
++        onFailure: (error) => Effect.gen(function* () {
++          const lease = executionLease
++          const uncertainIds = lease ? manager.hooks.getDojoUncertainCommandIds?.(lease) ?? [] : []
++          if (uncertainIds.length > 0 && lease) {
++            const isCurrentLease = session.dojoOwner === lease.owner && session.dojoGeneration === lease.generation
++            let retirement = isCurrentLease ? session.dojoRetirement : undefined
++            if (!retirement?.nativeRetired) {
++              if (isCurrentLease) session.dojoRetired = true
++              retirement = manager.hooks.onDojoRetire
++                ? yield* manager.hooks.onDojoRetire(lease).pipe(Effect.catch(() => Effect.succeed({ nativeRetired: false, extensionAcknowledged: false, unknownCommandIds: [] })))
++                : { nativeRetired: false, extensionAcknowledged: false, unknownCommandIds: [] }
++              if (isCurrentLease) session.dojoRetirement = retirement
++            }
++            const unknownCommandIds = Array.from(new Set([...uncertainIds, ...(retirement?.unknownCommandIds ?? [])]))
++            const result: ExecuteResult = {
++              text: `${error.message}. Browser effects for command id${unknownCommandIds.length === 1 ? "" : "s"} ${unknownCommandIds.join(", ")} have unknown outcomes; the lease was retired.`,
++              isError: true,
++              logs: [],
++              logSummary: { totalCount: 0, returnedCount: 0, repeatedCount: 0, omittedCount: 0 },
++              warnings: [],
++              effect: "unknown",
++              unknownCommandIds,
++            }
++            return yield* Deferred.succeed(response, { result, session: manager.createdSummary(session, resolved.created) })
++          }
++          yield* (resolved.created ? manager.cleanupCreatedSession(session) : Effect.void)
++          return yield* Deferred.fail(response, error)
++        }),
+         onSuccess: (value) => Deferred.succeed(response, value),
+       })))
+       const workerFiber = yield* manager.forkTracked(worker, session.id)
+@@ -482,16 +557,123 @@ export class BrowserControlSessions {
+     })))
+   }
+ 
++  executeCancel(id: string, owner?: string): Effect.Effect<{ readonly session: SessionSummary; readonly nativeRetired: boolean; readonly extensionAcknowledged: boolean; readonly unknownCommandIds: readonly number[] }, Error> {
++    const manager = this
++    return Effect.gen(function* () {
++      const session = manager.sessions.get(id)
++      if (!session) return yield* sessionError("not-found", `Session not found: ${id}`, id)
++      if (owner !== undefined && session.dojoOwner !== owner) {
++        return yield* sessionError("inactive", `Session is not owned by this Browser Control client: ${id}`, id)
++      }
++      if (session.dojoRetired) {
++        let outcome = session.dojoRetirement ?? { nativeRetired: false, extensionAcknowledged: false, unknownCommandIds: [] }
++        if (!outcome.nativeRetired && session.dojoOwner && manager.hooks.onDojoRetire) {
++          outcome = yield* manager.hooks.onDojoRetire({ sessionId: session.id, owner: session.dojoOwner, generation: session.dojoGeneration }).pipe(
++            Effect.catch(() => Effect.succeed({ nativeRetired: false, extensionAcknowledged: false, unknownCommandIds: outcome.unknownCommandIds })),
++          )
++          session.dojoRetirement = outcome
++        }
++        return { session: manager.sessionSummary(session), ...outcome }
++      }
++      session.dojoRetired = true
++      const outcome = session.dojoOwner !== undefined && manager.hooks.onDojoRetire
++        ? yield* manager.hooks.onDojoRetire({ sessionId: session.id, owner: session.dojoOwner, generation: session.dojoGeneration }).pipe(
++          Effect.catch(() => Effect.succeed({ nativeRetired: false, extensionAcknowledged: false, unknownCommandIds: [] })),
++        )
++        : { nativeRetired: false, extensionAcknowledged: false, unknownCommandIds: [] }
++      session.dojoRetirement = outcome
++      void Effect.runPromise(session.sandbox.disconnectSettled()).catch((error: unknown) => {
++        console.error("Failed to disconnect retired Browser Control session", error)
++      })
++      return { session: manager.sessionSummary(session), ...outcome }
++    })
++  }
++
++  sessionResume(id: string, owner: string): Effect.Effect<SessionSummary, Error> {
++    const manager = this
++    return Effect.gen(function* () {
++      let session = manager.sessions.get(id)
++      let created = false
++      if (!session) {
++        session = manager.createAcceptedSession(id)
++        created = true
++      }
++      if (session.dojoOwner !== undefined && session.dojoOwner !== owner) {
++        return yield* sessionError("inactive", `Session is not owned by this Browser Control client: ${id}`, id)
++      }
++      if (!created && session.dojoOwner === undefined && manager.hooks.onDojoResume && session.dojoGeneration === 0) {
++        return yield* sessionError("inactive", `Existing session is not owned by this Browser Control client: ${id}`, id)
++      }
++      if (session.dojoGeneration > 0 && !session.dojoRetired) {
++        return yield* sessionError("inactive", `Session generation must be retired before resume: ${id}`, id)
++      }
++      if (session.dojoRetired && session.dojoRetirement?.nativeRetired !== true) {
++        return yield* sessionError("inactive", `Native retirement was not confirmed for session: ${id}`, id)
++      }
++      const previousSandbox = session.sandbox
++      const nextGeneration = session.dojoGeneration + 1
++      if (session.dojoGeneration > 0) {
++        const nextSandboxVersion = session.sandboxVersion + 1
++        session.sandboxVersion = nextSandboxVersion
++        session.sandbox = manager.createSandboxForSession(session, nextSandboxVersion)
++        session.sandbox.restore(session.target)
++        void Effect.runPromise(previousSandbox.disconnectSettled()).catch((error: unknown) => {
++          console.error("Failed to disconnect retired Browser Control sandbox", error)
++        })
++      }
++      session.dojoOwner = owner
++      session.dojoGeneration = nextGeneration
++      session.dojoRetired = false
++      delete session.dojoRetirement
++      session.sandbox.setDojoGeneration?.(session.dojoGeneration)
++      session.updatedAt = new Date().toISOString()
++      if (manager.hooks.onDojoBind) {
++        const binding = yield* manager.hooks.onDojoBind({ sessionId: session.id, owner, generation: session.dojoGeneration }).pipe(
++          Effect.match({
++            onFailure: (error) => ({ kind: "error" as const, error }),
++            onSuccess: (admitted) => ({ kind: "bound" as const, admitted }),
++          }),
++        )
++        if (binding.kind === "error") {
++          session.dojoRetired = true
++          session.dojoRetirement = manager.hooks.onDojoRetire
++            ? yield* manager.hooks.onDojoRetire({ sessionId: session.id, owner, generation: session.dojoGeneration }).pipe(
++              Effect.catch(() => Effect.succeed({ nativeRetired: false, extensionAcknowledged: false, unknownCommandIds: [] })),
++            )
++            : { nativeRetired: false, extensionAcknowledged: false, unknownCommandIds: [] }
++          return yield* Effect.fail(binding.error)
++        }
++        const admitted = binding.admitted
++        if (!admitted) {
++          session.dojoRetired = true
++          session.dojoRetirement = { nativeRetired: true, extensionAcknowledged: false, unknownCommandIds: [] }
++          return yield* sessionError("inactive", "Native browser lease refused; explicitly yield browser control and resume again", id)
++        }
++      }
++      if (manager.hooks.onDojoResume) yield* manager.hooks.onDojoResume({ sessionId: session.id, owner, generation: session.dojoGeneration })
++      return manager.sessionSummary(session)
++    })
++  }
++
++  dojoLease(id: string): { readonly owner: string; readonly generation: number; readonly retired: boolean } | undefined {
++    const session = this.sessions.get(id)
++    if (!session?.dojoOwner) return undefined
++    return { owner: session.dojoOwner, generation: session.dojoGeneration, retired: session.dojoRetired }
++  }
++
+   adopt(options: {
+     readonly sessionId?: string
+     readonly createIfMissing: boolean
+     readonly targetId: string
+     readonly targetUrl: string
++    readonly dojoOwner?: string
++    readonly dojoGeneration?: number
+   }): Effect.Effect<AdoptionResult, Error> {
+     const manager = this
+     return this.withAdmission(options.sessionId, Effect.uninterruptibleMask((restore) => Effect.gen(function* () {
+       const resolved = yield* manager.resolveWorkSession(options.sessionId, options.createIfMissing)
+       const session = resolved.session
++      yield* manager.bindDojoLease(session, options.dojoOwner, options.dojoGeneration)
+       const result = yield* Deferred.make<AdoptionResult, Error>()
+       let state: "pending" | "reserved" | "committed" = "pending"
+       let cancelled = false
+@@ -697,6 +879,30 @@ export class BrowserControlSessions {
+     }
+   }
+ 
++  private bindDojoLease(session: BrowserControlSession, owner?: string, generation?: number): Effect.Effect<void, SessionError> {
++    if (owner === undefined) {
++      if (session.dojoOwner !== undefined) {
++        return Effect.fail(sessionError("inactive", `Dojo session requires its owning task lease: ${session.id}`, session.id))
++      }
++      return Effect.void
++    }
++    if (generation === undefined) {
++      return Effect.fail(sessionError("invalid-request", `Dojo session generation is required: ${session.id}`, session.id))
++    }
++    if (session.dojoOwner === undefined) {
++      session.dojoOwner = owner
++      session.dojoGeneration = generation
++      session.sandbox.setDojoGeneration?.(generation)
++    }
++    if (session.dojoOwner !== owner || session.dojoGeneration !== generation) {
++      return Effect.fail(sessionError("inactive", `Session lease generation is stale or belongs to another owner: ${session.id}`, session.id))
++    }
++    if (session.dojoRetired) {
++      return Effect.fail(sessionError("inactive", `Session lease generation has been retired: ${session.id}`, session.id))
++    }
++    return Effect.void
++  }
++
+   private recordExecute(record: SessionExecuteRecord): Effect.Effect<void> {
+     const hook = this.hooks.onExecuteRecord
+     if (!hook) return Effect.void
+@@ -728,19 +934,34 @@ export class BrowserControlSessions {
+   }): BrowserControlSession {
+     const now = new Date().toISOString()
+     let session: BrowserControlSession | undefined
++    const sandboxVersion = 0
++    const sandbox = this.createSandbox(id, (target) => {
++      if (session && session.sandboxVersion === sandboxVersion && this.sessions.get(id) === session) {
++        this.updateTarget(session, target)
++      }
++    })
+     session = {
+       id,
+       createdAt: timestamps?.createdAt ?? now,
+       updatedAt: timestamps?.updatedAt ?? now,
+       readOnly,
+-      sandbox: this.createSandbox(id, (target) => {
+-        if (session) this.updateTarget(session, target)
+-      }),
++      sandbox,
++      sandboxVersion,
+       executeSemaphore: Semaphore.makeUnsafe(1),
++      dojoGeneration: 0,
++      dojoRetired: false,
+     }
+     return session
+   }
+ 
++  private createSandboxForSession(session: BrowserControlSession, sandboxVersion: number): ExecuteSandboxLike {
++    return this.createSandbox(session.id, (target) => {
++      if (this.sessions.get(session.id) === session && session.sandboxVersion === sandboxVersion) {
++        this.updateTarget(session, target)
++      }
++    })
++  }
++
+   /** Resolve execute/adopt work before any permit; the caller owns cleanup of a created session. */
+   private resolveWorkSession(id: string | undefined, createIfMissing: boolean): Effect.Effect<{ readonly session: BrowserControlSession; readonly created: boolean }, SessionError> {
+     return Effect.suspend(() => {
+@@ -769,6 +990,7 @@ export class BrowserControlSessions {
+       pageUrl: status.pageUrl,
+       stateKeys: status.stateKeys,
+       ...(session.readOnly ? { readOnly: true } : {}),
++      ...(session.dojoGeneration > 0 ? { dojoGeneration: session.dojoGeneration, dojoRetired: session.dojoRetired } : {}),
+     }
+   }
+ 
+diff --git a/test/dojo-browser-transport.test.ts b/test/dojo-browser-transport.test.ts
+new file mode 100644
+index 0000000..29d729a
+--- /dev/null
++++ b/test/dojo-browser-transport.test.ts
+@@ -0,0 +1,75 @@
++import fs from "node:fs"
++import os from "node:os"
++import path from "node:path"
++import { afterEach, describe, expect, it } from "vitest"
++import { DojoBrowserTransport, dojoBrokerMaxLineBytes } from "../src/dojo-browser-transport.ts"
++
++const temporaryDirectories: string[] = []
++
++afterEach(() => {
++  for (const directory of temporaryDirectories.splice(0)) fs.rmSync(directory, { recursive: true, force: true })
++})
++
++describe("DojoBrowserTransport", () => {
++  it("refuses oversized lines before allocating a broker request ID", async () => {
++    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "browser-control-native-line-"))
++    temporaryDirectories.push(directory)
++    const recordPath = path.join(directory, "requests.jsonl")
++    const executable = path.join(directory, "broker")
++    fs.writeFileSync(executable, [
++      "#!/usr/bin/env node",
++      "const fs = require('node:fs')",
++      "const readline = require('node:readline')",
++      `const recordPath = ${JSON.stringify(recordPath)}`,
++      "readline.createInterface({ input: process.stdin }).on('line', (line) => {",
++      "  const request = JSON.parse(line)",
++      "  fs.appendFileSync(recordPath, line + '\\n')",
++      "  process.stdout.write(JSON.stringify({ op: 'result', id: request.id, status: 'admitted' }) + '\\n')",
++      "})",
++    ].join("\n"))
++    fs.chmodSync(executable, 0o755)
++    const transport = new DojoBrowserTransport(executable, () => {}, () => {})
++    try {
++      const oversized = await transport.send({
++        lease: { lease: "owner/session", generation: 1 },
++        command: {
++          id: 1,
++          method: "debugger.sendCommand",
++          params: {
++            tabId: 7,
++            method: "Runtime.evaluate",
++            params: { expression: "x".repeat(dojoBrokerMaxLineBytes) },
++          },
++        },
++      })
++      expect(oversized).toMatchObject({ op: "result", id: 0, status: "refused" })
++
++      const admitted = await transport.bind({ lease: { lease: "small", generation: 1 } })
++      expect(admitted).toMatchObject({ op: "result", id: 1, status: "admitted" })
++
++      const lines = fs.readFileSync(recordPath, "utf8").trim().split("\n")
++      expect(lines).toHaveLength(1)
++      expect(JSON.parse(lines[0] ?? "{}")).toMatchObject({ op: "bind", id: 1, lease: "small" })
++    } finally {
++      transport.close()
++    }
++  })
++
++  it("settles pending requests when the broker exits during a write", async () => {
++    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "browser-control-native-exit-"))
++    temporaryDirectories.push(directory)
++    const executable = path.join(directory, "broker")
++    fs.writeFileSync(executable, [
++      "#!/usr/bin/env node",
++      "const readline = require('node:readline')",
++      "readline.createInterface({ input: process.stdin }).once('line', () => process.exit(0))",
++    ].join("\n"))
++    fs.chmodSync(executable, 0o755)
++    const transport = new DojoBrowserTransport(executable, () => {}, () => {})
++    try {
++      await expect(transport.bind({ lease: { lease: "owner/session", generation: 1 } })).rejects.toThrow("Native Browser Control broker exited")
++    } finally {
++      transport.close()
++    }
++  })
++})
+diff --git a/test/execute-sandbox.test.ts b/test/execute-sandbox.test.ts
+index 69a1faa..992d999 100644
+--- a/test/execute-sandbox.test.ts
++++ b/test/execute-sandbox.test.ts
+@@ -78,6 +78,64 @@ beforeEach(() => {
+ })
+ 
+ describe("ExecuteSandbox", () => {
++  it("keeps the captured Dojo generation while request-tab preparation is pending", async () => {
++    let markRequestStarted: (() => void) | undefined
++    const requestStarted = new Promise<void>((resolve) => { markRequestStarted = resolve })
++    let releasePreparation: (() => void) | undefined
++    const requestPreparation = new Promise<void>((resolve) => { releasePreparation = resolve })
++    const context = new FakeContext()
++    context.addPage("adopted-target")
++    connect(context)
++    let releaseRequest: ((value: { readonly targetId: string }) => void) | undefined
++    const requestTabAttach = vi.fn(async () => {
++      markRequestStarted?.()
++      await requestPreparation
++      return await new Promise<{ readonly targetId: string }>((resolve) => { releaseRequest = resolve })
++    })
++    const sandbox = new ExecuteSandbox({
++      endpointUrl: "http://relay.test",
++      sessionId: "generation-session",
++      requestTabAttach,
++    })
++    sandbox.setDojoGeneration(1)
++    try {
++      const execution = Effect.runPromise(sandbox.execute("requestTab('example.test'); return page.url()"))
++      await requestStarted
++      sandbox.setDojoGeneration(2)
++      releasePreparation?.()
++      await vi.waitFor(() => expect(releaseRequest).toBeTypeOf("function"))
++      releaseRequest?.({ targetId: "adopted-target" })
++
++      await expect(execution).resolves.toMatchObject({ isError: false, value: "https://example.test/page" })
++      expect(connectOverCDP).toHaveBeenCalledWith("http://relay.test", expect.objectContaining({
++        headers: expect.objectContaining({ "Browser-Control-Generation": "1" }),
++      }))
++    } finally {
++      await Effect.runPromise(sandbox.disconnectSettled())
++    }
++  })
++
++  it("queries uncertain commands for the captured Dojo generation after an execute failure", async () => {
++    const context = new FakeContext()
++    connect(context)
++    context.addPage("adopted-target")
++    const getDojoUncertainCommandIds = vi.fn((generation?: number) => generation === 1 ? [31] : [])
++    const sandbox = new ExecuteSandbox({
++      endpointUrl: "http://relay.test",
++      sessionId: "generation-session",
++      getDojoUncertainCommandIds,
++    })
++    sandbox.restore({ id: "adopted-target", owner: "user" })
++    sandbox.setDojoGeneration(1)
++    try {
++      const result = await Effect.runPromise(sandbox.execute("throw new Error('late failure')"))
++      expect(result).toMatchObject({ effect: "unknown", unknownCommandIds: [31] })
++      expect(getDojoUncertainCommandIds).toHaveBeenCalledWith(1)
++    } finally {
++      await Effect.runPromise(sandbox.disconnectSettled())
++    }
++  })
++
+   it("model-checks bounded recovery traces against document-local crash evidence", async () => {
+     // Exhaustive within this bound, not random sampling. The reference model
+     // tracks evidence, not the sandbox's connection/retry implementation.
+diff --git a/test/extension-rpc.test.ts b/test/extension-rpc.test.ts
+index 72c2259..848fe6d 100644
+--- a/test/extension-rpc.test.ts
++++ b/test/extension-rpc.test.ts
+@@ -14,6 +14,14 @@ type FakeSocket = WebSocket & {
+   emitPong: () => void
+ }
+ 
++type FakeDojoTransport = Parameters<ExtensionRpc["useDojoTransport"]>[0]
++
++const makeDojoTransport = (send?: FakeDojoTransport["send"]): FakeDojoTransport => ({
++  connected: true,
++  send: send ?? (async (request) => ({ op: "result", id: request.command.id, status: "admitted" })),
++  close: () => {},
++})
++
+ const makeFakeSocket = (): FakeSocket => {
+   const sent: SentMessage[] = []
+   const closes: Array<{ readonly code: number | undefined; readonly reason: string | undefined }> = []
+@@ -97,6 +105,54 @@ describe("ExtensionRpc", () => {
+     expect(socket.sent).toHaveLength(0)
+   })
+ 
++  it.each([
++    { method: "tabs.group" as const, params: { tabId: 7 } },
++    { method: "tabs.create" as const, params: { active: true } },
++  ])("preflights unsupported Dojo extension commands before native admission", async (command) => {
++    const send = vi.fn<FakeDojoTransport["send"]>()
++    const rpc = new ExtensionRpc()
++    rpc.useDojoTransport(makeDojoTransport(send))
++    rpc.markHandshake("0.0.23", 2)
++    rpc.markReady()
++
++    await expect(Effect.runPromise(rpc.send(command))).rejects.toThrow(/Dojo mode/)
++    expect(send).not.toHaveBeenCalled()
++  })
++
++  it("admits the Dojo attached badge command through the native transport", async () => {
++    const send = vi.fn<FakeDojoTransport["send"]>(async (request) => ({ op: "result", id: request.command.id, status: "admitted" }))
++    const rpc = new ExtensionRpc()
++    rpc.useDojoTransport(makeDojoTransport(send))
++    rpc.markHandshake("0.0.23", 2)
++    rpc.markReady()
++
++    const pending = Effect.runPromise(rpc.send({ method: "action.setAttached", params: { tabId: 7, attached: true } }, { lease: "owner/session", generation: 1 }))
++    await new Promise((resolve) => setTimeout(resolve, 0))
++    expect(send).toHaveBeenCalledOnce()
++    const commandId = send.mock.calls[0]?.[0].command.id
++    expect(commandId).toBeDefined()
++    expect(rpc.handleResponse({ id: commandId ?? 0, result: {} })).toBe(true)
++    await expect(pending).resolves.toEqual({})
++  })
++
++  it("marks admitted Chrome command errors as uncertain without retrying", async () => {
++    const send = vi.fn<FakeDojoTransport["send"]>(async (request) => ({ op: "result", id: request.command.id, status: "admitted" }))
++    const lease = { lease: "owner/session", generation: 3 }
++    const rpc = new ExtensionRpc()
++    rpc.useDojoTransport(makeDojoTransport(send))
++    rpc.markHandshake("0.0.23", 2)
++    rpc.markReady()
++
++    const pending = Effect.runPromise(rpc.send({ method: "debugger.sendCommand", params: { tabId: 7, method: "Runtime.evaluate" } }, lease))
++    await new Promise((resolve) => setTimeout(resolve, 0))
++    const commandId = send.mock.calls[0]?.[0].command.id
++    expect(commandId).toBeDefined()
++    expect(rpc.handleResponse({ id: commandId ?? 0, error: "Chrome rejected command" })).toBe(true)
++    await expect(pending).rejects.toThrow("Chrome rejected command")
++    expect(rpc.uncertainCommandIds(lease)).toEqual([commandId])
++    expect(send).toHaveBeenCalledOnce()
++  })
++
+   it("a command timeout fails only that command and leaves the socket open", async () => {
+     const rpc = new ExtensionRpc({ commandTimeoutMs: 20, livenessProbeTimeoutMs: 1_000 })
+     const socket = connect(rpc)
+diff --git a/test/relay-extension-handshake.test.ts b/test/relay-extension-handshake.test.ts
+index 871a8c7..0ead5aa 100644
+--- a/test/relay-extension-handshake.test.ts
++++ b/test/relay-extension-handshake.test.ts
+@@ -1,4 +1,5 @@
+ import fs from "node:fs"
++import { chmodSync, writeFileSync } from "node:fs"
+ import os from "node:os"
+ import path from "node:path"
+ import { Effect } from "effect"
+@@ -12,6 +13,7 @@ const temporaryDirectories: string[] = []
+ 
+ afterEach(() => {
+   vi.restoreAllMocks()
++  vi.unstubAllEnvs()
+   for (const directory of temporaryDirectories.splice(0)) fs.rmSync(directory, { recursive: true, force: true })
+ })
+ 
+@@ -71,6 +73,62 @@ describe("relay extension handshake", () => {
+     })))
+   })
+ 
++  it("resumes a Dojo session after the native broker delivers the extension ready handshake", async () => {
++    const port = 24_000 + Math.floor(Math.random() * 10_000)
++    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "browser-control-dojo-handshake-"))
++    temporaryDirectories.push(directory)
++    const brokerPath = path.join(directory, "broker")
++    const brokerSource = [
++      "#!/usr/bin/env node",
++      "const readline = require('node:readline')",
++      "const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n')",
++      "setTimeout(() => {",
++      "  send({ op: 'connected' })",
++      "  send({ op: 'extension', message: { method: 'hello', params: { version: '0.0.23', protocolVersion: 2 } } })",
++      "  send({ op: 'extension', message: { method: 'ready' } })",
++      "  setTimeout(() => {",
++      "    send({ op: 'extension', message: { method: 'tabs.removed', params: { tabId: 41 } } })",
++      "    send({ op: 'extension', message: { method: 'log', params: { level: 'log', message: 'contextless-cleanup-done' } } })",
++      "  }, 150)",
++      "}, 50)",
++      "readline.createInterface({ input: process.stdin }).on('line', (line) => {",
++      "  const request = JSON.parse(line)",
++      "  if (request.op === 'bind') send({ op: 'result', id: request.id, status: 'bound' })",
++      "})",
++    ].join("\n")
++    writeFileSync(brokerPath, brokerSource)
++    chmodSync(brokerPath, 0o755)
++    vi.stubEnv("DOJO_BROWSER_CONTROL_MODE", "1")
++    vi.stubEnv("DOJO_BROWSER_CONTROL_BROKER_EXE", brokerPath)
++    const log = vi.spyOn(console, "log").mockImplementation(() => {})
++    const escapedErrors: unknown[] = []
++    const recordEscapedError = (error: unknown) => escapedErrors.push(error)
++    process.on("uncaughtException", recordEscapedError)
++    process.on("unhandledRejection", recordEscapedError)
++
++    try {
++      await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
++        const relay = yield* startRelay({ port, sessionCatalogPath: null })
++        const ready = yield* Effect.promise(() => waitForStatus(relay.url, (candidate) => candidate.connected))
++        expect(ready.connected).toBe(true)
++
++        const response = yield* Effect.promise(() => fetch(`${relay.url}/cli/session/resume`, {
++          method: "POST",
++          headers: { "content-type": "application/json" },
++          body: JSON.stringify({ sessionId: "handshake-session", dojoOwner: "handshake-owner" }),
++        }))
++        expect(response.status).toBe(200)
++        const payload = yield* Effect.promise(() => response.json())
++        expect(payload.session?.dojoGeneration).toBe(1)
++        yield* Effect.promise(() => waitFor(() => log.mock.calls.some((call) => call[0] === "[browser-control extension] contextless-cleanup-done")))
++        expect(escapedErrors).toEqual([])
++      })))
++    } finally {
++      process.off("uncaughtException", recordEscapedError)
++      process.off("unhandledRejection", recordEscapedError)
++    }
++  })
++
+   it("does not wait for restored-tab grouping before becoming ready", async () => {
+     const port = 24_000 + Math.floor(Math.random() * 10_000)
+     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "browser-control-extension-handshake-"))
+diff --git a/test/session-manager.test.ts b/test/session-manager.test.ts
+index 016d442..522e414 100644
+--- a/test/session-manager.test.ts
++++ b/test/session-manager.test.ts
+@@ -19,8 +19,10 @@ type FakeSandbox = ExecuteSandboxLike & {
+ 
+ const makeFakeSandbox = (options?: {
+   readonly onExecute?: Effect.Effect<void>
++  readonly onExecuteCall?: (options: Parameters<ExecuteSandboxLike["execute"]>[1]) => void
+   readonly onAuthenticatedJson?: ExecuteSandboxLike["authenticatedJson"]
+   readonly setupFailure?: Error
++  readonly unknownCommandIds?: readonly number[]
+   readonly adoptFailure?: Error
+   readonly onAdopt?: ExecuteSandboxLike["adoptPage"]
+   readonly onClose?: Effect.Effect<void>
+@@ -48,8 +50,9 @@ const makeFakeSandbox = (options?: {
+     closes += 1
+   }).pipe(Effect.andThen(options?.onClose ?? Effect.void))
+   return {
+-    execute: () =>
+-      (options?.onExecute ?? Effect.void).pipe(
++    execute: (_code, executeOptions) => {
++      options?.onExecuteCall?.(executeOptions)
++      return (options?.onExecute ?? Effect.void).pipe(
+         Effect.tap(() => Effect.sync(() => {
+           if (!options?.setupFailure && persistenceTarget) options?.onDefaultTargetChange?.(persistenceTarget)
+         })),
+@@ -63,13 +66,15 @@ const makeFakeSandbox = (options?: {
+               setupFailed: true as const,
+             }
+           : {
+-              text: "ok",
+-              isError: false as const,
++              text: options?.unknownCommandIds ? "Browser effect outcome is unknown" : "ok",
++              isError: options?.unknownCommandIds !== undefined,
+               logs: [],
+               logSummary: { totalCount: 0, returnedCount: 0, repeatedCount: 0, omittedCount: 0 },
+               warnings: [],
++              ...(options?.unknownCommandIds ? { effect: "unknown" as const, unknownCommandIds: options.unknownCommandIds } : {}),
+             }),
+-      ),
++      )
++    },
+     authenticatedJson: (request) => options?.onAuthenticatedJson
+       ? options.onAuthenticatedJson(request)
+       : Effect.succeed(AuthenticatedJsonOutcome.cases.Success.make({
+@@ -2312,4 +2317,108 @@ describe("BrowserControlSessions", () => {
+       "Tip: an attached tab is open (https://example.com/path). Use browser-control session adopt --target-url 'example.com' to drive it instead of this new tab.",
+     )
+   })
++
++  it("retires an executing generation without its semaphore and resumes with the same adopted target", async () => {
++    await Effect.runPromise(Effect.gen(function* () {
++      const started = yield* Deferred.make<void>()
++      const release = yield* Deferred.make<void>()
++      const retire = vi.fn(() => Effect.succeed({
++        nativeRetired: true,
++        extensionAcknowledged: true,
++        unknownCommandIds: [17],
++      }))
++      const resumed = vi.fn(() => Effect.void)
++      const bind = vi.fn(() => Effect.succeed(true))
++      const sandboxes: FakeSandbox[] = []
++      const executeOptions: Array<Parameters<ExecuteSandboxLike["execute"]>[1]> = []
++      const sessions = new BrowserControlSessions("http://127.0.0.1:0", () => {
++        const sandbox = makeFakeSandbox({
++          onExecute: Deferred.succeed(started, undefined).pipe(
++            Effect.andThen(Deferred.await(release)),
++          ),
++          onExecuteCall: (options) => executeOptions.push(options),
++        })
++        sandboxes.push(sandbox)
++        return sandbox
++      }, { onDojoRetire: retire, onDojoBind: bind, onDojoResume: resumed })
++
++      const initial = yield* sessions.sessionResume("agent-session", "agent-a")
++      expect(initial.dojoGeneration).toBe(1)
++      const session = sessions.sessions.get("agent-session")
++      if (!session) throw new Error("resumed session missing")
++      session.sandbox.restore({ id: "adopted-tab", owner: "user" })
++      session.target = { id: "adopted-tab", owner: "user" }
++
++      const execution = yield* Effect.forkChild(sessions.execute({
++        sessionId: "agent-session",
++        code: "page.title()",
++        createIfMissing: false,
++        dojoOwner: "agent-a",
++        dojoGeneration: 1,
++      }).pipe(Effect.ignore))
++      yield* Deferred.await(started)
++
++      const cancelled = yield* sessions.executeCancel("agent-session", "agent-a")
++      expect(cancelled.nativeRetired).toBe(true)
++      expect(cancelled.unknownCommandIds).toEqual([17])
++      expect(retire).toHaveBeenCalledWith({ sessionId: "agent-session", owner: "agent-a", generation: 1 })
++
++      const next = yield* sessions.sessionResume("agent-session", "agent-a")
++      expect(next.dojoGeneration).toBe(2)
++      expect(sessions.adoptedTargetId("agent-session")).toBe("adopted-tab")
++      expect(sandboxes).toHaveLength(2)
++      expect(session.sandbox).toBe(sandboxes[1])
++      expect(sandboxes[1]?.restoredTarget()).toEqual({ id: "adopted-tab", owner: "user" })
++      expect(resumed).toHaveBeenLastCalledWith({ sessionId: "agent-session", owner: "agent-a", generation: 2 })
++      expect(bind).toHaveBeenNthCalledWith(1, { sessionId: "agent-session", owner: "agent-a", generation: 1 })
++      expect(bind).toHaveBeenNthCalledWith(3, { sessionId: "agent-session", owner: "agent-a", generation: 2 })
++
++      yield* Deferred.succeed(release, undefined)
++      yield* Fiber.await(execution)
++      expect(executeOptions).toEqual([{ dojoGeneration: 1 }])
++    }))
++  })
++
++  it("refuses a generation before execution when native lease binding is refused", async () => {
++    const sessions = new BrowserControlSessions("http://127.0.0.1:0", () => makeFakeSandbox(), {
++      onDojoBind: () => Effect.succeed(false),
++    })
++    const refused = await Effect.runPromise(sessions.sessionResume("agent-session", "agent-a").pipe(Effect.flip))
++    expect(refused.message).toContain("explicitly yield browser control")
++    expect(sessions.dojoLease("agent-session")).toEqual({ owner: "agent-a", generation: 1, retired: true })
++    const error = await Effect.runPromise(sessions.execute({
++      sessionId: "agent-session",
++      code: "page.title()",
++      createIfMissing: false,
++      dojoOwner: "agent-a",
++      dojoGeneration: 1,
++    }).pipe(Effect.flip))
++    expect(error.message).toContain("has been retired")
++  })
++
++  it("returns admitted command uncertainty as structured execute data and retires the generation", async () => {
++    const retire = vi.fn(() => Effect.succeed({
++      nativeRetired: true,
++      extensionAcknowledged: false,
++      unknownCommandIds: [23],
++    }))
++    const sessions = new BrowserControlSessions("http://127.0.0.1:0", () => makeFakeSandbox({ unknownCommandIds: [23] }), {
++      onDojoBind: () => Effect.succeed(true),
++      onDojoRetire: retire,
++    })
++    await Effect.runPromise(sessions.sessionResume("agent-session", "agent-a"))
++
++    const execution = await Effect.runPromise(sessions.execute({
++      sessionId: "agent-session",
++      code: "page.click('button')",
++      createIfMissing: false,
++      dojoOwner: "agent-a",
++      dojoGeneration: 1,
++    }))
++
++    expect(execution.result).toMatchObject({ effect: "unknown", unknownCommandIds: [23], isError: true })
++    expect(execution.result.text).toContain("unknown")
++    expect(sessions.dojoLease("agent-session")).toEqual({ owner: "agent-a", generation: 1, retired: true })
++    expect(retire).toHaveBeenCalledWith({ sessionId: "agent-session", owner: "agent-a", generation: 1 })
++  })
+ })

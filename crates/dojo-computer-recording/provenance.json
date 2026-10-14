@@ -1,0 +1,299 @@
+{
+  "upstream": "https://github.com/trycua/cua",
+  "revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+  "owner": "dojo-computer-recording",
+  "status": "translated-behavior-and-adapter",
+  "sources": [
+    {
+      "path": "libs/python/agent/cua_agent/callbacks/trajectory_saver.py",
+      "sha256": "5ba6278fd5dd0d50c6fd334cd739b8045e27f5e9f726d451cd5f714e44f5c008"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/callbacks/image_retention.py",
+      "sha256": "a967bf5cbca2b2f655627fbf587c888074a973176a752d2d24a23866f5721172"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/callbacks/pii_anonymization.py",
+      "sha256": "3929dbdf4f4a95ce4621072b62e66fc3e75d249d05349dd4d16889793dd0f010"
+    },
+    {
+      "path": "libs/cua-bench/cua_bench/results.py",
+      "sha256": "adb20f9cad33656acb2564f93cb2108ddce6f4813fd34b2e38a4437abaa8b6d8"
+    },
+    {
+      "path": "libs/cua-bench/cua_bench/runner/episode.py",
+      "sha256": "6881354ca0dbda0cd3d9b61f10a0e49fbedf56fe2681b3d0b9c408c62efa212c"
+    },
+    {
+      "path": "libs/cua-bench/cua_bench/processors/gui_r1.py",
+      "sha256": "49d6d18cdfb4b9a909e28a8ddbe36319c81bb5e28ad9e2e1225b5cab0169b19e"
+    },
+    {
+      "path": "libs/cua-bench/cua_bench/processors/aguvis_stage_1.py",
+      "sha256": "f8c471fdb19e28a7d0168809ebac6db8d99a20cdbada8b655d0d01897e804854"
+    },
+    {
+      "path": "libs/cua-bench/cua_bench/adapters/grounding.py",
+      "sha256": "d422757a54f1125a7a5b00ff57aff79b13dd026ae112c0d6063663d1793a963e"
+    },
+    {
+      "path": "libs/cua-bench/tasks/screenspot_pro/main.py",
+      "sha256": "8c6e122b70bc8a3889c1c23340b8deb85d036a2fb6b8e82ee1f2337f6ddefc5d"
+    },
+    {
+      "path": "libs/cua-driver/rust/crates/cua-driver-core/src/action_record.rs",
+      "sha256": "259649d6a1f81f9dcea1e587918960adaab8c7f1706d815a251e6b19a171b698"
+    },
+    {
+      "path": "libs/cua/crates/cua-spaces-transcript/src/cast.rs",
+      "sha256": "abbfeb9a777ba82833e6535700f55502c8636af8178a959869e21cde0f6a184d"
+    },
+    {
+      "path": "libs/cua/crates/cua-spaces-transcript/src/framedoc.rs",
+      "sha256": "63efaedc3f40dceeec2c85a33e94d19fd093fa13d560d601786514b52728d2a9"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/callbacks/logging.py",
+      "sha256": "30d6d61f70f14a423b45927e040c2bea508295754334cebceb8c0d0364c043a8",
+      "scope": "callback-portability-audit; only numeric usage accumulation translated"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/callbacks/telemetry.py",
+      "sha256": "36889d5765f086ccd861e605f80a643a2f7c437373d3c88b074f2fdf8adfe02c",
+      "scope": "callback-portability-audit; only numeric usage accumulation translated"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/callbacks/otel.py",
+      "sha256": "85a3ce088bf350742ce5d2478fbc743d5cd71ed13552ea4e101b9ecdfc61d249",
+      "scope": "callback-portability-audit; only numeric usage accumulation translated"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/callbacks/budget_manager.py",
+      "sha256": "450d0fe2cfb0eb1bed2d0b08c606799fea1c7dc627aa58d29467ed986d5c564f",
+      "scope": "callback-portability-audit; only numeric usage accumulation translated"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/callbacks/operator_validator.py",
+      "sha256": "32b4190b9c928c7b631abc95ad8f13d1b50bf6b3aa4aa4c0eeb30daa4aa65ef5",
+      "scope": "callback-portability-audit; only numeric usage accumulation translated"
+    },
+    {
+      "path": "libs/python/agent/cua_agent/callbacks/prompt_instructions.py",
+      "sha256": "e1f674c4780dc812ec4594cd63e9b67b9c1ccdaf7a5e0251e2f3f9ff1ce799dc",
+      "scope": "callback-portability-audit; only numeric usage accumulation translated"
+    },
+    {
+      "path": "libs/cua-bench/tasks/winarena_adapter/evaluators/metrics/general.py",
+      "sha256": "7ba413cf346ceba2faec0be553b5dcd7134c934e1dcf65ee2f09250b074585d0"
+    },
+    {
+      "path": "libs/cua-bench/tasks/winarena_adapter/evaluators/metrics/utils.py",
+      "sha256": "87b7cb59476f3b50c1e6bda55204ea2d8e2572817257b12a60b48d6e70b5e40b"
+    },
+    {
+      "path": "libs/cua-bench/uv.lock",
+      "sha256": "421c6ec30746e2cc357836e7ce3f1d4093f506131417c4c022482ba8fa991304"
+    }
+  ],
+  "licenses": [
+    "MIT: LICENSE.md",
+    "MIT: libs/cua-bench/LICENSE"
+  ],
+  "local_licenses": [
+    "LICENSE.md",
+    "LICENSE-cua-bench"
+  ],
+  "dependencies": [
+    "serde",
+    "serde_json",
+    "thiserror",
+    "sha2",
+    "base64",
+    "crc32fast",
+    "scraper: html5ever HTML parser",
+    "cua-spaces-transcript: unchanged Rust renderer via existing vendor import"
+  ],
+  "test_evidence": [
+    "tests/recording.rs",
+    "tests/bench_processors.rs",
+    "tests/fixtures/offline-benchmark.json",
+    "tests/usage.rs"
+  ],
+  "patches": [],
+  "divergences": [
+    {
+      "behavior": "Privacy filtering replaces upstream PII pass-through; bounded recording and in-memory image ingestion",
+      "reason": "Secrets must be filtered before persistence; untrusted IDs are not filenames",
+      "reconsideration": "Scope-aware capture policy and deterministic stronger filtering become available"
+    },
+    {
+      "behavior": "Replay analysis never dispatches effects",
+      "reason": "Missing receipts cannot prove that an effect did not happen",
+      "reconsideration": "Explicit authorized fresh-state execution exists outside recording"
+    },
+    {
+      "behavior": "Relative ATIF times in extra, null absolute timestamps",
+      "reason": "No fabricated wall-clock dates",
+      "reconsideration": "Caller supplies validated absolute acquisition times"
+    },
+    {
+      "behavior": "Aguvis SplitMix64 deterministic Rust seed, explicit predefined-action spaces and restricted full grammar",
+      "reason": "Stable Rust augmentation, avoid ambiguous pixels and executable syntax",
+      "reconsideration": "Port MT19937 only if byte-parity datasets are required"
+    },
+    {
+      "behavior": "No PIL font/image annotation or Arrow/Hugging Face IO",
+      "reason": "Typed geometry and caller-supplied artifacts work without Python or optional dataset dependencies",
+      "reconsideration": "Rust annotation/export adapter requested with licensed artifacts"
+    },
+    {
+      "behavior": "Terminal CSI M/S rejected; parameter and work bounds before imported renderer",
+      "reason": "Pinned full-region scroll-up arithmetic can underflow; large tab counts can hang",
+      "reconsideration": "Upstream renderer fixes proven by matching adversarial fixtures"
+    },
+    {
+      "behavior": "Typed integer usage receipts and microUSD known-cost coverage replace unrestricted nested callback addition",
+      "reason": "Avoid overflow, duplicate canonical receipt counting, arbitrary metadata persistence and invented costs",
+      "reconsideration": "Provider-specific adapters prove inclusive input/cache/cost conventions"
+    }
+  ],
+  "capabilities": [
+    "redacted-bounded-trace",
+    "ATIF-v1.8-projection",
+    "effect-gap-analysis",
+    "bounded-asciinema-frame",
+    "GUI-R1-rows",
+    "Aguvis-rows-RGB-shrink",
+    "isolated-dataset-episodes",
+    "box-polygon-infeasible-grounding",
+    "reward-reduction",
+    "Harbor-pass-at-k",
+    "bounded-usage-projection"
+  ],
+  "unimplemented": [
+    "OSWorld-application-metrics",
+    "dataset-downloads-and-license-gates",
+    "desktop-setup-cleanup",
+    "model-generation",
+    "image-annotation-renderer"
+  ],
+  "artifact_licenses": "No model weights or dataset artifacts downloaded or included. Fixtures are original synthetic data.",
+  "local_files": [
+    {
+      "path": "crates/dojo-computer-recording/Cargo.toml",
+      "sha256": "7621e04ba3f127e3a9537b7599fc4283769fa0d28756c7d8c000bea4e37e0567",
+      "status": "local"
+    },
+    {
+      "path": "crates/dojo-computer-recording/Cargo.lock",
+      "sha256": "983fbfe57216af95335a79679c6be97eb5c7a945fa27a15395890888dd10da03",
+      "status": "local"
+    },
+    {
+      "path": "crates/dojo-computer-recording/src/lib.rs",
+      "sha256": "259a417ab474dd8c004a744513fb2920194cfe64b95da4138224784392cef6b1",
+      "status": "translated"
+    },
+    {
+      "path": "crates/dojo-computer-recording/src/processors.rs",
+      "sha256": "1d92b811c8050a54fd04feb4f50f5d7cae18e7239dbbf918e12947bcb9702244",
+      "status": "translated"
+    },
+    {
+      "path": "crates/dojo-computer-recording/src/benchmark.rs",
+      "sha256": "b6b9b67933287d3a90b49404558ab05e72b931e5b6f305347bc264284c6ed819",
+      "status": "translated"
+    },
+    {
+      "path": "crates/dojo-computer-recording/src/bin/dojo-computer-recording.rs",
+      "sha256": "10ef392a32c2e51149a1090136ba747f755bbf81e006f610e19dcfc83164c637",
+      "status": "translated"
+    },
+    {
+      "path": "crates/dojo-computer-recording/tests/recording.rs",
+      "sha256": "c2941330a176ad0a17575b0994b52bb8e6153851df8d4b5a32caf87e495d5324",
+      "status": "local"
+    },
+    {
+      "path": "crates/dojo-computer-recording/tests/bench_processors.rs",
+      "sha256": "96769014cf1c6ff2bde73b58a648c39e81c74847f254a9118a894d676dd3ae24",
+      "status": "local"
+    },
+    {
+      "path": "crates/dojo-computer-recording/tests/fixtures/offline-benchmark.json",
+      "sha256": "c5284c768634198e4d3e4f8e8917ed1567ee1dd540c47ae93f7084dfb5484643",
+      "status": "local"
+    },
+    {
+      "path": "crates/dojo-computer-recording/LICENSE.md",
+      "sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9",
+      "status": "local"
+    },
+    {
+      "path": "crates/dojo-computer-recording/LICENSE-cua-bench",
+      "sha256": "8e58dea3ed074859ef7cdf74f9eb3b51189dc3cd62080a3200ae40411ccf1182",
+      "status": "local"
+    },
+    {
+      "path": "crates/dojo-computer-recording/src/usage.rs",
+      "status": "translated",
+      "sha256": "11fef7c7faa8eaf154bda4da09fb0ccdcd3099e7d4b19329789de103e2f25cbd"
+    },
+    {
+      "path": "crates/dojo-computer-recording/tests/usage.rs",
+      "status": "local",
+      "sha256": "36299a0f3f06cb6d4908bccc19d6d0840a635b85420c6792c50c58aa09f1f9a8"
+    }
+  ],
+  "validated_commands": [
+    {
+      "command": "devenv shell -- cargo test --manifest-path crates/dojo-computer-recording/Cargo.toml",
+      "result": "23 passed"
+    },
+    {
+      "command": "devenv shell -- cargo test --manifest-path vendor/cua/crates/cua-spaces-transcript/Cargo.toml",
+      "result": "21 passed"
+    },
+    {
+      "command": "node --test tools/speech/desktop-trace.test.mjs",
+      "result": "4 passed; canonical Pi immutable entry transactions and real Rust record codec"
+    }
+  ],
+  "integration": {
+    "owner": "Pi canonical conversation entries; runtime.exportDesktopTrace",
+    "codec": "record optional usage samples; Trace.usage optional typed totals; validated ingest and ATIF extra.usage",
+    "pi_ai": {
+      "package": "@earendil-works/pi-ai",
+      "version": "1.1.0",
+      "inclusive_input_evidence": [
+        "dist/types.d.ts:291-311",
+        "dist/models.js:659",
+        "dist/api/openai-responses-shared.js:441-450",
+        "dist/api/anthropic-messages.js:464-469"
+      ]
+    },
+    "cost_semantics": "Explicit reported library/provider estimate, nearest integer microUSD; missing or nonfinite/negative/unrepresentable cost remains unknown; not measured billing",
+    "identity": "SHA256 domain + runtime conversation ID + canonical entry ID; provider response IDs omitted"
+  },
+  "general_metrics": {
+    "implementation": "src/general_metrics.rs",
+    "fixtures": "fixtures/general-metrics.json",
+    "reference_report": "fixtures/general-reference-results.json",
+    "reference_check": "../../scripts/check-cua-metrics-reference.py",
+    "fuzzy_reference_dependency": {
+      "name": "rapidfuzz",
+      "version": "3.14.6",
+      "resolution": "libs/cua-bench/uv.lock",
+      "artifact_lock": "../../provenance/artifacts/rapidfuzz-reference.lock.json",
+      "evidence": "fixtures/general-reference-results.json"
+    },
+    "scope": "Ten deterministic comparator families on supplied typed evidence. No host file getters, Python callbacks, SQL, document parsers, regex or spreadsheet-range dispatch.",
+    "divergences": [
+      "Missing supplied evidence is unknown, not score zero.",
+      "Missing JSON object key never satisfies expected null; upstream direct-object comparator returns success.",
+      "Literal comparators require strings or string arrays instead of arbitrary Python str coercion.",
+      "Mixed float/integer ordering above exact float range is refused, never rounded.",
+      "Fuzzy ratio is bounded Unicode LCS normalized Indel similarity; separate pinned RapidFuzz differential proof remains open."
+    ]
+  }
+}

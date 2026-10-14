@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+as_root() {
+    if [[ $EUID -eq 0 ]]; then
+        "$@"
+    else
+        sudo "$@"
+    fi
+}
+
+if ! command -v firewall-cmd >/dev/null 2>&1; then
+    if ! command -v pacman >/dev/null 2>&1; then
+        printf 'firewalld is not installed and no supported package manager was found\n' >&2
+        exit 1
+    fi
+    as_root pacman -S --needed --noconfirm firewalld
+fi
+
+as_root systemctl enable --now firewalld
+
+# Drop unsolicited inbound traffic on the default zone. The Tailscale tunnel
+# remains trusted so tailnet services are reachable through tailscale0.
+as_root firewall-cmd --set-default-zone=drop
+as_root firewall-cmd --permanent --zone=trusted --add-interface=tailscale0 >/dev/null ||
+    as_root firewall-cmd --permanent --zone=trusted --change-interface=tailscale0 >/dev/null
+as_root firewall-cmd --reload
+
+# Ensure the active tunnel is trusted immediately when it already exists.
+if ip link show tailscale0 >/dev/null 2>&1; then
+    current_zone=$(firewall-cmd --get-zone-of-interface=tailscale0 2>/dev/null || true)
+    if [[ $current_zone != trusted ]]; then
+        as_root firewall-cmd --zone=trusted --change-interface=tailscale0 >/dev/null
+    fi
+fi
+
+printf 'firewalld enabled: default zone drops inbound traffic; tailscale0 is trusted.\n'

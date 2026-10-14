@@ -1059,6 +1059,16 @@ impl<W: LayoutElement> Tile<W> {
         Point::from((0., y))
     }
 
+    pub fn rendered_window_geometry(
+        &self,
+        tile_location: Point<f64, Logical>,
+    ) -> Rectangle<f64, Logical> {
+        Rectangle::new(
+            tile_location + self.bob_offset() + self.window_loc(),
+            self.animated_window_size(),
+        )
+    }
+
     fn render_inner<R: NiriRenderer>(
         &self,
         mut ctx: RenderCtx<R>,
@@ -1091,6 +1101,7 @@ impl<W: LayoutElement> Tile<W> {
         //
         // This isn't to say that adding it here is perfect; indeed, it kind of breaks view_rect
         // passed to update_render_elements(). But, it works well enough for what it is.
+        let area = self.rendered_window_geometry(location);
         let bob_offset = self.bob_offset();
         let location = location + bob_offset;
         xray_pos = xray_pos.offset(bob_offset);
@@ -1098,8 +1109,7 @@ impl<W: LayoutElement> Tile<W> {
         let window_loc = self.window_loc();
         let window_size = self.window_size();
         let animated_window_size = self.animated_window_size();
-        let window_render_loc = location + window_loc;
-        let area = Rectangle::new(window_render_loc, animated_window_size);
+        let window_render_loc = area.loc;
         xray_pos = xray_pos.offset(window_loc);
 
         let rules = self.window.rules();

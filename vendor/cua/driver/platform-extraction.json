@@ -1,0 +1,22 @@
+{
+  "upstream": "trycua/cua",
+  "revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+  "source": "libs/cua-driver/rust/crates/platform-linux/src/browser_platform.rs",
+  "archived_source": "upstream/platform-linux/browser_platform.rs",
+  "license": "MIT; LICENSE.md",
+  "imported_functions": [
+    "is_chromium_identity",
+    "browser_product",
+    "trusted_root_owned_installation",
+    "process_role_for_pid",
+    "parse_proc_net_loopback_listeners"
+  ],
+  "destination": "crates/cua-driver-core/src/browser/niri_evidence.rs",
+  "integration_changes": [
+    "pub(super) visibility and local imports; function bodies retained",
+    "exact-root PID inode proof replaces upstream descendant-tree fallback",
+    "explicit configured endpoint and argv proof replace probing every listening port",
+    "Niri scene/identity callback replaces X11/Hyprland and overlay adapter"
+  ],
+  "tests": "new real-proc and deterministic parser/identity tests; retained original platform tests remain archived, not executed"
+}

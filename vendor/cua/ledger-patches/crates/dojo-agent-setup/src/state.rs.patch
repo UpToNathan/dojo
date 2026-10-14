@@ -1,0 +1,87 @@
+--- a/crates/dojo-agent-setup/src/state.rs
++++ b/crates/dojo-agent-setup/src/state.rs
+@@ -1,4 +1,4 @@
+-//! `~/.cua/agent-setup.json`: what cua wrote, so `remove` only undoes cua's
++//! `~/.dojo/agent-setup.json`: what Dojo wrote, so `remove` only undoes Dojo's
+ //! own changes and `update` knows which skill copies it owns.
+ 
+ use crate::{Error, Result, edit::Format, fsutil};
+@@ -12,7 +12,7 @@
+ /// State file schema version.
+ pub const STATE_VERSION: u32 = 1;
+ 
+-/// One MCP entry cua wrote.
++/// One MCP entry Dojo wrote.
+ #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+ pub struct McpRecord {
+     /// Agents that use this config file.
+@@ -23,9 +23,9 @@
+     pub key_path: Vec<String>,
+     /// Server name.
+     pub name: String,
+-    /// The exact entry cua wrote.
++    /// The exact entry Dojo wrote.
+     pub value: Value,
+-    /// Whether an entry of that name existed before cua first wrote it (then
++    /// Whether an entry of that name existed before Dojo first wrote it (then
+     /// `remove` puts the previous value back instead of deleting it).
+     #[serde(default)]
+     pub previous: Option<Value>,
+@@ -33,14 +33,14 @@
+     pub written_at: String,
+ }
+ 
+-/// One skill copy cua installed.
++/// One skill copy Dojo installed.
+ #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+ pub struct SkillRecord {
+     /// Skill name.
+     pub skill: String,
+     /// Bundled version at install time.
+     pub version: String,
+-    /// Tree hash of what cua wrote (a differing hash means the user edited it).
++    /// Tree hash of what Dojo wrote (a differing hash means the user edited it).
+     pub hash: String,
+     /// Agents that read this skills directory.
+     pub agents: BTreeSet<String>,
+@@ -54,17 +54,17 @@
+     /// Schema version.
+     #[serde(default)]
+     pub version: u32,
+-    /// Config file path → the `cua` entry cua wrote.
++    /// Config file path → the `dojo-desktop` entry Dojo wrote.
+     #[serde(default)]
+     pub mcp: BTreeMap<PathBuf, McpRecord>,
+-    /// Other servers cua registered (`cua-driver`): name → config file
+-    /// path → entry cua wrote.
++    /// Other servers registered: name → config file
++    /// path → entry Dojo wrote.
+     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+     pub servers: BTreeMap<String, BTreeMap<PathBuf, McpRecord>>,
+-    /// Skill directory → copy cua installed.
++    /// Skill directory → copy Dojo installed.
+     #[serde(default)]
+     pub skills: BTreeMap<PathBuf, SkillRecord>,
+-    /// Config file path → the backup taken before cua first wrote it.
++    /// Config file path → the backup taken before Dojo first wrote it.
+     #[serde(default)]
+     pub backups: BTreeMap<PathBuf, PathBuf>,
+ }
+@@ -85,7 +85,7 @@
+         }
+     }
+ 
+-    /// The records of server `name` (`cua` lives in [`State::mcp`]).
++    /// The records of server `name` (`dojo-desktop` lives in [`State::mcp`]).
+     pub fn records(&self, name: &str) -> Option<&BTreeMap<PathBuf, McpRecord>> {
+         if name == crate::MCP_SERVER_NAME {
+             Some(&self.mcp)
+@@ -116,7 +116,7 @@
+         }
+     }
+ 
+-    /// Every server name with a record in `file`, `cua` first.
++    /// Every server name with a record in `file`, `Dojo` first.
+     pub fn names_in(&self, file: &Path) -> Vec<String> {
+         let mut out = Vec::new();
+         if let Some(r) = self.mcp.get(file) {

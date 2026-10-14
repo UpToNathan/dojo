@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set +e
+trap '"$HOME/.local/bin/dojo-desktop" --terminal-closed' EXIT
+trap 'exit 129' HUP
+trap 'exit 143' TERM
+"${DOJO_TERMINAL_SHELL:-$HOME/.nix-profile/bin/rush}"
+terminal_status=$?
+exit "$terminal_status"

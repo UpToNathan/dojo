@@ -9,6 +9,10 @@
 {
   # https://devenv.sh/basics/
   env.GREET = "devenv";
+  env.DOJO_BROWSER_CONTROL_BROKER_EXE =
+    "${(pkgs.callPackage ./nix/browser-control.nix { }).broker}/bin/dojo-browser-control-broker";
+  env.DOJO_BROWSER_CONTROL_MCP_EXE =
+    "${pkgs.callPackage ./nix/browser-control.nix { }}/bin/browser-control-mcp";
   env.LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
   env.BLA_VENDOR = "OpenBLAS";
   env.ALSA_CONFIG_PATH = "/usr/share/alsa/alsa.conf";
@@ -27,8 +31,12 @@
   packages = [
     pkgs.grim
     (pkgs.callPackage ./nix/rift.nix { })
+    (pkgs.callPackage ./nix/browser-control.nix { })
     inputs.bend.packages.${pkgs.stdenv.hostPlatform.system}.default
     pkgs.pkg-config
+    pkgs.protobuf
+    pkgs.gnumake
+    pkgs.readline.dev
     pkgs.cmake
     pkgs.shaderc
     pkgs.spirv-headers
@@ -40,6 +48,9 @@
     pkgs.freetype.dev
     pkgs.wayland.dev
     pkgs.libxkbcommon.dev
+    pkgs.libxi.dev
+    pkgs.libxtst
+    pkgs.openssl.dev
     pkgs.cairo.dev
     pkgs.dbus.dev
     pkgs.libdisplay-info_0_3
@@ -68,14 +79,17 @@
   scripts.hello.exec = ''
     echo hello from $GREET
   '';
+  scripts.dojo-update.exec = ''
+    exec ${pkgs.python3}/bin/python3 /home/nathan/Dojo/scripts/dojo-update "$@"
+  '';
   scripts.dojo-voice.exec = ''
     exec /home/nathan/Dojo/tools/speech/dojo-voice "$@"
   '';
   scripts.install-rbonsai.exec = ''
-    cargo install rbonsai --locked
+    cargo install rbonsai --version '=0.1.5' --locked
   '';
   scripts.install-mbx.exec = ''
-    cargo install mbx --locked
+    cargo install mbx --version '=1.22.0' --locked
   '';
   scripts.install-nvim-lsps.exec = ''
     npm install --global --prefix /home/nathan/.local/npm \

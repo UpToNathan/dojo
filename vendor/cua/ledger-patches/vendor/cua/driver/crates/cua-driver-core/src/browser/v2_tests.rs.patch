@@ -1,0 +1,29 @@
+--- a/vendor/cua/driver/crates/cua-driver-core/src/browser/v2_tests.rs
++++ b/vendor/cua/driver/crates/cua-driver-core/src/browser/v2_tests.rs
+@@ -51,7 +51,7 @@
+     oopif_present: bool,
+     emit_rogue_attach: bool,
+     main_url: String,
+-    main_loader: String,
++    pub(super) main_loader: String,
+     iframe_loader: String,
+     oopif_loader: String,
+     tab_sessions: u64,
+@@ -75,7 +75,7 @@
+     /// Make `Browser.getWindowForTarget` for T1 answer this CDP error.
+     primary_window_error: Option<(i64, String)>,
+     /// Every incoming CDP call: (sessionId, method, params).
+-    calls: Vec<(Option<String>, String, Value)>,
++    pub(super) calls: Vec<(Option<String>, String, Value)>,
+ }
+ 
+ impl Default for FixtureState {
+@@ -427,7 +427,7 @@
+     })
+ }
+ 
+-fn fixture_handler(state: SharedState) -> MockHandler {
++pub(super) fn fixture_handler(state: SharedState) -> MockHandler {
+     Arc::new(move |call| {
+         let mut st = state.lock().unwrap();
+         st.calls.push((

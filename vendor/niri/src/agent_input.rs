@@ -5,6 +5,7 @@
 
 use std::collections::HashSet;
 use std::io::Cursor;
+use std::rc::Rc;
 use std::time::Duration;
 
 use anyhow::Context as _;
@@ -36,6 +37,7 @@ use crate::utils::get_monotonic_time;
 
 pub struct AgentSeat {
     peer: u64,
+    owner: Option<Rc<peer::KernelPeer>>,
     pub seat: Seat<State>,
     state: SeatState<State>,
     target: Option<WlSurface>,
@@ -45,9 +47,29 @@ pub struct AgentSeat {
     visible: bool,
     cursor: MemoryRenderBuffer,
     motion: Option<Motion>,
+    captured_geometry: Option<niri_ipc::CapturedInputGeometry>,
     arrival: Option<Arrival>,
     shared_pointer: Option<(WlSurface, Point<f64, Logical>)>,
     shared_keyboard: Option<WlSurface>,
+}
+
+pub(crate) mod peer;
+
+impl State {
+    pub(crate) fn bind_agent_owner(&mut self, id: u64, owner: Option<Rc<peer::KernelPeer>>) {
+        if let Some(seat) = self.niri.agent_seats.get_mut(&id) {
+            if seat.owner.is_none() {
+                seat.owner = owner;
+            }
+        }
+    }
+    pub(crate) fn agent_peer_owned_by(&self, id: u64, pid: u32, start: u64) -> bool {
+        self.niri
+            .agent_seats
+            .get(&id)
+            .and_then(|seat| seat.owner.as_ref())
+            .is_some_and(|owner| owner.matches_process(pid, start))
+    }
 }
 
 struct Arrival {
@@ -61,7 +83,58 @@ pub fn enabled() -> bool {
 
 fn validate(command: &AgentInput) -> Result<(), String> {
     match command {
+        AgentInput::Captured { geometry, command } => {
+            if geometry.rect.2 <= 0.
+                || geometry.rect.3 <= 0.
+                || ![
+                    geometry.rect.0,
+                    geometry.rect.1,
+                    geometry.rect.2,
+                    geometry.rect.3,
+                    geometry.output_geometry.scale,
+                ]
+                .iter()
+                .all(|v| v.is_finite())
+            {
+                return Err("invalid captured geometry".into());
+            }
+            if matches!(
+                **command,
+                AgentInput::Create { .. }
+                    | AgentInput::Destroy
+                    | AgentInput::Coordinated { .. }
+                    | AgentInput::Captured { .. }
+            ) {
+                return Err("captured envelope requires one input command".into());
+            }
+            if let AgentInput::Focus { window_id } = **command {
+                if window_id != geometry.window_id {
+                    return Err("captured focus target mismatch".into());
+                }
+            }
+            if let AgentInput::Targeted { window_id, .. } = **command {
+                if window_id != geometry.window_id {
+                    return Err("captured target mismatch".into());
+                }
+            }
+            return validate(command);
+        }
         AgentInput::Coordinated { command, .. } => return validate(command),
+        AgentInput::Targeted { command, .. } => {
+            if !matches!(
+                **command,
+                AgentInput::Button { .. }
+                    | AgentInput::Axis { .. }
+                    | AgentInput::Key { .. }
+                    | AgentInput::TextKey { .. }
+                    | AgentInput::Move { .. }
+            ) {
+                return Err(
+                    "Targeted accepts only Button, Axis, Key, TextKey, or Move commands".into(),
+                );
+            }
+            return validate(command);
+        }
         AgentInput::Create { name } => {
             if name.is_empty()
                 || name.len() > 32
@@ -80,7 +153,9 @@ fn validate(command: &AgentInput) -> Result<(), String> {
         AgentInput::Button { button, .. } if !(0x110..=0x117).contains(button) => {
             return Err("button must be a Linux mouse button code between 272 and 279".into());
         }
-        AgentInput::Key { evdev, .. } if !(1..=255).contains(evdev) => {
+        AgentInput::Key { evdev, .. } | AgentInput::TextKey { evdev, .. }
+            if !(1..=255).contains(evdev) =>
+        {
             return Err("evdev keyboard code must be between 1 and 255".into());
         }
         AgentInput::Axis {
@@ -96,6 +171,46 @@ fn validate(command: &AgentInput) -> Result<(), String> {
         _ => {}
     }
     Ok(())
+}
+
+fn is_release(command: &AgentInput) -> bool {
+    match command {
+        AgentInput::Targeted { command, .. } => is_release(command),
+        AgentInput::Key {
+            state: AgentInputState::Released,
+            ..
+        }
+        | AgentInput::TextKey {
+            state: AgentInputState::Released,
+            ..
+        }
+        | AgentInput::Button {
+            state: AgentInputState::Released,
+            ..
+        } => true,
+        _ => false,
+    }
+}
+
+fn is_move(command: &AgentInput) -> bool {
+    match command {
+        AgentInput::Move { .. } => true,
+        AgentInput::Captured { command, .. }
+        | AgentInput::Coordinated { command, .. }
+        | AgentInput::Targeted { command, .. } => is_move(command),
+        _ => false,
+    }
+}
+
+// Keep all wrappers intact until arrival, then check ownership and target at dispatch.
+fn deferred(command: &AgentInput) -> bool {
+    match command {
+        AgentInput::Captured { command, .. }
+        | AgentInput::Coordinated { command, .. }
+        | AgentInput::Targeted { command, .. } => deferred(command),
+        AgentInput::Wait | AgentInput::Button { .. } | AgentInput::Axis { .. } => true,
+        _ => false,
+    }
 }
 
 impl State {
@@ -151,6 +266,7 @@ impl State {
                 peer,
                 AgentSeat {
                     peer,
+                    owner: None,
                     seat,
                     state,
                     target: None,
@@ -160,18 +276,22 @@ impl State {
                     visible: false,
                     cursor,
                     motion: None,
+                    captured_geometry: None,
                     arrival: None,
                     shared_pointer: None,
                     shared_keyboard: None,
                 },
             );
-            return Ok(Response::AgentInputCreated { seat_name });
+            return Ok(Response::AgentInputCreated {
+                seat_name,
+                peer_id: peer,
+            });
         }
         if matches!(command, AgentInput::Destroy) {
             self.destroy_agent(peer);
             return Ok(Response::Handled);
         }
-        let moving = matches!(command, AgentInput::Move { .. });
+        let moving = is_move(&command);
         let result = self.with_agent(peer, |this, agent| this.dispatch_agent(agent, command))?;
         if let Err(reason) = result {
             return self.agent_input_failure(reason);
@@ -202,13 +322,6 @@ impl State {
         command: AgentInput,
         reply: async_channel::Sender<niri_ipc::Reply>,
     ) {
-        fn deferred(command: &AgentInput) -> bool {
-            match command {
-                AgentInput::Coordinated { command, .. } => deferred(command),
-                AgentInput::Wait | AgentInput::Button { .. } | AgentInput::Axis { .. } => true,
-                _ => false,
-            }
-        }
         if deferred(&command) {
             if let Err(error) = self.check_agent_input(&command) {
                 let _ = reply.try_send(Err(error));
@@ -259,16 +372,161 @@ impl State {
         Ok(result)
     }
 
+    pub(crate) fn require_capture_geometry(
+        &self,
+        geometry: &niri_ipc::CapturedInputGeometry,
+    ) -> Result<(), String> {
+        if geometry.coordination_revision != self.niri.input_coordination.revision {
+            return Err("paused: input ownership changed".into());
+        }
+        if geometry.compositor_pid != std::process::id() {
+            return Err("capture compositor generation changed".into());
+        }
+        let stat = std::fs::read_to_string(format!("/proc/{}/stat", std::process::id()))
+            .map_err(|e| e.to_string())?;
+        let start = stat
+            .rsplit_once(')')
+            .and_then(|(_, v)| v.split_whitespace().nth(19))
+            .and_then(|v| v.parse::<u64>().ok())
+            .ok_or("compositor generation unavailable")?;
+        if start != geometry.compositor_start_time {
+            return Err("capture compositor generation changed".into());
+        }
+        let output = self
+            .niri
+            .global_space
+            .outputs()
+            .find(|o| o.name() == geometry.output)
+            .ok_or("capture output disappeared")?;
+        if crate::utils::logical_output(output) != geometry.output_geometry {
+            return Err("capture output geometry changed".into());
+        }
+        let placements = self
+            .niri
+            .layout
+            .capture_placements(output)
+            .map_err(str::to_owned)?;
+        let (window, rect, _) = placements
+            .into_iter()
+            .find(|(window, _, _)| window.id().get() == geometry.window_id)
+            .ok_or("capture window disappeared")?;
+        if window.credentials().and_then(|c| u32::try_from(c.pid).ok()) != Some(geometry.pid)
+            || (rect.loc.x, rect.loc.y, rect.size.w, rect.size.h) != geometry.rect
+        {
+            return Err("capture window identity or rendered geometry changed".into());
+        }
+        Ok(())
+    }
+
+    /// Resolve compositor-owned target authority immediately before a bounded external send.
+    pub(crate) fn resolve_external_target(
+        &mut self,
+        peer: u64,
+        revision: u64,
+        window_id: u64,
+    ) -> Result<(WlSurface, u32), String> {
+        if revision != self.niri.input_coordination.revision {
+            return Err("paused: input ownership changed".into());
+        }
+        if !self.niri.agent_input_enabled || !matches!(self.niri.lock_state, LockState::Unlocked) {
+            return Err("external mutation requires an enabled unlocked agent seat".into());
+        }
+        let mut target = None;
+        self.niri.layout.with_windows(|window, output, _, _| {
+            if window.id().get() == window_id && output.is_some() {
+                if let Some(credentials) = window.credentials() {
+                    target = Some((window.toplevel().wl_surface().clone(), credentials.pid));
+                }
+            }
+        });
+        let (surface, pid) = target.ok_or("external target has no mapped live process identity")?;
+        let pid = u32::try_from(pid).map_err(|_| "external target has invalid process identity")?;
+        self.with_agent(peer, |this, agent| {
+            this.require_agent_client(agent, &surface)
+        })??;
+        Ok((surface, pid))
+    }
+
     fn dispatch_agent(&mut self, agent: &mut AgentSeat, command: AgentInput) -> Result<(), String> {
+        self.dispatch_agent_targeted(agent, command, None)
+    }
+
+    fn require_agent_window(
+        &self,
+        surface: Option<&WlSurface>,
+        window_id: u64,
+    ) -> Result<(), String> {
+        let mapped = surface.and_then(|surface| {
+            // This resolves subsurfaces and popup ancestry, never client identity.
+            let root = self.niri.find_root_shell_surface(surface);
+            self.niri
+                .layout
+                .find_window_and_output(&root)
+                .filter(|(_, output)| output.is_some())
+                .map(|(window, _)| window.id().get())
+        });
+        if mapped != Some(window_id) {
+            return Err(format!(
+                "agent target mismatch: expected mapped window {window_id}, found {mapped:?}"
+            ));
+        }
+        Ok(())
+    }
+
+    fn require_agent_pointer_window(
+        &mut self,
+        agent: &mut AgentSeat,
+        window_id: u64,
+    ) -> Result<(), String> {
+        let pointer = agent.seat.get_pointer().unwrap();
+        let location = pointer.current_location();
+        // Re-hit-test now, not at capture time or the previous animation frame.
+        let under = self.niri.contents_under(location);
+        self.require_agent_window(
+            under.surface.as_ref().map(|(surface, _)| surface),
+            window_id,
+        )?;
+        let surface = &under.surface.as_ref().unwrap().0;
+        self.require_agent_client(agent, surface)?;
+        // An implicit button grab can retain another window even when the hit test matches.
+        if let Some((surface, _)) = &agent.shared_pointer {
+            if !agent.buttons.is_empty() {
+                self.require_agent_window(Some(surface), window_id)?;
+            }
+        }
+        agent.move_to(self, location);
+        self.require_agent_window(pointer.current_focus().as_ref(), window_id)
+    }
+
+    fn dispatch_agent_targeted(
+        &mut self,
+        agent: &mut AgentSeat,
+        command: AgentInput,
+        expected: Option<u64>,
+    ) -> Result<(), String> {
         let pointer = agent.seat.get_pointer().unwrap();
         let keyboard = agent.seat.get_keyboard().unwrap();
         let redraw_all = !matches!(&command, AgentInput::Move { .. } | AgentInput::Wait);
         match command {
+            AgentInput::Captured { geometry, command } => {
+                if let Err(reason) = self.require_capture_geometry(&geometry) {
+                    if is_release(&command) {
+                        let _ =
+                            self.dispatch_agent_targeted(agent, *command, Some(geometry.window_id));
+                    }
+                    return Err(reason);
+                }
+                agent.captured_geometry = Some(geometry.clone());
+                return self.dispatch_agent_targeted(agent, *command, Some(geometry.window_id));
+            }
             AgentInput::Coordinated { revision, command } => {
                 if revision != self.niri.input_coordination.revision {
                     return Err("paused: input ownership changed".into());
                 }
-                return self.dispatch_agent(agent, *command);
+                return self.dispatch_agent_targeted(agent, *command, expected);
+            }
+            AgentInput::Targeted { window_id, command } => {
+                return self.dispatch_agent_targeted(agent, *command, Some(window_id));
             }
             AgentInput::Focus { window_id } => {
                 let mut target = None;
@@ -295,6 +553,18 @@ impl State {
                     return Err("pointer coordinates must be inside the output".into());
                 }
                 let location = geometry.loc.to_f64() + Point::from((x, y));
+                if let Some(window_id) = expected {
+                    let under = self.niri.contents_under(location);
+                    self.require_agent_window(
+                        under.surface.as_ref().map(|(surface, _)| surface),
+                        window_id,
+                    )?;
+                    let surface = &under.surface.as_ref().unwrap().0;
+                    self.require_agent_client(agent, surface)?;
+                    if !agent.buttons.is_empty() {
+                        self.require_agent_pointer_window(agent, window_id)?;
+                    }
+                }
                 let now = get_monotonic_time();
                 let from = if agent.visible {
                     pointer.current_location()
@@ -333,6 +603,9 @@ impl State {
             AgentInput::Button { button, state } => {
                 let pressed = state == AgentInputState::Pressed;
                 if pressed {
+                    if let Some(window_id) = expected {
+                        self.require_agent_pointer_window(agent, window_id)?;
+                    }
                     let surface = agent
                         .contents
                         .as_ref()
@@ -372,6 +645,31 @@ impl State {
                     pointer.frame(self);
                 }
             }
+            AgentInput::TextKey { evdev, state } => {
+                if state == AgentInputState::Pressed {
+                    let config = self.niri.config.borrow();
+                    let xkb = &config.input.keyboard.xkb;
+                    let mods = keyboard.modifier_state().serialized;
+                    if xkb.layout != "us"
+                        || !xkb.variant.is_empty()
+                        || xkb.file.is_some()
+                        || xkb.options.as_ref().is_some_and(|v| !v.is_empty())
+                        || !xkb.rules.is_empty()
+                        || !xkb.model.is_empty()
+                        || mods.locked != 0
+                        || mods.latched != 0
+                        || mods.layout_effective != 0
+                        || agent.keys.iter().any(|code| *code != 42)
+                    {
+                        return Err("physical text requires plain US layout, no locked modifiers, and no other held keys".into());
+                    }
+                }
+                return self.dispatch_agent_targeted(
+                    agent,
+                    AgentInput::Key { evdev, state },
+                    expected,
+                );
+            }
             AgentInput::Key { evdev, state } => {
                 if agent.target.as_ref().is_none_or(|surface| {
                     self.niri
@@ -384,6 +682,10 @@ impl State {
                 }
                 let pressed = state == AgentInputState::Pressed;
                 if pressed {
+                    if let Some(window_id) = expected {
+                        self.require_agent_window(agent.target.as_ref(), window_id)?;
+                        self.require_agent_window(keyboard.current_focus().as_ref(), window_id)?;
+                    }
                     self.require_agent_client(agent, agent.target.as_ref().unwrap())?;
                 }
                 let shared = agent.shared_keyboard_focus(self)?;
@@ -420,6 +722,9 @@ impl State {
                 horizontal,
                 vertical,
             } => {
+                if let Some(window_id) = expected {
+                    self.require_agent_pointer_window(agent, window_id)?;
+                }
                 if !agent.visible || pointer.current_focus().is_none() {
                     return Err("move the agent pointer onto a client surface first".into());
                 }
@@ -502,6 +807,14 @@ impl State {
                     agent.reset(this);
                     return;
                 }
+                if agent
+                    .captured_geometry
+                    .as_ref()
+                    .is_some_and(|geometry| this.require_capture_geometry(geometry).is_err())
+                {
+                    agent.reset(this);
+                    return;
+                }
                 if agent.visible {
                     let pointer = agent.seat.get_pointer().unwrap();
                     let now = get_monotonic_time();
@@ -514,6 +827,25 @@ impl State {
                         let done = motion.remaining(now).is_zero()
                             || this.niri.clock.should_complete_instantly();
                         let location = if done { motion.destination() } else { location };
+                        if !agent.buttons.is_empty() {
+                            let under = this.niri.contents_under(location);
+                            let expected = agent.target.as_ref().and_then(|target| {
+                                this.niri
+                                    .layout
+                                    .find_window_and_output(target)
+                                    .map(|(window, _)| window.id().get())
+                            });
+                            if expected.is_none_or(|id| {
+                                this.require_agent_window(
+                                    under.surface.as_ref().map(|(surface, _)| surface),
+                                    id,
+                                )
+                                .is_err()
+                            }) {
+                                agent.reset(this);
+                                return;
+                            }
+                        }
                         agent.move_to(this, location);
                         if done {
                             if let Some((output, _)) = this.niri.output_under(location) {
@@ -582,7 +914,6 @@ impl Drop for State {
 impl AgentSeat {
     fn move_to(&mut self, state: &mut State, location: Point<f64, Logical>) {
         let under = state.niri.contents_under(location);
-        self.contents = under.surface.clone();
         let pointer = self.seat.get_pointer().unwrap();
         let previous = pointer.current_location();
         if !self.visible || previous != location {
@@ -603,10 +934,18 @@ impl AgentSeat {
                 state.niri.queue_redraw(&output);
             }
         }
-        let allowed = under
-            .surface
-            .as_ref()
-            .is_some_and(|(surface, _)| state.require_agent_client(self, surface).is_ok());
+        let allowed = under.surface.as_ref().is_some_and(|(surface, _)| {
+            self.captured_geometry.as_ref().is_none_or(|geometry| {
+                state
+                    .require_agent_window(Some(surface), geometry.window_id)
+                    .is_ok()
+            }) && state.require_agent_client(self, surface).is_ok()
+        });
+        self.contents = if self.captured_geometry.is_some() && !allowed {
+            None
+        } else {
+            under.surface.clone()
+        };
         pointer.motion(
             state,
             if allowed { under.surface } else { None },
@@ -667,6 +1006,7 @@ impl AgentSeat {
         self.release_keys(state);
         self.release_shared(state);
         self.motion = None;
+        self.captured_geometry = None;
         if let Some(arrival) = self.arrival.take() {
             let _ = arrival
                 .reply
@@ -821,6 +1161,36 @@ fn font_pointer_buffer(color: niri_config::Color) -> anyhow::Result<MemoryRender
 #[cfg(test)]
 mod cursor_tests {
     use super::*;
+
+    #[test]
+    fn targeted_commands_remain_guarded_until_pointer_arrival() {
+        let button = AgentInput::Coordinated {
+            revision: 7,
+            command: Box::new(AgentInput::Targeted {
+                window_id: 42,
+                command: Box::new(AgentInput::Button {
+                    button: 272,
+                    state: AgentInputState::Pressed,
+                }),
+            }),
+        };
+        assert!(validate(&button).is_ok());
+        assert!(deferred(&button));
+        let invalid = AgentInput::Targeted {
+            window_id: 42,
+            command: Box::new(AgentInput::Reset),
+        };
+        assert!(validate(&invalid).is_err());
+        let key = AgentInput::Targeted {
+            window_id: 42,
+            command: Box::new(AgentInput::Key {
+                evdev: 30,
+                state: AgentInputState::Pressed,
+            }),
+        };
+        assert!(validate(&key).is_ok());
+        assert!(!deferred(&key));
+    }
 
     #[test]
     fn nerd_font_pointer_has_transparency_and_premultiplied_color() {

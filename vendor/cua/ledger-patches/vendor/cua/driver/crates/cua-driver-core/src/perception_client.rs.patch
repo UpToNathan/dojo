@@ -1,0 +1,549 @@
+--- a/vendor/cua/driver/crates/cua-driver-core/src/perception_client.rs
++++ b/vendor/cua/driver/crates/cua-driver-core/src/perception_client.rs
+@@ -3,19 +3,18 @@
+ pub mod containment;
+ 
+ use std::path::PathBuf;
+-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+ use std::sync::Arc;
++use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+ use std::time::{Duration, Instant};
+ 
+ use serde::Deserialize;
+-use serde_json::{json, Value};
++use serde_json::{Value, json};
+ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+ use tokio::sync::{Mutex as AsyncMutex, Notify};
+ use uuid::Uuid;
+ 
+ use cua_driver_contract::{VisualParseError, VisualParseErrorCode};
+ 
+-#[cfg(test)]
+ use containment::ContainmentLimits;
+ use containment::{ContainedChild, WorkerExit, WorkerStdin, WorkerStdout};
+ 
+@@ -51,7 +50,6 @@
+     pub expected_extension_identity: Option<ExpectedExtensionIdentity>,
+     installed: bool,
+     windows_acl_lease_path: Option<PathBuf>,
+-    #[cfg(test)]
+     containment: ContainmentLimits,
+ }
+ 
+@@ -66,7 +64,6 @@
+             expected_extension_identity: None,
+             installed: false,
+             windows_acl_lease_path: None,
+-            #[cfg(test)]
+             containment: ContainmentLimits::default(),
+         }
+     }
+@@ -122,19 +119,14 @@
+     }
+ 
+     fn containment_limits(&self) -> containment::ContainmentLimits {
+-        #[cfg(test)]
+-        {
+-            let mut limits = self.containment.clone();
+-            limits.windows_acl_lease_path = self.windows_acl_lease_path.clone();
+-            limits
+-        }
+-        #[cfg(not(test))]
+-        {
+-            containment::ContainmentLimits {
+-                windows_acl_lease_path: self.windows_acl_lease_path.clone(),
+-                ..containment::ContainmentLimits::default()
+-            }
+-        }
++        let mut limits = self.containment.clone();
++        limits.windows_acl_lease_path = self.windows_acl_lease_path.clone();
++        limits
++    }
++
++    pub(crate) fn with_host_containment(mut self, limits: ContainmentLimits) -> Self {
++        self.containment = limits;
++        self
+     }
+ 
+     #[cfg(test)]
+@@ -195,6 +187,7 @@
+     worker: AsyncMutex<Option<WarmWorker>>,
+     cancellation_epoch: AtomicU64,
+     cancellation_notify: Notify,
++    cleanup_failed: AtomicBool,
+ }
+ 
+ impl PerceptionState {
+@@ -284,6 +277,10 @@
+         self.config.is_some()
+     }
+ 
++    pub(crate) fn cleanup_settled(&self) -> bool {
++        !self.state.cleanup_failed.load(Ordering::Acquire)
++    }
++
+     /// The verified worker configuration, when an extension is installed.
+     pub fn worker_config(&self) -> Option<&PerceptionWorkerConfig> {
+         self.config.as_deref()
+@@ -332,10 +329,22 @@
+                 .await;
+         }
+ 
+-        let operation = self.parse_cold(config, capture_id, width, height, png_bytes);
+-        tokio::select! {
++        let started = tokio::time::Instant::now();
++        let mut worker = WarmWorker::spawn_only(config).await?;
++        let operation = async {
++            worker.health(config).await?;
++            let result = worker
++                .parse(config, capture_id, width, height, png_bytes)
++                .await?;
++            worker.stdin.take();
++            match worker.contained.wait().await.map_err(map_crash_error)? {
++                WorkerExit::Success => Ok(result),
++                exit => Err(map_worker_exit(exit)),
++            }
++        };
++        let result = tokio::select! {
+             _ = cancellation.cancelled() => Err(cancelled_error()),
+-            result = tokio::time::timeout(config.request_timeout, operation) => {
++            result = tokio::time::timeout_at(started + config.request_timeout, operation) => {
+                 match result {
+                     Ok(result) => result,
+                     Err(_) => Err(error(
+@@ -346,28 +355,28 @@
+                     )),
+                 }
+             }
++        };
++        if result.is_err() {
++            let WarmWorker {
++                contained,
++                stdin,
++                stdout,
++                _working_directory,
++                ..
++            } = worker;
++            drop(stdin);
++            drop(stdout);
++            containment::terminate_reaped(contained).await.map_err(|cause| {
++                self.state.cleanup_failed.store(true, Ordering::Release);
++                error(
++                VisualParseErrorCode::WorkerCrashed,
++                "perception worker cleanup did not settle; restart the backend before another parse",
++                false,
++                Some(cause.to_string()),
++            )})?;
++            drop(_working_directory);
+         }
+-    }
+-
+-    async fn parse_cold(
+-        &self,
+-        config: &PerceptionWorkerConfig,
+-        capture_id: &str,
+-        width: u32,
+-        height: u32,
+-        png_bytes: &[u8],
+-    ) -> Result<Value, VisualParseError> {
+-        let mut worker = WarmWorker::launch(config).await?;
+-        let result = worker
+-            .parse(config, capture_id, width, height, png_bytes)
+-            .await?;
+-        // Dropping the writer closes the pipe on every platform, which is what
+-        // the worker observes as end of file; a named-pipe shutdown would not.
+-        worker.stdin.take();
+-        match worker.contained.wait().await.map_err(map_crash_error)? {
+-            WorkerExit::Success => Ok(result),
+-            exit => Err(map_worker_exit(exit)),
+-        }
++        result
+     }
+ 
+     async fn parse_warm(
+@@ -627,6 +636,12 @@
+ 
+ impl WarmWorker {
+     async fn launch(config: &PerceptionWorkerConfig) -> Result<Self, VisualParseError> {
++        let mut worker = Self::spawn_only(config).await?;
++        worker.health(config).await?;
++        Ok(worker)
++    }
++
++    async fn spawn_only(config: &PerceptionWorkerConfig) -> Result<Self, VisualParseError> {
+         let working_directory = tempfile::Builder::new()
+             .prefix("cua-perception-")
+             .tempdir()
+@@ -646,7 +661,7 @@
+             &limits,
+         )
+         .await?;
+-        let mut stdin = contained.take_stdin().ok_or_else(|| {
++        let stdin = contained.take_stdin().ok_or_else(|| {
+             error(
+                 VisualParseErrorCode::WorkerLaunchFailed,
+                 "perception worker stdin was unavailable",
+@@ -654,7 +669,7 @@
+                 None,
+             )
+         })?;
+-        let mut stdout = contained.take_stdout().ok_or_else(|| {
++        let stdout = contained.take_stdout().ok_or_else(|| {
+             error(
+                 VisualParseErrorCode::WorkerLaunchFailed,
+                 "perception worker stdout was unavailable",
+@@ -662,14 +677,26 @@
+                 None,
+             )
+         })?;
++        Ok(Self {
++            contained,
++            stdin: Some(stdin),
++            stdout,
++            _working_directory: working_directory,
++            last_used: Instant::now(),
++            idle_generation: 0,
++        })
++    }
++
++    async fn health(&mut self, config: &PerceptionWorkerConfig) -> Result<(), VisualParseError> {
++        let stdin = self.stdin.as_mut().expect("new worker request pipe");
+         let health_id = format!("health-{}", Uuid::new_v4());
+         write_json_frame(
+-            &mut stdin,
++            stdin,
+             &json!({"protocol": PROTOCOL_VERSION, "request_id": health_id, "method": "health", "params": {}}),
+             config.max_frame_bytes,
+         )
+         .await?;
+-        let health = read_response(&mut stdout, config.max_frame_bytes).await?;
++        let health = read_response(&mut self.stdout, config.max_frame_bytes).await?;
+         let health_result = health.into_result(&health_id)?;
+         if health_result.get("ready").and_then(Value::as_bool) != Some(true)
+             || health_result.get("protocol").and_then(Value::as_str) != Some(PROTOCOL_VERSION)
+@@ -685,14 +712,7 @@
+             &health_result,
+             config.expected_extension_identity.as_ref(),
+         )?;
+-        Ok(Self {
+-            contained,
+-            stdin: Some(stdin),
+-            stdout,
+-            _working_directory: working_directory,
+-            last_used: Instant::now(),
+-            idle_generation: 0,
+-        })
++        Ok(())
+     }
+ 
+     async fn parse(
+@@ -703,7 +723,7 @@
+         height: u32,
+         png_bytes: &[u8],
+     ) -> Result<Value, VisualParseError> {
+-        use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
++        use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+ 
+         let stdin = self.stdin.as_mut().ok_or_else(|| {
+             error(
+@@ -1201,13 +1221,25 @@
+         PathBuf::from("/usr/bin/python3"),
+         PathBuf::from("/usr/local/bin/python3"),
+         PathBuf::from("/Applications/Xcode.app/Contents/Developer/usr/bin/python3"),
+-        PathBuf::from("/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9"),
+-        PathBuf::from("/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Python3"),
+-        PathBuf::from("/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python"),
++        PathBuf::from(
++            "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9",
++        ),
++        PathBuf::from(
++            "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Python3",
++        ),
++        PathBuf::from(
++            "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python",
++        ),
+         PathBuf::from("/Library/Developer/CommandLineTools/usr/bin/python3"),
+-        PathBuf::from("/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9"),
+-        PathBuf::from("/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/Python3"),
+-        PathBuf::from("/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python"),
++        PathBuf::from(
++            "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9",
++        ),
++        PathBuf::from(
++            "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/Python3",
++        ),
++        PathBuf::from(
++            "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python",
++        ),
+     ]
+ }
+ 
+@@ -1441,10 +1473,12 @@
+         expected.dedup();
+ 
+         assert_eq!(config.executable_paths, expected);
+-        assert!(config
+-            .executable_paths
+-            .windows(2)
+-            .all(|pair| pair[0] < pair[1]));
++        assert!(
++            config
++                .executable_paths
++                .windows(2)
++                .all(|pair| pair[0] < pair[1])
++        );
+     }
+ 
+     #[test]
+@@ -1470,27 +1504,33 @@
+             config.executable_paths,
+             vec![std::fs::canonicalize(&config.interpreter).unwrap()]
+         );
+-        assert!(fixture_python_config_from(
+-            Some(config.interpreter.clone().into_os_string()),
+-            Some(outside.clone().into_os_string()),
+-            None,
+-            &store,
+-        )
+-        .is_err());
+-        assert!(fixture_python_config_from(
+-            Some(config.interpreter.into_os_string()),
+-            None,
+-            Some(outside_interpreter.into_os_string()),
+-            &store,
+-        )
+-        .is_err());
+-        assert!(fixture_python_config_from(
+-            None,
+-            None,
+-            Some(outside.join("python3").into_os_string()),
+-            &store,
+-        )
+-        .is_err());
++        assert!(
++            fixture_python_config_from(
++                Some(config.interpreter.clone().into_os_string()),
++                Some(outside.clone().into_os_string()),
++                None,
++                &store,
++            )
++            .is_err()
++        );
++        assert!(
++            fixture_python_config_from(
++                Some(config.interpreter.into_os_string()),
++                None,
++                Some(outside_interpreter.into_os_string()),
++                &store,
++            )
++            .is_err()
++        );
++        assert!(
++            fixture_python_config_from(
++                None,
++                None,
++                Some(outside.join("python3").into_os_string()),
++                &store,
++            )
++            .is_err()
++        );
+     }
+ 
+     #[test]
+@@ -1505,20 +1545,24 @@
+         let outside = temp.path().join("outside");
+         std::fs::create_dir(&outside).unwrap();
+ 
+-        assert!(fixture_python_config_from(
+-            Some(interpreter.clone().into_os_string()),
+-            None,
+-            None,
+-            &store,
+-        )
+-        .is_err());
+-        assert!(fixture_python_config_from(
+-            Some(interpreter.into_os_string()),
+-            Some(outside.into_os_string()),
+-            None,
+-            &store,
+-        )
+-        .is_err());
++        assert!(
++            fixture_python_config_from(
++                Some(interpreter.clone().into_os_string()),
++                None,
++                None,
++                &store,
++            )
++            .is_err()
++        );
++        assert!(
++            fixture_python_config_from(
++                Some(interpreter.into_os_string()),
++                Some(outside.into_os_string()),
++                None,
++                &store,
++            )
++            .is_err()
++        );
+     }
+ 
+     #[test]
+@@ -1556,16 +1600,20 @@
+                 std::fs::canonicalize(python).unwrap(),
+             ]
+         );
+-        assert!(!config
+-            .readable_roots
+-            .contains(&std::fs::canonicalize(&store).unwrap()));
+-        assert!(fixture_python_config_from(
+-            Some(config.interpreter.into_os_string()),
+-            Some(store.clone().into_os_string()),
+-            Some(store.join("dependency/lib/ld-linux.so").into_os_string()),
+-            &store,
+-        )
+-        .is_err());
++        assert!(
++            !config
++                .readable_roots
++                .contains(&std::fs::canonicalize(&store).unwrap())
++        );
++        assert!(
++            fixture_python_config_from(
++                Some(config.interpreter.into_os_string()),
++                Some(store.clone().into_os_string()),
++                Some(store.join("dependency/lib/ld-linux.so").into_os_string()),
++                &store,
++            )
++            .is_err()
++        );
+     }
+ 
+     #[test]
+@@ -1588,20 +1636,24 @@
+         std::os::unix::fs::symlink(&untrusted, &escaped).unwrap();
+         let roots = std::env::join_paths([python, dependency]).unwrap();
+ 
+-        assert!(fixture_python_config_from(
+-            Some(interpreter.clone().into_os_string()),
+-            Some(roots.clone()),
+-            Some(escaped.into_os_string()),
+-            &store,
+-        )
+-        .is_err());
+-        assert!(fixture_python_config_from(
+-            Some(interpreter.into_os_string()),
+-            Some(roots),
+-            Some(untrusted.into_os_string()),
+-            &store,
+-        )
+-        .is_err());
++        assert!(
++            fixture_python_config_from(
++                Some(interpreter.clone().into_os_string()),
++                Some(roots.clone()),
++                Some(escaped.into_os_string()),
++                &store,
++            )
++            .is_err()
++        );
++        assert!(
++            fixture_python_config_from(
++                Some(interpreter.into_os_string()),
++                Some(roots),
++                Some(untrusted.into_os_string()),
++                &store,
++            )
++            .is_err()
++        );
+     }
+ 
+     #[test]
+@@ -1622,13 +1674,15 @@
+         std::os::unix::fs::symlink(&loader, &configured_outside).unwrap();
+         let roots = std::env::join_paths([python, dependency]).unwrap();
+ 
+-        assert!(fixture_python_config_from(
+-            Some(interpreter.into_os_string()),
+-            Some(roots),
+-            Some(configured_outside.into_os_string()),
+-            &store,
+-        )
+-        .is_err());
++        assert!(
++            fixture_python_config_from(
++                Some(interpreter.into_os_string()),
++                Some(roots),
++                Some(configured_outside.into_os_string()),
++                &store,
++            )
++            .is_err()
++        );
+     }
+ 
+     fn warm_fixture_worker(
+@@ -1898,9 +1952,9 @@
+         let client = PerceptionClient::new(PerceptionWorkerConfig {
+             executable: worker,
+             containment: ContainmentLimits {
+-                additional_readable_paths: vec![directory
+-                    .path()
+-                    .join("this-directory-does-not-exist")],
++                additional_readable_paths: vec![
++                    directory.path().join("this-directory-does-not-exist"),
++                ],
+                 ..ContainmentLimits::default()
+             },
+             args: Vec::new(),
+@@ -1931,13 +1985,17 @@
+         // Warm reuse keeps a worker — and the screenshot it was handed — alive
+         // between requests, so it stays behind an explicit opt-in until the
+         // per-platform cleanup certification passes.
+-        assert!(PerceptionWorkerConfig::installed("/opt/cua/worker")
+-            .warm_worker
+-            .is_none());
+-        assert!(PerceptionWorkerConfig::installed("/opt/cua/worker")
+-            .with_bounded_reuse(WarmWorkerPolicy::default())
+-            .warm_worker
+-            .is_some());
++        assert!(
++            PerceptionWorkerConfig::installed("/opt/cua/worker")
++                .warm_worker
++                .is_none()
++        );
++        assert!(
++            PerceptionWorkerConfig::installed("/opt/cua/worker")
++                .with_bounded_reuse(WarmWorkerPolicy::default())
++                .warm_worker
++                .is_some()
++        );
+         let failure = PerceptionClient::new(PerceptionWorkerConfig::installed("/opt/cua/worker"))
+             .err()
+             .expect("unbound installed workers must be rejected");
+@@ -1975,15 +2033,17 @@
+                 "/opt/cua/.locks/cua-perception.runtime-acl.lock"
+             ))
+         );
+-        assert!(verify_expected_extension_identity(
+-            &json!({
+-                "identity": {
+-                    "extension": {"id": "cua-perception", "version": "0.1.0"}
+-                }
+-            }),
+-            expected,
+-        )
+-        .is_ok());
++        assert!(
++            verify_expected_extension_identity(
++                &json!({
++                    "identity": {
++                        "extension": {"id": "cua-perception", "version": "0.1.0"}
++                    }
++                }),
++                expected,
++            )
++            .is_ok()
++        );
+ 
+         let failure = verify_expected_extension_identity(
+             &json!({

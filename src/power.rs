@@ -101,6 +101,9 @@ fn read_battery(root: &Path) -> (Option<u8>, Option<String>) {
         if read_trimmed(&path.join("type")).as_deref() != Some("Battery") {
             continue;
         }
+        if read_trimmed(&path.join("scope")).as_deref() == Some("Device") {
+            continue;
+        }
         if let Some(value) = read_trimmed(&path.join("capacity")).and_then(|s| s.parse::<u8>().ok())
         {
             capacities.push(value.min(100));
@@ -138,6 +141,27 @@ fn read_trimmed(path: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn peripheral_battery_does_not_change_laptop_capacity_or_status() {
+        let root = tempfile::tempdir().unwrap();
+        for (name, scope, capacity, status) in [
+            ("BAT0", "System", "100", "Full"),
+            ("ps-controller", "Device", "64", "Charging"),
+        ] {
+            let battery = root.path().join(name);
+            fs::create_dir(&battery).unwrap();
+            for (field, value) in [
+                ("type", "Battery"),
+                ("scope", scope),
+                ("capacity", capacity),
+                ("status", status),
+            ] {
+                fs::write(battery.join(field), value).unwrap();
+            }
+        }
+        assert_eq!(read_battery(root.path()), (Some(100), Some("Full".into())));
+    }
 
     #[test]
     fn reads_battery_capacity_and_charging_state() {

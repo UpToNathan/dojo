@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "purpose": "Acquire model and runtime bytes matching the baseline artifact lock; rebuild the worker from the Dojo-pinned source",
+  "baseline_commit": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+  "release_source_commit": "6aa37d0751d094bfe8fdc2df331ed9eae934c832",
+  "release_id": 397166528,
+  "asset_id": 590317140,
+  "version": "0.2.1",
+  "target": "x86_64-unknown-linux-gnu",
+  "url": "https://github.com/trycua/cua/releases/download/cua-perception-v0.2.1/cua-perception-0.2.1-x86_64-unknown-linux-gnu.tar.gz",
+  "size": 424300011,
+  "sha256": "b4d76b626df9ce1a48b8036f7313412525295d0cb818d82ecbe3d9cca5fd1d08",
+  "model_manifest_sha256": "59f5197c98d0bbe20668993771a19fa495624027e69ef87a75c6606986a60b13",
+  "release_executable_accepted": false
+}

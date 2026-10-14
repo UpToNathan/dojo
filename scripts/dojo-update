@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""Update Dojo software through its owning package managers."""
+
+import argparse
+import contextlib
+import datetime as dt
+import fcntl
+import os
+from pathlib import Path
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+
+from arch_packages import archive_config
+
+
+GROUPS = ("arch", "nix", "npm", "cargo", "mise", "codex", "claude", "t3code", "nvim", "inventory", "dojo")
+DEFAULT_GROUPS = GROUPS[:-1]
+
+
+def nonnegative(value):
+    number = int(value)
+    if number < 0 or number > 36500:
+        raise argparse.ArgumentTypeError("must be between 0 and 36500")
+    return number
+
+
+class Runner:
+    def __init__(self, repo, dry_run):
+        self.repo = repo
+        self.dry_run = dry_run
+        self.results = []
+
+    def report(self, name, status, detail=""):
+        self.results.append((name, status, detail))
+        print(f"{name}: {status}" + (f" ({detail})" if detail else ""), flush=True)
+
+    def command(self, name, argv, dependency=True):
+        if not dependency:
+            self.report(name, "blocked", "an earlier required step failed")
+            return False
+        if not shutil.which(argv[0]):
+            self.report(name, "skipped", f"{argv[0]} is not installed")
+            return False
+        print(f"\n[{name}] {shlex.join(map(str, argv))}", flush=True)
+        if self.dry_run:
+            self.report(name, "planned")
+            return True
+        result = subprocess.run(argv, cwd=self.repo, check=False)
+        self.report(name, "ok" if result.returncode == 0 else "failed", f"exit {result.returncode}")
+        return result.returncode == 0
+
+
+def update_arch(runner, days, now):
+    if not shutil.which("pacman"):
+        runner.report("arch", "skipped", "pacman is not installed")
+        return
+    if days == 0:
+        runner.command("arch", ["sudo", "pacman", "-Syu"])
+        return
+    # Use the previous UTC day's snapshot to guarantee at least N full days.
+    date = (now - dt.timedelta(days=days + 1)).strftime("%Y/%m/%d")
+    config = archive_config(Path("/etc/pacman.conf").read_text(), date)
+    if runner.dry_run:
+        runner.command("arch", ["sudo", "pacman", "--config", f"<snapshot-{date}>", "-Syyu"])
+        return
+    with tempfile.NamedTemporaryFile(mode="w", prefix="dojo-pacman-", suffix=".conf") as stream:
+        stream.write(config)
+        stream.flush()
+        runner.command("arch", ["sudo", "pacman", "--config", stream.name, "-Syyu"])
+
+
+def update_group(group, runner, args, now):
+    days = args.buffer_days
+    cutoff = (now - dt.timedelta(days=days)).isoformat()
+    if group == "arch":
+        update_arch(runner, days, now)
+    elif group == "nix":
+        ready = True
+        if not args.keep_pins:
+            ready = runner.command("nix-inputs", [sys.executable, str(runner.repo / "scripts/refresh-update-inputs.py"),
+                                                  "--repo", str(runner.repo), "--buffer-days", str(days)])
+        ready = runner.command("nix-lock", ["devenv", "update"], ready)
+        runner.command("nix-home", ["devenv", "machines", "deploy", "venus"], ready)
+    elif group == "npm":
+        runner.command("npm", ["npm", "update", "--global", f"--before={cutoff}"])
+    elif group == "cargo":
+        runner.command("cargo", [sys.executable, str(runner.repo / "scripts/update-cargo-tools.py"),
+                                 "--buffer-days", str(days)])
+    elif group == "mise":
+        runner.command("mise", ["mise", "upgrade", "--minimum-release-age", f"{days}d", "--no-prune"])
+        runner.report("mise-self", "manual", "packslip owns mise; its installer has no release-age filter")
+    elif group in ("codex", "claude", "t3code"):
+        tool = "t3" if group == "t3code" else group
+        runner.command(group, [tool, "update"])
+    elif group == "nvim":
+        if days:
+            runner.report("nvim", "held", "Lazy has no release-age filter; use --buffer-days 0 --only nvim")
+        else:
+            runner.command("nvim", ["nvim", "--headless", "+Lazy! update", "+qa"])
+    elif group == "dojo":
+        ready = runner.command("dojo-build", ["devenv", "shell", "--", "cargo", "build", "--release", "--bin", "dojo"])
+        runner.command("dojo-install", ["devenv", "shell", "--", "scripts/install-dojo-release.sh"], ready)
+    elif group == "inventory":
+        runner.command("inventory-packages", [sys.executable, str(runner.repo / "scripts/capture-system-packages.py")])
+        runner.command("inventory-config", [sys.executable, str(runner.repo / "scripts/capture-privileged-config.py")])
+
+
+@contextlib.contextmanager
+def update_lock(dry_run):
+    if dry_run:
+        yield
+        return
+    state = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
+    if not state.is_absolute():
+        raise ValueError("XDG_STATE_HOME must be absolute")
+    directory = state / "dojo-update"
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / "update.lock").open("a") as stream:
+        try:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError("another dojo-update is running") from None
+        yield
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dry-run", action="store_true", help="print commands without running them, writing files, or fetching versions")
+    parser.add_argument("--list", action="store_true", help="list update groups")
+    parser.add_argument("--only", help="comma-separated groups to run")
+    parser.add_argument("--skip", default="", help="comma-separated groups to skip")
+    parser.add_argument("--buffer-days", type=nonnegative, default=3, help="minimum version age in days (default: 3); pi/opencode/codex/claude/t3code are exempt")
+    parser.add_argument("--keep-pins", action="store_true", help="use existing devenv.yaml input revisions")
+    args = parser.parse_args(argv)
+    if args.list:
+        print("\n".join(GROUPS))
+        return 0
+    selected = args.only.split(",") if args.only else list(DEFAULT_GROUPS)
+    skipped = args.skip.split(",") if args.skip else []
+    unknown = (set(selected) | set(skipped)) - set(GROUPS)
+    if unknown:
+        parser.error("unknown groups: " + ", ".join(sorted(unknown)))
+    repo = Path(__file__).resolve().parent.parent
+    runner = Runner(repo, args.dry_run)
+    now = dt.datetime.now(dt.timezone.utc)
+    print(f"Version buffer: {args.buffer_days} days. Exceptions: pi, opencode, codex, claude, t3code.", flush=True)
+    try:
+        with update_lock(args.dry_run):
+            for group in GROUPS:
+                if group not in selected or group in skipped:
+                    continue
+                try:
+                    update_group(group, runner, args, now)
+                except (OSError, ValueError) as error:
+                    runner.report(group, "failed", str(error))
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\nUpdate interrupted.", file=sys.stderr)
+        return 130
+    print("\nUpdate summary", flush=True)
+    for name, status, detail in runner.results:
+        print(f"  {name}: {status}" + (f" ({detail})" if detail else ""))
+    print("Manual sources: Helium/Rift/custom source hashes, 1Password CLI, AUR, other standalone tools and vendored Niri.")
+    print("Dojo desktop build/install is opt-in: dojo-update --only dojo.")
+    return int(any(status in ("failed", "blocked") for _, status, _ in runner.results))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

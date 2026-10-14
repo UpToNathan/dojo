@@ -1,0 +1,4 @@
+# Required by maintained system setup, including the firewalld setup helper.
+firewalld
+libimobiledevice
+usbmuxd

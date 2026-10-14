@@ -1,0 +1,33 @@
+[package]
+name = "cua-cursor-motion"
+version = "0.34.0"
+edition = "2021"
+authors = ["trycua"]
+license = "MIT"
+# Lives in the trycua/cua repository only; use it as a git dependency.
+publish = false
+repository = "https://github.com/trycua/cua"
+readme = "README.md"
+description = "Agent cursor motion: the paths, timing and effects behind Cua Driver's cursor."
+keywords = ["cursor", "animation", "motion", "fitts", "agent"]
+categories = ["graphics", "mathematics"]
+
+# Standalone import; source/tests/fixtures unchanged.
+[workspace]
+
+[features]
+default = []
+# Serialize/Deserialize for the public types (styles accept their motion-lab
+# ids as aliases).
+serde = ["dep:serde"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"], optional = true }
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[example]]
+name = "export_golden"
+required-features = ["serde"]

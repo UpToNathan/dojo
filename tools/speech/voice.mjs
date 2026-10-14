@@ -6,7 +6,9 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { T3Client, dataDir, readJson, saveJson } from './t3-client.mjs';
+import { dataDir, readJson, saveJson } from './voice-state.mjs';
+import { MemoryStore } from './memory.mjs';
+import { PiRuntime } from './pi-runtime.mjs';
 
 const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const runtimeDir = process.env.XDG_RUNTIME_DIR;
@@ -17,6 +19,8 @@ const statePath = join(dataDir, 'conversations.json');
 const maxCommandCodeUnits = 16_384;
 const terminal = new Set(['completed', 'failed', 'interrupted', 'cancelled', 'rolled_back']);
 const preview = text => Array.from(text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')).slice(0, 1000).join('');
+const isUuid = value => typeof value === 'string' && value.length === 36
+  && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value);
 
 export async function socketRequest(path, value) {
   return new Promise((resolve, reject) => {
@@ -35,14 +39,11 @@ export async function socketRequest(path, value) {
 }
 
 export class VoiceService {
-  client;
-  subscription;
   capture;
   speechWorker;
   recording = false;
   captureDevice = null;
   submitting = false;
-  reconnecting = false;
   lastActivity = Date.now();
   state;
   config;
@@ -51,12 +52,10 @@ export class VoiceService {
   saving = Promise.resolve();
   saveTimer;
   deadlineTimer;
-  reconnectTimer;
-  reconnectAttempts = 0;
   spawnWorker = spawn;
   sentTimer;
-  connecting;
   closing = false;
+  memory;
   idleSeconds = Number(process.env.DOJO_VOICE_IDLE_SECONDS || 0);
   onIdle = async () => {};
 
@@ -71,7 +70,7 @@ export class VoiceService {
   scheduleDeadline(retryDelay = 0) {
     clearTimeout(this.deadlineTimer);
     this.deadlineTimer = undefined;
-    if (this.closing || this.capture || this.submitting || this.active()?.activeRunId || this.reconnecting) return;
+    if (this.closing || this.capture || this.submitting || this.active()?.activeRunId || this.active()?.awaitingRun) return;
     const delays = [];
     if (this.active()) delays.push(Math.max(0, 30_000 - (Date.now() - this.lastActivity)));
     if (this.idleSeconds > 0) delays.push(Math.max(0, this.idleSeconds * 1000 - (Date.now() - this.lastActivity)));
@@ -90,20 +89,32 @@ export class VoiceService {
   }
   async shutdown() {
     this.closing = true;
-    for (const timer of [this.deadlineTimer, this.saveTimer, this.reconnectTimer, this.sentTimer]) clearTimeout(timer);
-    this.deadlineTimer = this.saveTimer = this.reconnectTimer = this.sentTimer = undefined;
+    for (const timer of [this.deadlineTimer, this.saveTimer, this.sentTimer]) clearTimeout(timer);
+    this.deadlineTimer = this.saveTimer = this.sentTimer = undefined;
     const canceled = this.cancel();
     this.speechWorker?.stdin.end();
-    this.client?.close();
     await canceled;
     await this.queue;
     if (this.state) await this.save();
-    for (const timer of [this.deadlineTimer, this.saveTimer, this.reconnectTimer, this.sentTimer]) clearTimeout(timer);
+    await this.runtime?.close();
+    await this.memory?.close();
+    for (const timer of [this.deadlineTimer, this.saveTimer, this.sentTimer]) clearTimeout(timer);
   }
 
   async start() {
     this.state = await readJson(statePath, { version: 1, activeThreadId: null, chats: [], seenMessages: [] });
     this.config = await readJson(join(dataDir, 'config.json'), {});
+    this.memory = await MemoryStore.open(join(dataDir, 'memory-v2'));
+    this.runtime = await PiRuntime.open({ stateDir: join(dataDir, 'pi'), root, memory: this.memory,
+      config: { model: this.config.pi?.provider === 'anthropic' ? 'claude-haiku-5-5' : this.config.modelSelection?.model || this.state.memoryModelSelection?.model || 'gpt-6-luna', ...this.config.pi },
+      onEvent: event => { if (!this.closing) this.enqueue(() => this.runtimeEvent(event)).catch(error => this.failure(error)); } });
+    this.state.piConversationId = String(this.runtime.id);
+    let chat = this.state.chats.find(item => item.threadId === this.state.piConversationId);
+    if (!chat) { chat = { threadId: this.state.piConversationId, runtime: 'pi', createdAt: new Date().toISOString() }; this.state.chats.push(chat); }
+    chat.activeRunId = this.runtime.busy() ? 'recovering' : null;
+    this.state.activeThreadId = this.runtime.busy() ? this.state.piConversationId : null;
+    this.runtime.resume();
+    this.runtime.scheduleCompaction();
     this.ensureSpeechWorker();
   }
   active() { return this.state.chats.find(chat => chat.threadId === this.state.activeThreadId); }
@@ -124,173 +135,53 @@ export class VoiceService {
     await this.ui('phase', 'settled');
   }
 
-  async connect() {
-    if (this.closing) throw new Error('Voice service is shutting down.');
-    if (this.client?.socket?.readyState === WebSocket.OPEN) return this.client;
-    if (this.connecting) return this.connecting;
-    this.connecting = (async () => {
-      const client = new T3Client();
-      await client.connect();
-      if (this.closing) { client.close(); throw new Error('Voice service is shutting down.'); }
-      this.client = client;
-      client.onDisconnect = () => {
-        if (this.client !== client) return;
-        this.subscription = null;
-        this.scheduleReconnect();
-      };
-      return client;
-    })();
-    try { return await this.connecting; }
-    finally { this.connecting = undefined; }
-  }
-  scheduleReconnect() {
-    if (this.closing || !this.active() || (!this.active().activeRunId && !this.active().pending && !this.submitting) || this.reconnectTimer) return;
-    this.reconnecting = true;
-    this.scheduleDeadline();
-    this.reconnectTimer = setTimeout(async () => {
-      this.reconnectTimer = undefined;
-      try { await this.watch(); this.reconnectAttempts = 0; }
-      catch (error) { console.error(`T3 reconnect: ${error.message}`); this.scheduleReconnect(); }
-      finally { this.reconnecting = !!this.reconnectTimer; this.scheduleDeadline(); }
-    }, Math.min(30_000, 1000 * 2 ** Math.min(this.reconnectAttempts++, 5)));
-  }
-
-  async watch(replay = true) {
-    const chat = this.active();
-    if (!chat) return;
-    const client = await this.connect();
-    if (this.subscription?.client === client && this.subscription.threadId === chat.threadId) return;
-    if (this.subscription) this.subscription.client.unsubscribe(this.subscription.id);
-    this.subscription = client.subscribe(chat.threadId, item => {
-      return this.enqueue(() => this.stream(chat, item)).catch(error => { client.close(); throw error; });
-    }, replay ? chat.sequence : undefined);
-    this.subscription.client = client;
-    this.subscription.threadId = chat.threadId;
-    const subscription = this.subscription;
-    this.subscription.promise.then(() => {
-      if (this.subscription === subscription) { this.subscription = null; this.scheduleReconnect(); }
-    }, error => {
-      if (this.subscription === subscription) {
-        this.subscription = null;
-        if (replay && chat.sequence != null && this.client === client && client.socket.readyState === WebSocket.OPEN && !this.closing) this.watch(false).catch(error => this.failure(error));
-        else this.scheduleReconnect();
+  async runtimeEvent(event) {
+    if (event.type === 'memory' && event.error) {
+      console.error(`Dojo memory: ${event.error}`);
+      this.state.memoryError = preview(event.error);
+      await this.save();
+    } else if (event.type === 'human_request') {
+      this.pendingHumanRequest = event.request;
+      await this.ui('response', preview(event.request.prompt));
+    } else if (event.type === 'response') {
+      const chat = this.active();
+      if (this.capture && chat) chat.deferredResponse = event.text;
+      else await this.ui('response', preview(event.text));
+    } else if (event.type === 'run') {
+      const chat = this.active();
+      if (chat) {
+        chat.activeRunId = this.runtime.busy() ? String(event.runId || 'preparing') : null;
+        chat.status = event.status;
       }
-      if (error.message !== 'T3 disconnected.') console.error(`T3 subscription: ${error.message}`);
-    });
-  }
-
-  async stream(chat, item) {
-    if (chat.threadId !== this.state.activeThreadId) return;
-    if (item.kind === 'snapshot') {
-      for (const message of item.projection.messages) await this.message(chat, message);
-      const latest = item.projection.runs.at(-1);
-      if (latest) await this.run(chat, latest);
-      chat.sequence = item.snapshotSequence;
-    } else if (item.kind === 'event') {
-      if (item.sequence <= (chat.sequence ?? -1)) return;
-      const { type, payload } = item.event;
-      if (type === 'message.updated') await this.message(chat, payload);
-      if (type === 'run.updated') await this.run(chat, payload);
-      if (type === 'runtime-request.updated' && payload.status === 'pending') {
-        await this.ui('response', 'The agent needs your input. Open this chat in T3 to answer its request.');
-      }
-      chat.sequence = item.sequence;
+      if (event.error) await this.failure(new Error(event.error));
+      else await this.phase(this.runtime.busy() ? 'working' : 'settled');
+      this.touch();
+      await this.save();
     }
-    if (item.kind === 'event' && (item.event.type !== 'run.updated') && !(item.event.type === 'message.updated' && !item.event.payload.streaming)) this.deferSave();
-    else await this.save();
-    this.scheduleDeadline();
-  }
-
-  async message(chat, message) {
-    if (message.role !== 'assistant' || message.streaming || !message.text.trim()) return;
-    if (this.state.seenMessages.includes(message.id)) return;
-    if (message.createdAt < chat.listenSince) return;
-    this.state.seenMessages.push(message.id);
-    this.state.seenMessages = this.state.seenMessages.slice(-128);
-    if (this.capture) chat.deferredResponse = message.text;
-    else await this.ui('response', preview(message.text));
-  }
-  async run(chat, run) {
-    if (run.requestedAt < chat.listenSince) return;
-    chat.activeRunId = terminal.has(run.status) ? null : run.id;
-    chat.status = run.status;
-    this.touch();
-    if (terminal.has(run.status)) {
-      if (this.capture || this.submitting) return;
-      await this.settle();
-      await this.phase('settled');
-      if (run.status === 'failed') await this.ui('response', 'The agent run failed. Its details are available in T3.');
-    } else if (run.status === 'running' || run.status === 'starting') await this.phase('working');
   }
 
   async submit(text) {
-    text = text.trim();
-    if (!text) { await this.settle(); await this.phase('settled'); return; }
-    await this.ui('transcript', preview(text));
+    if (!text.trim()) { await this.settle(true); await this.phase('settled'); return; }
     this.submitting = true;
     try {
-      const client = await this.connect();
-      let chat = this.active();
+      await this.ui('transcript', preview(text));
+      let chat = this.state.chats.find(item => item.threadId === String(this.runtime.id));
       if (!chat) {
-        const config = await client.call('server.getConfig');
-        const selected = this.config.modelSelection || config.settings.defaultModelSelection;
-        const modelSelection = selected?.instanceId === 'codex'
-          ? { ...selected, options: [
-              ...(Array.isArray(selected.options) ? selected.options : []).filter(option => option.id !== 'reasoningEffort'),
-              { id: 'reasoningEffort', value: 'none' },
-            ] } : selected;
-        if (!modelSelection) throw new Error('Choose a default agent model in T3.');
-        const { projectId } = await client.call('projects.ensureScratch');
-        chat = { threadId: randomUUID(), projectId, title: text.slice(0, 60), modelSelection,
-          createdAt: new Date().toISOString(), listenSince: new Date().toISOString(), activeRunId: null };
+        chat = { threadId: String(this.runtime.id), runtime: 'pi', createdAt: new Date().toISOString() };
         this.state.chats.push(chat);
-        this.state.activeThreadId = chat.threadId;
-        await this.save();
       }
-      if (!chat.launched) {
-        let result;
-        try { result = { projection: await client.call('orchestration.getThreadProjection', { threadId: chat.threadId }) }; }
-        catch { result = await client.call('orchestration.launchThread', {
-          commandId: chat.threadId, threadId: chat.threadId,
-          projectId: chat.projectId, title: chat.title, modelSelection: chat.modelSelection,
-          runtimeMode: this.config.runtimeMode || 'full-access', interactionMode: 'default',
-          workspaceStrategy: { type: 'root' },
-        }); }
-        chat.workspacePath = result.projection.thread.worktreePath;
-        chat.launched = true;
-        await this.save();
-      }
-      if (chat.workspacePath) {
-        const instructions = await readFile(join(root, 'tools/speech/assistant.md'), 'utf8');
-        await writeFile(join(chat.workspacePath, 'AGENTS.md'), instructions);
-        const mcp = { command: join(root, 'target/debug/dojo-agent'), args: ['--name', 'dojo-voice'] };
-        await writeFile(join(chat.workspacePath, '.mcp.json'), JSON.stringify({ mcpServers: { 'dojo-desktop': mcp } }), { flag: 'wx' }).catch(error => { if (error.code !== 'EEXIST') throw error; });
-        await writeFile(join(chat.workspacePath, 'opencode.json'), JSON.stringify({ mcp: { 'dojo-desktop': {
-          type: 'local', command: [mcp.command, ...mcp.args], enabled: true,
-        } } }), { flag: 'wx' }).catch(error => { if (error.code !== 'EEXIST') throw error; });
-      }
-      chat.listenSince = new Date().toISOString();
-      chat.pending = { type: 'message.dispatch', commandId: randomUUID(), threadId: chat.threadId,
-        messageId: randomUUID(), text, attachments: [], deliveryIntent: 'auto',
-        createdBy: 'user', creationSource: 'web',
-        dispatchMode: { type: 'start_immediately' } };
+      chat.title = text.slice(0, 60);
+      chat.activeRunId = 'preparing';
+      this.state.activeThreadId = String(this.runtime.id);
       await this.save();
-      await this.watch();
-      await client.call('orchestration.dispatchCommand', chat.pending);
-      delete chat.pending;
-      await this.save();
+      if (this.pendingHumanRequest?.status === 'pending' && this.pendingHumanRequest.expiresAt > Date.now()) {
+        await this.runtime.respondHuman(this.pendingHumanRequest.id, text);
+        this.pendingHumanRequest = undefined;
+      }
+      const receipt = await this.runtime.submit(text);
       await this.phase('sent');
-      clearTimeout(this.sentTimer);
-      this.sentTimer = setTimeout(() => { this.sentTimer = undefined; if (this.active()?.activeRunId) this.phase('working'); }, 500);
-    } finally {
-      this.submitting = false; this.touch();
-      const chat = this.active();
-      if (chat?.deferredResponse) {
-        await this.ui('response', preview(chat.deferredResponse));
-        delete chat.deferredResponse;
-        await this.save();
-      }
-    }
+      return receipt;
+    } finally { this.submitting = false; this.touch(); }
   }
 
   async finish() {
@@ -319,6 +210,30 @@ export class VoiceService {
     this.recording = true;
     this.speechCommand('begin', this.capture.id);
     this.scheduleDeadline();
+  }
+  controllerBegin(owner) {
+    if (!isUuid(owner)) throw new Error('Controller owner must be a UUID.');
+    if (this.capture) {
+      return { recording: this.recording, owned: this.capture.controllerOwner === owner, busy: this.capture.controllerOwner !== owner };
+    }
+    this.ensureSpeechWorker();
+    this.capture = { id: randomUUID(), controllerOwner: owner };
+    this.recording = true;
+    this.speechCommand('begin', this.capture.id);
+    this.scheduleDeadline();
+    return { recording: true, owned: true, busy: false };
+  }
+  async controllerFinish(owner) {
+    if (!isUuid(owner)) throw new Error('Controller owner must be a UUID.');
+    if (this.capture?.controllerOwner !== owner) return { recording: this.recording, owned: false };
+    await this.finish();
+    return { recording: this.recording, owned: true };
+  }
+  async controllerCancel(owner) {
+    if (!isUuid(owner)) throw new Error('Controller owner must be a UUID.');
+    if (this.capture?.controllerOwner !== owner) return { recording: this.recording, owned: false };
+    await this.cancel();
+    return { recording: this.recording, owned: true };
   }
   speechCommand(action, id) {
     this.speechWorker.stdin.write(`${JSON.stringify({ action, id })}\n`);
@@ -389,18 +304,11 @@ export class VoiceService {
   }
   async settle(force = false) {
     const chat = this.active();
-    if (!chat || chat.activeRunId || this.capture || this.submitting) return;
+    if (!chat || chat.activeRunId || chat.awaitingRun || chat.pending || this.capture || this.submitting) return;
     if (!force && Date.now() - this.lastActivity < 30_000) return;
-    await (await this.connect()).call('orchestration.dispatchCommand', {
-      type: 'thread.settle', commandId: chat.settleCommandId ||= randomUUID(), threadId: chat.threadId,
-    });
     chat.settledAt = new Date().toISOString();
-    if (this.subscription) this.client?.unsubscribe(this.subscription.id);
-    this.subscription = null;
-    clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined; this.reconnecting = false;
     this.state.activeThreadId = null;
     await this.save();
-    this.client?.close(); this.client = undefined;
     this.scheduleDeadline();
   }
   async newChat() {
@@ -411,32 +319,28 @@ export class VoiceService {
   }
   async handle(command) {
     console.error(`${new Date().toISOString()} voice command: ${command.action}`);
-    if (!['status', 'history'].includes(command.action)) this.touch();
+    if (!['status', 'history', 'memory-zoom', 'memory-date', 'memory-status'].includes(command.action)) this.touch();
     switch (command.action) {
+      case 'memory-zoom': if (!this.memory) throw new Error('Dojo memory is disabled.'); return this.memory.zoom(command.id, command.count ?? 1, command.offset ?? 0);
+      case 'memory-date': if (!this.memory) throw new Error('Dojo memory is disabled.'); return { date: await this.memory.date(command.id) };
+      case 'memory-status': return { enabled: !!this.memory, runtime: 'pi', conversationId: this.runtime?.id || null,
+        compacting: !!this.memory?.compacting, messages: this.memory?.records.length || 0 };
       case 'begin': await this.begin(); return { recording: this.recording };
       case 'finish': await this.finish(); return {};
       case 'toggle': await this.toggle(); return { recording: this.recording };
       case 'cancel': await this.cancel(); return {};
+      case 'controller-begin': return this.controllerBegin(command.owner);
+      case 'controller-finish': return this.controllerFinish(command.owner);
+      case 'controller-cancel': return this.controllerCancel(command.owner);
       case 'send': await this.submit(command.text); return { threadId: this.state.activeThreadId };
       case 'new': await this.newChat(); return {};
       case 'history': return { activeThreadId: this.state.activeThreadId, chats: this.state.chats.map(({threadId,title,status}) => ({threadId,title,status})) };
       case 'resume': {
-        await this.newChat();
-        const chat = this.state.chats.find(chat => chat.threadId === command.threadId);
-        if (!chat) throw new Error('This is not a Dojo conversation.');
-        this.state.activeThreadId = chat.threadId;
-        chat.listenSince = new Date().toISOString();
-        await this.save(); await this.watch(); return { threadId: chat.threadId };
+        if (String(command.threadId) !== String(this.runtime.id)) throw new Error('Earlier T3 conversations remain available in T3; Dojo now uses its continuous Pi conversation.');
+        this.state.activeThreadId = String(this.runtime.id);
+        return { threadId: String(this.runtime.id) };
       }
-      case 'stop': {
-        await this.cancel();
-        const chat = this.active();
-        if (chat?.activeRunId) await (await this.connect()).call('orchestration.dispatchCommand', {
-          type: 'run.interrupt', commandId: randomUUID(), threadId: chat.threadId,
-          runId: chat.activeRunId, holdQueue: true,
-        });
-        return {};
-      }
+      case 'stop': await this.cancel(); await this.runtime.stop(); return {};
       case 'status': return { recording: this.recording, transcribing: !!this.capture && !this.recording,
         microphone: this.captureDevice,
         threadId: this.state.activeThreadId, runId: this.active()?.activeRunId || null };
@@ -503,7 +407,7 @@ export async function serve(service = new VoiceService()) {
         let command;
         try { command = JSON.parse(buffer.slice(0, buffer.indexOf('\n'))); }
         catch { socket.end('{"error":"Invalid command"}\n'); return; }
-        const operation = ['begin', 'finish', 'toggle', 'cancel', 'status', 'history'].includes(command.action)
+        const operation = ['begin', 'finish', 'toggle', 'cancel', 'controller-begin', 'controller-finish', 'controller-cancel', 'status', 'history'].includes(command.action)
           ? service.handle(command)
           : service.enqueue(() => service.handle(command));
         operation.then(result => socket.end(`${JSON.stringify(result)}\n`), async error => {
@@ -515,10 +419,6 @@ export async function serve(service = new VoiceService()) {
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socketPath, resolve); });
     socketIdentity = await stat(socketPath);
     await chmod(socketPath, 0o600);
-    if (service.active()) {
-      if (service.active().activeRunId) await service.watch().catch(error => service.failure(error));
-      else await service.settle().catch(error => service.failure(error));
-    }
     service.scheduleDeadline();
     for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, () => {
       shutdown().then(() => process.exit(0), error => { console.error(error.message); process.exit(1); });

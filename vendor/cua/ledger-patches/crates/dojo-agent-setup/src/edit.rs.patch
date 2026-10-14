@@ -1,0 +1,11 @@
+--- a/crates/dojo-agent-setup/src/edit.rs
++++ b/crates/dojo-agent-setup/src/edit.rs
+@@ -86,7 +86,7 @@
+                 .map(|o| {
+                     o.properties()
+                         .iter()
+-                        .filter_map(|p| p.decoded_name())
++                        .filter_map(|p| p.name().and_then(|name| name.decoded_value().ok()))
+                         .collect()
+                 })
+                 .unwrap_or_default())

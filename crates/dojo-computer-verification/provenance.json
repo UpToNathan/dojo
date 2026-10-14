@@ -1,0 +1,69 @@
+{
+  "upstream": "https://github.com/trycua/cua",
+  "revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+  "license": "MIT; LICENSE.md",
+  "status": "adapted predicates and original Dojo bounded phase protocol grounded in CUA batches",
+  "sources": [
+    {
+      "path": "libs/cua-driver/rust/crates/cua-driver-contract/src/verification.rs",
+      "sha256": "3345671784de3113dd281b3eab14f4efdb519e9f6d19d313222ae6ad21bf3aa5"
+    },
+    {
+      "path": "libs/cua-driver/rust/crates/cua-driver-core/src/expectation.rs",
+      "sha256": "1ce170608152331889c9b24d6c0d4fbfe60cdcc2f06d0c965a088e8377356800"
+    },
+    {
+      "path": "libs/cua-driver/rust/crates/cua-driver-core/src/batch_tools.rs",
+      "sha256": "21a1854291e1b307aad01075b3d38855cb77fe740bec2c3a3232f9524be0d101"
+    },
+    {
+      "path": "libs/cua-driver/rust/crates/cua-driver-core/src/batch_tools/flow_tests.rs",
+      "sha256": "f643209866c364f850531b93b09bf8c73556aae30762b39774a5c504489fe6e3"
+    },
+    {
+      "path": "libs/cua-driver/rust/crates/cua-driver-core/src/batch_tools/reliability_tests.rs",
+      "sha256": "47300f42a5b1cd9f5caccb1874d372e147d50044d3aa2113fd7cb242a276e4d4"
+    },
+    {
+      "path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/semantic.rs",
+      "sha256": "85197f91395113aadc4bd55970834437f9dfe5f3981955ae0f9d07adc990d6c1"
+    }
+  ],
+  "scope": "Pure Rust predicates, exact browser binding/coverage, bounded serializable phases and CLI. Pi document/tool scheduler and existing guarded Dojo executor own effects.",
+  "divergences": [
+    {
+      "behavior": "Fresh server observation before each single current action; no precomputed future coordinates or reusable batch capture",
+      "reason": "Dojo one-use capture and human-priority admission; uncertain effects never replay",
+      "reconsideration": "Only an independently proved snapshot-safe declarative sequence could broaden this"
+    },
+    {
+      "behavior": "Negative element existence accepted only with complete trusted exact-window coverage",
+      "reason": "Incomplete/read-ref-only lists cannot establish absence",
+      "reconsideration": "Broader exact-window semantic coverage with fixtures"
+    },
+    {
+      "behavior": "Explicit unavailable/native/browser source and exact generation binding",
+      "reason": "Identity failure must not manufacture negative-window success; native web content remains untrusted",
+      "reconsideration": "Equivalent trusted observation source appears"
+    },
+    {
+      "behavior": "Title/URL equality and explicit sensitive-value omission",
+      "reason": "Deterministic browser/window verification without interpreting arbitrary code",
+      "reconsideration": "Additional typed property family requested"
+    }
+  ],
+  "evidence": [
+    {
+      "command": "devenv shell -- cargo test --manifest-path crates/dojo-computer-verification/Cargo.toml",
+      "result": "24 passed"
+    },
+    {
+      "command": "node --test tools/speech/computer-steps.test.mjs",
+      "result": "6 passed; five actual Rust codec/PiRuntime integration cases including SQLite and real Rust MCP catalog validation, plus pointer-normalization unit test; fixture effects only"
+    }
+  ],
+  "remaining_gates": [
+    "Production complete DOM coverage, real browser route, native top-level AT-SPI correlation and installed runtime acceptance remain separate.",
+    "No general UI effect or task-success claim from handled receipts."
+  ]
+}

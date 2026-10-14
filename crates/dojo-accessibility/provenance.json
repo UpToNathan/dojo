@@ -1,0 +1,31 @@
+{
+  "upstream_repository": "https://github.com/trycua/cua",
+  "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+  "license": "MIT",
+  "license_file": "LICENSE.md",
+  "method": "Rust behavioral adaptation of coherent read-only AT-SPI traversal and query/budget behavior; no Python runtime",
+  "upstream_files": [
+    {
+      "path": "libs/cua-driver/rust/crates/platform-linux/src/atspi/native.rs",
+      "sha256": "d829b989ef043367ef789c962d7b569321c4d82c8e30e3282e6eb59bdaecb7a8"
+    },
+    {
+      "path": "libs/cua-driver/rust/crates/platform-linux/src/atspi/mod.rs",
+      "sha256": "8ba981b790d1912261ebff59bcc7232e6669e97ab45e81476de67608dee6bc91"
+    },
+    {
+      "path": "libs/cua-driver/rust/crates/platform-linux/src/snapshot_queries.rs",
+      "sha256": "fd1145381daea5b9bf52b6aa5d1435a0c49ca71ce89fecaccf585be09c81b411"
+    },
+    {
+      "path": "libs/cua-driver/rust/crates/cua-driver-core/src/walk_budget.rs",
+      "sha256": "9a0ea50059adae1bb3bc96071aead65c66b663a0f07380705814847f6a92b1e4"
+    },
+    {
+      "path": "libs/cua-driver/rust/crates/cua-driver-core/src/element_query.rs",
+      "sha256": "123ebde69bd76afbb237d84715cb96504d088feec8d54d9d17dd79b2e9b595cb"
+    }
+  ],
+  "patches": "README.md#adaptations",
+  "validation": "Rust p2p D-Bus fixtures plus logic tests through devenv; native window correlation unavailable"
+}

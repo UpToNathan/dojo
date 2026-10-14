@@ -1,0 +1,623 @@
+--- a/crates/dojo-agent-setup/src/lib.rs
++++ b/crates/dojo-agent-setup/src/lib.rs
+@@ -1,6 +1,5 @@
+-//! Agent onboarding for cua: detect installed AI coding agents, install the
+-//! bundled cua skills into their skills directories, and configure the cua
+-//! MCP server (`cua mcp`) in their MCP configs.
++//! Agent onboarding for Dojo: detect coding agents, install the bundled
++//! desktop skill, and configure the `dojo-agent` MCP server.
+ //!
+ //! - Data-driven: [`registry::AGENTS`] lists each agent's detection hints,
+ //!   user-scope skills directory and MCP config (path, format, key path,
+@@ -10,12 +9,11 @@
+ //!   splice), so comments, formatting and every other server are kept. A malformed file is reported and left
+ //!   untouched. The first write to a file takes a timestamped backup; writes
+ //!   are atomic and keep permissions and symlinks.
+-//! - Reversible: `~/.cua/agent-setup.json` records exactly what cua wrote,
++//! - Reversible: `~/.dojo/agent-setup.json` records exactly what Dojo wrote,
+ //!   and [`AgentSetup::remove`] undoes only that.
+ //! - Host-safe: everything resolves from a [`HostEnv`] (HOME, XDG and agent
+ //!   overrides, PATH, app folders), so tests run against a temporary home.
+ 
+-pub mod config;
+ mod edit;
+ mod fsutil;
+ pub mod registry;
+@@ -124,7 +122,7 @@
+     /// Home directory.
+     pub home: PathBuf,
+     /// Environment variables consulted (`XDG_CONFIG_HOME`, `APPDATA`,
+-    /// `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `CUA_HOME`, ...).
++    /// `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `DOJO_HOME`, ...).
+     pub vars: BTreeMap<String, String>,
+     /// Directories searched for agent binaries.
+     pub path: Vec<PathBuf>,
+@@ -141,7 +139,7 @@
+     "XDG_CONFIG_HOME",
+     "APPDATA",
+     "LOCALAPPDATA",
+-    "CUA_HOME",
++    "DOJO_HOME",
+     "CLAUDE_CONFIG_DIR",
+     "CODEX_HOME",
+     "GEMINI_CLI_HOME",
+@@ -156,7 +154,7 @@
+ impl HostEnv {
+     /// The real environment: `$HOME` (or `%USERPROFILE%`), `$PATH`, the
+     /// agent override variables, `/Applications` and `~/Applications`
+-    /// (or `$CUA_AGENT_APP_DIRS`).
++    /// (or `$DOJO_AGENT_APP_DIRS`).
+     pub fn current() -> Self {
+         let home = std::env::var_os("HOME")
+             .or_else(|| std::env::var_os("USERPROFILE"))
+@@ -170,9 +168,9 @@
+             .map(|p| std::env::split_paths(&p).collect())
+             .unwrap_or_default();
+         let os = Os::current();
+-        // `CUA_AGENT_APP_DIRS` (a path list, empty for none) replaces the
++        // `DOJO_AGENT_APP_DIRS` (a path list, empty for none) replaces the
+         // app folders, so hermetic runs do not see the host's apps.
+-        let app_dirs = match std::env::var_os("CUA_AGENT_APP_DIRS") {
++        let app_dirs = match std::env::var_os("DOJO_AGENT_APP_DIRS") {
+             Some(v) => std::env::split_paths(&v)
+                 .filter(|p| !p.as_os_str().is_empty())
+                 .collect(),
+@@ -232,11 +230,11 @@
+         None
+     }
+ 
+-    /// `~/.cua` (or `$CUA_HOME`).
+-    pub fn cua_home(&self) -> PathBuf {
+-        self.var("CUA_HOME")
++    /// `~/.dojo` (or `$DOJO_HOME`).
++    pub fn dojo_home(&self) -> PathBuf {
++        self.var("DOJO_HOME")
+             .map(PathBuf::from)
+-            .unwrap_or_else(|| self.home.join(".cua"))
++            .unwrap_or_else(|| self.home.join(".dojo"))
+     }
+ }
+ 
+@@ -256,39 +254,32 @@
+     true
+ }
+ 
+-/// The MCP server cua registers.
++/// The Dojo desktop MCP server.
+ #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+ pub struct McpServer {
+-    /// Server name in the agent's config (`cua`).
++    /// Server name in the agent's config (`dojo-desktop`).
+     pub name: String,
+-    /// Launch command (an absolute `cua` path when known).
++    /// Launch command (an absolute `dojo-agent` path when known).
+     pub command: String,
+-    /// Arguments (`["mcp"]`).
++    /// Arguments passed to `dojo-agent`.
+     pub args: Vec<String>,
+     /// Extra environment.
+     pub env: BTreeMap<String, String>,
+ }
+ 
+-/// The server name cua registers under.
+-pub const MCP_SERVER_NAME: &str = "cua";
++/// The server name Dojo registers under.
++pub const MCP_SERVER_NAME: &str = "dojo-desktop";
+ 
+-/// The server name cua-driver (background computer-use) registers under.
+-pub const DRIVER_MCP_SERVER_NAME: &str = "cua-driver";
+-
+-/// The bundled skill that teaches agents cua-driver.
+-pub const DRIVER_SKILL: &str = "cua-driver";
+-
+-/// The name the retired Spaces Python MCP server (`spaces_mcp.py`, replaced
+-/// by `cua daemon mcp`) was registered under by older Spaces app builds.
+-pub const LEGACY_SPACES_MCP_NAME: &str = "cua-spaces";
++/// The bundled Dojo desktop skill.
++pub const DOJO_SKILL: &str = "dojo-desktop";
+ 
+ impl McpServer {
+-    /// `command mcp` under the name `cua`.
++    /// A `dojo-agent` MCP entry.
+     pub fn new(command: impl Into<String>) -> Self {
+         McpServer {
+             name: MCP_SERVER_NAME.into(),
+             command: command.into(),
+-            args: vec!["mcp".into()],
++            args: vec![],
+             env: BTreeMap::new(),
+         }
+     }
+@@ -299,53 +290,28 @@
+         self
+     }
+ 
+-    /// `cua mcp`, with `cua` resolved to an absolute path on `env`'s PATH
+-    /// (GUI agents often run without the user's shell PATH), else `cua`.
++    /// `dojo-agent`, resolved to an absolute path when available.
+     pub fn default_for(env: &HostEnv) -> Self {
+-        let cmd = env
+-            .which("cua")
+-            .map(|p| p.display().to_string())
+-            .unwrap_or_else(|| "cua".into());
+-        McpServer::new(cmd)
+-    }
+-}
+-
+-impl McpServer {
+-    /// `command mcp` under the name `cua-driver`: the cua-driver MCP server
+-    /// agents use for background computer-use.
+-    pub fn driver(command: impl Into<String>) -> Self {
+-        McpServer {
+-            name: DRIVER_MCP_SERVER_NAME.into(),
+-            ..McpServer::new(command)
+-        }
+-    }
+-
+-    /// `cua-driver mcp`, with `cua-driver` resolved to an absolute path on
+-    /// `env`'s PATH, else in `~/.local/bin` (where cua-driver's installer
+-    /// puts it; GUI apps often run without the user's shell PATH), else the
+-    /// bare name.
+-    pub fn driver_for(env: &HostEnv) -> Self {
+         let bin = if env.os == Os::Windows {
+-            "cua-driver.exe"
++            "dojo-agent.exe"
+         } else {
+-            "cua-driver"
++            "dojo-agent"
+         };
+         let cmd = env
+-            .which("cua-driver")
++            .which("dojo-agent")
+             .or_else(|| {
+                 Some(env.home.join(".local").join("bin").join(bin)).filter(|p| is_executable(p))
+             })
+             .map(|p| p.display().to_string())
+-            .unwrap_or_else(|| "cua-driver".into());
+-        McpServer::driver(cmd)
++            .unwrap_or_else(|| "dojo-agent".into());
++        McpServer::new(cmd)
+     }
+ }
+ 
+-/// Whether a launch command is a cua binary (`cua`, `/x/bin/cua`,
+-/// `cua.exe`).
+-fn is_cua_command(cmd: &str) -> bool {
++/// Whether a launch command is the Dojo desktop binary.
++fn is_dojo_command(cmd: &str) -> bool {
+     let base = cmd.rsplit(['/', '\\']).next().unwrap_or(cmd);
+-    base == "cua" || base == "cua.exe"
++    base == "dojo-agent" || base == "dojo-agent.exe"
+ }
+ 
+ /// Detection result for one agent.
+@@ -365,12 +331,10 @@
+     pub mcp_config: Option<PathBuf>,
+     /// Config syntax.
+     pub mcp_format: Option<Format>,
+-    /// A `cua` server launching a cua binary is configured.
+-    pub cua_configured: bool,
+-    /// That entry is the one cua wrote (recorded in agent-setup.json).
+-    pub cua_managed: bool,
+-    /// A `cua-driver` server (background computer-use) is configured.
+-    pub cua_driver_configured: bool,
++    /// A Dojo server launching `dojo-agent` is configured.
++    pub dojo_configured: bool,
++    /// That entry is the one Dojo setup recorded.
++    pub dojo_managed: bool,
+     /// Bundled skills present in the skills directory.
+     pub skills_installed: Vec<String>,
+     /// Installed bundled skills whose content differs from this build's.
+@@ -460,9 +424,9 @@
+ }
+ 
+ impl AgentSetup {
+-    /// On `env`; state in `<cua home>/agent-setup.json`.
++    /// On `env`; state in `<Dojo home>/agent-setup.json`.
+     pub fn new(env: HostEnv) -> Self {
+-        let state_path = env.cua_home().join("agent-setup.json");
++        let state_path = env.dojo_home().join("agent-setup.json");
+         AgentSetup { env, state_path }
+     }
+ 
+@@ -549,6 +513,97 @@
+         self.detect()
+     }
+ 
++    /// Returns the changes an apply would make without writing config, state,
++    /// backups, or skill files.
++    pub fn plan(
++        &self,
++        agents: &[String],
++        server: &McpServer,
++        force_skills: bool,
++    ) -> Result<Vec<Outcome>> {
++        if server.name != MCP_SERVER_NAME {
++            return Err(Error::InvalidArgument(format!(
++                "the Dojo server must be named {MCP_SERVER_NAME:?}"
++            )));
++        }
++        let specs = self.specs(agents)?;
++        let skills = skills::bundled();
++        let mut out = Vec::new();
++        for agent in specs {
++            if let Some(loc) = agent.skills {
++                for skill in &skills {
++                    let path = loc.resolve(&self.env).join(&skill.name);
++                    let current = fsutil::hash_dir(&path);
++                    let (change, detail) = match current.as_deref() {
++                        Some(hash) if hash == skill.hash => {
++                            (Change::Unchanged, format!("{} already current", skill.name))
++                        }
++                        Some(_) if !force_skills => (
++                            Change::Skipped,
++                            "existing or edited skill needs explicit force".into(),
++                        ),
++                        Some(_) => (
++                            Change::Updated,
++                            format!("would back up and update {}", skill.name),
++                        ),
++                        None => (Change::Created, format!("would install {}", skill.name)),
++                    };
++                    out.push(Outcome {
++                        agents: vec![agent.id.into()],
++                        target: Target::Skill,
++                        item: skill.name.clone(),
++                        path,
++                        change,
++                        detail,
++                        backup: None,
++                    });
++                }
++            } else {
++                out.push(Outcome {
++                    agents: vec![agent.id.into()],
++                    target: Target::Skill,
++                    item: DOJO_SKILL.into(),
++                    path: PathBuf::new(),
++                    change: Change::Skipped,
++                    detail: format!("{} does not support Agent Skills", agent.name),
++                    backup: None,
++                });
++            }
++            let Some(mcp) = agent.mcp else { continue };
++            let file = self.mcp_file(&mcp);
++            let mut outcome = Outcome {
++                agents: vec![agent.id.into()],
++                target: Target::Mcp,
++                item: server.name.clone(),
++                path: file.clone(),
++                change: Change::Created,
++                detail: "would register dojo-agent".into(),
++                backup: None,
++            };
++            let current = read_text(&file).and_then(|text| {
++                edit::validate(mcp.format, &file, &text)?;
++                edit::get(mcp.format, &file, &text, mcp.key_path, &server.name)
++            });
++            match current {
++                Ok(Some(value)) if value == edit::to_value(&mcp.shape.fields(server)) => {
++                    outcome.change = Change::Unchanged;
++                    outcome.detail = "already configured".into();
++                }
++                Ok(Some(_)) => {
++                    outcome.change = Change::Updated;
++                    outcome.detail = "would update Dojo entry".into();
++                }
++                Ok(None) => {}
++                Err(error) => {
++                    outcome.change = Change::Failed;
++                    outcome.detail = error.to_string();
++                }
++            }
++            out.push(outcome);
++        }
++        Ok(out)
++    }
++
+     fn detect_one(&self, a: &AgentSpec, state: &State, bundled: &[Skill]) -> AgentStatus {
+         let mut evidence = Vec::new();
+         for b in a.bins {
+@@ -596,9 +651,8 @@
+             skills_dir,
+             mcp_config: None,
+             mcp_format: None,
+-            cua_configured: false,
+-            cua_managed: false,
+-            cua_driver_configured: false,
++            dojo_configured: false,
++            dojo_managed: false,
+             skills_installed,
+             skills_outdated,
+             error: None,
+@@ -611,18 +665,15 @@
+                 .and_then(|t| edit::get(m.format, &file, &t, m.key_path, MCP_SERVER_NAME))
+             {
+                 Ok(Some(v)) => {
+-                    status.cua_configured = m
++                    status.dojo_configured = m
+                         .shape
+                         .command_of(&v)
+-                        .is_some_and(|(c, _)| is_cua_command(&c));
+-                    status.cua_managed = state.mcp.get(&file).is_some_and(|r| r.value == v);
++                        .is_some_and(|(c, _)| is_dojo_command(&c));
++                    status.dojo_managed = state.mcp.get(&file).is_some_and(|r| r.value == v);
+                 }
+                 Ok(None) => {}
+                 Err(e) => status.error = Some(e.to_string()),
+             }
+-            status.cua_driver_configured = read_text(&file)
+-                .and_then(|t| edit::get(m.format, &file, &t, m.key_path, DRIVER_MCP_SERVER_NAME))
+-                .is_ok_and(|v| v.is_some());
+             status.mcp_config = Some(file);
+         }
+         status
+@@ -630,7 +681,7 @@
+ 
+     /// Installs `skills` (bundled names; empty = all) into the skills
+     /// directories of `agents`. Agents sharing a directory get one copy.
+-    /// A folder cua did not write, or one edited since, is skipped unless
++    /// A folder Dojo did not write, or one edited since, is skipped unless
+     /// `force` (then the old folder is kept as a timestamped backup).
+     pub fn install_skills(
+         &self,
+@@ -654,10 +705,11 @@
+                 .collect::<Result<_>>()?
+         };
+         let mut state = State::load(&self.state_path)?;
++        let initial_state = state.clone();
+         // Skills dir → agents. An agent that also loads another agent's
+         // skills directory (Cursor, OpenCode and VS Code read
+         // ~/.claude/skills) is served from there when that directory gets,
+-        // or already holds, cua's copies, so it does not list them twice.
++        // or already holds, Dojo's copies, so it does not list them twice.
+         let primaries: BTreeSet<PathBuf> = specs
+             .iter()
+             .filter_map(|a| a.skills.map(|l| l.resolve(&self.env)))
+@@ -700,7 +752,9 @@
+                 out.push(self.install_one(&mut state, s, &dest, &ids, force));
+             }
+         }
+-        state.save(&self.state_path)?;
++        if state != initial_state {
++            state.save(&self.state_path)?;
++        }
+         Ok(out)
+     }
+ 
+@@ -733,12 +787,12 @@
+             o.change = Change::Skipped;
+             o.detail = if record.is_some() {
+                 format!(
+-                    "{} was edited since cua installed it; use --force to replace",
++                    "{} was edited since Dojo installed it; use --force to replace",
+                     dest.display()
+                 )
+             } else {
+                 format!(
+-                    "{} exists and was not installed by cua; use --force to replace",
++                    "{} exists and was not installed by Dojo; use --force to replace",
+                     dest.display()
+                 )
+             };
+@@ -747,7 +801,7 @@
+             if current.is_some() && !owned_unmodified {
+                 // Forced over foreign or edited content: keep it.
+                 let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
+-                let bak = dest.with_file_name(format!("{}.cua-backup-{stamp}", s.name));
++                let bak = dest.with_file_name(format!("{}.dojo-backup-{stamp}", s.name));
+                 if let Err(e) = std::fs::rename(dest, &bak) {
+                     o.change = Change::Failed;
+                     o.detail = format!("could not back up {}: {e}", dest.display());
+@@ -783,6 +837,11 @@
+ 
+     /// Configures `server` in the MCP config of each of `agents`.
+     pub fn configure_mcp(&self, agents: &[String], server: &McpServer) -> Result<Vec<Outcome>> {
++        if server.name != MCP_SERVER_NAME {
++            return Err(Error::InvalidArgument(format!(
++                "the Dojo server must be named {MCP_SERVER_NAME:?}"
++            )));
++        }
+         if server.name.trim().is_empty() || server.command.trim().is_empty() {
+             return Err(Error::InvalidArgument(
+                 "the MCP server needs a name and a command".into(),
+@@ -790,6 +849,7 @@
+         }
+         let specs = self.specs(agents)?;
+         let mut state = State::load(&self.state_path)?;
++        let initial_state = state.clone();
+         let mut out = Vec::new();
+         for a in specs {
+             let Some(m) = &a.mcp else {
+@@ -819,66 +879,11 @@
+                 o.detail = e.to_string();
+             }
+             out.push(o);
+-            if server.name != LEGACY_SPACES_MCP_NAME {
+-                out.extend(self.drop_legacy_spaces_mcp(&mut state, a, m, &file));
+-            }
+         }
+-        state.save(&self.state_path)?;
+-        Ok(out)
+-    }
+-
+-    /// Removes a stale `cua-spaces` entry that still launches the retired
+-    /// Python `spaces_mcp.py` (its tools now come from the cua server). Any
+-    /// other `cua-spaces` entry is left alone.
+-    fn drop_legacy_spaces_mcp(
+-        &self,
+-        state: &mut State,
+-        a: &AgentSpec,
+-        m: &McpSpec,
+-        file: &Path,
+-    ) -> Option<Outcome> {
+-        let text = read_text(file).ok()?;
+-        let entry = edit::get(m.format, file, &text, m.key_path, LEGACY_SPACES_MCP_NAME)
+-            .ok()
+-            .flatten()?;
+-        if !entry.to_string().contains("spaces_mcp.py") {
+-            return None;
+-        }
+-        let mut o = Outcome {
+-            agents: vec![a.id.into()],
+-            target: Target::Mcp,
+-            item: LEGACY_SPACES_MCP_NAME.into(),
+-            path: file.to_path_buf(),
+-            change: Change::Removed,
+-            detail: "retired Spaces Python MCP (spaces_mcp.py)".into(),
+-            backup: None,
+-        };
+-        let result = (|| -> Result<()> {
+-            if !state.backups.contains_key(file)
+-                && let Some(b) = fsutil::backup(file)?
+-            {
+-                state.backups.insert(file.to_path_buf(), b.clone());
+-                o.backup = Some(b);
+-            }
+-            let via_cli = m
+-                .owner_cli
+-                .filter(|_| self.env.run_agent_clis)
+-                .and_then(|c| self.env.which(c.bin()).map(|bin| (c, bin)));
+-            if let Some((cli, bin)) = via_cli {
+-                return run_cli(&bin, &cli.remove_args(LEGACY_SPACES_MCP_NAME));
+-            }
+-            if let Some(new) =
+-                edit::remove(m.format, file, &text, m.key_path, LEGACY_SPACES_MCP_NAME)?
+-            {
+-                fsutil::atomic_write(file, new.as_bytes())?;
+-            }
+-            Ok(())
+-        })();
+-        if let Err(e) = result {
+-            o.change = Change::Failed;
+-            o.detail = e.to_string();
++        if state != initial_state {
++            state.save(&self.state_path)?;
+         }
+-        Some(o)
++        Ok(out)
+     }
+ 
+     fn configure_one(
+@@ -915,14 +920,14 @@
+                 },
+             );
+         };
+-        // The entry that was there before cua first wrote it (restored on
+-        // remove), unless it was itself a cua registration.
++        // The entry that was there before Dojo first wrote it (restored on
++        // remove), unless it was itself a Dojo registration.
+         let previous = match &record {
+             Some(r) => r.previous.clone(),
+             None => existing.clone().filter(|v| {
+                 !m.shape
+                     .command_of(v)
+-                    .is_some_and(|(c, _)| is_cua_command(&c))
++                    .is_some_and(|(c, _)| is_dojo_command(&c))
+             }),
+         };
+         if existing.as_ref() == Some(&want) {
+@@ -985,9 +990,9 @@
+         Ok(())
+     }
+ 
+-    /// Undoes what cua wrote for `agents`: MCP entries that still hold the
+-    /// exact value cua wrote (the entry that was there before, if any, is
+-    /// restored), and skill folders cua installed and nobody edited (a
++    /// Undoes what Dojo wrote for `agents`: MCP entries that still hold the
++    /// exact value Dojo wrote (the entry that was there before, if any, is
++    /// restored), and skill folders Dojo installed and nobody edited (a
+     /// folder shared with an agent not being removed stays).
+     pub fn remove(&self, agents: &[String], parts: Parts) -> Result<Vec<Outcome>> {
+         let specs = self.specs(agents)?;
+@@ -997,8 +1002,8 @@
+             for a in &specs {
+                 let Some(m) = &a.mcp else { continue };
+                 let file = self.mcp_file(m);
+-                // `cua` always gets a row; other servers (`cua-driver`) only
+-                // when cua registered them there.
++                // `Dojo` always gets a row; other servers (`other server`) only
++                // when Dojo setup recorded them there.
+                 let mut names = state.names_in(&file);
+                 if !state.mcp.contains_key(&file) {
+                     names.insert(0, MCP_SERVER_NAME.to_string());
+@@ -1075,7 +1080,7 @@
+                             }
+                         },
+                         Some(_) => {
+-                            o.detail = "edited since cua installed it; left in place".into();
++                            o.detail = "edited since Dojo installed it; left in place".into();
+                             state.skills.remove(&dest);
+                         }
+                     }
+@@ -1096,14 +1101,14 @@
+         name: &str,
+         o: &mut Outcome,
+     ) -> Result<()> {
+-        // `cua`'s record may carry another name (older states).
++        // `Dojo`'s record may carry another name (older states).
+         let key = if state.mcp.get(file).is_some_and(|r| r.name == name) {
+             MCP_SERVER_NAME
+         } else {
+             name
+         };
+         let Some(mut r) = state.record(key, file).cloned() else {
+-            o.detail = "not configured by cua".into();
++            o.detail = "not configured by Dojo setup".into();
+             return Ok(());
+         };
+         let text = read_text(file)?;
+@@ -1113,7 +1118,7 @@
+             o.detail = if current.is_none() {
+                 "already removed".into()
+             } else {
+-                "the entry changed since cua wrote it; left in place".into()
++                "the entry changed since Dojo wrote it; left in place".into()
+             };
+             state.forget(key, file);
+             return Ok(());
+@@ -1152,42 +1157,8 @@
+         Ok(())
+     }
+ 
+-    /// Background computer-use for `agents`: the bundled `cua-driver` skill
+-    /// and the `cua-driver` MCP server (`server`, usually
+-    /// [`McpServer::driver_for`]). `parts` picks either or both. Agents
+-    /// without MCP support get the skill only. The same step backs
+-    /// `cua agents setup --cua-driver`, the installers' `cua-driver` item and
+-    /// the Spaces onboarding card.
+-    pub fn setup_cua_driver(
+-        &self,
+-        agents: &[String],
+-        server: &McpServer,
+-        parts: Parts,
+-        force: bool,
+-    ) -> Result<Vec<Outcome>> {
+-        if server.name != DRIVER_MCP_SERVER_NAME {
+-            return Err(Error::InvalidArgument(format!(
+-                "the cua-driver server must be named {DRIVER_MCP_SERVER_NAME:?}"
+-            )));
+-        }
+-        let mut out = Vec::new();
+-        if parts.skills {
+-            out.extend(self.install_skills(agents, &[DRIVER_SKILL.to_string()], force)?);
+-        }
+-        if parts.mcp {
+-            let with_mcp: Vec<String> = self
+-                .specs(agents)?
+-                .iter()
+-                .filter(|a| a.mcp.is_some())
+-                .map(|a| a.id.to_string())
+-                .collect();
+-            out.extend(self.configure_mcp(&with_mcp, server)?);
+-        }
+-        Ok(out)
+-    }
+-
+-    /// Refreshes every skill folder cua installed to this build's content
+-    /// (edited folders are skipped), and re-points every MCP entry cua
++    /// Refreshes every skill folder Dojo installed to this build's content
++    /// (edited folders are skipped), and re-points every MCP entry Dojo
+     /// manages that still holds its recorded value to `server`.
+     pub fn update(&self, server: Option<&McpServer>) -> Result<Vec<Outcome>> {
+         let state = State::load(&self.state_path)?;

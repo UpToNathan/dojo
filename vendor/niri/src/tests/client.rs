@@ -472,6 +472,13 @@ impl Window {
         self.surface.attach(Some(&buffer), 0, 0);
     }
 
+    pub fn attach_red_buffer(&self) {
+        let buffer = self
+            .spbm
+            .create_u32_rgba_buffer(u32::MAX, 0, 0, u32::MAX, &self.qh, ());
+        self.surface.attach(Some(&buffer), 0, 0);
+    }
+
     pub fn attach_null(&self) {
         self.surface.attach(None, 0, 0);
     }
@@ -665,7 +672,9 @@ impl Dispatch<WlRegistry, ()> for State {
                     let output = registry.bind(name, version, qh, ());
                     state.outputs.insert(output, String::new());
                 } else if interface == WlSeat::interface().name {
-                    if state.primary_seat_only && !state.seats.is_empty() { return; }
+                    if state.primary_seat_only && !state.seats.is_empty() {
+                        return;
+                    }
                     let version = min(version, WlSeat::interface().version);
                     state
                         .seats

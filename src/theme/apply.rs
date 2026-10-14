@@ -147,7 +147,7 @@ pub fn system_appearance() -> anyhow::Result<Appearance> {
     Appearance::parse(answer.trim())
 }
 
-pub(super) fn set_system_appearance(appearance: Appearance) -> anyhow::Result<()> {
+pub fn set_system_appearance(appearance: Appearance) -> anyhow::Result<()> {
     command("darkman", &["set", appearance.name()])?;
     anyhow::ensure!(
         system_appearance()? == appearance,
@@ -316,6 +316,23 @@ fn patch_zed_settings(
 pub fn apply(store: &ThemeStore, selection: Selection) -> anyhow::Result<ApplyReport> {
     let _lock = store.lock()?;
     apply_locked(store, selection)
+}
+
+pub fn refresh_target(store: &ThemeStore, target: &str) -> anyhow::Result<TargetResult> {
+    anyhow::ensure!(TARGETS.contains(&target), "unknown theme target");
+    let _lock = store.lock()?;
+    let selection = store.selection()?.context("no selected theme")?;
+    let theme = store.theme(&selection.generation)?;
+    let outputs = theme.outputs(selection.appearance)?;
+    let path = store.paths.root.join("published.json");
+    let mut registry: Published = read_json_optional(&path)?.unwrap_or_default();
+    let (status, detail) = publish_target(store, target, &selection, &outputs, &mut registry)?;
+    write_atomic(&path, &serde_json::to_vec_pretty(&registry)?)?;
+    Ok(TargetResult {
+        target: target.into(),
+        status: status.into(),
+        detail,
+    })
 }
 
 pub fn apply_wallpaper(
@@ -495,15 +512,16 @@ fn publish_target(
             Ok((if value.is_some() {"published"} else {"needs_setup"},"browser.theme.update payload available at current/zen.json; extension/native host must be installed once; last acknowledgement is not proof of this apply".into()))
         },
         "helium"=>{
-            let policy: serde_json::Value = serde_json::from_slice(
-                outputs.get("helium.json").context("missing Helium policy exporter")?,
+            let palette: super::SemanticPalette = serde_json::from_slice(
+                outputs.get("palette.json").context("missing semantic palette")?
             )?;
-            let color = policy
-                .get("BrowserThemeColor")
-                .and_then(serde_json::Value::as_str)
-                .context("missing Helium BrowserThemeColor")?;
-            command("dojo-chromium-theme-policy", &[color])?;
-            Ok(("published","Chromium managed BrowserThemeColor policy updated; Helium watches the shared policy directory and should update within about five seconds. Chromium derives the chrome color from this seed; some internal pages may retain stock colors.".into()))
+            command("dojo-chromium-theme-policy", &[palette.color("background")])?;
+            if application_instances("helium")?.is_empty() {
+                Ok(("ready", "Built-in browser theme policy updated from the background color; Helium will apply it on launch. Chrome derives the remaining colors.".into()))
+            } else {
+                command("helium", &["--refresh-platform-policy", "--no-startup-window"])?;
+                Ok(("reload_requested", "Built-in browser theme policy updated and immediate policy refresh requested; Chrome derives the remaining colors.".into()))
+            }
         },
         "gtk"=>{
             let name=format!("dojo-{}-{}",selection.generation,selection.appearance.name());

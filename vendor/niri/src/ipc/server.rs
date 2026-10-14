@@ -5,12 +5,14 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use std::{env, io, process};
 
 use anyhow::Context;
 use async_channel::{Receiver, Sender, TrySendError};
 use calloop::futures::Scheduler;
 use calloop::io::Async;
+use calloop::timer::{TimeoutAction, Timer};
 use directories::BaseDirs;
 use futures_util::io::{AsyncReadExt, BufReader};
 use futures_util::{select_biased, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, FutureExt as _};
@@ -52,7 +54,9 @@ pub struct IpcServer {
 }
 
 struct ClientCtx {
+    capture_permit: RefCell<Option<crate::scene_capture::CapturePermit>>,
     peer: u64,
+    owner: Option<Rc<crate::agent_input::peer::KernelPeer>>,
     event_loop: LoopHandle<'static, State>,
     scheduler: Scheduler<()>,
     ipc_outputs: Arc<Mutex<IpcOutputMap>>,
@@ -175,6 +179,10 @@ fn on_new_ipc_client(state: &mut State, stream: UnixStream) {
     let _span = tracy_client::span!("on_new_ipc_client");
     trace!("new IPC client connected");
 
+    let owner = crate::agent_input::peer::KernelPeer::capture(&stream)
+        .ok()
+        .map(Rc::new);
+
     let stream = match state.niri.event_loop.adapt_io(stream) {
         Ok(stream) => stream,
         Err(err) => {
@@ -187,7 +195,9 @@ fn on_new_ipc_client(state: &mut State, stream: UnixStream) {
 
     state.niri.next_agent_peer += 1;
     let ctx = ClientCtx {
+        capture_permit: RefCell::new(None),
         peer: state.niri.next_agent_peer,
+        owner,
         event_loop: state.niri.event_loop.clone(),
         scheduler: state.niri.scheduler.clone(),
         ipc_outputs: state.backend.ipc_outputs(),
@@ -243,7 +253,35 @@ async fn handle_client(ctx: ClientCtx, stream: Async<'static, UnixStream>) -> an
         buf.clear();
         serde_json::to_writer(&mut buf, &reply).context("error formatting reply")?;
         buf.push(b'\n');
-        write.write_all(&buf).await.context("error writing reply")?;
+        if ctx.capture_permit.borrow().is_some() {
+            let (tx, rx) = async_channel::bounded(1);
+            let timer = ctx
+                .event_loop
+                .insert_source(
+                    Timer::from_duration(Duration::from_secs(10)),
+                    move |_, _, _| {
+                        let _ = tx.try_send(());
+                        TimeoutAction::Drop
+                    },
+                )
+                .map_err(|error| {
+                    anyhow::anyhow!("error scheduling capture reply deadline: {}", error.error)
+                })?;
+            let result = {
+                let delivery = write.write_all(&buf).fuse();
+                let deadline = rx.recv().fuse();
+                futures_util::pin_mut!(delivery, deadline);
+                select_biased! {
+                    result = delivery => result,
+                    _ = deadline => Err(io::Error::new(io::ErrorKind::TimedOut, "capture reply deadline")),
+                }
+            };
+            ctx.event_loop.remove(timer);
+            result.context("error writing capture reply")?;
+        } else {
+            write.write_all(&buf).await.context("error writing reply")?;
+        }
+        ctx.capture_permit.borrow_mut().take();
 
         if requested_event_stream {
             let (events_tx, events_rx) = async_channel::bounded(EVENT_STREAM_BUFFER_SIZE);
@@ -293,11 +331,67 @@ async fn process(ctx: &ClientCtx, request: Request) -> Reply {
     let response = match request {
         Request::ReturnError => return Err(String::from("example compositor error")),
         Request::Version => Response::Version(version()),
+        Request::WindowPlacements { output } => {
+            let (tx, rx) = async_channel::bounded(1);
+            ctx.event_loop.insert_idle(move |state| {
+                if !tx.is_closed() {
+                    let result = state
+                        .window_placements(&output)
+                        .map(Response::WindowPlacements)
+                        .map_err(|error| format!("{error:#}"));
+                    let _ = tx.try_send(result);
+                }
+            });
+            return rx
+                .recv()
+                .await
+                .map_err(|_| "geometry dispatcher stopped".to_string())?;
+        }
+        Request::CaptureScene { output } => {
+            let permit = crate::scene_capture::CapturePermit::acquire().map_err(str::to_owned)?;
+            let (tx, rx) = async_channel::bounded(1);
+            ctx.event_loop.insert_idle(move |state| {
+                if tx.is_closed() {
+                    return;
+                }
+                let result = state
+                    .capture_scene(&output)
+                    .map_err(|error| format!("{error:#}"));
+                let _ = tx.try_send((result, permit));
+            });
+            let (raw, permit) = rx
+                .recv()
+                .await
+                .map_err(|_| "scene dispatcher stopped".to_string())?;
+            let raw = raw?;
+            let (tx, rx) = async_channel::bounded(1);
+            std::thread::Builder::new()
+                .name("scene-encoder".into())
+                .spawn(move || {
+                    let result = raw
+                        .encode()
+                        .map(Response::CapturedScene)
+                        .map_err(|error| format!("{error:#}"));
+                    let _ = tx.try_send((result, permit));
+                })
+                .map_err(|error| format!("scene encoder unavailable: {error}"))?;
+            let (result, permit) = rx
+                .recv()
+                .await
+                .map_err(|_| "scene encoder stopped".to_string())?;
+            *ctx.capture_permit.borrow_mut() = Some(permit);
+            return result;
+        }
         Request::AgentInput(command) => {
             let (tx, rx) = async_channel::bounded(1);
             let peer = ctx.peer;
+            let owner = ctx.owner.clone();
             ctx.event_loop.insert_idle(move |state| {
+                let creating = matches!(&command, niri_ipc::AgentInput::Create { .. });
                 state.request_agent_input(peer, command, tx);
+                if creating {
+                    state.bind_agent_owner(peer, owner);
+                }
             });
             return rx
                 .recv()
@@ -307,10 +401,15 @@ async fn process(ctx: &ClientCtx, request: Request) -> Reply {
         Request::YieldHumanInput => {
             let (tx, rx) = async_channel::bounded(1);
             ctx.event_loop.insert_idle(move |state| {
-                let result = state.yield_human_input().map(|()| Response::InputCoordination(state.input_coordination_snapshot()));
+                let result = state
+                    .yield_human_input()
+                    .map(|()| Response::InputCoordination(state.input_coordination_snapshot()));
                 let _ = tx.try_send(result);
             });
-            return rx.recv().await.map_err(|_| "coordination dispatcher stopped".to_string())?;
+            return rx
+                .recv()
+                .await
+                .map_err(|_| "coordination dispatcher stopped".to_string())?;
         }
         Request::InputCoordination => {
             let (tx, rx) = async_channel::bounded(1);

@@ -281,6 +281,7 @@ def main():
     parser.add_argument("--recorder", default=str(Path(__file__).parent / "target/debug/dojo-agent-input-fixture"))
     parser.add_argument("--gpui", action="store_true")
     parser.add_argument("--lifecycle", action="store_true")
+    parser.add_argument("--negative-output-origin", action="store_true", help="Test region geometry on the nested winit output at (-800, 100)")
     parser.add_argument("--log", required=True)
     args = parser.parse_args()
     host_runtime = Path(os.environ["XDG_RUNTIME_DIR"])
@@ -327,6 +328,12 @@ def main():
             assert {human, target} <= {w["id"] for w in context["windows"]}
             assert context["outputs"]
             output_name = next(name for name, output in context["outputs"].items() if output["logical"])
+            if args.negative_output_origin:
+                assert output_name == "winit", "negative-origin check requires the nested winit output"
+                query.request({"Output": {"output": output_name, "action": {"Position": {"position": {"Specific": {"x": -800, "y": 100}}}}}})
+                wait_for(lambda: query.request("Outputs")["Outputs"][output_name]["logical"]["x"] == -800, "negative output position")
+                context = server.tool("desktop_context")
+            before_clipboard = subprocess.run(["wl-paste", "--no-newline"], capture_output=True, timeout=5)
             capture = server.request("tools/call", {"name": "desktop_screenshot", "arguments": {"output": output_name}})
             assert not capture.get("isError"), capture
             metadata = json.loads(capture["content"][0]["text"])
@@ -341,6 +348,52 @@ def main():
             assert metadata["logical_x_per_image_pixel"] == logical["width"] / width
             assert metadata["logical_y_per_image_pixel"] == logical["height"] / height
             Path(args.log + ".mcp-screenshot.png").write_bytes(png)
+            crops = []
+            for arguments, expected in [
+                ({"region": {"x": 20, "y": 60, "width": 100, "height": 80}}, (20, 60, 100, 80, 100, 80)),
+                ({"region": {"x": 20, "y": 60, "width": 100, "height": 80}, "scale": 0.5}, (20, 60, 100, 80, 50, 40)),
+                ({"region": {"x": -10, "y": -10, "width": 30, "height": 30}}, (0, 0, 20, 20, 20, 20)),
+            ]:
+                result = server.request("tools/call", {"name": "desktop_screenshot", "arguments": {"output": output_name, **arguments}})
+                assert not result.get("isError"), result
+                crop = json.loads(result["content"][0]["text"])
+                crop_png = base64.b64decode(result["content"][1]["data"], validate=True)
+                dimensions = tuple(int.from_bytes(crop_png[i:i + 4], "big") for i in (16, 20))
+                observed = tuple(crop[k] for k in ("logical_x", "logical_y", "logical_width", "logical_height")) + dimensions
+                assert observed == expected, (observed, expected)
+                assert crop["logical_x_per_image_pixel"] == expected[2] / expected[4]
+                assert crop["logical_y_per_image_pixel"] == expected[3] / expected[5]
+                Path(args.log + f".mcp-crop-{len(crops)}.png").write_bytes(crop_png)
+                crops.append(crop)
+            window = next(w for w in windows() if w["id"] == target)
+            x, y = window["layout"]["tile_pos_in_workspace_view"]
+            w, h = window["layout"]["tile_size"]
+            import math
+            result = server.request("tools/call", {"name": "desktop_screenshot", "arguments": {"output": output_name, "window_id": target}})
+            assert not result.get("isError"), result
+            crop = json.loads(result["content"][0]["text"])
+            assert (crop["logical_x"], crop["logical_y"], crop["logical_width"], crop["logical_height"]) == (math.floor(x), math.floor(y), math.ceil(x + w) - math.floor(x), math.ceil(y + h) - math.floor(y)), crop
+            Path(args.log + ".mcp-window.png").write_bytes(base64.b64decode(result["content"][1]["data"], validate=True))
+            for arguments in [
+                {"window_id": 2**64 - 1},
+                {"scale": 0}, {"scale": 1.01},
+                {"region": {"x": 0, "y": 0, "width": 0, "height": 10}},
+                {"region": {"x": 0, "y": 0, "width": 10, "height": 10}, "window_id": human},
+                {"region": {"x": logical["width"], "y": 0, "width": 10, "height": 10}},
+            ]:
+                server.tool("desktop_screenshot", {"output": output_name, **arguments}, error=True)
+            if not args.gpui:
+                pixel_diff = str(root / "tools/agent-input/target/debug/pixel-diff")
+                for suffix, x, y, color in [
+                    (".mcp-crop-0.png", 50, 40, (40, 90, 132)),
+                    (".mcp-crop-1.png", 25, 20, (40, 90, 132)),
+                    (".mcp-window.png", crop["image_width"] // 2, crop["image_height"] // 2, (138, 89, 48)),
+                ]:
+                    result = json.loads(subprocess.check_output([pixel_diff, "--color", args.log + suffix, str(x), str(y), "10", *map(str, color)], text=True))
+                    assert result["matching_pixels"] == 400, result
+            Path(args.log + ".capture-results.json").write_text(json.dumps({"crops": crops, "window": crop}, indent=2))
+            after_clipboard = subprocess.run(["wl-paste", "--no-newline"], capture_output=True, timeout=5)
+            assert (before_clipboard.returncode, before_clipboard.stdout) == (after_clipboard.returncode, after_clipboard.stdout), "capture changed clipboard"
             assert focused_id(query) == human
             assert server.tool("desktop_context")["seat_name"] is None
             assert not children(server.process)
@@ -358,7 +411,11 @@ def main():
             tile_x, tile_y = layout["tile_pos_in_workspace_view"]
             offset_x, offset_y = layout["window_offset_in_tile"]
             width, height = layout["window_size"]
-            server.action("move", output=workspace["output"], x=tile_x + offset_x + width / 2, y=tile_y + offset_y + height / 2)
+            image_x = (tile_x + offset_x + width / 2 - crop["logical_x"]) / crop["logical_x_per_image_pixel"]
+            image_y = (tile_y + offset_y + height / 2 - crop["logical_y"]) / crop["logical_y_per_image_pixel"]
+            server.action("move", output=workspace["output"],
+                          x=crop["logical_x"] + image_x * crop["logical_x_per_image_pixel"],
+                          y=crop["logical_y"] + image_y * crop["logical_y_per_image_pixel"])
             server.action("click", button="left")
             server.action("key", evdev=30, state="tap")
             server.action("scroll", horizontal=0.0, vertical=10.0)

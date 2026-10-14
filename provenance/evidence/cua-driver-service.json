@@ -1,0 +1,755 @@
+{
+  "upstream_commit": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+  "artifact": {
+    "upstream_commit": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+    "binary_sha256": "d47e21de9a50c7bb11dd19b744d03ec49769835d4aa4dee6806d164b60d99e94",
+    "sources": {
+      "vendor/cua/copy-plan.json": "72d76ca5a8ff63cfe6cde27acd5f900a9cde0c4405bfd8e843b922c230ce1c65",
+      "vendor/cua/copy-inventory.json": "c0e3906e73664548a8fee0b73d70ed0fb4ff2de87746427cad4c8d0209daa458",
+      "vendor/cua/metadata/niri-driver.patch": "ce4e3336fbd450975adeebdaeba8fdb5cdf992fdf48c1bb11fe6b113c59ecb1e",
+      "vendor/niri/niri-ipc/Cargo.toml": "3363e5d93a920c029fb9e97109a121e4c51a967af39ed5828b52d3f93d1f43d3",
+      "vendor/niri/niri-ipc/src/lib.rs": "62fda98179e2af23ffc7fa5b3c7866521e0c6a3dccbcfacb8e27f17b7d457d4e",
+      "vendor/niri/niri-ipc/src/socket.rs": "74807eb066242ae1bb8929ffacac264a7d4781df3c0071a4efb8dbaa4de6976c",
+      "vendor/niri/niri-ipc/src/state.rs": "2140a8da5032530077f775d675bfb76cb7fda4378fea8c48939175d64c9d30cc",
+      "crates/dojo-native-seat/Cargo.toml": "1936b7b5f283eb7490d6c3f48b679b0cffe6445eafcc665ecbf10692736719e7",
+      "vendor/cua/upstream/libs/cua-driver/rust/Cargo.lock": "eaf7ec247543ebd93b96ced266edf69f9b4995a8c93eb452dd3c0dc20bbe4993",
+      "crates/dojo-native-seat/src/lib.rs": "7ab652e01a9451da2123f0b11d5c513ad7e7011696ae670b54f7d228c3a6d8ff"
+    }
+  },
+  "live_evidence_directory": "/tmp/dojo-capture-live.3kgZ2g",
+  "scope": "Original Driver worker through activated service, native nested Niri isolated in inactive dojo-tests; no VM or provider inference",
+  "test_source_sha256": "a75db8a9a0152eeb37bbdbea511b80133c962802161eb1cef4255dd7ba73f192",
+  "gates": [
+    "original runtime schemas",
+    "unadmitted tool calls refused",
+    "capture-correlated delivered image",
+    "targeted click and key delivery",
+    "literal Dojo text transitions",
+    "scroll delivery",
+    "capture reuse refused",
+    "disconnect reaps worker",
+    "release reaps separate worker"
+  ],
+  "actions": {
+    "click": {
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Native click delivered; UI effect remains unverified. {\"capture_id\":\"capture_d518868a0fd94d13b65b3fae17074e33_0000000000000000\",\"effect\":\"delivered\",\"path\":\"dojo_native_seat\",\"peer_id\":14,\"pid\":682277,\"window_id\":3}"
+          }
+        ],
+        "structuredContent": {
+          "delivery": {
+            "mode": "background"
+          },
+          "effect": "unverifiable",
+          "route": "global_input",
+          "summary": "Native click delivered; UI effect remains unverified. {\"capture_id\":\"capture_d518868a0fd94d13b65b3fae17074e33_0000000000000000\",\"effect\":\"delivered\",\"path\":\"dojo_native_seat\",\"peer_id\":14,\"pid\":682277,\"window_id\":3}"
+        }
+      },
+      "capture": {
+        "app_name": "dojo-agent-input-fixture",
+        "bounds_complete": true,
+        "capture_id": "capture_d518868a0fd94d13b65b3fae17074e33_0000000000000000",
+        "coordinate_frame": "window",
+        "degraded": true,
+        "degraded_reason": "x11_property_fallback_partial: AT-SPI was unavailable and Cua Driver only recovered window metadata. Treat it as discovery evidence; it cannot prove checked state.",
+        "element_count": 1,
+        "elements_complete": false,
+        "niri_capture": {
+          "capture_semantics": "visible output pixels; window crops may include occluding surfaces",
+          "compositor_pid": 682151,
+          "compositor_start_ticks": 3637857,
+          "compositor_uid": 1000,
+          "coordination_revision": 0,
+          "delivered_height": 200,
+          "delivered_png_sha256": "41eebb539b33e74acaecbb0a597894a1f27df26f89b7dfbc916677f7486cac3c",
+          "delivered_width": 260,
+          "image_geometry_atomic": true,
+          "image_semantic_atomic": false,
+          "logical_output": {
+            "height": 868,
+            "scale": 1.75,
+            "transform": "Flipped180",
+            "width": 1192,
+            "x": 0,
+            "y": 0
+          },
+          "output": "winit",
+          "rendered_windows": [
+            {
+              "blocked_out": false,
+              "id": 3,
+              "is_floating": true,
+              "output_clip": [
+                330.2857142857143,
+                60.0,
+                259.99999999999994,
+                200.0
+              ],
+              "pid": 682277,
+              "rect": [
+                330.2857142857143,
+                60.0,
+                260.0,
+                200.0
+              ]
+            }
+          ],
+          "scene_frame_serial": 3,
+          "source_height": 1519,
+          "source_png_sha256": "7baf34f64f93d72ae206465496e42fdaaabb2fea1dbb4f7cc3135d88d458a491",
+          "source_width": 2086,
+          "window": {
+            "pid": 682277,
+            "process_start_ticks": 3637950,
+            "rendered_rect": [
+              330.2857142857143,
+              60.0,
+              260.0,
+              200.0
+            ],
+            "window_id": 3
+          }
+        },
+        "pid": 682277,
+        "returned_element_count": 1,
+        "screenshot_frame_valid": true,
+        "screenshot_height": 200,
+        "screenshot_mime_type": "image/png",
+        "screenshot_width": 260,
+        "snapshot_id": "s00000001",
+        "timeout_ms": 2000,
+        "total_element_count": 1,
+        "tree_format": "markdown",
+        "tree_markdown": "- [0] window \"\" [actions=[activate]]\n",
+        "truncated": false,
+        "window_bounds": {
+          "height": 200.0,
+          "width": 260.0,
+          "x": 330.2857142857143,
+          "y": 60.0
+        },
+        "window_id": 3,
+        "window_title": "Agent input fixture 2"
+      }
+    },
+    "press_key": {
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Native press_key delivered; UI effect remains unverified. {\"capture_id\":\"capture_d518868a0fd94d13b65b3fae17074e33_0000000000000001\",\"effect\":\"delivered\",\"path\":\"dojo_native_seat\",\"peer_id\":14,\"pid\":682277,\"window_id\":3}"
+          }
+        ],
+        "structuredContent": {
+          "delivery": {
+            "mode": "background"
+          },
+          "effect": "unverifiable",
+          "route": "global_input",
+          "summary": "Native press_key delivered; UI effect remains unverified. {\"capture_id\":\"capture_d518868a0fd94d13b65b3fae17074e33_0000000000000001\",\"effect\":\"delivered\",\"path\":\"dojo_native_seat\",\"peer_id\":14,\"pid\":682277,\"window_id\":3}"
+        }
+      },
+      "capture": {
+        "app_name": "dojo-agent-input-fixture",
+        "bounds_complete": true,
+        "capture_id": "capture_d518868a0fd94d13b65b3fae17074e33_0000000000000001",
+        "coordinate_frame": "window",
+        "degraded": true,
+        "degraded_reason": "x11_property_fallback_partial: AT-SPI was unavailable and Cua Driver only recovered window metadata. Treat it as discovery evidence; it cannot prove checked state.",
+        "element_count": 1,
+        "elements_complete": false,
+        "invalidated_snapshot_ids": [
+          "s00000001"
+        ],
+        "niri_capture": {
+          "capture_semantics": "visible output pixels; window crops may include occluding surfaces",
+          "compositor_pid": 682151,
+          "compositor_start_ticks": 3637857,
+          "compositor_uid": 1000,
+          "coordination_revision": 0,
+          "delivered_height": 200,
+          "delivered_png_sha256": "41eebb539b33e74acaecbb0a597894a1f27df26f89b7dfbc916677f7486cac3c",
+          "delivered_width": 260,
+          "image_geometry_atomic": true,
+          "image_semantic_atomic": false,
+          "logical_output": {
+            "height": 868,
+            "scale": 1.75,
+            "transform": "Flipped180",
+            "width": 1192,
+            "x": 0,
+            "y": 0
+          },
+          "output": "winit",
+          "rendered_windows": [
+            {
+              "blocked_out": false,
+              "id": 3,
+              "is_floating": true,
+              "output_clip": [
+                330.2857142857143,
+                60.0,
+                259.99999999999994,
+                200.0
+              ],
+              "pid": 682277,
+              "rect": [
+                330.2857142857143,
+                60.0,
+                260.0,
+                200.0
+              ]
+            }
+          ],
+          "scene_frame_serial": 6,
+          "source_height": 1519,
+          "source_png_sha256": "7baf34f64f93d72ae206465496e42fdaaabb2fea1dbb4f7cc3135d88d458a491",
+          "source_width": 2086,
+          "window": {
+            "pid": 682277,
+            "process_start_ticks": 3637950,
+            "rendered_rect": [
+              330.2857142857143,
+              60.0,
+              260.0,
+              200.0
+            ],
+            "window_id": 3
+          }
+        },
+        "pid": 682277,
+        "returned_element_count": 1,
+        "screenshot_frame_valid": true,
+        "screenshot_height": 200,
+        "screenshot_mime_type": "image/png",
+        "screenshot_width": 260,
+        "snapshot_id": "s00000002",
+        "timeout_ms": 1000,
+        "total_element_count": 1,
+        "tree_format": "markdown",
+        "tree_markdown": "- [0] window \"\" [actions=[activate]]\n",
+        "truncated": false,
+        "window_bounds": {
+          "height": 200.0,
+          "width": 260.0,
+          "x": 330.2857142857143,
+          "y": 60.0
+        },
+        "window_id": 3,
+        "window_title": "Agent input fixture 2"
+      }
+    },
+    "type_text": {
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Native type_text delivered; UI effect remains unverified. {\"capture_id\":\"capture_d518868a0fd94d13b65b3fae17074e33_0000000000000002\",\"effect\":\"delivered\",\"path\":\"dojo_native_seat\",\"peer_id\":14,\"pid\":682277,\"window_id\":3}"
+          }
+        ],
+        "structuredContent": {
+          "delivery": {
+            "mode": "background"
+          },
+          "effect": "unverifiable",
+          "route": "global_input",
+          "summary": "Native type_text delivered; UI effect remains unverified. {\"capture_id\":\"capture_d518868a0fd94d13b65b3fae17074e33_0000000000000002\",\"effect\":\"delivered\",\"path\":\"dojo_native_seat\",\"peer_id\":14,\"pid\":682277,\"window_id\":3}"
+        }
+      },
+      "capture": {
+        "app_name": "dojo-agent-input-fixture",
+        "bounds_complete": true,
+        "capture_id": "capture_d518868a0fd94d13b65b3fae17074e33_0000000000000002",
+        "coordinate_frame": "window",
+        "degraded": true,
+        "degraded_reason": "x11_property_fallback_partial: AT-SPI was unavailable and Cua Driver only recovered window metadata. Treat it as discovery evidence; it cannot prove checked state.",
+        "element_count": 1,
+        "elements_complete": false,
+        "invalidated_snapshot_ids": [
+          "s00000002"
+        ],
+        "niri_capture": {
+          "capture_semantics": "visible output pixels; window crops may include occluding surfaces",
+          "compositor_pid": 682151,
+          "compositor_start_ticks": 3637857,
+          "compositor_uid": 1000,
+          "coordination_revision": 0,
+          "delivered_height": 200,
+          "delivered_png_sha256": "41eebb539b33e74acaecbb0a597894a1f27df26f89b7dfbc916677f7486cac3c",
+          "delivered_width": 260,
+          "image_geometry_atomic": true,
+          "image_semantic_atomic": false,
+          "logical_output": {
+            "height": 868,
+            "scale": 1.75,
+            "transform": "Flipped180",
+            "width": 1192,
+            "x": 0,
+            "y": 0
+          },
+          "output": "winit",
+          "rendered_windows": [
+            {
+              "blocked_out": false,
+              "id": 3,
+              "is_floating": true,
+              "output_clip": [
+                330.2857142857143,
+                60.0,
+                259.99999999999994,
+                200.0
+              ],
+              "pid": 682277,
+              "rect": [
+                330.2857142857143,
+                60.0,
+                260.0,
+                200.0
+              ]
+            }
+          ],
+          "scene_frame_serial": 9,
+          "source_height": 1519,
+          "source_png_sha256": "7baf34f64f93d72ae206465496e42fdaaabb2fea1dbb4f7cc3135d88d458a491",
+          "source_width": 2086,
+          "window": {
+            "pid": 682277,
+            "process_start_ticks": 3637950,
+            "rendered_rect": [
+              330.2857142857143,
+              60.0,
+              260.0,
+              200.0
+            ],
+            "window_id": 3
+          }
+        },
+        "pid": 682277,
+        "returned_element_count": 1,
+        "screenshot_frame_valid": true,
+        "screenshot_height": 200,
+        "screenshot_mime_type": "image/png",
+        "screenshot_width": 260,
+        "snapshot_id": "s00000003",
+        "timeout_ms": 1000,
+        "total_element_count": 1,
+        "tree_format": "markdown",
+        "tree_markdown": "- [0] window \"\" [actions=[activate]]\n",
+        "truncated": false,
+        "window_bounds": {
+          "height": 200.0,
+          "width": 260.0,
+          "x": 330.2857142857143,
+          "y": 60.0
+        },
+        "window_id": 3,
+        "window_title": "Agent input fixture 2"
+      }
+    },
+    "scroll": {
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Native scroll delivered; UI effect remains unverified. {\"capture_id\":\"capture_d518868a0fd94d13b65b3fae17074e33_0000000000000003\",\"effect\":\"delivered\",\"path\":\"dojo_native_seat\",\"peer_id\":14,\"pid\":682277,\"window_id\":3}"
+          }
+        ],
+        "structuredContent": {
+          "delivery": {
+            "mode": "background"
+          },
+          "effect": "unverifiable",
+          "route": "global_input",
+          "summary": "Native scroll delivered; UI effect remains unverified. {\"capture_id\":\"capture_d518868a0fd94d13b65b3fae17074e33_0000000000000003\",\"effect\":\"delivered\",\"path\":\"dojo_native_seat\",\"peer_id\":14,\"pid\":682277,\"window_id\":3}"
+        }
+      },
+      "capture": {
+        "app_name": "dojo-agent-input-fixture",
+        "bounds_complete": true,
+        "capture_id": "capture_d518868a0fd94d13b65b3fae17074e33_0000000000000003",
+        "coordinate_frame": "window",
+        "degraded": true,
+        "degraded_reason": "x11_property_fallback_partial: AT-SPI was unavailable and Cua Driver only recovered window metadata. Treat it as discovery evidence; it cannot prove checked state.",
+        "element_count": 1,
+        "elements_complete": false,
+        "invalidated_snapshot_ids": [
+          "s00000003"
+        ],
+        "niri_capture": {
+          "capture_semantics": "visible output pixels; window crops may include occluding surfaces",
+          "compositor_pid": 682151,
+          "compositor_start_ticks": 3637857,
+          "compositor_uid": 1000,
+          "coordination_revision": 0,
+          "delivered_height": 200,
+          "delivered_png_sha256": "41eebb539b33e74acaecbb0a597894a1f27df26f89b7dfbc916677f7486cac3c",
+          "delivered_width": 260,
+          "image_geometry_atomic": true,
+          "image_semantic_atomic": false,
+          "logical_output": {
+            "height": 868,
+            "scale": 1.75,
+            "transform": "Flipped180",
+            "width": 1192,
+            "x": 0,
+            "y": 0
+          },
+          "output": "winit",
+          "rendered_windows": [
+            {
+              "blocked_out": false,
+              "id": 3,
+              "is_floating": true,
+              "output_clip": [
+                330.2857142857143,
+                60.0,
+                259.99999999999994,
+                200.0
+              ],
+              "pid": 682277,
+              "rect": [
+                330.2857142857143,
+                60.0,
+                260.0,
+                200.0
+              ]
+            }
+          ],
+          "scene_frame_serial": 12,
+          "source_height": 1519,
+          "source_png_sha256": "7baf34f64f93d72ae206465496e42fdaaabb2fea1dbb4f7cc3135d88d458a491",
+          "source_width": 2086,
+          "window": {
+            "pid": 682277,
+            "process_start_ticks": 3637950,
+            "rendered_rect": [
+              330.2857142857143,
+              60.0,
+              260.0,
+              200.0
+            ],
+            "window_id": 3
+          }
+        },
+        "pid": 682277,
+        "returned_element_count": 1,
+        "screenshot_frame_valid": true,
+        "screenshot_height": 200,
+        "screenshot_mime_type": "image/png",
+        "screenshot_width": 260,
+        "snapshot_id": "s00000004",
+        "timeout_ms": 1000,
+        "total_element_count": 1,
+        "tree_format": "markdown",
+        "tree_markdown": "- [0] window \"\" [actions=[activate]]\n",
+        "truncated": false,
+        "window_bounds": {
+          "height": 200.0,
+          "width": 260.0,
+          "x": 330.2857142857143,
+          "y": 60.0
+        },
+        "window_id": 3,
+        "window_title": "Agent input fixture 2"
+      }
+    }
+  },
+  "input_events": [
+    {
+      "event": "seat_added",
+      "seat": 42
+    },
+    {
+      "event": "seat_name",
+      "name": "winit",
+      "seat": 42
+    },
+    {
+      "event": "configured",
+      "height": 200,
+      "width": 260,
+      "window": 1
+    },
+    {
+      "event": "configured",
+      "height": 200,
+      "width": 260,
+      "window": 2
+    },
+    {
+      "event": "keyboard_enter",
+      "held_keys": [],
+      "seat": 42,
+      "window": 2
+    },
+    {
+      "depressed": 0,
+      "event": "modifiers",
+      "group": 0,
+      "latched": 0,
+      "locked": 0,
+      "seat": 42
+    },
+    {
+      "event": "configured",
+      "height": 200,
+      "width": 260,
+      "window": 2
+    },
+    {
+      "event": "keyboard_leave",
+      "seat": 42
+    },
+    {
+      "event": "keyboard_enter",
+      "held_keys": [],
+      "seat": 42,
+      "window": 1
+    },
+    {
+      "depressed": 0,
+      "event": "modifiers",
+      "group": 0,
+      "latched": 0,
+      "locked": 0,
+      "seat": 42
+    },
+    {
+      "event": "configured",
+      "height": 200,
+      "width": 260,
+      "window": 1
+    },
+    {
+      "event": "configured",
+      "height": 200,
+      "width": 260,
+      "window": 2
+    },
+    {
+      "event": "seat_added",
+      "seat": 47
+    },
+    {
+      "event": "seat_name",
+      "name": "dojo-agent-14-cua-driver",
+      "seat": 47
+    },
+    {
+      "event": "pointer_enter",
+      "seat": 47,
+      "window": 2,
+      "x": 100.0,
+      "y": 100.0
+    },
+    {
+      "event": "motion",
+      "seat": 47,
+      "x": 100.0,
+      "y": 100.0
+    },
+    {
+      "event": "keyboard_enter",
+      "held_keys": [],
+      "seat": 47,
+      "window": 2
+    },
+    {
+      "depressed": 0,
+      "event": "modifiers",
+      "group": 0,
+      "latched": 0,
+      "locked": 0,
+      "seat": 47
+    },
+    {
+      "button": 272,
+      "event": "button",
+      "seat": 47,
+      "state": "Value(Pressed)",
+      "window": 2
+    },
+    {
+      "button": 272,
+      "event": "button",
+      "seat": 47,
+      "state": "Value(Released)",
+      "window": 2
+    },
+    {
+      "depressed": 0,
+      "event": "key",
+      "key": 28,
+      "seat": 47,
+      "state": "Value(Pressed)",
+      "window": 2
+    },
+    {
+      "depressed": 0,
+      "event": "key",
+      "key": 28,
+      "seat": 47,
+      "state": "Value(Released)",
+      "window": 2
+    },
+    {
+      "depressed": 0,
+      "event": "key",
+      "key": 42,
+      "seat": 47,
+      "state": "Value(Pressed)",
+      "window": 2
+    },
+    {
+      "depressed": 1,
+      "event": "modifiers",
+      "group": 0,
+      "latched": 0,
+      "locked": 0,
+      "seat": 47
+    },
+    {
+      "depressed": 1,
+      "event": "key",
+      "key": 32,
+      "seat": 47,
+      "state": "Value(Pressed)",
+      "window": 2
+    },
+    {
+      "depressed": 1,
+      "event": "key",
+      "key": 32,
+      "seat": 47,
+      "state": "Value(Released)",
+      "window": 2
+    },
+    {
+      "depressed": 1,
+      "event": "key",
+      "key": 42,
+      "seat": 47,
+      "state": "Value(Released)",
+      "window": 2
+    },
+    {
+      "depressed": 0,
+      "event": "modifiers",
+      "group": 0,
+      "latched": 0,
+      "locked": 0,
+      "seat": 47
+    },
+    {
+      "depressed": 0,
+      "event": "key",
+      "key": 24,
+      "seat": 47,
+      "state": "Value(Pressed)",
+      "window": 2
+    },
+    {
+      "depressed": 0,
+      "event": "key",
+      "key": 24,
+      "seat": 47,
+      "state": "Value(Released)",
+      "window": 2
+    },
+    {
+      "depressed": 0,
+      "event": "key",
+      "key": 36,
+      "seat": 47,
+      "state": "Value(Pressed)",
+      "window": 2
+    },
+    {
+      "depressed": 0,
+      "event": "key",
+      "key": 36,
+      "seat": 47,
+      "state": "Value(Released)",
+      "window": 2
+    },
+    {
+      "depressed": 0,
+      "event": "key",
+      "key": 24,
+      "seat": 47,
+      "state": "Value(Pressed)",
+      "window": 2
+    },
+    {
+      "depressed": 0,
+      "event": "key",
+      "key": 24,
+      "seat": 47,
+      "state": "Value(Released)",
+      "window": 2
+    },
+    {
+      "event": "motion",
+      "seat": 47,
+      "x": 100.0,
+      "y": 100.0
+    },
+    {
+      "event": "motion",
+      "seat": 47,
+      "x": 100.0,
+      "y": 100.0
+    },
+    {
+      "axis": "Value(VerticalScroll)",
+      "event": "axis",
+      "seat": 47,
+      "value": 15.0,
+      "window": 2
+    },
+    {
+      "event": "keyboard_leave",
+      "seat": 47
+    },
+    {
+      "event": "motion",
+      "seat": 47,
+      "x": 100.0,
+      "y": 100.0
+    },
+    {
+      "event": "pointer_leave",
+      "seat": 47
+    },
+    {
+      "event": "seat_removed",
+      "seat": 47
+    }
+  ],
+  "release_compositor": {
+    "binary": "vendor/niri/target/release/niri",
+    "sha256": "face129289992a2d8e17f9702dc8b98e1f6f92c69fceff623466246772ee2d3b",
+    "cargo_lock_sha256": "c52f5d1aa37d862c57162f812d59ef355c4104cc4cc9e9cd401eb64ccf0b6a62",
+    "live_evidence_directory": "/tmp/dojo-capture-live.3p6yRz",
+    "existing_host_config_validated": true,
+    "installed": false
+  },
+  "host_read_check": {
+    "evidence_directory": "/tmp/dojo-driver-host-read.ia5Icd",
+    "running_version": "26.04 (7fb1e4ffa7-modified)",
+    "startup_and_screen_discovery": "passed",
+    "window_discovery": "blocked: running compositor rejects WindowPlacements"
+  },
+  "new_session_host_acceptance": {
+    "running_version": "26.04 (04b755fa14-modified)",
+    "evidence_directory": "/tmp/dojo-driver-host-window.F5u7Ag",
+    "window_discovery": "passed",
+    "screen_discovery": "passed",
+    "window_capture_bound_png": "passed",
+    "inactive_workspace_input_evidence": "/tmp/dojo-capture-live.a0MsVB",
+    "driver_niri_tests": 28
+  }
+}

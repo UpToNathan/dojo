@@ -1,6 +1,6 @@
 use fixture::Fixture;
 
-mod client;
+pub(crate) mod client;
 pub(crate) mod fixture;
 mod server;
 pub(crate) mod test_input_backend;

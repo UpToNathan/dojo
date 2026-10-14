@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "name": "rapidfuzz",
+  "version": "3.14.6",
+  "archive_url": "https://files.pythonhosted.org/packages/18/97/226c43b7b5d957bc3840ed52ea99eed261f99834c4619be7a4742cbaeafa/rapidfuzz-3.14.6.tar.gz",
+  "archive_sha256": "e13a8160d017b499ec7a2fa9d0ce1ae2e7377080815785819f966fb235d4eb60",
+  "size": 57955060,
+  "resolution_commit": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+  "resolution_file": "libs/cua-bench/uv.lock",
+  "use": "Development-only reference; normalized Indel floating-point operation order translated into the Rust comparator. No Python production dependency.",
+  "license_file": "licenses/rapidfuzz-MIT.txt",
+  "license_sha256": "f34ccdffdff56fc417785915eedf18601d5479755df3c472b2c754c29802d683",
+  "source_files": [
+    {
+      "path": "src/rapidfuzz/fuzz_py.py",
+      "sha256": "476a504ef492f2217ff5c76b48b59a62cdb7cc52c9429111c4e897eef403284d"
+    },
+    {
+      "path": "src/rapidfuzz/distance/Indel_py.py",
+      "sha256": "a04fa199bf76a3e6b9c585376e3e9442dbd496327809fe956235c02304adcd60"
+    }
+  ]
+}

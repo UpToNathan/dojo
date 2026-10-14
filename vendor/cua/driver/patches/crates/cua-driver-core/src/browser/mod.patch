@@ -1,0 +1,16 @@
+--- upstream/crates/cua-driver-core/src/browser/mod.rs
++++ dojo/crates/cua-driver-core/src/browser/mod.rs
+@@ -45,10 +45,13 @@
+ #[cfg(test)]
+ pub(crate) mod mock_cdp;
+ mod mutation;
++pub(crate) mod niri;
++mod niri_evidence;
+ pub mod platform;
+ pub mod pointer;
+ mod prepare;
+ mod reconnect;
++pub(crate) mod read;
+ pub mod refusal;
+ mod semantic;
+ mod setup_descriptor;

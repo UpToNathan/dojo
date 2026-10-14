@@ -1,0 +1,3950 @@
+diff --git a/libs/cua-driver/rust/crates/platform-linux/Cargo.toml b/libs/cua-driver/rust/crates/platform-linux/Cargo.toml
+--- a/libs/cua-driver/rust/crates/platform-linux/Cargo.toml
++++ b/libs/cua-driver/rust/crates/platform-linux/Cargo.toml
+@@ -7,7 +7,7 @@
+ [dependencies]
+ tokio = { workspace = true }
+ serde = { workspace = true }
+-serde_json = { workspace = true }
++serde_json = "=1.0.151"
+ anyhow = { workspace = true }
+ thiserror = { workspace = true }
+ tracing = { workspace = true }
+@@ -24,6 +24,8 @@
+ tiny-skia = { version = "0.11", default-features = false, features = ["std"] }
+ 
+ [target.'cfg(target_os = "linux")'.dependencies]
++dojo-native-seat = { path = "../../../../../../../../crates/dojo-native-seat" }
++niri-ipc = { version = "=26.4.0", path = "../../../../../../../niri/niri-ipc" }
+ clipboard-rs = { version = "0.3.5", features = ["wayland"] }
+ keyring = { version = "4.1.6", default-features = false, features = ["v1"] }
+ # X11 background input + window enumeration + MIT-SHM capture
+@@ -34,7 +36,7 @@
+ # Map X server-returned MIT-SHM CreateSegment FDs (no SysV shmget/shmat).
+ memmap2 = "0.9"
+ # kill(2) for the kill_app tool — SIGKILL via libc::kill.
+-libc = "0.2"
++libc = "=0.2.189"
+ # Native AT-SPI over D-Bus (pure Rust, via zbus) — replaces the pyatspi
+ # subprocess bridge so accessibility input/readback needs no Python or GI
+ # typelibs at runtime. `tokio` matches the driver's async runtime; `zbus`
+diff --git a/libs/cua-driver/rust/crates/platform-linux/src/wayland/mod.rs b/libs/cua-driver/rust/crates/platform-linux/src/wayland/mod.rs
+--- a/libs/cua-driver/rust/crates/platform-linux/src/wayland/mod.rs
++++ b/libs/cua-driver/rust/crates/platform-linux/src/wayland/mod.rs
+@@ -16,6 +16,7 @@
+ mod hyprland_compatibility;
+ pub mod hyprland_input;
+ pub mod kwin_helper;
++pub mod niri;
+ pub mod overlay;
+ pub mod persistent_vptr;
+ pub(crate) mod portal;
+@@ -129,6 +130,7 @@
+ /// through invalid XIDs. Backend selection below is capability based; the mere
+ /// presence of `DISPLAY` must not disable Wayland.
+ pub fn is_wayland() -> bool {
++    if niri::is_session() { return true; }
+     wayland_enabled() && std::env::var_os("WAYLAND_DISPLAY").is_some()
+ }
+ 
+@@ -139,6 +141,7 @@
+ /// wlroots-vs-portal decision is made from live compositor capabilities inside
+ /// the `wayland::*` input functions, not from XWayland's `DISPLAY` variable.
+ pub fn wayland_input_enabled() -> bool {
++    if niri::is_session() { return true; }
+     wayland_enabled() && std::env::var_os("WAYLAND_DISPLAY").is_some()
+ }
+ 
+@@ -150,6 +153,7 @@
+ /// (where `DISPLAY` is set) and X11 sessions return `None` and proceed normally.
+ /// See #1921.
+ pub fn wayland_input_unavailable_reason() -> Option<String> {
++    if niri::is_session() { return Some("facility_unavailable: Niri adapter supports read-only queries".into()); }
+     if std::env::var_os("WAYLAND_DISPLAY").is_some()
+         && std::env::var_os("DISPLAY").is_none()
+         && !wayland_enabled()
+@@ -187,6 +191,7 @@
+ /// including KDE (kwin) and GNOME (mutter) which expose no client protocols for
+ /// this, without ever touching the host compositor or its focus. Idempotent.
+ pub fn ensure_nested_session() {
++    if niri::is_session() { return; }
+     use std::sync::OnceLock;
+     static DONE: OnceLock<()> = OnceLock::new();
+     if std::env::var_os("CUA_WAYLAND_NEST").is_none() {
+@@ -669,6 +674,7 @@
+ /// (the protocol does not surface position/size). app_id is folded into the
+ /// title (`"<title> [<app_id>]"`) so callers matching on either still match.
+ pub fn list_windows() -> anyhow::Result<Vec<WindowInfo>> {
++    if niri::is_session() { return niri::list_windows(); }
+     let conn = Connection::connect_to_env()?;
+     let mut queue = conn.new_event_queue::<State>();
+     let qh = queue.handle();
+@@ -743,6 +749,7 @@
+ /// screencopy manager or `wl_shm` is unavailable so users on lighter wlroots
+ /// builds stay supported.
+ pub fn screenshot_bytes() -> anyhow::Result<Vec<u8>> {
++    if niri::is_session() { return niri::capture::desktop().map(|frame| frame.png); }
+     match capture_via_screencopy() {
+         Ok(bytes) => return Ok(bytes),
+         Err(e) => tracing::warn!("native screencopy failed, falling back to grim: {e}"),
+@@ -1034,6 +1041,9 @@
+ /// AT-SPI bounds are intentionally insufficient: an off-workspace XWayland
+ /// window retains both while the output contains another application's pixels.
+ fn wayland_window_crop(xid: u64) -> anyhow::Result<WaylandWindowCrop> {
++    if niri::is_session() {
++        return Err(surface_identity_unproven(xid, "Niri capture backend is not implemented"));
++    }
+     if let Some(window) = sway_ipc::window_for_id(xid) {
+         return attested_wayland_crop(
+             xid,
+@@ -1101,6 +1111,7 @@
+ }
+ 
+ fn screenshot_dispatch_for_pid(xid: u64, pid: Option<u32>) -> anyhow::Result<Vec<u8>> {
++    if niri::is_session() { return niri::capture::window(xid, pid).map(|frame| frame.png); }
+     if is_wayland() && hyprland::is_session() {
+         return hyprland::capture(xid, pid).map_err(|error| {
+             tracing::debug!("Hyprland target capture refused: {error:#}");
+@@ -1175,6 +1186,7 @@
+ ///    first use per session.
+ /// 5. X11: existing root-window path.
+ pub fn screenshot_display_dispatch() -> anyhow::Result<Vec<u8>> {
++    if niri::is_session() { return niri::capture::desktop().map(|frame| frame.png); }
+     if is_wayland() && hyprland::is_session() {
+         // The desktop action frame spans every powered output. The cascade
+         // below copies only the first output, so a multi-monitor layout is
+@@ -1383,20 +1395,23 @@
+ #[derive(Clone, Debug, Default)]
+ pub struct DesktopInputSpace {
+     snapshot: Option<hyprland::DesktopSnapshot>,
++    niri_frame: Option<niri::DesktopFrame>,
+ }
+ 
+ impl DesktopInputSpace {
+     pub fn current() -> anyhow::Result<Self> {
++        if niri::is_session() { return Ok(Self { snapshot: None, niri_frame: Some(niri::desktop_frame()?) }); }
+         let snapshot = if is_wayland() && hyprland::is_session() {
+             Some(hyprland::desktop_snapshot()?)
+         } else {
+             None
+         };
+-        Ok(Self { snapshot })
++        Ok(Self { snapshot, niri_frame: None })
+     }
+ 
+     /// Layout coordinates of a desktop-frame point.
+     pub fn to_layout(&self, x: i32, y: i32) -> (i32, i32) {
++        if let Some(frame) = &self.niri_frame { return frame.to_layout(x, y); }
+         self.snapshot
+             .as_ref()
+             .map_or((x, y), |snapshot| snapshot.frame.to_layout(x, y))
+@@ -1407,6 +1422,7 @@
+     /// is refused rather than left for the compositor to move to another
+     /// output edge. A single output keeps the existing edge clamping.
+     pub fn input_layout(&self, x: i32, y: i32) -> anyhow::Result<(i32, i32)> {
++        niri::refuse_input()?;
+         let Some(snapshot) = self.snapshot.as_ref() else {
+             return Ok((x, y));
+         };
+@@ -1455,6 +1471,7 @@
+ /// and the virtual pointer both read this, so a desktop screenshot pixel and a
+ /// pointer coordinate always share one frame.
+ pub(crate) fn compositor_logical_frame() -> Option<anyhow::Result<(u32, u32)>> {
++    if niri::is_session() { return Some(niri::desktop_frame().map(|f| (f.width, f.height))); }
+     hyprland::is_session()
+         .then(|| hyprland::screen_size().map(|(width, height, _scale)| (width, height)))
+ }
+@@ -1493,6 +1510,7 @@
+ /// pointer event in *output* coordinates and rely on the activated toplevel
+ /// covering the centre.
+ pub fn open_vptr_session(activate_window_id: Option<u64>) -> anyhow::Result<VptrSession> {
++    niri::refuse_input()?;
+     open_vptr_session_in(activate_window_id, None)
+ }
+ 
+@@ -1586,6 +1604,7 @@
+ /// compositors must refuse until they provide an equally target-addressable
+ /// adapter, because global injection without this gate can affect the wrong app.
+ pub fn activate_window_for_input(window_id: u64) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     let pid = crate::atspi::list_windows(None)
+         .into_iter()
+         .find(|window| window.xid == window_id)
+@@ -1600,6 +1619,7 @@
+     window_id: u64,
+     target_pid: Option<u32>,
+ ) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     if is_wayland() && hyprland::is_session() {
+         // A full compositor address must never enter the generic protocol-id
+         // or title-matching route. This observation-only adapter can attest an
+@@ -1676,6 +1696,7 @@
+     window_id: u64,
+     body: impl FnOnce() -> anyhow::Result<T>,
+ ) -> anyhow::Result<T> {
++    niri::refuse_input()?;
+     let _target_guard = bind_foreground_target(pid, window_id);
+     if let Some(window) = sway_ipc::window_for_id(window_id) {
+         if window.pid != pid {
+@@ -1761,6 +1782,7 @@
+ /// real coords. A short delay between iterations gives the compositor time
+ /// to discriminate single vs. double clicks.
+ pub fn click(window_id: u64, x: i32, y: i32, count: u32, button: u8) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     with_libei_fallback(
+         || click_vptr(Some(window_id), x, y, count, button, None),
+         || {
+@@ -1779,6 +1801,7 @@
+ /// the actual libei dispatch.
+ #[cfg(feature = "portal-input")]
+ pub fn click_focused(x: i32, y: i32, count: u32, button: u8) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     with_libei_fallback(
+         || click_vptr(None, x, y, count, button, None),
+         || {
+@@ -1793,6 +1816,7 @@
+ 
+ #[cfg(not(feature = "portal-input"))]
+ pub fn click_focused(x: i32, y: i32, count: u32, button: u8) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     click_vptr(None, x, y, count, button, None)
+ }
+ 
+@@ -1806,6 +1830,7 @@
+     count: u32,
+     button: u8,
+ ) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     if is_inject_mode() {
+         let btn = evdev_button(button as u32);
+         return inject_send(&[format!("d {x} {y} {} {btn}", count.max(1))]);
+@@ -1870,6 +1895,7 @@
+ /// virtual-pointer protocol, mirroring how a real wheel notch decomposes. The
+ /// magnitude follows wl_pointer convention: ±10 (in wl_fixed = ×256) per tick.
+ pub fn scroll(window_id: u64, direction: &str, amount: u32) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     scroll_at(window_id, None, direction, amount)
+ }
+ 
+@@ -1885,6 +1911,7 @@
+ /// object ID came from an earlier Wayland connection. Protocol object IDs are
+ /// connection-local, so direct equality is only a fast path.
+ pub fn window_geometry(window_id: u64) -> Option<(i32, i32, u32, u32)> {
++    if niri::is_session() { return niri::window_geometry(window_id).ok(); }
+     if is_wayland() && hyprland::is_session() {
+         // Do not fall back to title, app-id, X11, or another compositor when
+         // an explicit native Hyprland address is missing.
+@@ -1961,6 +1988,7 @@
+     direction: &str,
+     amount: u32,
+ ) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     let direction = direction.to_string();
+     with_libei_fallback(
+         || scroll_vptr(Some(window_id), point, &direction, amount, None),
+@@ -1983,6 +2011,7 @@
+     direction: &str,
+     amount: u32,
+ ) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     if is_inject_mode() {
+         return inject_scroll_desktop(x, y, direction, amount);
+     }
+@@ -2080,6 +2109,7 @@
+ /// the compositor commits the warp before returning. Records the position in
+ /// the synthetic-cursor registry so `last_synth_cursor_pos` can report it.
+ pub fn move_cursor_absolute(window_id: Option<u64>, x: i32, y: i32) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     with_libei_fallback(
+         || move_cursor_absolute_vptr(window_id, x, y, None),
+         || libei_move_absolute(x, y),
+@@ -2088,6 +2118,7 @@
+ 
+ /// Warp the cursor to a desktop-frame point (the `get_desktop_state` frame).
+ pub fn move_cursor_desktop(space: &DesktopInputSpace, x: i32, y: i32) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     let (x, y) = space.input_layout(x, y)?;
+     with_libei_fallback(
+         || move_cursor_absolute_vptr(None, x, y, space.snapshot.as_ref()),
+@@ -2127,6 +2158,7 @@
+     duration_ms: u64,
+     button: u8,
+ ) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     let ((from_x, from_y), (to_x, to_y)) = (from, to);
+     with_libei_fallback(
+         || {
+@@ -2160,6 +2192,7 @@
+     duration_ms: u64,
+     button: u8,
+ ) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     let (from_x, from_y) = space.input_layout(from_x, from_y)?;
+     let (to_x, to_y) = space.input_layout(to_x, to_y)?;
+     with_libei_fallback(
+@@ -2243,6 +2276,7 @@
+ /// surface, so this is window_id-free; pair it with `click`/`activate` to put
+ /// the intended window in focus first.
+ pub fn type_text(window_id: u64, text: &str) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     if text.is_empty() {
+         return Ok(());
+     }
+@@ -2277,6 +2311,7 @@
+ /// the caller. This avoids re-resolving a title that can change mid-sequence
+ /// (for example after opening a Chromium tab).
+ pub fn type_text_focused(text: &str) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     if text.is_empty() {
+         return Ok(());
+     }
+@@ -2301,6 +2336,7 @@
+ /// headless wlroots seat dropping the first event from a second `wtype`
+ /// process after the text has landed.
+ pub fn type_text_then_key_focused(text: &str, key: &str) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     let keysym = key_to_keysym(key);
+     let result = std::process::Command::new("wtype")
+         .args(["-k", "Shift_L", "-s", "30"])
+@@ -2322,6 +2358,7 @@
+ 
+ /// Press a single named key into the focused Wayland surface via `wtype -k`.
+ pub fn press_key(window_id: u64, key: &str) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     activate_window_for_input(window_id)?;
+     let keysym = key_to_keysym(key);
+     // Keep the sacrificial modifier and requested key in one virtual-keyboard
+@@ -2345,6 +2382,7 @@
+ 
+ /// Press one key while an outer exact-container focus guard is active.
+ pub fn press_key_focused(key: &str) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     if is_inject_mode() {
+         let (pid, window_id) = inject_focused_target()?;
+         return inject_press_key(pid, window_id, key);
+@@ -2371,6 +2409,7 @@
+ /// straight to wtype's `-k` so single-character keys and X keysym names work
+ /// as-is. This is the Wayland equivalent of the X11 `send_key` modifier mask.
+ pub fn hotkey(window_id: u64, keys: &[String]) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     activate_window_for_input(window_id)?;
+     let (mods, final_key) = partition_modifiers(keys)?;
+     if let Ok(()) = virtual_keyboard::hotkey(&mods, &final_key) {
+@@ -2408,6 +2447,7 @@
+ 
+ /// Send a chord while an outer exact-container focus guard is active.
+ pub fn hotkey_focused(keys: &[String]) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     if is_inject_mode() {
+         let (pid, window_id) = inject_focused_target()?;
+         return inject_hotkey(pid, window_id, keys);
+@@ -2758,7 +2798,7 @@
+ /// (libei emulates raw evdev, not X keysyms). Mirrors [`key_to_keysym`] but
+ /// emits `linux/input-event-codes.h` values. Returns `None` for keys with no
+ /// known mapping so the caller can fail loudly.
+-fn key_to_evdev(key: &str) -> Option<u32> {
++pub(crate) fn key_to_evdev(key: &str) -> Option<u32> {
+     let code = match key.to_lowercase().as_str() {
+         "ctrl" | "control" => 29, // KEY_LEFTCTRL
+         "alt" => 56,              // KEY_LEFTALT
+@@ -3264,6 +3304,7 @@
+ /// Focus-free type into the window's surface (no focus change). Rejects any
+ /// character the compositor cannot emit before touching the socket.
+ pub fn inject_type_text(target_pid: u32, window_id: u64, text: &str) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     validate_injectable_text(text)?;
+     let app = inject_target_for_window_with_pid(window_id, Some(target_pid))?;
+     inject_send(&[format!("t {app} {}", to_hex(text))])
+@@ -3272,6 +3313,7 @@
+ /// Focus-free named-key press into the window's surface. Rejects any key
+ /// outside the compositor's whitelist before touching the socket.
+ pub fn inject_press_key(target_pid: u32, window_id: u64, key: &str) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     validate_injectable_key(key)?;
+     let app = inject_target_for_window_with_pid(window_id, Some(target_pid))?;
+     inject_send(&[format!("k {app} {}", key.trim())])
+@@ -3279,6 +3321,7 @@
+ 
+ /// Focus-free modifier chord into the target surface.
+ pub fn inject_hotkey(target_pid: u32, window_id: u64, keys: &[String]) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     let (modifiers, key) = validate_injectable_hotkey(keys)?;
+     let app = inject_target_for_window_with_pid(window_id, Some(target_pid))?;
+     inject_send(&[format!("h {app} {modifiers} {key}")])
+@@ -3293,6 +3336,7 @@
+     direction: &str,
+     amount: u32,
+ ) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     let app = inject_target_for_window_with_pid(window_id, Some(target_pid))?;
+     let (axis, value) = match direction.to_ascii_lowercase().as_str() {
+         "up" => (0, -15.0),
+@@ -3316,6 +3360,7 @@
+     count: u32,
+     button: u8,
+ ) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     let app = inject_target_for_window_with_pid(window_id, Some(target_pid))?;
+     let btn = evdev_button(button as u32);
+     let n = count.max(1);
+@@ -3381,6 +3426,7 @@
+ /// at its start, glides through its (interleaved) waypoints, and releases. This
+ /// is true multi-cursor — each `idx` is an independent cursor in the compositor.
+ pub fn inject_parallel_drags(drags: &[InjectDrag]) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     if drags.is_empty() {
+         return Ok(());
+     }
+@@ -3429,6 +3475,7 @@
+     steps: usize,
+     x_button: u32,
+ ) -> anyhow::Result<()> {
++    niri::refuse_input()?;
+     let app_id = inject_target_for_window_with_pid(window_id, Some(target_pid))?;
+     inject_parallel_drags(&[InjectDrag {
+         app_id,
+@@ -3482,6 +3529,12 @@
+ 
+ /// Window-enumeration dispatcher: native Wayland when available, else X11.
+ pub fn list_windows_dispatch(filter_pid: Option<u32>) -> Vec<WindowInfo> {
++    if niri::is_session() {
++        return match niri::list_windows() {
++            Ok(windows) => apply_pid_filter(windows, filter_pid),
++            Err(error) => { tracing::warn!("Niri window enumeration unavailable: {error:#}"); Vec::new() }
++        };
++    }
+     if wayland_enabled() && std::env::var_os("WAYLAND_DISPLAY").is_some() {
+         if hyprland::is_session() {
+             // Hyprland IPC already attests PID and full native identity. A
+diff --git a/libs/cua-driver/rust/crates/platform-linux/src/wayland/persistent_vptr.rs b/libs/cua-driver/rust/crates/platform-linux/src/wayland/persistent_vptr.rs
+--- a/libs/cua-driver/rust/crates/platform-linux/src/wayland/persistent_vptr.rs
++++ b/libs/cua-driver/rust/crates/platform-linux/src/wayland/persistent_vptr.rs
+@@ -287,6 +287,7 @@
+ /// the compositor treats the sequence as one logical drag rather than as
+ /// independent clicks. Errors if `cursor_id` already has a held button.
+ pub fn press(cursor_id: &str, window_id: u64, x: i32, y: i32, button: u8) -> anyhow::Result<()> {
++    super::niri::refuse_input()?;
+     let (tx_r, rx_r) = bounded(1);
+     tx().send(Cmd::Press {
+         cursor_id: cursor_id.to_string(),
+@@ -304,6 +305,7 @@
+ /// Emit motion_absolute on the held cursor's virtual-pointer. Errors if there
+ /// is no held button for `cursor_id`.
+ pub fn move_to(cursor_id: &str, x: i32, y: i32) -> anyhow::Result<()> {
++    super::niri::refuse_input()?;
+     let (tx_r, rx_r) = bounded(1);
+     tx().send(Cmd::MoveTo {
+         cursor_id: cursor_id.to_string(),
+@@ -319,6 +321,7 @@
+ /// Release `button` on the held cursor. If no other buttons remain held the
+ /// virtual-pointer is destroyed and its Wayland connection torn down.
+ pub fn release(cursor_id: &str, button: u8) -> anyhow::Result<()> {
++    super::niri::refuse_input()?;
+     let (tx_r, rx_r) = bounded(1);
+     tx().send(Cmd::Release {
+         cursor_id: cursor_id.to_string(),
+diff --git a/libs/cua-driver/rust/crates/platform-linux/src/tools/impl_.rs b/libs/cua-driver/rust/crates/platform-linux/src/tools/impl_.rs
+--- a/libs/cua-driver/rust/crates/platform-linux/src/tools/impl_.rs
++++ b/libs/cua-driver/rust/crates/platform-linux/src/tools/impl_.rs
+@@ -201,6 +201,7 @@
+     pub snapshots: Arc<Snapshots>,
+     pub cursor_registry: Arc<CursorRegistry>,
+     pub capture_service: Arc<cua_driver_core::capture_runtime::CaptureService>,
++    pub(crate) native_input: Arc<crate::wayland::niri::native_input::NativeInput>,
+     pub mouse_hold: std::sync::Mutex<std::collections::HashMap<String, MouseHoldState>>,
+     pub config: Arc<RwLock<DriverConfig>>,
+ }
+@@ -234,6 +235,7 @@
+             snapshots,
+             cursor_registry: Arc::new(CursorRegistry::new()),
+             capture_service,
++            native_input: Arc::new(crate::wayland::niri::native_input::NativeInput::default()),
+             mouse_hold: std::sync::Mutex::new(Default::default()),
+             config: Arc::new(RwLock::new(load_driver_config())),
+         })
+@@ -570,10 +572,24 @@
+         use cua_driver_core::tool_args::ArgsExt;
+         let filter_pid = args.opt_u64("pid").map(|v| v as u32);
+         let on_screen_only = args.bool_or("on_screen_only", false);
+-        let mut windows =
++        let mut windows = if crate::wayland::niri::is_session() {
++            match tokio::task::spawn_blocking(crate::wayland::niri::list_windows).await {
++                Ok(Ok(mut windows)) => {
++                    windows.retain(|window| filter_pid.is_none_or(|pid| window.pid == Some(pid)));
++                    windows
++                }
++                result => {
++                    return ToolResult::error(format!(
++                        "Niri window inventory unavailable: {result:?}"
++                    ))
++                    .with_structured(json!({"code":"facility_unavailable"}))
++                }
++            }
++        } else {
+             tokio::task::spawn_blocking(move || crate::wayland::list_windows_dispatch(filter_pid))
+                 .await
+-                .unwrap_or_default();
++                .unwrap_or_default()
++        };
+         // Exited applications can remain visible in AT-SPI/X11 as zombies;
+         // never return those stale targets to callers.
+         windows.retain(|window| window.pid.is_none_or(crate::proc_fs::is_process_live));
+@@ -1290,7 +1306,9 @@
+                     height: popup.height,
+                 })
+             });
+-        let window_matches = if crate::wayland::is_wayland() {
++        let window_matches = if crate::wayland::niri::is_session() {
++            window_meta.as_ref().is_some_and(|w| w.pid == Some(pid))
++        } else if crate::wayland::is_wayland() {
+             window_meta.as_ref().is_some_and(|w| w.pid == Some(pid))
+                 || crate::wayland::window_was_listed_for_pid(pid, xid)
+         } else {
+@@ -1368,6 +1386,7 @@
+             // binding must identify the bytes returned to the caller, including
+             // any max-dimension resize, rather than the backend's raw frame.
+             let mut screenshot_error = None;
++            let mut niri_capture = None;
+             // Same-pid popups (menus, combo lists) and transient dialogs mapped
+             // over this window: listed for the caller, and when one overlaps
+             // the window the screenshot is taken from the screen, since the
+@@ -1381,12 +1400,20 @@
+                 // A screenshot-only read with a size cap (a live preview) asks
+                 // a GNOME helper with API 10 to downscale in the compositor,
+                 // and keeps the window's full size for frame_scale.
+-                let preview = if !want_tree && max_dim > 0 && crate::wayland::is_wayland() {
++                let preview = if !want_tree && max_dim > 0 && crate::wayland::is_wayland() && !crate::wayland::niri::is_session() {
+                     crate::wayland::shell_helper::screenshot_window_preview(xid, pid, max_dim)
+                 } else {
+                     None
+                 };
+-                let captured = if let Some((png, width, height)) = preview {
++                let captured = if crate::wayland::niri::is_session() {
++                    let captured = if observation_only {
++                        crate::wayland::niri::capture::window(xid, Some(pid))
++                    } else { crate::wayland::niri::capture::window_for_input(xid, Some(pid)) };
++                    captured.and_then(|frame| {
++                        niri_capture = Some(serde_json::to_value(&frame.evidence)?);
++                        Ok((frame.png, None))
++                    })
++                } else if let Some((png, width, height)) = preview {
+                     Ok((png, Some((width, height))))
+                 } else if overlays.covers_window {
+                     overlays
+@@ -1420,6 +1447,11 @@
+                             None => png,
+                         };
+                         let (w, h) = crate::capture::png_dimensions_pub(&png)?;
++                        if let Some(evidence) = niri_capture.as_mut() {
++                            evidence["delivered_png_sha256"] = json!(crate::wayland::niri::capture::hex_digest(&png));
++                            evidence["delivered_width"] = json!(w);
++                            evidence["delivered_height"] = json!(h);
++                        }
+                         let original_w = if w < orig_w { Some(orig_w) } else { None };
+                         let (b64, file_path) = if let Some(ref path) = screenshot_out_file {
+                             std::fs::write(path, &png)?;
+@@ -1441,6 +1473,9 @@
+                                 (orig_w, orig_h),
+                             )?)
+                         };
++                        if let (Some(id), Some(evidence)) = (&capture_id, &niri_capture) {
++                            state_for_capture.native_input.record(id, evidence)?;
++                        }
+                         Some((b64, file_path, w, h, original_w, capture_id))
+                     }
+                     Err(error) if crate::wayland::is_surface_identity_unproven(&error) => {
+@@ -1465,12 +1500,12 @@
+             } else {
+                 None
+             };
+-            Ok((tree_result, screenshot, bounds, screenshot_error, overlays))
++            Ok((tree_result, screenshot, bounds, screenshot_error, overlays, niri_capture))
+         })
+         .await;
+ 
+         match result {
+-            Ok(Ok((tree_opt, shot_opt, bounds, screenshot_error, overlays))) => {
++            Ok(Ok((tree_opt, shot_opt, bounds, screenshot_error, overlays, niri_capture))) => {
+                 let mut content = Vec::new();
+                 let mut structured = json!({ "window_id": xid, "pid": pid });
+                 let screenshot_scale = shot_opt.as_ref().map(|(_, _, w, _, original_w, _)| {
+@@ -1851,6 +1886,28 @@
+                         &mut content,
+                         &mut structured,
+                     );
++                }
++
++                if let Some(evidence) = niri_capture {
++                    if let Some(rect) = evidence
++                        .pointer("/window/rendered_rect")
++                        .and_then(Value::as_array)
++                    {
++                        let output_x = evidence
++                            .pointer("/logical_output/x")
++                            .and_then(Value::as_i64)
++                            .unwrap_or(0);
++                        let output_y = evidence
++                            .pointer("/logical_output/y")
++                            .and_then(Value::as_i64)
++                            .unwrap_or(0);
++                        structured["window_bounds"] = json!({
++                            "x": rect[0].as_f64().unwrap() + output_x as f64,
++                            "y": rect[1].as_f64().unwrap() + output_y as f64,
++                            "width": rect[2], "height": rect[3],
++                        });
++                    }
++                    structured["niri_capture"] = evidence;
+                 }
+ 
+                 ToolResult {
+@@ -6389,6 +6446,19 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if crate::wayland::niri::is_session() {
++            return crate::wayland::niri::native_input::invoke(
++                self.state.native_input.clone(),
++                self.state.capture_service.clone(),
++                args,
++                "click",
++            )
++            .await;
++        }
++
++        if let Some(refusal) = crate::wayland::niri::mutation_refusal() {
++            return refusal;
++        }
+         let cursor_id = resolve_cursor_key(&args);
+         let modifiers: Vec<String> = args.str_array("modifier");
+ 
+@@ -7396,6 +7466,7 @@
+             description: "Type text to a window via XSendEvent (KeyPress/KeyRelease). No focus steal.".into(),
+             input_schema: json!({
+                 "type":"object","required":["text"],"properties":{
++                    "capture_id":{"type":"string","description":"Dojo Niri requires the immutable capture_id for this exact target. Consumed by one action attempt."},
+                     "session": cua_driver_core::tool_schema::session_schema(),
+                     "pid":{"type":"integer","description":"Target process ID. Omit with scope \"desktop\" to type into the focused application."},
+                     "window_id":{"type":"integer","description":"Window id from list_windows. Required with x/y; optional with element_token (the token carries it)."},
+@@ -7413,6 +7484,18 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if crate::wayland::niri::is_session() {
++            return crate::wayland::niri::native_input::invoke(
++                self.state.native_input.clone(),
++                self.state.capture_service.clone(),
++                args,
++                "type_text",
++            )
++            .await;
++        }
++        if let Some(refusal) = crate::wayland::niri::mutation_refusal() {
++            return refusal;
++        }
+         use cua_driver_core::tool_args::ArgsExt;
+         if (args.opt_str("scope").as_deref() == Some("desktop")
+             || coordinate_frame_is_desktop(&args))
+@@ -8297,6 +8380,7 @@
+             description: "Press a key via XSendEvent to a window. No focus steal.".into(),
+             input_schema: json!({
+                 "type":"object","required":["key"],"properties":{
++                    "capture_id":{"type":"string","description":"Dojo Niri requires the immutable capture_id for this exact target. Consumed by one action attempt."},
+                     "session": cua_driver_core::tool_schema::session_schema(),
+                     "pid":{"type":"integer","description":"Target process ID. Omit with scope \"desktop\" to send the key to the focused application."},
+                     "window_id":{"type":"integer","description":"Window id from list_windows. Required with x/y or element_index; optional with element_token (the token carries it)."},
+@@ -8315,6 +8399,18 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if crate::wayland::niri::is_session() {
++            return crate::wayland::niri::native_input::invoke(
++                self.state.native_input.clone(),
++                self.state.capture_service.clone(),
++                args,
++                "press_key",
++            )
++            .await;
++        }
++        if let Some(refusal) = crate::wayland::niri::mutation_refusal() {
++            return refusal;
++        }
+         use cua_driver_core::tool_args::ArgsExt;
+         if (args.opt_str("scope").as_deref() == Some("desktop")
+             || coordinate_frame_is_desktop(&args))
+@@ -8747,6 +8843,9 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if let Some(refusal) = crate::wayland::niri::mutation_refusal() {
++            return refusal;
++        }
+         use cua_driver_core::tool_args::ArgsExt;
+         if args.opt_str("scope").as_deref() == Some("desktop") && args.get("pid").is_none() {
+             let input = match parse_typed_projection::<HotkeyInput>("hotkey", &args) {
+@@ -9186,6 +9285,9 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if let Some(refusal) = crate::wayland::niri::mutation_refusal() {
++            return refusal;
++        }
+         use cua_driver_core::tool_args::ArgsExt;
+         let pid = match args.require_u32("pid") {
+             Ok(v) => v,
+@@ -9626,6 +9728,7 @@
+                 // `direction` is pinned — matches the scroll→["direction"] canon
+                 // in cua_driver_core::tool_schema.
+                 "type":"object","required":["direction"],"properties":{
++                    "capture_id":{"type":"string","description":"Dojo Niri requires the immutable capture_id for this exact target. Consumed by one action attempt."},
+                     "session": cua_driver_core::tool_schema::session_schema(),
+                     "cursor_id":{"type":"string","description":"Optional multi-cursor instance id. Default: 'default'."},
+                     "pid":{"type":"integer","description":"Target process ID. Required unless scope is \"desktop\" or element_token is supplied (the token carries the pid)."},
+@@ -9646,6 +9749,18 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if crate::wayland::niri::is_session() {
++            return crate::wayland::niri::native_input::invoke(
++                self.state.native_input.clone(),
++                self.state.capture_service.clone(),
++                args,
++                "scroll",
++            )
++            .await;
++        }
++        if let Some(refusal) = crate::wayland::niri::mutation_refusal() {
++            return refusal;
++        }
+         let cursor_id = resolve_cursor_key(&args);
+         if args.opt_str("scope").as_deref() == Some("desktop")
+             && args.get("pid").is_none()
+@@ -10202,6 +10317,9 @@
+         })
+     }
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if let Some(refusal) = crate::wayland::niri::mutation_refusal() {
++            return refusal;
++        }
+         let cursor_id = resolve_cursor_key(&args);
+         let pid = match args.require_u32("pid") {
+             Ok(v) => v,
+@@ -10489,6 +10607,9 @@
+         })
+     }
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if let Some(refusal) = crate::wayland::niri::mutation_refusal() {
++            return refusal;
++        }
+         let cursor_id = resolve_cursor_key(&args);
+         let pid = match args.require_u32("pid") {
+             Ok(v) => v,
+@@ -10807,6 +10928,9 @@
+         })
+     }
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if let Some(refusal) = crate::wayland::niri::mutation_refusal() {
++            return refusal;
++        }
+         let cursor_id = resolve_cursor_key(&args);
+         let modifiers: Vec<String> = args.str_array("modifier");
+         if args.opt_str("scope").as_deref() == Some("desktop")
+@@ -11515,6 +11639,9 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if let Some(refusal) = crate::wayland::niri::mutation_refusal() {
++            return refusal;
++        }
+         let cursor_id = resolve_cursor_key(&args);
+         if let Some(held) = self
+             .state
+@@ -11691,6 +11818,9 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if let Some(refusal) = crate::wayland::niri::mutation_refusal() {
++            return refusal;
++        }
+         let cursor_id = resolve_cursor_key(&args);
+         let Some(mut hold) = self
+             .state
+@@ -11900,6 +12030,9 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if let Some(refusal) = crate::wayland::niri::mutation_refusal() {
++            return refusal;
++        }
+         let cursor_id = resolve_cursor_key(&args);
+         let Some(hold) = self
+             .state
+@@ -12121,6 +12254,9 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if let Some(refusal) = crate::wayland::niri::mutation_refusal() {
++            return refusal;
++        }
+         // Nested cua-compositor: run the drags as concurrent multi-cursor
+         // injections (window-local, no X11 MPX/geometry needed).
+         if crate::wayland::is_inject_mode() {
+@@ -12372,6 +12508,11 @@
+             return result;
+         }
+         let result = tokio::task::spawn_blocking(|| {
++            if crate::wayland::niri::is_session() {
++                let (frame, scale, monitors) = crate::wayland::niri::screen_report()?;
++                return Ok((frame.width, frame.height, scale, Some(monitors)));
++            }
++
+             if crate::wayland::is_wayland() && crate::wayland::hyprland::is_session() {
+                 // Shared manifest admission needs content-free display
+                 // metadata even when this native desktop has no X11 DISPLAY.
+@@ -12537,6 +12678,7 @@
+         let out_file = input.screenshot_out_file;
+         let max_image_dimension = input.max_image_dimension;
+         let capture_service = self.state.capture_service.clone();
++        let native_input = self.state.native_input.clone();
+ 
+         let result = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+             // Capture the full display at native size first. When the
+@@ -12554,6 +12696,7 @@
+                 } else {
+                     None
+                 };
++            let mut niri_capture = None;
+             let (native_png, overlay_capture) =
+                 cursor_overlay::capture_exclusion::capture_excluding_overlays(
+                     &crate::overlay_capture::OverlayExcluder,
+@@ -12561,6 +12704,11 @@
+                         // A multi-monitor layout is composed from the frame
+                         // read above, so the image is exactly that frame.
+                         let png = match &hyprland_plan {
++                            _ if crate::wayland::niri::is_session() => {
++                                let frame = crate::wayland::niri::capture::desktop_for_input()?;
++                                niri_capture = Some((frame.evidence, frame.windows));
++                                frame.png
++                            }
+                             Some(plan) if plan.composite => {
+                                 crate::wayland::hyprland::compose_desktop_capture(&plan.frame)?
+                             }
+@@ -12582,7 +12730,9 @@
+             // Only fall back to the X11 root-window geometry off Wayland, so
+             // the X11 / XWayland path is unchanged. See #2017 / Sway testing.
+             let hyprland_frame = hyprland_plan.map(|plan| plan.frame);
+-            let (screen_w, screen_h) = if let Some(frame) = &hyprland_frame {
++            let (screen_w, screen_h) = if let Some(frame) = &niri_capture {
++                (frame.0.logical_output.width, frame.0.logical_output.height)
++            } else if let Some(frame) = &hyprland_frame {
+                 (frame.width, frame.height)
+             } else if crate::wayland::is_wayland() {
+                 crate::capture_action_frame::desktop_action_dimensions((native_w, native_h))?
+@@ -12617,7 +12767,11 @@
+             };
+             // Which pid owns which window is what the agent needs before its
+             // first click; without it the first action guesses `pid: 1`.
+-            let mut windows = crate::wayland::list_windows_dispatch(None);
++            let mut windows = if let Some(frame) = &niri_capture {
++                frame.1.clone()
++            } else {
++                crate::wayland::list_windows_dispatch(None)
++            };
+             windows
+                 .retain(|w| w.is_on_screen && w.pid.is_some_and(crate::proc_fs::is_process_live));
+             if let Some(frame) = &hyprland_frame {
+@@ -12630,6 +12784,17 @@
+                 );
+                 frame.rebase_windows(&mut windows);
+             }
++            let niri_evidence = niri_capture
++                .as_ref()
++                .map(|frame| -> anyhow::Result<Value> {
++                    let mut evidence = serde_json::to_value(&frame.0)?;
++                    evidence["delivered_png_sha256"] =
++                        json!(crate::wayland::niri::capture::hex_digest(&png));
++                    evidence["delivered_width"] = json!(shot_w);
++                    evidence["delivered_height"] = json!(shot_h);
++                    Ok(evidence)
++                })
++                .transpose()?;
+             let capture_id = crate::capture_action_frame::publish_desktop(
+                 &capture_service,
+                 &capture_args,
+@@ -12637,6 +12802,9 @@
+                 (shot_w, shot_h),
+                 (screen_w, screen_h),
+             )?;
++            if let Some(evidence) = &niri_evidence {
++                native_input.record(&capture_id, evidence)?;
++            }
+             Ok((
+                 b64,
+                 shot_w,
+@@ -12648,6 +12816,7 @@
+                 windows,
+                 capture_id,
+                 overlay_capture,
++                niri_evidence,
+             ))
+         })
+         .await;
+@@ -12664,6 +12833,7 @@
+                 windows,
+                 capture_id,
+                 overlay_capture,
++                niri_evidence,
+             ))) => {
+                 let frame_scale = if shot_w > 0 {
+                     f64::from(screen_w) / f64::from(shot_w)
+@@ -12685,6 +12855,9 @@
+                     "capture_id": capture_id,
+                     "agent_overlay_capture": overlay_capture,
+                 });
++                if let Some(evidence) = niri_evidence {
++                    structured["niri_capture"] = evidence;
++                }
+                 if (frame_scale - 1.0).abs() > 0.001 {
+                     // Capped: the uncapped capture is the action frame.
+                     structured["screenshot_original_width"] = json!(screen_w);
+@@ -12889,6 +13062,9 @@
+         })
+     }
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if let Some(refusal) = crate::wayland::niri::mutation_refusal() {
++            return refusal;
++        }
+         use cua_driver_core::tool_args::ArgsExt;
+         if cursor_control_scope(&args) == CursorControlScope::Desktop {
+             let input = match parse_typed_projection::<MoveCursorInput>("move_cursor", &args) {
+@@ -13626,6 +13802,9 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if let Some(refusal) = crate::wayland::niri::mutation_refusal() {
++            return refusal;
++        }
+         use cua_driver_core::tool_args::ArgsExt;
+         #[allow(unused_assignments)]
+         let pid = args.u64_or("pid", 0) as u32;
+@@ -13940,6 +14119,9 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if let Some(refusal) = crate::wayland::niri::mutation_refusal() {
++            return refusal;
++        }
+         use cua_driver_core::action_record::{
+             ActionEffect, ActionEvidence, ActionExecutionRecord, ActionTransport, ActualDelivery,
+             EvidenceKind, RequestedDelivery,
+@@ -14111,6 +14293,9 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if let Some(refusal) = crate::wayland::niri::mutation_refusal() {
++            return refusal;
++        }
+         use cua_driver_contract::SetWindowFrameInput;
+         use cua_driver_core::action_record::{
+             effect_from_value_readback, ActionEvidence, ActionExecutionRecord, ActionTransport,
+@@ -14227,7 +14412,9 @@
+ 
+ // ── bring_to_front (Linux) ───────────────────────────────────────────────────
+ 
+-pub struct BringToFrontTool;
++pub struct BringToFrontTool {
++    state: Arc<ToolState>,
++}
+ 
+ static BTF_DEF: std::sync::OnceLock<ToolDef> = std::sync::OnceLock::new();
+ 
+@@ -14251,10 +14438,11 @@
+                  Wayland: activates through a target-addressable compositor adapter \
+                  (wlroots foreign-toplevel or the GNOME Shell helper) and refuses \
+                  when the compositor offers no safe adapter. Matches the macOS / \
+-                 Windows bring_to_front rung."
++                 Windows bring_to_front rung. On Dojo/Niri this focuses only the caller's native seat, leaves human focus unchanged, and requires capture_id."
+                 .into(),
+             input_schema: serde_json::json!({
+                 "type":"object","required":["pid"],"properties":{
++                    "capture_id":{"type":"string","description":"Dojo Niri requires the immutable capture_id for this exact target. Consumed by one action attempt."},
+                     "pid":{"type":"integer","description":"Process ID of the app to activate."},
+                     "window_id":{"type":"integer","description":"X11 window id (xid) to activate. If omitted, the first window of `pid` is used."}
+                 },"additionalProperties":false
+@@ -14264,6 +14452,19 @@
+     }
+ 
+     async fn invoke(&self, args: Value) -> ToolResult {
++        if crate::wayland::niri::is_session() {
++            return crate::wayland::niri::native_input::invoke(
++                self.state.native_input.clone(),
++                self.state.capture_service.clone(),
++                args,
++                "bring_to_front",
++            )
++            .await;
++        }
++
++        if let Some(refusal) = crate::wayland::niri::mutation_refusal() {
++            return refusal;
++        }
+         use cua_driver_core::tool_args::ArgsExt;
+         let pid = args.u64_or("pid", 0) as u32;
+         if crate::wayland::is_wayland() {
+@@ -14488,7 +14689,12 @@
+         snapshot_window_resolver(state.clone()),
+         token_pid_resolver(state.clone()),
+     );
+-    r.register(pid_window_guarded(BringToFrontTool, &pid_window_candidates));
++    r.register(pid_window_guarded(
++        BringToFrontTool {
++            state: state.clone(),
++        },
++        &pid_window_candidates,
++    ));
+     r.register(Box::new(SetWindowFrameTool));
+     r.register(Box::new(InvokeMenuTool));
+     r.register(pid_window_guarded(
+@@ -14692,3 +14898,313 @@
+         assert!(seen[1].pressed);
+     }
+ }
++
++#[cfg(test)]
++mod niri_readonly_handler_tests {
++    use super::*;
++
++    #[test]
++    fn original_mutation_handlers_refuse_before_argument_resolution() {
++        const CHILD: &str = "CUA_NIRI_HANDLER_REFUSAL_CHILD";
++        if std::env::var_os(CHILD).is_none() {
++            let status = std::process::Command::new(std::env::current_exe().unwrap())
++                .args(["--exact", "tools::impl_::niri_readonly_handler_tests::original_mutation_handlers_refuse_before_argument_resolution"])
++                .env(CHILD, "1")
++                .env("NIRI_SOCKET", "/nonexistent/niri-readonly.sock")
++                .env("PATH", "/nonexistent")
++                .status().unwrap();
++            assert!(status.success());
++            return;
++        }
++        let runtime = tokio::runtime::Builder::new_current_thread()
++            .enable_all()
++            .build()
++            .unwrap();
++        let state = ToolState::new();
++        runtime.block_on(async {
++            let tools: Vec<Box<dyn Tool>> = vec![
++                Box::new(ClickTool {
++                    state: state.clone(),
++                }),
++                Box::new(TypeTextTool {
++                    state: state.clone(),
++                }),
++                Box::new(PressKeyTool {
++                    state: state.clone(),
++                }),
++                Box::new(HotkeyTool {
++                    state: state.clone(),
++                }),
++                Box::new(SetValueTool {
++                    state: state.clone(),
++                }),
++                Box::new(ScrollTool {
++                    state: state.clone(),
++                }),
++                Box::new(InvokeMenuTool),
++                Box::new(SetWindowFrameTool),
++                Box::new(BringToFrontTool {
++                    state: state.clone(),
++                }),
++                Box::new(TypeTextCharsTool),
++            ];
++            for tool in tools {
++                let args = match tool.def().name.as_str() {
++                    "click" => json!({"x":0,"y":0}),
++                    "type_text" => json!({"text":"a"}),
++                    "press_key" => json!({"key":"enter"}),
++                    "scroll" => json!({"x":0,"y":0,"direction":"down"}),
++                    _ => json!({}),
++                };
++                let result = tool.invoke(args).await;
++                assert_eq!(result.is_error, Some(true));
++                let code = if [
++                    "click",
++                    "type_text",
++                    "press_key",
++                    "scroll",
++                    "bring_to_front",
++                ]
++                .contains(&tool.def().name.as_str())
++                {
++                    "native_input_refused"
++                } else {
++                    "facility_unavailable"
++                };
++                if code == "native_input_refused" {
++                    assert!(
++                        result.content.iter().any(|part| match part {
++                            cua_driver_core::protocol::Content::Text { text, .. } =>
++                                text.contains("capture_id"),
++                            _ => false,
++                        }),
++                        "{} routed to the wrong native operation",
++                        tool.def().name
++                    );
++                    assert!(tool.def().input_schema["properties"]
++                        .get("capture_id")
++                        .is_some());
++                }
++                assert_eq!(result.structured_content.unwrap()["code"], code);
++            }
++        });
++    }
++}
++
++#[cfg(test)]
++mod niri_capture_handler_tests {
++    use super::*;
++    use crate::wayland::niri::capture::tests::{
++        fixture_groups, inventory, logical, outputs, scene, WINDOW_ID,
++    };
++
++    #[test]
++    fn original_window_handler_delivers_pixels_with_matching_scene_digest() {
++        const CHILD: &str = "CUA_NIRI_CAPTURE_HANDLER_CHILD";
++        if std::env::var_os(CHILD).is_none() {
++            let status = std::process::Command::new(std::env::current_exe().unwrap())
++                .args(["--exact", "tools::impl_::niri_capture_handler_tests::original_window_handler_delivers_pixels_with_matching_scene_digest"])
++                .env(CHILD, "1").env("PATH", "/nonexistent")
++                .env_remove("DISPLAY").env_remove("WAYLAND_DISPLAY").status().unwrap();
++            assert!(status.success());
++            return;
++        }
++        let captured = scene();
++        let placements = json!({"WindowPlacements":{
++            "observation_serial":6,"compositor_pid":std::process::id(),"output":"DP-1",
++            "logical_output":logical(),"width":4,"height":4,"windows":captured["CapturedScene"]["windows"].clone()
++        }});
++        let workspaces = json!({"Workspaces":[{"id":1,"idx":1,"name":null,"output":"DP-1","is_urgent":false,
++            "is_active":true,"is_focused":true,"active_window_id":WINDOW_ID}]});
++        let (_directory, path, server) = fixture_groups(vec![
++            vec![
++                ("\"Windows\"", inventory()),
++                ("\"Workspaces\"", workspaces),
++                ("\"Outputs\"", outputs()),
++                ("{\"WindowPlacements\":{\"output\":\"DP-1\"}}", placements),
++            ],
++            vec![
++                ("\"Outputs\"", outputs()),
++                ("\"Windows\"", inventory()),
++                ("{\"CaptureScene\":{\"output\":\"DP-1\"}}", captured),
++            ],
++        ]);
++        std::env::set_var("NIRI_SOCKET", &path);
++        let runtime = tokio::runtime::Builder::new_current_thread()
++            .enable_all()
++            .build()
++            .unwrap();
++        let result = runtime.block_on(GetWindowStateTool { state: ToolState::new() }.invoke(json!({
++            "pid":std::process::id(),"window_id":WINDOW_ID,"include_accessibility_tree":false,
++            "include_screenshot":true,"max_image_dimension":0,"full_output":true,"_observation_only":true,
++        })));
++        assert_ne!(
++            result.is_error,
++            Some(true),
++            "{:?}",
++            result.structured_content
++        );
++        let image = result
++            .content
++            .iter()
++            .find_map(|part| match part {
++                cua_driver_core::protocol::Content::Image { data, .. } => Some(data),
++                _ => None,
++            })
++            .unwrap();
++        use base64::{engine::general_purpose::STANDARD, Engine};
++        let png = STANDARD.decode(image).unwrap();
++        let image = image::load_from_memory(&png).unwrap().to_rgba8();
++        assert_eq!(image.dimensions(), (1, 1));
++        assert_eq!(image.get_pixel(0, 0).0, [255, 0, 0, 255]);
++        let structured = result.structured_content.unwrap();
++        assert_eq!(
++            structured["window_bounds"],
++            json!({"x":-8.0,"y":12.0,"width":1.0,"height":1.0})
++        );
++        assert_eq!(structured["niri_capture"]["scene_frame_serial"], 7);
++        assert_eq!(
++            structured["niri_capture"]["delivered_png_sha256"],
++            crate::wayland::niri::capture::hex_digest(&png)
++        );
++        assert_eq!(structured["niri_capture"]["image_geometry_atomic"], true);
++        assert_eq!(structured["niri_capture"]["image_semantic_atomic"], false);
++        server.join().unwrap();
++    }
++}
++
++#[cfg(test)]
++mod niri_native_handler_tests {
++    use super::*;
++    use crate::wayland::niri::capture::tests::{inventory, logical, outputs, scene, WINDOW_ID};
++    use std::io::{BufRead, BufReader, Write};
++    use std::os::unix::net::UnixListener;
++    use std::sync::atomic::{AtomicBool, Ordering};
++
++    #[test]
++    fn original_handlers_deliver_exact_native_commands_from_one_use_captures() {
++        const CHILD: &str = "CUA_NIRI_NATIVE_HANDLER_CHILD";
++        if std::env::var_os(CHILD).is_none() {
++            let status = std::process::Command::new(std::env::current_exe().unwrap())
++                .args(["--exact", "tools::impl_::niri_native_handler_tests::original_handlers_deliver_exact_native_commands_from_one_use_captures"])
++                .env(CHILD, "1").env("PATH", "/nonexistent")
++                .env_remove("DISPLAY").env_remove("WAYLAND_DISPLAY")
++                .status().unwrap();
++            assert!(status.success());
++            return;
++        }
++        let directory = tempfile::tempdir().unwrap();
++        let path = directory.path().join("niri.sock");
++        let listener = UnixListener::bind(&path).unwrap();
++        listener.set_nonblocking(true).unwrap();
++        let events = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
++        let stop = Arc::new(AtomicBool::new(false));
++        let server_events = events.clone();
++        let server_stop = stop.clone();
++        let server = std::thread::spawn(move || {
++            let mut clients = Vec::new();
++            while !server_stop.load(Ordering::SeqCst) {
++                let (mut stream, _) = match listener.accept() {
++                    Ok(client) => client,
++                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
++                        std::thread::sleep(std::time::Duration::from_millis(1));
++                        continue;
++                    }
++                    Err(error) => panic!("{error}"),
++                };
++                let events = server_events.clone();
++                clients.push(std::thread::spawn(move || {
++                    stream.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
++                    let mut reader = BufReader::new(stream.try_clone().unwrap());
++                    loop {
++                        let mut line = String::new();
++                        if reader.read_line(&mut line).unwrap() == 0 { break; }
++                        let request: Value = serde_json::from_str(&line).unwrap();
++                        let reply = if request == json!("Windows") { inventory() }
++                        else if request == json!("Workspaces") {
++                            json!({"Workspaces":[{"id":1,"idx":1,"name":null,"output":"DP-1","is_urgent":false,"is_active":true,"is_focused":true,"active_window_id":WINDOW_ID}]})
++                        } else if request == json!("Outputs") { outputs() }
++                        else if request == json!({"WindowPlacements":{"output":"DP-1"}}) {
++                            json!({"WindowPlacements":{"observation_serial":6,"compositor_pid":std::process::id(),"output":"DP-1","logical_output":logical(),"width":4,"height":4,"windows":scene()["CapturedScene"]["windows"].clone()}})
++                        } else if request == json!({"CaptureScene":{"output":"DP-1"}}) { scene() }
++                        else if request == json!("InputCoordination") {
++                            json!({"InputCoordination":{"revision":13,"human_owned_windows":[]}})
++                        } else if request == json!({"AgentInput":{"Create":{"name":"cua-driver"}}}) {
++                            json!({"AgentInputCreated":{"seat_name":"agent-fixture","peer_id":7}})
++                        } else {
++                            assert_eq!(request.pointer("/AgentInput/Coordinated/revision"),Some(&json!(13)));
++                            assert_eq!(request.pointer("/AgentInput/Coordinated/command/Captured/geometry/window_id"),Some(&json!(WINDOW_ID)));
++                            events.lock().unwrap().push(request["AgentInput"]["Coordinated"]["command"]["Captured"]["command"].clone());
++                            json!("Handled")
++                        };
++                        writeln!(stream,"{}",json!({"Ok":reply})).unwrap();
++                    }
++                }));
++            }
++            for client in clients {
++                client.join().unwrap();
++            }
++        });
++        std::env::set_var("NIRI_SOCKET", &path);
++        let runtime = tokio::runtime::Builder::new_current_thread()
++            .enable_all()
++            .build()
++            .unwrap();
++        let state = ToolState::new();
++        runtime.block_on(async {
++            let cases: Vec<(Box<dyn Tool>,Value,Vec<Value>)> = vec![
++                (Box::new(ClickTool{state:state.clone()}),json!({"x":0.25,"y":0.25}),vec![
++                    json!({"Targeted":{"window_id":WINDOW_ID,"command":{"Move":{"output":"DP-1","x":0.25,"y":0.25}}}}),
++                    json!({"Targeted":{"window_id":WINDOW_ID,"command":{"Button":{"button":272,"state":"Pressed"}}}}),
++                    json!({"Targeted":{"window_id":WINDOW_ID,"command":{"Button":{"button":272,"state":"Released"}}}}),
++                ]),
++                (Box::new(PressKeyTool{state:state.clone()}),json!({"key":"enter"}),vec![
++                    json!({"Focus":{"window_id":WINDOW_ID}}),
++                    json!({"Targeted":{"window_id":WINDOW_ID,"command":{"Key":{"evdev":28,"state":"Pressed"}}}}),
++                    json!({"Targeted":{"window_id":WINDOW_ID,"command":{"Key":{"evdev":28,"state":"Released"}}}}),
++                ]),
++                (Box::new(TypeTextTool{state:state.clone()}),json!({"text":"a"}),vec![
++                    json!({"Focus":{"window_id":WINDOW_ID}}),
++                    json!({"Targeted":{"window_id":WINDOW_ID,"command":{"TextKey":{"evdev":30,"state":"Pressed"}}}}),
++                    json!({"Targeted":{"window_id":WINDOW_ID,"command":{"TextKey":{"evdev":30,"state":"Released"}}}}),
++                ]),
++                (Box::new(ScrollTool{state:state.clone()}),json!({"x":0.25,"y":0.25,"direction":"down","amount":2}),vec![
++                    json!({"Targeted":{"window_id":WINDOW_ID,"command":{"Move":{"output":"DP-1","x":0.25,"y":0.25}}}}),
++                    json!({"Targeted":{"window_id":WINDOW_ID,"command":{"Axis":{"horizontal":0.0,"vertical":30.0}}}}),
++                ]),
++                (Box::new(BringToFrontTool{state:state.clone()}),json!({}),vec![json!({"Focus":{"window_id":WINDOW_ID}})]),
++            ];
++            for (tool,mut args,expected) in cases {
++                let capture=GetWindowStateTool{state:state.clone()}.invoke(json!({
++                    "pid":std::process::id(),"window_id":WINDOW_ID,"include_accessibility_tree":false,"include_screenshot":true,
++                    "max_image_dimension":0,"full_output":true,"_session_id":"native-fixture"
++                })).await;
++                assert_ne!(capture.is_error,Some(true),"{:?}",capture.content);
++                let capture=capture.structured_content.unwrap()["capture_id"].as_str().unwrap().to_owned();
++                args["pid"]=json!(std::process::id());args["window_id"]=json!(WINDOW_ID);args["capture_id"]=json!(capture);args["_session_id"]=json!("native-fixture");
++                let before=events.lock().unwrap().len();
++                let result=tool.invoke(args.clone()).await;
++                assert_ne!(result.is_error,Some(true),"{}: {:?}",tool.def().name,result.content);
++                assert_eq!(&events.lock().unwrap()[before..],expected.as_slice(),"{} dispatched the wrong native operation",tool.def().name);
++                let reused=tool.invoke(args).await;
++                assert_eq!(reused.is_error,Some(true));
++                assert_eq!(events.lock().unwrap().len(),before+expected.len());
++            }
++            let capture=GetWindowStateTool{state:state.clone()}.invoke(json!({
++                "pid":std::process::id(),"window_id":WINDOW_ID,"include_accessibility_tree":false,"include_screenshot":true,
++                "max_image_dimension":0,"full_output":true,"_session_id":"native-fixture"
++            })).await;
++            assert_ne!(capture.is_error,Some(true));
++            let id=capture.structured_content.unwrap()["capture_id"].as_str().unwrap().to_owned();
++            let before=events.lock().unwrap().len();
++            let result=ClickTool{state:state.clone()}.invoke(json!({"pid":std::process::id(),"window_id":WINDOW_ID+1,"capture_id":id,"x":0,"y":0,"_session_id":"native-fixture"})).await;
++            assert_eq!(result.is_error,Some(true));assert_eq!(events.lock().unwrap().len(),before);
++            let binding=state.capture_service.current_binding("native-fixture").unwrap();
++            assert!(state.capture_service.read_for_perception(state.capture_service.parse_capture_id(&id).unwrap(),&binding).is_ok());
++        });
++        drop(state);
++        drop(runtime);
++        stop.store(true, Ordering::SeqCst);
++        server.join().unwrap();
++    }
++}
+diff --git a/libs/cua-driver/rust/Cargo.lock b/libs/cua-driver/rust/Cargo.lock
+--- a/libs/cua-driver/rust/Cargo.lock
++++ b/libs/cua-driver/rust/Cargo.lock
+@@ -228,7 +228,7 @@
+  "rustc-hash 2.1.3",
+  "serde",
+  "serde_derive",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -360,7 +360,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -395,7 +395,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -503,7 +503,7 @@
+  "regex",
+  "rustc-hash 1.1.0",
+  "shlex",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -765,7 +765,7 @@
+  "quote",
+  "serde",
+  "serde_json",
+- "syn",
++ "syn 2.0.117",
+  "tempfile",
+  "toml 0.9.12+spec-1.1.0",
+ ]
+@@ -947,7 +947,7 @@
+  "heck",
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -1527,7 +1527,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -1632,7 +1632,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -1821,7 +1821,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -1960,7 +1960,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -2534,9 +2534,9 @@
+ 
+ [[package]]
+ name = "libc"
+-version = "0.2.186"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
++version = "0.2.189"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
+ 
+ [[package]]
+ name = "libloading"
+@@ -2790,6 +2790,15 @@
+  "portable-atomic",
+  "portable-atomic-util",
+  "rawpointer",
++]
++
++[[package]]
++name = "niri-ipc"
++version = "26.4.0"
++dependencies = [
++ "libc",
++ "serde",
++ "serde_json",
+ ]
+ 
+ [[package]]
+@@ -3307,7 +3316,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -3535,6 +3544,7 @@
+  "crossbeam-channel",
+  "cua-driver-contract",
+  "cua-driver-core",
++ "dojo-native-seat",
+  "cursor-overlay",
+  "dirs",
+  "enumflags2",
+@@ -3547,6 +3557,7 @@
+  "libspa",
+  "memmap2",
+  "meval",
++ "niri-ipc",
+  "pip-preview",
+  "pipewire",
+  "reis",
+@@ -3736,7 +3747,7 @@
+ checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
+ dependencies = [
+  "proc-macro2",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -3925,7 +3936,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -4194,7 +4205,7 @@
+  "proc-macro2",
+  "quote",
+  "serde_derive_internals",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -4230,7 +4241,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -4287,9 +4298,9 @@
+ 
+ [[package]]
+ name = "serde"
+-version = "1.0.228"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
++version = "1.0.229"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
+ dependencies = [
+  "serde_core",
+  "serde_derive",
+@@ -4307,22 +4318,22 @@
+ 
+ [[package]]
+ name = "serde_core"
+-version = "1.0.228"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "41d385c7d4ca58e59fc732af25c3983b67ac852c1a25000afe1175de458b67ad"
++version = "1.0.229"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "67dca2c9c51e58a4791a4b1ed58308b39c64224d349a935ab5039aa360942a48"
+ dependencies = [
+  "serde_derive",
+ ]
+ 
+ [[package]]
+ name = "serde_derive"
+-version = "1.0.228"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
++version = "1.0.229"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 3.0.5",
+ ]
+ 
+ [[package]]
+@@ -4333,14 +4344,14 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+ name = "serde_json"
+-version = "1.0.149"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86"
++version = "1.0.151"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
+ dependencies = [
+  "itoa",
+  "memchr",
+@@ -4357,7 +4368,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -4554,6 +4565,17 @@
+ ]
+ 
+ [[package]]
++name = "syn"
++version = "3.0.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "12df2e0110f65b775f769bb17ef989067a1d931b2eb822bd4346631eeada89f9"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "unicode-ident",
++]
++
++[[package]]
+ name = "synstructure"
+ version = "0.13.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+@@ -4561,7 +4583,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -4647,7 +4669,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -4658,7 +4680,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -4776,7 +4798,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -4925,7 +4947,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -5121,7 +5143,7 @@
+  "indexmap",
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -5136,7 +5158,7 @@
+  "proc-macro2",
+  "quote",
+  "serde",
+- "syn",
++ "syn 2.0.117",
+  "toml 0.9.12+spec-1.1.0",
+  "uniffi_meta",
+ ]
+@@ -5397,7 +5419,7 @@
+  "bumpalo",
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+  "wasm-bindgen-shared",
+ ]
+ 
+@@ -5660,7 +5682,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -5671,7 +5693,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -5682,7 +5704,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -5693,7 +5715,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -5704,7 +5726,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -6093,7 +6115,7 @@
+  "heck",
+  "indexmap",
+  "prettyplease",
+- "syn",
++ "syn 2.0.117",
+  "wasm-metadata",
+  "wit-bindgen-core",
+  "wit-component",
+@@ -6109,7 +6131,7 @@
+  "prettyplease",
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+  "wit-bindgen-core",
+  "wit-bindgen-rust",
+ ]
+@@ -6256,7 +6278,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+  "synstructure",
+ ]
+ 
+@@ -6314,7 +6336,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+  "zbus-lockstep",
+  "zbus_xml",
+  "zvariant",
+@@ -6340,7 +6362,7 @@
+  "proc-macro-crate",
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+  "zbus_names",
+  "zvariant",
+  "zvariant_utils",
+@@ -6386,7 +6408,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -6406,7 +6428,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+  "synstructure",
+ ]
+ 
+@@ -6427,7 +6449,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -6460,7 +6482,7 @@
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -6568,7 +6590,7 @@
+  "proc-macro-crate",
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+  "zvariant_utils",
+ ]
+ 
+@@ -6581,6 +6603,14 @@
+  "proc-macro2",
+  "quote",
+  "serde",
+- "syn",
++ "syn 2.0.117",
+  "winnow 1.0.3",
+ ]
++
++[[package]]
++name = "dojo-native-seat"
++version = "0.1.0"
++dependencies = [
++ "anyhow",
++ "niri-ipc",
++]
+diff --git a/libs/cua-driver/rust/crates/platform-linux/src/wayland/niri.rs b/libs/cua-driver/rust/crates/platform-linux/src/wayland/niri.rs
+new file mode 100644
+--- /dev/null
++++ b/libs/cua-driver/rust/crates/platform-linux/src/wayland/niri.rs
+@@ -0,0 +1,437 @@
++//! Read-only Niri queries. Native IDs never enter foreign-toplevel matching.
++
++use crate::x11::WindowInfo;
++use anyhow::{bail, ensure, Context, Result};
++use niri_ipc::{LogicalOutput, Reply, Request, Response};
++use std::collections::{HashMap, HashSet};
++use std::io::{BufRead, BufReader, Write};
++use std::os::fd::AsRawFd;
++use std::os::unix::net::UnixStream;
++use std::path::{Path, PathBuf};
++use std::sync::{Mutex, OnceLock};
++use std::time::{Duration, Instant};
++
++const MAX_REPLY_BYTES: u64 = 4 * 1024 * 1024;
++const TIMEOUT: Duration = Duration::from_secs(2);
++
++#[derive(Clone, Debug, PartialEq, Eq)]
++struct PeerIdentity {
++    pid: u32,
++    uid: u32,
++    start_ticks: u64,
++}
++
++fn process_start(pid: u32) -> Result<u64> {
++    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat"))?;
++    let fields = stat.rsplit_once(')').context("invalid process stat")?.1;
++    fields
++        .split_whitespace()
++        .nth(19)
++        .context("missing process start")?
++        .parse()
++        .context("invalid process start")
++}
++
++fn peer_identity(stream: &UnixStream) -> Result<PeerIdentity> {
++    let mut credentials = std::mem::MaybeUninit::<libc::ucred>::uninit();
++    let mut length = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
++    // SO_PEERCRED initializes the checked ucred buffer on success.
++    let result = unsafe {
++        libc::getsockopt(
++            stream.as_raw_fd(),
++            libc::SOL_SOCKET,
++            libc::SO_PEERCRED,
++            credentials.as_mut_ptr().cast(),
++            &mut length,
++        )
++    };
++    if result != 0 {
++        return Err(std::io::Error::last_os_error().into());
++    }
++    ensure!(
++        length as usize == std::mem::size_of::<libc::ucred>(),
++        "invalid peer credential length"
++    );
++    // The successful size-checked query initialized every field.
++    let credentials = unsafe { credentials.assume_init() };
++    let pid = u32::try_from(credentials.pid).context("invalid compositor pid")?;
++    ensure!(pid > 0, "missing compositor pid");
++    ensure!(
++        credentials.uid == unsafe { libc::geteuid() },
++        "Niri socket peer belongs to another user"
++    );
++    Ok(PeerIdentity {
++        pid,
++        uid: credentials.uid,
++        start_ticks: process_start(pid)?,
++    })
++}
++
++struct Connection {
++    stream: BufReader<UnixStream>,
++    peer: PeerIdentity,
++    deadline: Instant,
++}
++
++impl Connection {
++    fn connect(path: &Path) -> Result<Self> {
++        let socket = socket2::Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None)?;
++        socket.set_nonblocking(true)?;
++        socket.connect(&socket2::SockAddr::unix(path)?)?;
++        socket.set_nonblocking(false)?;
++        let stream: UnixStream = socket.into();
++        stream.set_read_timeout(Some(TIMEOUT))?;
++        stream.set_write_timeout(Some(TIMEOUT))?;
++        let peer = peer_identity(&stream)?;
++        Ok(Self {
++            stream: BufReader::new(stream),
++            peer,
++            deadline: Instant::now() + TIMEOUT,
++        })
++    }
++
++    fn query(&mut self, request: &Request) -> Result<Response> {
++        ensure!(
++            process_start(self.peer.pid)? == self.peer.start_ticks,
++            "compositor generation changed"
++        );
++        let mut bytes = serde_json::to_vec(request)?;
++        bytes.push(b'\n');
++        self.stream.get_mut().write_all(&bytes)?;
++        let max_reply_bytes = if matches!(request, Request::CaptureScene { .. }) {
++            48 * 1024 * 1024
++        } else {
++            MAX_REPLY_BYTES
++        };
++        let mut reply = Vec::new();
++        loop {
++            let remaining = self
++                .deadline
++                .checked_duration_since(Instant::now())
++                .context("Niri observation deadline exceeded")?;
++            self.stream.get_ref().set_read_timeout(Some(remaining))?;
++            let available = self.stream.fill_buf()?;
++            if available.is_empty() {
++                break;
++            }
++            let count = available
++                .iter()
++                .position(|byte| *byte == b'\n')
++                .map_or(available.len(), |index| index + 1);
++            ensure!(
++                reply.len() as u64 + count as u64 <= max_reply_bytes,
++                "Niri reply exceeds size limit"
++            );
++            reply.extend_from_slice(&available[..count]);
++            self.stream.consume(count);
++            if reply.last() == Some(&b'\n') {
++                break;
++            }
++        }
++        ensure!(reply.last() == Some(&b'\n'), "incomplete Niri reply");
++        ensure!(
++            process_start(self.peer.pid)? == self.peer.start_ticks,
++            "compositor generation changed"
++        );
++        serde_json::from_slice::<Reply>(&reply)?.map_err(anyhow::Error::msg)
++    }
++}
++
++pub mod capture;
++
++pub fn is_session() -> bool {
++    std::env::var_os("NIRI_SOCKET").is_some()
++}
++
++pub(crate) fn mutation_refusal() -> Option<cua_driver_core::protocol::ToolResult> {
++    is_session().then(|| {
++        cua_driver_core::protocol::ToolResult::error(
++            "Niri adapter supports read-only queries; native mutation backend is unavailable"
++                .to_owned(),
++        )
++        .with_structured(serde_json::json!({"code":"facility_unavailable","effect":"refused"}))
++    })
++}
++
++pub(crate) fn refuse_input() -> Result<()> {
++    ensure!(!is_session(), "facility_unavailable: Niri adapter supports read-only queries; input backend is unavailable");
++    Ok(())
++}
++
++fn connection() -> Result<Connection> {
++    static BINDING: OnceLock<Mutex<Option<(PathBuf, PeerIdentity)>>> = OnceLock::new();
++    let path = PathBuf::from(std::env::var_os("NIRI_SOCKET").context("NIRI_SOCKET is absent")?);
++    let connection = Connection::connect(&path)?;
++    let mut binding = BINDING
++        .get_or_init(|| Mutex::new(None))
++        .lock()
++        .map_err(|_| anyhow::anyhow!("Niri binding lock poisoned"))?;
++    match binding.as_ref() {
++        Some((expected_path, expected_peer)) => ensure!(
++            expected_path == &path && expected_peer == &connection.peer,
++            "Niri compositor binding changed; restart the driver process"
++        ),
++        None => *binding = Some((path, connection.peer.clone())),
++    }
++    Ok(connection)
++}
++
++#[derive(Clone, Debug)]
++pub struct DesktopFrame {
++    pub x: i32,
++    pub y: i32,
++    pub width: u32,
++    pub height: u32,
++}
++
++impl DesktopFrame {
++    pub fn to_layout(&self, x: i32, y: i32) -> (i32, i32) {
++        (self.x.saturating_add(x), self.y.saturating_add(y))
++    }
++}
++
++fn outputs(connection: &mut Connection) -> Result<Vec<(String, LogicalOutput)>> {
++    let Response::Outputs(outputs) = connection.query(&Request::Outputs)? else {
++        bail!("unexpected Niri outputs reply")
++    };
++    ensure!(outputs.len() <= 32, "too many Niri outputs");
++    let mut names = HashSet::new();
++    let mut logical = Vec::new();
++    for (name, output) in outputs {
++        ensure!(
++            name == output.name && names.insert(name.clone()),
++            "ambiguous Niri output identity"
++        );
++        if let Some(layout) = output.logical {
++            ensure!(
++                output.current_mode.is_some(),
++                "mapped output has no active mode"
++            );
++            ensure!(
++                layout.width > 0
++                    && layout.height > 0
++                    && layout.scale.is_finite()
++                    && layout.scale > 0.0,
++                "invalid Niri output geometry"
++            );
++            logical.push((name, layout));
++        }
++    }
++    ensure!(!logical.is_empty(), "Niri has no active logical output");
++    Ok(logical)
++}
++
++fn frame_from_outputs(outputs: Vec<LogicalOutput>) -> Result<DesktopFrame> {
++    let left = outputs
++        .iter()
++        .map(|o| i64::from(o.x))
++        .min()
++        .context("no output")?;
++    let top = outputs
++        .iter()
++        .map(|o| i64::from(o.y))
++        .min()
++        .context("no output")?;
++    let right = outputs
++        .iter()
++        .map(|o| i64::from(o.x) + i64::from(o.width))
++        .max()
++        .unwrap();
++    let bottom = outputs
++        .iter()
++        .map(|o| i64::from(o.y) + i64::from(o.height))
++        .max()
++        .unwrap();
++    Ok(DesktopFrame {
++        x: i32::try_from(left)?,
++        y: i32::try_from(top)?,
++        width: u32::try_from(right - left)?,
++        height: u32::try_from(bottom - top)?,
++    })
++}
++
++pub fn desktop_frame() -> Result<DesktopFrame> {
++    frame_from_outputs(
++        outputs(&mut connection()?)?
++            .into_iter()
++            .map(|(_, layout)| layout)
++            .collect(),
++    )
++}
++
++pub fn screen_report() -> Result<(DesktopFrame, f64, serde_json::Value)> {
++    let outputs = outputs(&mut connection()?)?;
++    let frame = frame_from_outputs(outputs.iter().map(|(_, layout)| *layout).collect())?;
++    let scale = outputs
++        .iter()
++        .map(|(_, layout)| layout.scale)
++        .fold(f64::MIN, f64::max);
++    let monitors = outputs
++        .iter()
++        .map(|(name, layout)| {
++            serde_json::json!({
++                "name": name, "powered": true, "width": layout.width, "height": layout.height,
++                "scale": layout.scale, "frame_x": i64::from(layout.x) - i64::from(frame.x),
++                "frame_y": i64::from(layout.y) - i64::from(frame.y), "layout_x": layout.x,
++                "layout_y": layout.y,
++            })
++        })
++        .collect::<Vec<_>>();
++    Ok((frame, scale, serde_json::Value::Array(monitors)))
++}
++
++fn exact_integer(value: f64) -> Result<i32> {
++    ensure!(
++        value.is_finite()
++            && value.fract() == 0.0
++            && value >= f64::from(i32::MIN)
++            && value <= f64::from(i32::MAX),
++        "Niri geometry {value} cannot be represented exactly by the driver integer coordinates"
++    );
++    Ok(value as i32)
++}
++
++fn list_from_connection(connection: &mut Connection) -> Result<Vec<WindowInfo>> {
++    let Response::Windows(windows) = connection.query(&Request::Windows)? else {
++        bail!("unexpected Niri windows reply")
++    };
++    let Response::Workspaces(workspaces) = connection.query(&Request::Workspaces)? else {
++        bail!("unexpected Niri workspaces reply")
++    };
++    let mut workspace_outputs = HashMap::new();
++    for workspace in workspaces {
++        ensure!(
++            workspace_outputs
++                .insert(workspace.id, workspace.output)
++                .is_none(),
++            "duplicate Niri workspace identity"
++        );
++    }
++    let Response::Outputs(outputs) = connection.query(&Request::Outputs)? else {
++        bail!("unexpected Niri outputs reply")
++    };
++    let mut output_layouts = HashMap::new();
++    ensure!(
++        outputs.len() <= 32 && windows.len() <= 16384,
++        "Niri observation exceeds inventory limit"
++    );
++    let mut placements = HashMap::new();
++    for (name, output) in outputs {
++        ensure!(name == output.name, "Niri output name mismatch");
++        let Some(logical) = output.logical else {
++            continue;
++        };
++        ensure!(
++            output.current_mode.is_some(),
++            "mapped output has no active mode"
++        );
++        output_layouts.insert(name.clone(), logical);
++        let Response::WindowPlacements(scene) = connection.query(&Request::WindowPlacements {
++            output: name.clone(),
++        })?
++        else {
++            bail!("unexpected Niri placements reply")
++        };
++        ensure!(
++            scene.compositor_pid == connection.peer.pid,
++            "Niri placement compositor is not the socket peer"
++        );
++        ensure!(
++            scene.output == name && scene.logical_output == logical,
++            "Niri output changed during observation"
++        );
++        for placement in scene.windows {
++            ensure!(
++                !placements.contains_key(&placement.id),
++                "window spans outputs; exact single-output geometry is unavailable"
++            );
++            let (x, y, width, height) = placement.rect;
++            let rect = (
++                exact_integer((x + f64::from(logical.x)).floor())?,
++                exact_integer((y + f64::from(logical.y)).floor())?,
++                u32::try_from(exact_integer(width.ceil())?)?,
++                u32::try_from(exact_integer(height.ceil())?)?,
++            );
++            ensure!(rect.2 > 0 && rect.3 > 0, "empty Niri window geometry");
++            ensure!(
++                placement.output_clip.2 > 0.0 && placement.output_clip.3 > 0.0,
++                "empty rendered Niri window clip"
++            );
++            placements.insert(placement.id, (placement.pid, rect));
++        }
++    }
++    let mut seen = HashSet::new();
++    let mut result = Vec::new();
++    for window in windows {
++        ensure!(seen.insert(window.id), "duplicate Niri window identity");
++        let (is_on_screen, (x, y, width, height)) =
++            if let Some((placement_pid, rect)) = placements.remove(&window.id) {
++                ensure!(
++                    placement_pid == window.pid,
++                    "Niri window process changed during observation"
++                );
++                (true, rect)
++            } else {
++                let output_name = window
++                    .workspace_id
++                    .and_then(|id| workspace_outputs.get(&id))
++                    .and_then(Option::as_ref)
++                    .context("Niri window has no workspace output")?;
++                let output = output_layouts
++                    .get(output_name)
++                    .context("Niri window workspace output is unavailable")?;
++                let (tile_x, tile_y) = window
++                    .layout
++                    .tile_pos_in_workspace_view
++                    .context("facility_unavailable: Niri window has no layout position")?;
++                let (offset_x, offset_y) = window.layout.window_offset_in_tile;
++                let (width, height) = window.layout.window_size;
++                ensure!(width > 0 && height > 0, "empty Niri window layout geometry");
++                (
++                    false,
++                    (
++                        exact_integer((f64::from(output.x) + tile_x + offset_x).floor())?,
++                        exact_integer((f64::from(output.y) + tile_y + offset_y).floor())?,
++                        u32::try_from(width)?,
++                        u32::try_from(height)?,
++                    ),
++                )
++            };
++        let pid = window.pid.map(u32::try_from).transpose()?;
++        ensure!(pid != Some(0), "invalid Niri window pid");
++        result.push(WindowInfo {
++            xid: window.id,
++            pid,
++            app_name: window.app_id.unwrap_or_default(),
++            title: window.title.unwrap_or_default(),
++            is_on_screen,
++            z_index: None,
++            x,
++            y,
++            width,
++            height,
++        });
++    }
++    ensure!(
++        placements.is_empty(),
++        "Niri window inventory changed during observation"
++    );
++    Ok(result)
++}
++
++pub fn list_windows() -> Result<Vec<WindowInfo>> {
++    list_from_connection(&mut connection()?)
++}
++
++pub fn window_geometry(id: u64) -> Result<(i32, i32, u32, u32)> {
++    let window = list_windows()?
++        .into_iter()
++        .find(|w| w.xid == id)
++        .context("Niri window identity is absent")?;
++    Ok((window.x, window.y, window.width, window.height))
++}
++
++#[cfg(test)]
++mod tests;
++
++pub(crate) mod native_input;
+diff --git a/libs/cua-driver/rust/crates/platform-linux/src/wayland/niri/tests.rs b/libs/cua-driver/rust/crates/platform-linux/src/wayland/niri/tests.rs
+new file mode 100644
+--- /dev/null
++++ b/libs/cua-driver/rust/crates/platform-linux/src/wayland/niri/tests.rs
+@@ -0,0 +1,312 @@
++use super::*;
++use serde_json::{json, Value};
++use std::os::unix::net::UnixListener;
++use std::thread;
++
++fn fixture(
++    replies: Vec<(&'static str, Value)>,
++) -> (tempfile::TempDir, PathBuf, thread::JoinHandle<()>) {
++    let directory = tempfile::tempdir().unwrap();
++    let path = directory.path().join("niri.sock");
++    let listener = UnixListener::bind(&path).unwrap();
++    let server = thread::spawn(move || {
++        let (mut stream, _) = listener.accept().unwrap();
++        stream
++            .set_read_timeout(Some(Duration::from_secs(2)))
++            .unwrap();
++        let mut reader = BufReader::new(stream.try_clone().unwrap());
++        for (expected, reply) in replies {
++            let mut request = String::new();
++            reader.read_line(&mut request).unwrap();
++            let request: Value = serde_json::from_str(&request).unwrap();
++            assert_eq!(request, serde_json::from_str::<Value>(expected).unwrap());
++            writeln!(stream, "{}", json!({"Ok": reply})).unwrap();
++        }
++    });
++    (directory, path, server)
++}
++
++fn logical() -> Value {
++    json!({"x": -1280, "y": 100, "width": 1280, "height": 720, "scale": 1.25, "transform": "Normal"})
++}
++
++fn output() -> Value {
++    json!({"name":"DP-1","make":"fixture","model":"fixture","serial":null,
++        "physical_size":null,"modes":[{"width":1600,"height":900,"refresh_rate":60000,"is_preferred":true}],
++        "current_mode":0,"is_custom_mode":false,"vrr_supported":false,"vrr_enabled":false,
++        "logical":logical(),"max_bpc":null})
++}
++
++fn windows() -> Value {
++    json!({"Windows":[{"id": 4294967301_u64, "title":"Same title", "app_id":"fixture", "pid":123,
++        "workspace_id":1,"is_focused":true,"is_floating":false,"is_urgent":false,
++        "layout":{"pos_in_scrolling_layout":null,"tile_size":[500.0,400.0],"window_size":[500,400],
++        "tile_pos_in_workspace_view":null,"window_offset_in_tile":[0.0,0.0]},"focus_timestamp":null}]})
++}
++
++fn scene(pid: u32) -> Value {
++    json!({"WindowPlacements":{"observation_serial":1,"compositor_pid":pid,"output":"DP-1",
++        "logical_output":logical(),"width":1600,"height":900,"windows":[{"id":4294967301_u64,
++        "pid":123,"is_floating":false,"rect":[20.0,30.0,500.0,400.0],
++        "output_clip":[20.0,30.0,500.0,400.0],"blocked_out":false}]}})
++}
++
++fn workspaces() -> Value {
++    json!({"Workspaces":[
++        {"id":1,"idx":1,"name":null,"output":"DP-1","is_urgent":false,"is_active":true,"is_focused":true,"active_window_id":4294967301_u64},
++        {"id":2,"idx":2,"name":null,"output":"DP-1","is_urgent":false,"is_active":false,"is_focused":false,"active_window_id":4294967302_u64}
++    ]})
++}
++
++fn window_fixture(scene: Value) -> (tempfile::TempDir, PathBuf, thread::JoinHandle<()>) {
++    fixture(vec![
++        ("\"Windows\"", windows()),
++        ("\"Workspaces\"", workspaces()),
++        ("\"Outputs\"", json!({"Outputs":{"DP-1":output()}})),
++        ("{\"WindowPlacements\":{\"output\":\"DP-1\"}}", scene),
++    ])
++}
++
++#[test]
++fn preserves_native_id_and_peer_attested_output_geometry() {
++    let (_directory, path, server) = window_fixture(scene(std::process::id()));
++    let mut connection = Connection::connect(&path).unwrap();
++    assert_eq!(connection.peer.pid, std::process::id());
++    let windows = list_from_connection(&mut connection).unwrap();
++    server.join().unwrap();
++    assert_eq!(windows.len(), 1);
++    let window = &windows[0];
++    assert_eq!(window.xid, 4294967301);
++    assert_eq!(window.pid, Some(123));
++    assert_eq!(
++        (window.x, window.y, window.width, window.height),
++        (-1260, 130, 500, 400)
++    );
++    assert!(window.is_on_screen);
++}
++
++#[test]
++fn refuses_forged_compositor_identity() {
++    let (_directory, path, server) = window_fixture(scene(std::process::id() + 1));
++    assert!(
++        list_from_connection(&mut Connection::connect(&path).unwrap())
++            .unwrap_err()
++            .to_string()
++            .contains("not the socket peer")
++    );
++    server.join().unwrap();
++}
++
++#[test]
++fn refuses_missing_geometry_and_process_substitution() {
++    let mut missing = scene(std::process::id());
++    missing["WindowPlacements"]["windows"] = json!([]);
++    let mut changed = scene(std::process::id());
++    changed["WindowPlacements"]["windows"][0]["pid"] = json!(456);
++    for (scene, message) in [
++        (missing, "no layout position"),
++        (changed, "process changed"),
++    ] {
++        let (_directory, path, server) = window_fixture(scene);
++        assert!(
++            list_from_connection(&mut Connection::connect(&path).unwrap())
++                .unwrap_err()
++                .to_string()
++                .contains(message)
++        );
++        server.join().unwrap();
++    }
++}
++
++#[test]
++fn outputs_define_scaled_negative_origin_frame_without_guessing() {
++    let (_directory, path, server) =
++        fixture(vec![("\"Outputs\"", json!({"Outputs":{"DP-1":output()}}))]);
++    let frame = frame_from_outputs(
++        outputs(&mut Connection::connect(&path).unwrap())
++            .unwrap()
++            .into_iter()
++            .map(|(_, layout)| layout)
++            .collect(),
++    )
++    .unwrap();
++    server.join().unwrap();
++    assert_eq!(
++        (frame.x, frame.y, frame.width, frame.height),
++        (-1280, 100, 1280, 720)
++    );
++    assert_eq!(frame.to_layout(20, 30), (-1260, 130));
++    assert!(frame_from_outputs(Vec::new()).is_err());
++}
++
++#[test]
++fn bounds_reply_size_and_requires_complete_typed_reply() {
++    for reply in [
++        vec![b'x'; MAX_REPLY_BYTES as usize + 1],
++        b"{\"Ok\":\"Handled\"}".to_vec(),
++    ] {
++        let directory = tempfile::tempdir().unwrap();
++        let path = directory.path().join("niri.sock");
++        let listener = UnixListener::bind(&path).unwrap();
++        let server = thread::spawn(move || {
++            let (mut stream, _) = listener.accept().unwrap();
++            let mut request = String::new();
++            BufReader::new(stream.try_clone().unwrap())
++                .read_line(&mut request)
++                .unwrap();
++            let _ = stream.write_all(&reply);
++        });
++        let error = Connection::connect(&path)
++            .unwrap()
++            .query(&Request::Outputs)
++            .unwrap_err();
++        assert!(
++            error.to_string().contains("size limit") || error.to_string().contains("incomplete")
++        );
++        server.join().unwrap();
++    }
++}
++
++#[test]
++fn niri_input_refuses_before_generic_backend_dispatch() {
++    const CHILD: &str = "CUA_NIRI_REFUSAL_TEST_CHILD";
++    if std::env::var_os(CHILD).is_none() {
++        let status = std::process::Command::new(std::env::current_exe().unwrap())
++            .args([
++                "--exact",
++                "wayland::niri::tests::niri_input_refuses_before_generic_backend_dispatch",
++            ])
++            .env(CHILD, "1")
++            .env("NIRI_SOCKET", "/nonexistent/niri-readonly.sock")
++            .env("CUA_DRIVER_RS_ENABLE_WAYLAND", "1")
++            .env("CUA_INJECT_SOCKET", "/nonexistent/inject.sock")
++            .env("PATH", "/nonexistent")
++            .status()
++            .unwrap();
++        assert!(status.success());
++        return;
++    }
++    let check = |result: Result<()>| {
++        assert!(result
++            .unwrap_err()
++            .to_string()
++            .contains("facility_unavailable"))
++    };
++    check(super::super::activate_window_for_input_target(
++        4294967301,
++        Some(123),
++    ));
++    check(super::super::with_target_foreground(
++        123,
++        4294967301,
++        || panic!("input body executed"),
++    ));
++    check(super::super::click_focused(20, 30, 1, 1));
++    check(super::super::move_cursor_absolute(Some(4294967301), 20, 30));
++    check(super::super::type_text_focused("no input"));
++    check(super::super::press_key_focused("enter"));
++    check(super::super::hotkey_focused(&["ctrl".into(), "a".into()]));
++    assert!(super::super::open_vptr_session(None)
++        .err()
++        .unwrap()
++        .to_string()
++        .contains("facility_unavailable"));
++    check(
++        super::super::DesktopInputSpace::default()
++            .input_layout(20, 30)
++            .map(|_| ()),
++    );
++}
++
++#[test]
++fn refuses_changed_peer_process_generation_before_query() {
++    let directory = tempfile::tempdir().unwrap();
++    let path = directory.path().join("niri.sock");
++    let listener = UnixListener::bind(&path).unwrap();
++    let server = thread::spawn(move || {
++        let (mut stream, _) = listener.accept().unwrap();
++        stream
++            .set_read_timeout(Some(Duration::from_secs(2)))
++            .unwrap();
++        let mut byte = [0];
++        assert_eq!(std::io::Read::read(&mut stream, &mut byte).unwrap(), 0);
++    });
++    let mut connection = Connection::connect(&path).unwrap();
++    connection.peer.start_ticks += 1;
++    assert!(connection
++        .query(&Request::Outputs)
++        .unwrap_err()
++        .to_string()
++        .contains("generation changed"));
++    drop(connection);
++    server.join().unwrap();
++}
++
++#[test]
++fn times_out_a_peer_that_does_not_complete_its_reply() {
++    let directory = tempfile::tempdir().unwrap();
++    let path = directory.path().join("niri.sock");
++    let listener = UnixListener::bind(&path).unwrap();
++    let server = thread::spawn(move || {
++        let (mut stream, _) = listener.accept().unwrap();
++        let mut request = String::new();
++        BufReader::new(stream.try_clone().unwrap())
++            .read_line(&mut request)
++            .unwrap();
++        stream.write_all(b"{\"Ok\":").unwrap();
++        thread::sleep(Duration::from_millis(150));
++    });
++    let mut connection = Connection::connect(&path).unwrap();
++    connection.deadline = Instant::now() + Duration::from_millis(30);
++    assert!(connection.query(&Request::Outputs).is_err());
++    server.join().unwrap();
++}
++
++#[test]
++fn lists_visible_and_inactive_tiled_windows_without_capture_authority() {
++    let mut inventory = windows();
++    let mut inactive = inventory["Windows"][0].clone();
++    inactive["id"] = json!(4294967302_u64);
++    inactive["workspace_id"] = json!(2);
++    inactive["is_focused"] = json!(false);
++    inactive["layout"]["tile_pos_in_workspace_view"] = json!([-600.0, 30.0]);
++    inactive["layout"]["window_offset_in_tile"] = json!([2.0, 3.0]);
++    inactive["layout"]["pos_in_scrolling_layout"] = json!([1, 1]);
++    inventory["Windows"].as_array_mut().unwrap().push(inactive);
++    let (_directory, path, server) = fixture(vec![
++        ("\"Windows\"", inventory),
++        ("\"Workspaces\"", workspaces()),
++        ("\"Outputs\"", json!({"Outputs":{"DP-1":output()}})),
++        (
++            "{\"WindowPlacements\":{\"output\":\"DP-1\"}}",
++            scene(std::process::id()),
++        ),
++    ]);
++    let windows = list_from_connection(&mut Connection::connect(&path).unwrap()).unwrap();
++    server.join().unwrap();
++    assert_eq!(windows.len(), 2);
++    assert!(windows[0].is_on_screen);
++    assert_eq!(windows[1].xid, 4294967302);
++    assert_eq!(
++        (
++            windows[1].x,
++            windows[1].y,
++            windows[1].width,
++            windows[1].height
++        ),
++        (-1878, 133, 500, 400)
++    );
++    assert!(!windows[1].is_on_screen);
++}
++
++#[test]
++fn fractional_rendered_origin_has_integer_inventory_bounds() {
++    let mut value = scene(std::process::id());
++    value["WindowPlacements"]["windows"][0]["rect"][0] = json!(20.5);
++    value["WindowPlacements"]["windows"][0]["rect"][2] = json!(260.5);
++    let (_directory, path, server) = window_fixture(value);
++    let windows = list_from_connection(&mut Connection::connect(&path).unwrap()).unwrap();
++    assert_eq!(windows[0].x, -1260);
++    assert_eq!(windows[0].width, 261);
++    server.join().unwrap();
++}
+diff --git a/libs/cua-driver/rust/crates/platform-linux/src/wayland/niri/capture.rs b/libs/cua-driver/rust/crates/platform-linux/src/wayland/niri/capture.rs
+new file mode 100644
+--- /dev/null
++++ b/libs/cua-driver/rust/crates/platform-linux/src/wayland/niri/capture.rs
+@@ -0,0 +1,404 @@
++//! Capture-correlated Niri scene reads behind the original Linux image tools.
++use super::{connection, process_start, Connection};
++use crate::x11::WindowInfo;
++use anyhow::{bail, ensure, Context, Result};
++use base64::{engine::general_purpose::STANDARD, Engine};
++use niri_ipc::{CapturedScene, LogicalOutput, Request, Response};
++use serde::Serialize;
++use sha2::{Digest, Sha256};
++use std::io::Cursor;
++use std::time::{Duration, Instant};
++
++const MAX_PNG_BYTES: usize = 32 * 1024 * 1024;
++const MAX_PIXELS: u64 = 8 * 1024 * 1024;
++
++#[derive(Debug, Clone, Serialize)]
++pub struct CaptureEvidence {
++    pub coordination_revision: Option<u64>,
++    pub compositor_pid: u32,
++    pub compositor_uid: u32,
++    pub compositor_start_ticks: u64,
++    pub scene_frame_serial: u64,
++    pub output: String,
++    pub logical_output: LogicalOutput,
++    pub source_width: u32,
++    pub source_height: u32,
++    pub source_png_sha256: String,
++    pub image_semantic_atomic: bool,
++    pub image_geometry_atomic: bool,
++    pub capture_semantics: &'static str,
++    pub rendered_windows: Vec<niri_ipc::CapturedWindow>,
++    pub window: Option<WindowEvidence>,
++}
++
++#[derive(Debug, Clone, Serialize)]
++pub struct WindowEvidence {
++    pub window_id: u64,
++    pub pid: u32,
++    pub process_start_ticks: u64,
++    pub rendered_rect: (f64, f64, f64, f64),
++}
++
++pub struct CapturedFrame {
++    pub png: Vec<u8>,
++    pub evidence: CaptureEvidence,
++    pub windows: Vec<WindowInfo>,
++}
++
++pub fn window(window_id: u64, pid: Option<u32>) -> Result<CapturedFrame> {
++    capture_from_connection(&mut connection()?, Some((window_id, pid)))
++}
++
++pub fn desktop() -> Result<CapturedFrame> {
++    capture_from_connection(&mut connection()?, None)
++}
++
++pub fn window_for_input(window_id: u64, pid: Option<u32>) -> Result<CapturedFrame> {
++    capture_scoped(&mut connection()?, Some((window_id, pid)), true)
++}
++
++pub fn desktop_for_input() -> Result<CapturedFrame> {
++    capture_scoped(&mut connection()?, None, true)
++}
++
++fn capture_from_connection(
++    connection: &mut Connection,
++    target: Option<(u64, Option<u32>)>,
++) -> Result<CapturedFrame> {
++    capture_scoped(connection, target, false)
++}
++
++fn capture_scoped(
++    connection: &mut Connection,
++    target: Option<(u64, Option<u32>)>,
++    for_input: bool,
++) -> Result<CapturedFrame> {
++    connection.deadline = Instant::now() + Duration::from_secs(5);
++    let Response::Outputs(outputs) = connection.query(&Request::Outputs)? else {
++        bail!("unexpected Niri outputs reply")
++    };
++    let enabled: Vec<_> = outputs
++        .into_iter()
++        .filter(|(_, output)| output.logical.is_some())
++        .collect();
++    let mut selected_inventory = None;
++    let selected = if enabled.len() == 1 { 0 } else {
++        let (id, _) = target.context("facility_unavailable: Niri desktop capture currently requires exactly one active output")?;
++        let Response::Windows(windows) = connection.query(&Request::Windows)? else { bail!("unexpected Niri windows reply") };
++        let window = windows.iter().find(|window| window.id == id).context("surface_identity_unproven: Niri target window is absent")?;
++        let Response::Workspaces(workspaces) = connection.query(&Request::Workspaces)? else { bail!("unexpected Niri workspaces reply") };
++        let name = workspaces.iter().find(|workspace| Some(workspace.id) == window.workspace_id)
++            .and_then(|workspace| workspace.output.as_deref()).context("target workspace has no output")?;
++        let index = enabled.iter().position(|(output, _)| output == name).context("target output is disabled")?;
++        selected_inventory = Some(windows);
++        index
++    };
++    let (output_name, output) = &enabled[selected];
++    ensure!(
++        output_name == &output.name && output.current_mode.is_some(),
++        "invalid Niri capture output identity"
++    );
++    let logical = output.logical.context("capture output is disabled")?;
++    ensure!(
++        logical.width > 0 && logical.height > 0 && logical.scale.is_finite() && logical.scale > 0.0,
++        "invalid Niri capture output geometry"
++    );
++    ensure!(
++        logical.width <= 32768
++            && logical.height <= 32768
++            && u64::from(logical.width) * u64::from(logical.height) <= MAX_PIXELS,
++        "logical capture frame exceeds image budget"
++    );
++    let inventory = match selected_inventory {
++        Some(windows) => windows,
++        None => { let Response::Windows(windows) = connection.query(&Request::Windows)? else { bail!("unexpected Niri windows reply") }; windows }
++    };
++    let target_identity = if let Some((id, requested_pid)) = target {
++        let matches: Vec<_> = inventory.iter().filter(|window| window.id == id).collect();
++        ensure!(
++            matches.len() == 1,
++            "surface_identity_unproven: Niri target window is absent or ambiguous"
++        );
++        let native = matches[0];
++        let pid = u32::try_from(
++            native
++                .pid
++                .context("surface_identity_unproven: Niri target pid is unavailable")?,
++        )?;
++        ensure!(
++            pid > 0 && requested_pid.is_none_or(|expected| expected == pid),
++            "surface_identity_unproven: Niri target process mismatch"
++        );
++        Some((id, pid, process_start(pid)?))
++    } else {
++        None
++    };
++    let coordination_revision = if for_input {
++        let Response::InputCoordination(state) = connection.query(&Request::InputCoordination)?
++        else {
++            bail!("facility_unavailable: native input coordination is unavailable");
++        };
++        Some(state.revision)
++    } else {
++        None
++    };
++    let Response::CapturedScene(scene) = connection.query(&Request::CaptureScene {
++        output: output_name.clone(),
++    })?
++    else {
++        bail!("compositor does not provide capture-correlated scene geometry")
++    };
++    if let Some(revision) = coordination_revision {
++        let Response::InputCoordination(state) = connection.query(&Request::InputCoordination)?
++        else {
++            bail!("facility_unavailable: native input coordination is unavailable");
++        };
++        ensure!(
++            state.revision == revision,
++            "capture ownership changed during observation"
++        );
++    }
++    validate_scene(&scene, connection, output_name, logical)?;
++    let png = STANDARD.decode(&scene.png_base64)?;
++    ensure!(
++        png.len() <= MAX_PNG_BYTES,
++        "scene exceeds encoded image budget"
++    );
++    ensure!(
++        png_dimensions(&png)? == (scene.width, scene.height),
++        "scene PNG dimensions mismatch"
++    );
++    let mut seen = std::collections::HashSet::new();
++    let mut windows = Vec::new();
++    for placement in &scene.windows {
++        if target.is_some_and(|(id, _)| id != placement.id) {
++            continue;
++        }
++        ensure!(
++            seen.insert(placement.id),
++            "duplicate captured Niri window identity"
++        );
++        let matches: Vec<_> = inventory
++            .iter()
++            .filter(|window| window.id == placement.id && window.pid == placement.pid)
++            .collect();
++        ensure!(matches.len() == 1, "captured Niri window identity changed");
++        let native = matches[0];
++        let (x, y, width, height) = placement.rect;
++        windows.push(WindowInfo {
++            xid: placement.id,
++            pid: native.pid.map(u32::try_from).transpose()?,
++            app_name: native.app_id.clone().unwrap_or_default(),
++            title: native.title.clone().unwrap_or_default(),
++            is_on_screen: true,
++            z_index: None,
++            x: super::exact_integer(x.floor())?,
++            y: super::exact_integer(y.floor())?,
++            width: u32::try_from(super::exact_integer(width.ceil())?)?,
++            height: u32::try_from(super::exact_integer(height.ceil())?)?,
++        });
++    }
++    let window = if let Some((id, pid, start)) = target_identity {
++        let placement = scene
++            .windows
++            .iter()
++            .find(|window| window.id == id && window.pid == Some(pid as i32))
++            .context("surface_identity_unproven: target is not visible in the captured scene")?;
++        ensure!(
++            !placement.blocked_out,
++            "surface_identity_unproven: window is excluded by screen-capture privacy rules"
++        );
++        let (x, y, width, height) = placement.rect;
++        ensure!(
++            placement.rect.0 == placement.output_clip.0
++                && placement.rect.1 == placement.output_clip.1
++                && ((placement.rect.0 + placement.rect.2) - (placement.output_clip.0 + placement.output_clip.2)).abs() <= 1e-9
++                && ((placement.rect.1 + placement.rect.3) - (placement.output_clip.1 + placement.output_clip.3)).abs() <= 1e-9
++                && x >= 0.0
++                && y >= 0.0
++                && x + width <= f64::from(logical.width)
++                && y + height <= f64::from(logical.height),
++            "facility_unavailable: partially clipped Niri window capture is unsupported"
++        );
++        ensure!(
++            process_start(pid)? == start,
++            "surface_identity_unproven: Niri target process generation changed"
++        );
++        Some(WindowEvidence {
++            window_id: id,
++            pid,
++            process_start_ticks: start,
++            rendered_rect: placement.rect,
++        })
++    } else {
++        None
++    };
++    let evidence = CaptureEvidence {
++        coordination_revision,
++        compositor_pid: connection.peer.pid,
++        compositor_uid: connection.peer.uid,
++        compositor_start_ticks: connection.peer.start_ticks,
++        scene_frame_serial: scene.frame_serial,
++        output: scene.output.clone(),
++        logical_output: logical,
++        source_width: scene.width,
++        source_height: scene.height,
++        source_png_sha256: hex_digest(&png),
++        image_semantic_atomic: false,
++        image_geometry_atomic: true,
++        capture_semantics: "visible output pixels; window crops may include occluding surfaces",
++        rendered_windows: scene
++            .windows
++            .iter()
++            .filter(|placement| target.is_none_or(|(id, _)| id == placement.id))
++            .cloned()
++            .collect(),
++        window,
++    };
++    let png = if let Some(window) = &evidence.window {
++        let (x, y, width, height) = window.rendered_rect;
++        let rect = (x, y, width, height);
++        resample_png(
++            &png,
++            scene.width,
++            scene.height,
++            &logical,
++            rect,
++            connection.deadline,
++        )?
++    } else {
++        png
++    };
++    ensure!(
++        process_start(connection.peer.pid)? == connection.peer.start_ticks,
++        "Niri compositor generation changed during capture"
++    );
++    Ok(CapturedFrame {
++        png,
++        evidence,
++        windows,
++    })
++}
++
++fn validate_scene(
++    scene: &CapturedScene,
++    connection: &Connection,
++    output: &str,
++    logical: LogicalOutput,
++) -> Result<()> {
++    ensure!(
++        scene.output == output
++            && scene.compositor_pid == connection.peer.pid
++            && scene.frame_serial > 0,
++        "invalid capture scene identity"
++    );
++    ensure!(
++        scene.logical_output == logical,
++        "capture output geometry changed"
++    );
++    ensure!(
++        scene.png_base64.len() <= 44 * 1024 * 1024
++            && scene.width > 0
++            && scene.height > 0
++            && u64::from(scene.width) * u64::from(scene.height) <= MAX_PIXELS,
++        "scene exceeds image budget"
++    );
++    ensure!(
++        scene.windows.len() <= 8192,
++        "scene exceeds window inventory budget"
++    );
++    for window in &scene.windows {
++        let (x, y, width, height) = window.rect;
++        ensure!(
++            [x, y, width, height].iter().all(|value| value.is_finite())
++                && width > 0.0
++                && height > 0.0,
++            "invalid captured window geometry"
++        );
++    }
++    Ok(())
++}
++
++pub fn hex_digest(bytes: &[u8]) -> String {
++    format!("{:x}", Sha256::digest(bytes))
++}
++
++fn png_dimensions(png: &[u8]) -> Result<(u32, u32)> {
++    let mut reader = image::ImageReader::with_format(Cursor::new(png), image::ImageFormat::Png);
++    let mut limits = image::Limits::default();
++    limits.max_image_width = Some(32768);
++    limits.max_image_height = Some(32768);
++    limits.max_alloc = Some(MAX_PNG_BYTES as u64);
++    reader.limits(limits);
++    let decoded = reader.decode().context("decode captured PNG")?;
++    let dimensions = (decoded.width(), decoded.height());
++    ensure!(
++        dimensions.0 > 0
++            && dimensions.1 > 0
++            && u64::from(dimensions.0) * u64::from(dimensions.1) <= MAX_PIXELS,
++        "screenshot exceeds pixel budget"
++    );
++    Ok(dimensions)
++}
++
++// These clipping and exact logical sampling operations are copied from Dojo's screenshot.rs.
++fn resample_png(
++    source_png: &[u8],
++    source_width: u32,
++    source_height: u32,
++    output: &LogicalOutput,
++    rect: (f64, f64, f64, f64),
++    deadline: Instant,
++) -> Result<Vec<u8>> {
++    let mut reader =
++        image::ImageReader::with_format(Cursor::new(source_png), image::ImageFormat::Png);
++    let mut limits = image::Limits::default();
++    limits.max_alloc = Some(MAX_PNG_BYTES as u64);
++    reader.limits(limits);
++    let image = reader.decode()?.to_rgba8();
++    let (x, y, logical_width, logical_height) = rect;
++    let width = u32::try_from(super::exact_integer(logical_width.ceil())?)?;
++    let height = u32::try_from(super::exact_integer(logical_height.ceil())?)?;
++    let sx = f64::from(source_width) / f64::from(output.width);
++    let sy = f64::from(source_height) / f64::from(output.height);
++    let left = (f64::from(x) * sx).floor() as u32;
++    let top = (f64::from(y) * sy).floor() as u32;
++    let right = ((x + logical_width) * sx).ceil() as u32;
++    let bottom = ((y + logical_height) * sy).ceil() as u32;
++    ensure!(
++        right <= source_width && bottom <= source_height && right > left && bottom > top,
++        "native crop exceeds captured output"
++    );
++    ensure!(
++        u64::from(width) * u64::from(height) <= MAX_PIXELS,
++        "resampled image exceeds pixel budget"
++    );
++    let mut delivered = image::RgbaImage::new(width, height);
++    for row in 0..height {
++        ensure!(Instant::now() < deadline, "capture deadline exceeded");
++        let source_y =
++            ((f64::from(y) + (f64::from(row) + 0.5) * logical_height / f64::from(height)) * sy
++                - 0.5)
++                .clamp(0.0, f64::from(source_height - 1)) as f32;
++        for column in 0..width {
++            let source_x = ((f64::from(x)
++                + (f64::from(column) + 0.5) * logical_width / f64::from(width))
++                * sx
++                - 0.5)
++                .clamp(0.0, f64::from(source_width - 1)) as f32;
++            let pixel = image::imageops::interpolate_bilinear(&image, source_x, source_y)
++                .context("native sampling exceeds image")?;
++            delivered.put_pixel(column, row, pixel);
++        }
++    }
++    let mut png = Cursor::new(Vec::new());
++    delivered.write_to(&mut png, image::ImageFormat::Png)?;
++    ensure!(
++        png.get_ref().len() <= MAX_PNG_BYTES,
++        "screenshot exceeds image byte budget"
++    );
++    Ok(png.into_inner())
++}
++
++#[cfg(test)]
++pub(crate) mod tests;
+diff --git a/libs/cua-driver/rust/crates/platform-linux/src/wayland/niri/capture/tests.rs b/libs/cua-driver/rust/crates/platform-linux/src/wayland/niri/capture/tests.rs
+new file mode 100644
+--- /dev/null
++++ b/libs/cua-driver/rust/crates/platform-linux/src/wayland/niri/capture/tests.rs
+@@ -0,0 +1,324 @@
++use super::*;
++use serde_json::{json, Value};
++use std::io::{BufRead, BufReader, Write};
++use std::os::unix::net::UnixListener;
++use std::path::PathBuf;
++use std::thread;
++
++pub(crate) const WINDOW_ID: u64 = 4294967301;
++
++pub(crate) fn logical() -> Value {
++    json!({"x":-8,"y":12,"width":2,"height":2,"scale":2.0,"transform":"Normal"})
++}
++
++pub(crate) fn outputs() -> Value {
++    json!({"Outputs":{"DP-1":{"name":"DP-1","make":"fixture","model":"fixture","serial":null,
++        "physical_size":null,"modes":[{"width":4,"height":4,"refresh_rate":60000,"is_preferred":true}],
++        "current_mode":0,"is_custom_mode":false,"vrr_supported":false,"vrr_enabled":false,
++        "logical":logical(),"max_bpc":null}}})
++}
++
++pub(crate) fn inventory() -> Value {
++    json!({"Windows":[{"id":WINDOW_ID,"title":"Fixture","app_id":"fixture","pid":std::process::id(),
++        "workspace_id":1,"is_focused":true,"is_floating":false,"is_urgent":false,"focus_timestamp":null,
++        "layout":{"pos_in_scrolling_layout":[1,1],"tile_size":[1.0,1.0],"window_size":[1,1],
++            "tile_pos_in_workspace_view":[0.0,0.0],"window_offset_in_tile":[0.0,0.0]}}]})
++}
++
++fn png() -> Vec<u8> {
++    let image = image::RgbaImage::from_fn(4, 4, |x, y| {
++        image::Rgba(if x < 2 && y < 2 {
++            [255, 0, 0, 255]
++        } else {
++            [0, 0, 255, 255]
++        })
++    });
++    let mut png = Cursor::new(Vec::new());
++    image.write_to(&mut png, image::ImageFormat::Png).unwrap();
++    png.into_inner()
++}
++
++pub(crate) fn scene() -> Value {
++    json!({"CapturedScene":{"frame_serial":7,"compositor_pid":std::process::id(),"output":"DP-1",
++        "logical_output":logical(),"width":4,"height":4,"png_base64":STANDARD.encode(png()),
++        "windows":[{"id":WINDOW_ID,"pid":std::process::id(),"is_floating":false,
++            "rect":[0.0,0.0,1.0,1.0],"output_clip":[0.0,0.0,1.0,1.0],"blocked_out":false}]}})
++}
++
++fn fixture(
++    replies: Vec<(&'static str, Value)>,
++) -> (tempfile::TempDir, PathBuf, thread::JoinHandle<()>) {
++    fixture_groups(vec![replies])
++}
++
++pub(crate) fn fixture_groups(
++    groups: Vec<Vec<(&'static str, Value)>>,
++) -> (tempfile::TempDir, PathBuf, thread::JoinHandle<()>) {
++    let directory = tempfile::tempdir().unwrap();
++    let path = directory.path().join("niri.sock");
++    let listener = UnixListener::bind(&path).unwrap();
++    let server = thread::spawn(move || {
++        for replies in groups {
++            let (mut stream, _) = listener.accept().unwrap();
++            stream
++                .set_read_timeout(Some(Duration::from_secs(2)))
++                .unwrap();
++            let mut reader = BufReader::new(stream.try_clone().unwrap());
++            for (request, reply) in replies {
++                let mut line = String::new();
++                reader.read_line(&mut line).unwrap();
++                assert_eq!(
++                    serde_json::from_str::<Value>(&line).unwrap(),
++                    serde_json::from_str::<Value>(request).unwrap()
++                );
++                writeln!(stream, "{}", json!({"Ok":reply})).unwrap();
++            }
++        }
++    });
++    (directory, path, server)
++}
++
++fn capture_fixture(scene: Value) -> (tempfile::TempDir, PathBuf, thread::JoinHandle<()>) {
++    fixture(vec![
++        ("\"Outputs\"", outputs()),
++        ("\"Windows\"", inventory()),
++        ("{\"CaptureScene\":{\"output\":\"DP-1\"}}", scene),
++    ])
++}
++
++#[test]
++fn exact_window_pixels_and_geometry_share_one_authenticated_scene() {
++    let (_directory, path, server) = capture_fixture(scene());
++    let mut connection = Connection::connect(&path).unwrap();
++    let frame =
++        capture_from_connection(&mut connection, Some((WINDOW_ID, Some(std::process::id()))))
++            .unwrap();
++    server.join().unwrap();
++    let decoded = image::load_from_memory(&frame.png).unwrap().to_rgba8();
++    assert_eq!(decoded.dimensions(), (1, 1));
++    assert_eq!(decoded.get_pixel(0, 0).0, [255, 0, 0, 255]);
++    assert_eq!(frame.evidence.compositor_pid, std::process::id());
++    assert_eq!(
++        frame.evidence.compositor_start_ticks,
++        process_start(std::process::id()).unwrap()
++    );
++    assert_eq!(frame.evidence.scene_frame_serial, 7);
++    assert_eq!(frame.evidence.source_png_sha256, hex_digest(&png()));
++    assert_eq!(
++        frame.evidence.window.unwrap().rendered_rect,
++        (0.0, 0.0, 1.0, 1.0)
++    );
++    assert!(frame.evidence.image_geometry_atomic);
++    assert!(!frame.evidence.image_semantic_atomic);
++}
++
++#[test]
++fn desktop_keeps_source_pixels_and_cua_resize_pipeline() {
++    let (_directory, path, server) = capture_fixture(scene());
++    let frame = capture_from_connection(&mut Connection::connect(&path).unwrap(), None).unwrap();
++    server.join().unwrap();
++    assert_eq!(frame.png, png());
++    assert_eq!(
++        (
++            frame.evidence.logical_output.x,
++            frame.evidence.logical_output.y
++        ),
++        (-8, 12)
++    );
++    assert_eq!((frame.windows[0].x, frame.windows[0].y), (0, 0));
++    let resized = crate::capture::resize_png_if_needed(&frame.png, 2).unwrap();
++    assert_eq!(
++        crate::capture::png_dimensions_pub(&resized).unwrap(),
++        (2, 2)
++    );
++}
++
++#[test]
++fn capture_refuses_forged_identity_and_missing_epoch() {
++    let mut wrong_pid = scene();
++    wrong_pid["CapturedScene"]["compositor_pid"] = json!(std::process::id() + 1);
++    let mut zero_epoch = scene();
++    zero_epoch["CapturedScene"]["frame_serial"] = json!(0);
++    let mut wrong_output = scene();
++    wrong_output["CapturedScene"]["output"] = json!("DP-2");
++    let mut changed_geometry = scene();
++    changed_geometry["CapturedScene"]["logical_output"]["x"] = json!(0);
++    for (response, message) in [
++        (wrong_pid, "scene identity"),
++        (zero_epoch, "scene identity"),
++        (wrong_output, "scene identity"),
++        (changed_geometry, "geometry changed"),
++    ] {
++        let (_directory, path, server) = capture_fixture(response);
++        let error = capture_from_connection(&mut Connection::connect(&path).unwrap(), None)
++            .err()
++            .unwrap();
++        assert!(error.to_string().contains(message), "{error}");
++        server.join().unwrap();
++    }
++}
++
++#[test]
++fn window_capture_refuses_privacy_clipping_and_pid_substitution() {
++    let mut private = scene();
++    private["CapturedScene"]["windows"][0]["blocked_out"] = json!(true);
++    let mut clipped = scene();
++    clipped["CapturedScene"]["windows"][0]["rect"] = json!([-1.0, 0.0, 2.0, 1.0]);
++    let mut other_process = scene();
++    other_process["CapturedScene"]["windows"][0]["pid"] = json!(123);
++    let mut missing = scene();
++    missing["CapturedScene"]["windows"] = json!([]);
++    for (response, message) in [
++        (private, "privacy rules"),
++        (clipped, "partially clipped"),
++        (other_process, "identity changed"),
++        (missing, "not visible"),
++    ] {
++        let (_directory, path, server) = capture_fixture(response);
++        let error = capture_from_connection(
++            &mut Connection::connect(&path).unwrap(),
++            Some((WINDOW_ID, Some(std::process::id()))),
++        )
++        .err()
++        .unwrap();
++        assert!(error.to_string().contains(message), "{error}");
++        server.join().unwrap();
++    }
++}
++
++#[test]
++fn captures_refuse_png_mismatch_and_image_budget_overflow() {
++    let mut mismatch = scene();
++    mismatch["CapturedScene"]["width"] = json!(3);
++    let mut oversized = scene();
++    oversized["CapturedScene"]["width"] = json!(MAX_PIXELS + 1);
++    let mut corrupt = scene();
++    corrupt["CapturedScene"]["png_base64"] = json!(STANDARD.encode(b"not a PNG"));
++    for (response, message) in [
++        (mismatch, "dimensions mismatch"),
++        (oversized, "image budget"),
++        (corrupt, "decode captured PNG"),
++    ] {
++        let (_directory, path, server) = capture_fixture(response);
++        let error = capture_from_connection(&mut Connection::connect(&path).unwrap(), None)
++            .err()
++            .unwrap();
++        assert!(error.to_string().contains(message), "{error}");
++        server.join().unwrap();
++    }
++}
++
++#[test]
++fn captures_refuse_multimonitor_and_unknown_target_before_capture_request() {
++    let mut oversized_layout = outputs();
++    oversized_layout["Outputs"]["DP-1"]["logical"]["width"] = json!(32769);
++    let (_directory, path, server) = fixture(vec![("\"Outputs\"", oversized_layout)]);
++    assert!(
++        capture_from_connection(&mut Connection::connect(&path).unwrap(), None)
++            .err()
++            .unwrap()
++            .to_string()
++            .contains("logical capture frame exceeds image budget")
++    );
++    server.join().unwrap();
++    let mut multi = outputs();
++    let mut second = multi["Outputs"]["DP-1"].clone();
++    second["name"] = json!("DP-2");
++    multi["Outputs"]["DP-2"] = second;
++    let (_directory, path, server) = fixture(vec![("\"Outputs\"", multi)]);
++    assert!(
++        capture_from_connection(&mut Connection::connect(&path).unwrap(), None)
++            .err()
++            .unwrap()
++            .to_string()
++            .contains("exactly one")
++    );
++    server.join().unwrap();
++    let (_directory, path, server) = fixture(vec![
++        ("\"Outputs\"", outputs()),
++        ("\"Windows\"", inventory()),
++    ]);
++    assert!(capture_from_connection(
++        &mut Connection::connect(&path).unwrap(),
++        Some((WINDOW_ID + 1, None))
++    )
++    .err()
++    .unwrap()
++    .to_string()
++    .contains("absent or ambiguous"));
++    server.join().unwrap();
++}
++
++#[test]
++fn action_capture_pins_the_revision_bracketing_its_pixels() {
++    let (_directory, path, server) = fixture(vec![
++        ("\"Outputs\"", outputs()),
++        ("\"Windows\"", inventory()),
++        (
++            "\"InputCoordination\"",
++            json!({"InputCoordination":{"revision":13,"human_owned_windows":[]}}),
++        ),
++        ("{\"CaptureScene\":{\"output\":\"DP-1\"}}", scene()),
++        (
++            "\"InputCoordination\"",
++            json!({"InputCoordination":{"revision":13,"human_owned_windows":[]}}),
++        ),
++    ]);
++    let frame = capture_scoped(
++        &mut Connection::connect(&path).unwrap(),
++        Some((WINDOW_ID, Some(std::process::id()))),
++        true,
++    )
++    .unwrap();
++    assert_eq!(frame.evidence.coordination_revision, Some(13));
++    server.join().unwrap();
++}
++
++#[test]
++fn ownership_change_during_capture_refuses_an_action_frame() {
++    let (_directory, path, server) = fixture(vec![
++        ("\"Outputs\"", outputs()),
++        ("\"Windows\"", inventory()),
++        (
++            "\"InputCoordination\"",
++            json!({"InputCoordination":{"revision":13,"human_owned_windows":[]}}),
++        ),
++        ("{\"CaptureScene\":{\"output\":\"DP-1\"}}", scene()),
++        (
++            "\"InputCoordination\"",
++            json!({"InputCoordination":{"revision":14,"human_owned_windows":[WINDOW_ID]}}),
++        ),
++    ]);
++    let error = capture_scoped(&mut Connection::connect(&path).unwrap(), None, true)
++        .err()
++        .unwrap();
++    assert!(error.to_string().contains("ownership changed"));
++    server.join().unwrap();
++}
++
++#[test]
++fn fractional_origin_keeps_exact_capture_geometry_and_window_dimensions() {
++    let mut value = scene();
++    value["CapturedScene"]["windows"][0]["rect"] = json!([0.5,0.0,0.75,0.75]);
++    value["CapturedScene"]["windows"][0]["output_clip"] = json!([0.5,0.0,0.75,0.75]);
++    let (_directory, path, server) = capture_fixture(value);
++    let frame = capture_from_connection(&mut Connection::connect(&path).unwrap(), Some((WINDOW_ID, Some(std::process::id())))).unwrap();
++    assert_eq!(frame.evidence.window.unwrap().rendered_rect, (0.5,0.0,0.75,0.75));
++    assert_eq!(png_dimensions(&frame.png).unwrap(), (1,1));
++    assert_eq!(frame.windows[0].x, 0);
++    server.join().unwrap();
++}
++
++#[test]
++fn window_capture_selects_its_workspace_output_with_multiple_monitors() {
++    let mut multi = outputs();
++    let mut second = multi["Outputs"]["DP-1"].clone();
++    second["name"] = json!("DP-2");
++    multi["Outputs"]["DP-2"] = second;
++    let workspaces = json!({"Workspaces":[{"id":1,"idx":1,"name":null,"output":"DP-1","is_urgent":false,"is_active":true,"is_focused":true,"active_window_id":WINDOW_ID}]});
++    let (_directory,path,server) = fixture(vec![("\"Outputs\"",multi),("\"Windows\"",inventory()),("\"Workspaces\"",workspaces),("{\"CaptureScene\":{\"output\":\"DP-1\"}}",scene())]);
++    let frame = capture_from_connection(&mut Connection::connect(&path).unwrap(), Some((WINDOW_ID,Some(std::process::id())))).unwrap();
++    assert_eq!(frame.evidence.output,"DP-1");
++    assert_eq!(png_dimensions(&frame.png).unwrap(),(1,1));
++    server.join().unwrap();
++}
+diff --git a/libs/cua-driver/rust/crates/platform-linux/src/wayland/niri/native_input.rs b/libs/cua-driver/rust/crates/platform-linux/src/wayland/niri/native_input.rs
+new file mode 100644
+--- /dev/null
++++ b/libs/cua-driver/rust/crates/platform-linux/src/wayland/niri/native_input.rs
+@@ -0,0 +1,614 @@
++use anyhow::{bail, ensure, Context, Result};
++use cua_driver_core::capture_runtime::{
++    CaptureActionRequest, CaptureService, CaptureTarget, NativeActionDimensions,
++};
++use cua_driver_core::protocol::ToolResult;
++use dojo_native_seat::{AgentController, InputPaused, InputState};
++use niri_ipc::CapturedInputGeometry;
++use serde_json::{json, Value};
++use std::collections::VecDeque;
++use std::sync::{Arc, Mutex};
++
++#[derive(Clone)]
++struct Observation {
++    capture_id: String,
++    geometries: Vec<CapturedInputGeometry>,
++}
++
++#[derive(Default)]
++pub(crate) struct NativeInput {
++    observations: Mutex<VecDeque<Observation>>,
++    controller: Mutex<Option<AgentController>>,
++}
++
++impl NativeInput {
++    pub fn record(&self, capture_id: &str, evidence: &Value) -> Result<()> {
++        let revision = evidence["coordination_revision"]
++            .as_u64()
++            .context("capture has no native ownership revision")?;
++        let compositor_pid = u32::try_from(
++            evidence["compositor_pid"]
++                .as_u64()
++                .context("capture has no compositor identity")?,
++        )?;
++        let compositor_start_time = evidence["compositor_start_ticks"]
++            .as_u64()
++            .context("capture has no compositor generation")?;
++        let output = evidence["output"]
++            .as_str()
++            .context("capture has no output")?
++            .to_owned();
++        let output_geometry = serde_json::from_value(evidence["logical_output"].clone())?;
++        let windows: Vec<niri_ipc::CapturedWindow> =
++            serde_json::from_value(evidence["rendered_windows"].clone())?;
++        let geometries = windows
++            .into_iter()
++            .filter(|window| !window.blocked_out
++                && window.rect.0 == window.output_clip.0
++                && window.rect.1 == window.output_clip.1
++                && ((window.rect.0 + window.rect.2) - (window.output_clip.0 + window.output_clip.2)).abs() <= 1e-9
++                && ((window.rect.1 + window.rect.3) - (window.output_clip.1 + window.output_clip.3)).abs() <= 1e-9)
++            .filter_map(|window| {
++                Some(CapturedInputGeometry {
++                    window_id: window.id,
++                    pid: u32::try_from(window.pid?).ok()?,
++                    compositor_pid,
++                    compositor_start_time,
++                    coordination_revision: revision,
++                    output: output.clone(),
++                    output_geometry,
++                    rect: window.rect,
++                })
++            })
++            .collect();
++        let mut observations = self
++            .observations
++            .lock()
++            .map_err(|_| anyhow::anyhow!("native capture store is poisoned"))?;
++        ensure!(
++            !observations
++                .iter()
++                .any(|item| item.capture_id == capture_id),
++            "native capture identity already exists"
++        );
++        if observations.len() == 128 {
++            observations.pop_front();
++        }
++        observations.push_back(Observation {
++            capture_id: capture_id.into(),
++            geometries,
++        });
++        Ok(())
++    }
++
++    fn observation(&self, id: &str, pid: u32, window_id: u64) -> Result<CapturedInputGeometry> {
++        let observations = self
++            .observations
++            .lock()
++            .map_err(|_| anyhow::anyhow!("native capture store is poisoned"))?;
++        observations
++            .iter()
++            .find(|item| item.capture_id == id)
++            .and_then(|item| {
++                item.geometries
++                    .iter()
++                    .find(|geometry| geometry.pid == pid && geometry.window_id == window_id)
++            })
++            .cloned()
++            .context("capture does not prove this native window target")
++    }
++
++    fn execute(&self, service: &CaptureService, args: &Value, operation: &str) -> Result<Value> {
++        let plan = Plan::parse(operation, args)?;
++        let id = args["capture_id"]
++            .as_str()
++            .context("Niri input requires an immutable capture_id")?;
++        let binding = service.binding_from_args(args)?;
++        let capture_id = service.parse_capture_id(id)?;
++        let capture = service.read_for_perception(capture_id, &binding)?;
++        let pid = u32::try_from(
++            args["pid"]
++                .as_u64()
++                .context("Niri input requires an exact pid")?,
++        )?;
++        let window_id = args["window_id"]
++            .as_u64()
++            .context("Niri input requires an exact window_id")?;
++        let geometry = self.observation(id, pid, window_id)?;
++        let target = capture.target().clone();
++        let desktop = match target {
++            CaptureTarget::Window {
++                pid: captured_pid,
++                window_id: captured_window,
++            } => {
++                ensure!(
++                    captured_pid == pid && captured_window == window_id,
++                    "capture target mismatch"
++                );
++                false
++            }
++            CaptureTarget::PrimaryDesktop => true,
++        };
++        let (_, _, width, height) = super::window_geometry(window_id)?;
++        ensure!(
++            (f64::from(width), f64::from(height)) == (geometry.rect.2.ceil(), geometry.rect.3.ceil()),
++            "native window dimensions changed after capture"
++        );
++        let dimensions = if desktop {
++            NativeActionDimensions::new(
++                geometry.output_geometry.width,
++                geometry.output_geometry.height,
++            )?
++        } else {
++            NativeActionDimensions::new(width, height)?
++        };
++        let (x, y) = plan.point().unwrap_or((0.0, 0.0));
++        let admission = service.admit_action(CaptureActionRequest {
++            capture_id,
++            binding,
++            target,
++            current_native_action_dimensions: dimensions,
++            screenshot_x: x,
++            screenshot_y: y,
++        })?;
++        let (output_x, output_y) = if desktop {
++            (admission.action_x, admission.action_y)
++        } else {
++            window_point(geometry.rect, (width, height), (admission.action_x, admission.action_y))
++        };
++        if plan.point().is_some() {
++            ensure!(
++                output_x >= geometry.rect.0
++                    && output_y >= geometry.rect.1
++                    && output_x < geometry.rect.0 + geometry.rect.2
++                    && output_y < geometry.rect.1 + geometry.rect.3,
++                "input point lies outside the capture-proven target"
++            );
++        }
++        let mut controller = self
++            .controller
++            .lock()
++            .map_err(|_| anyhow::anyhow!("native actor is poisoned"))?;
++        if controller.is_none() {
++            *controller = Some(AgentController::connect("cua-driver")?);
++        }
++        let actor = controller.as_mut().unwrap();
++        actor.use_coordination_revision(geometry.coordination_revision);
++        actor.use_capture_geometry(geometry.clone());
++        let result = plan.deliver(actor, &geometry, output_x, output_y);
++        if let Err(error) = result {
++            let _ = actor.reset();
++            controller.take();
++            return Err(error);
++        }
++        Ok(
++            json!({"path":"dojo_native_seat","effect":"delivered","capture_id":id,"window_id":window_id,"pid":pid,"peer_id":actor.peer_id()}),
++        )
++    }
++}
++
++fn window_point(rect: (f64, f64, f64, f64), dimensions: (u32, u32), point: (f64, f64)) -> (f64, f64) {
++    (rect.0 + point.0 * rect.2 / f64::from(dimensions.0),
++     rect.1 + point.1 * rect.3 / f64::from(dimensions.1))
++}
++
++pub(crate) async fn invoke(
++    native: Arc<NativeInput>,
++    service: Arc<CaptureService>,
++    args: Value,
++    operation: &'static str,
++) -> ToolResult {
++    use cua_driver_core::action_record::{ActionEffect, ActionExecutionRecord, ActionTransport, ActualDelivery, RequestedDelivery};
++    match tokio::task::spawn_blocking(move || native.execute(&service, &args, operation)).await {
++        Ok(Ok(evidence)) => {
++            ToolResult::text(format!("Native {operation} delivered; UI effect remains unverified. {evidence}"))
++                .with_structured(evidence)
++                .with_action_record(ActionExecutionRecord::builder(ActionEffect::Unverifiable,
++                    ActionTransport::LinuxCuaCompositorInject, RequestedDelivery::Background)
++                    .actual_delivery(ActualDelivery::Background).build().expect("native delivery record is valid"))
++        }
++        Ok(Err(error)) => {
++            let mut evidence = json!({"code":"native_input_refused","effect":"refused","retry_automatically":false});
++            if let Some(paused) = error.downcast_ref::<InputPaused>() {
++                evidence["code"] = json!("input_paused");
++                evidence["coordination"] = json!(paused.coordination);
++            } else if error
++                .downcast_ref::<cua_driver_core::capture_runtime::CaptureLookupError>()
++                .is_some()
++                || error
++                    .downcast_ref::<cua_driver_core::capture_runtime::CaptureActionError>()
++                    .is_some()
++                || error
++                    .downcast_ref::<cua_driver_core::capture_runtime::CaptureIdParseError>()
++                    .is_some()
++            {
++                evidence["code"] = json!(cua_driver_core::capture_runtime::admission_error_code(
++                    &error
++                ));
++            }
++            let record = if evidence["code"] == "native_input_refused" || evidence["code"] == "input_paused" {
++                evidence["effect"] = json!("unknown");
++                ActionExecutionRecord::builder(ActionEffect::Unverifiable, ActionTransport::LinuxCuaCompositorInject, RequestedDelivery::Background)
++                    .actual_delivery(ActualDelivery::Unknown).build()
++            } else {
++                ActionExecutionRecord::builder(ActionEffect::Refused, ActionTransport::LinuxCuaCompositorInject, RequestedDelivery::Background).build()
++            }.expect("native failure record is valid");
++            ToolResult::error(error.to_string()).with_structured(evidence).with_action_record(record)
++        }
++        Err(error) => ToolResult::error(error.to_string()).with_action_record(
++            ActionExecutionRecord::builder(ActionEffect::Unverifiable,
++                ActionTransport::LinuxCuaCompositorInject, RequestedDelivery::Background)
++                .actual_delivery(ActualDelivery::Unknown).build().expect("unknown native execution record is valid")),
++    }
++}
++
++#[derive(Debug)]
++enum Plan {
++    Click {
++        x: f64,
++        y: f64,
++        button: u32,
++    },
++    Scroll {
++        x: f64,
++        y: f64,
++        horizontal: f64,
++        vertical: f64,
++    },
++    Key(Vec<u32>),
++    Text(Vec<(u32, bool)>),
++    Focus,
++}
++
++impl Plan {
++    fn parse(operation: &str, args: &Value) -> Result<Self> {
++        ensure!(
++            args.get("element_token").is_none() && args.get("element_index").is_none(),
++            "native semantic element input is unavailable"
++        );
++        ensure!(
++            args.get("delivery_mode")
++                .and_then(Value::as_str)
++                .is_none_or(|value| value == "auto" || value == "background"),
++            "native input never activates the human seat"
++        );
++        let point = || -> Result<(f64, f64)> {
++            let x = args["x"]
++                .as_f64()
++                .context("native pointer input requires x")?;
++            let y = args["y"]
++                .as_f64()
++                .context("native pointer input requires y")?;
++            ensure!(x.is_finite() && y.is_finite(), "input point is not finite");
++            Ok((x, y))
++        };
++        match operation {
++            "click" => {
++                ensure!(
++                    args["count"].as_u64().unwrap_or(1) == 1,
++                    "native click trains are unavailable"
++                );
++                ensure!(
++                    args["from_zoom"].as_bool() != Some(true),
++                    "native clicks require the original capture frame"
++                );
++                ensure!(
++                    args.get("modifier").is_none(),
++                    "modified native clicks are unavailable"
++                );
++                let button = match args["button"].as_str().unwrap_or("left") {
++                    "left" => 272,
++                    "right" => 273,
++                    "middle" => 274,
++                    _ => bail!("unknown mouse button"),
++                };
++                let (x, y) = point()?;
++                Ok(Self::Click { x, y, button })
++            }
++            "scroll" => {
++                let (x, y) = point()?;
++                let amount = args["amount"].as_u64().unwrap_or(3);
++                ensure!(
++                    (1..=50).contains(&amount),
++                    "scroll amount must be between 1 and 50"
++                );
++                let delta = amount as f64 * 15.0;
++                let (horizontal, vertical) = match args["direction"]
++                    .as_str()
++                    .context("scroll requires direction")?
++                {
++                    "up" => (0.0, -delta),
++                    "down" => (0.0, delta),
++                    "left" => (-delta, 0.0),
++                    "right" => (delta, 0.0),
++                    _ => bail!("unknown scroll direction"),
++                };
++                Ok(Self::Scroll {
++                    x,
++                    y,
++                    horizontal,
++                    vertical,
++                })
++            }
++            "press_key" => {
++                let key = args["key"].as_str().context("press_key requires key")?;
++                let mut keys = Vec::new();
++                if let Some(modifiers) = args["modifiers"].as_array() {
++                    for modifier in modifiers {
++                        let modifier = modifier.as_str().context("modifier must be a string")?;
++                        ensure!(
++                            [
++                                "ctrl", "control", "shift", "alt", "super", "meta", "cmd",
++                                "command", "win", "windows"
++                            ]
++                            .contains(&modifier),
++                            "unsupported modifier"
++                        );
++                        keys.push(
++                            crate::wayland::key_to_evdev(modifier).context("unknown modifier")?,
++                        );
++                    }
++                }
++                for part in key.split('+') {
++                    keys.push(crate::wayland::key_to_evdev(part).context("unknown native key")?);
++                }
++                Ok(Self::Key(keys))
++            }
++            "type_text" => {
++                ensure!(
++                    args.get("x").is_none() && args.get("y").is_none(),
++                    "native text requires a previously focused target"
++                );
++                let text = args["text"].as_str().context("type_text requires text")?;
++                let text = cua_driver_core::text_sanitize::strip_trailing_agent_protocol_tags(text);
++                ensure!(
++                    text.chars().count() <= 4096,
++                    "native text exceeds 4096 characters"
++                );
++                Ok(Self::Text(
++                    text.chars().map(text_key).collect::<Result<_>>()?,
++                ))
++            }
++            "bring_to_front" => Ok(Self::Focus),
++            _ => bail!("native operation is unavailable"),
++        }
++    }
++    fn point(&self) -> Option<(f64, f64)> {
++        match self {
++            Self::Click { x, y, .. } | Self::Scroll { x, y, .. } => Some((*x, *y)),
++            _ => None,
++        }
++    }
++    fn deliver(
++        &self,
++        actor: &mut AgentController,
++        geometry: &CapturedInputGeometry,
++        x: f64,
++        y: f64,
++    ) -> Result<()> {
++        let window = geometry.window_id;
++        match self {
++            Self::Click { button, .. } => {
++                actor.move_pointer_for_window(window, &geometry.output, x, y)?;
++                actor.button_for_window(window, *button, InputState::Pressed)?;
++                actor.button_for_window(window, *button, InputState::Released)
++            }
++            Self::Scroll {
++                horizontal,
++                vertical,
++                ..
++            } => {
++                actor.move_pointer_for_window(window, &geometry.output, x, y)?;
++                actor.scroll_for_window(window, *horizontal, *vertical)
++            }
++            Self::Key(keys) => {
++                actor.focus_window(window)?;
++                for key in keys {
++                    actor.key_for_window(window, *key, InputState::Pressed)?;
++                }
++                for key in keys.iter().rev() {
++                    actor.key_for_window(window, *key, InputState::Released)?;
++                }
++                Ok(())
++            }
++            Self::Text(keys) => {
++                actor.focus_window(window)?;
++                for (key, shift) in keys {
++                    if *shift {
++                        actor.text_key_for_window(window, 42, InputState::Pressed)?;
++                    }
++                    actor.text_key_for_window(window, *key, InputState::Pressed)?;
++                    actor.text_key_for_window(window, *key, InputState::Released)?;
++                    if *shift {
++                        actor.text_key_for_window(window, 42, InputState::Released)?;
++                    }
++                }
++                Ok(())
++            }
++            Self::Focus => actor.focus_window(window),
++        }
++    }
++}
++
++fn text_key(character: char) -> Result<(u32, bool)> {
++    if character.is_ascii_alphabetic() {
++        return Ok((
++            crate::wayland::key_to_evdev(&character.to_ascii_lowercase().to_string()).unwrap(),
++            character.is_ascii_uppercase(),
++        ));
++    }
++    if character.is_ascii_digit() {
++        return Ok((
++            crate::wayland::key_to_evdev(&character.to_string()).unwrap(),
++            false,
++        ));
++    }
++    let pair = match character {
++        ' ' => (57,false), '\n' => (28,false), '\t' => (15,false),
++        '-' => (12,false),'_' => (12,true),'=' => (13,false),'+' => (13,true),
++        '[' => (26,false),'{' => (26,true),']' => (27,false),'}' => (27,true),
++        ';' => (39,false),':' => (39,true),'\'' => (40,false),'"' => (40,true),
++        '`' => (41,false),'~' => (41,true),'\\' => (43,false),'|' => (43,true),
++        ',' => (51,false),'<' => (51,true),'.' => (52,false),'>' => (52,true),'/' => (53,false),'?' => (53,true),
++        '!' => (2,true),'@' => (3,true),'#' => (4,true),'$' => (5,true),'%' => (6,true),
++        '^' => (7,true),'&' => (8,true),'*' => (9,true),'(' => (10,true),')' => (11,true),
++        _ => bail!("native text supports plain US keyboard characters; unsupported character {character:?}"),
++    };
++    Ok(pair)
++}
++
++#[cfg(test)]
++mod tests {
++    #[test]
++    fn rounded_image_dimensions_map_to_exact_fractional_window_geometry() {
++        assert_eq!(super::window_point((10.0,20.0,1.5,2.25),(2,3),(1.0,1.5)),(10.75,21.125));
++    }
++
++    use super::*;
++    use cua_driver_core::capture_runtime::{
++        CapturePublication, EncodedScreenshotDimensions, ScreenshotToActionTransform,
++    };
++
++    #[test]
++    fn unsupported_text_is_rejected_before_any_delivery() {
++        assert!(Plan::parse("type_text", &json!({"text":"abλ"})).is_err());
++        assert!(Plan::parse("click", &json!({"x":1,"y":2,"element_token":"1:1"})).is_err());
++        assert!(Plan::parse(
++            "press_key",
++            &json!({"key":"a","delivery_mode":"foreground"})
++        )
++        .is_err());
++        assert!(Plan::parse("click", &json!({"x":1,"y":2,"modifier":"ctrl"})).is_err());
++    }
++
++    #[test]
++    fn plans_preserve_key_chords_and_plain_us_text() {
++        match Plan::parse("press_key", &json!({"key":"ctrl+a"})).unwrap() {
++            Plan::Key(keys) => assert_eq!(keys, vec![29, 30]),
++            _ => panic!("expected key plan"),
++        }
++        match Plan::parse("type_text", &json!({"text":"A!?\n"})).unwrap() {
++            Plan::Text(keys) => {
++                assert_eq!(keys, vec![(30, true), (2, true), (53, true), (28, false)])
++            }
++            _ => panic!("expected text plan"),
++        }
++    }
++
++    #[test]
++    fn cross_session_capture_cannot_create_a_native_actor() {
++        let service = CaptureService::default();
++        let binding = service.current_binding("first").unwrap();
++        let mut image = std::io::Cursor::new(Vec::new());
++        image::RgbaImage::new(1, 1)
++            .write_to(&mut image, image::ImageFormat::Png)
++            .unwrap();
++        let capture = service
++            .publish(CapturePublication {
++                png_bytes: image.into_inner(),
++                target: CaptureTarget::Window {
++                    pid: 1,
++                    window_id: 2,
++                },
++                encoded_dimensions: EncodedScreenshotDimensions::new(1, 1).unwrap(),
++                native_action_dimensions: NativeActionDimensions::new(1, 1).unwrap(),
++                screenshot_to_action: ScreenshotToActionTransform::identity(),
++                session_id: "first".into(),
++                session_generation: binding.session_generation(),
++            })
++            .unwrap();
++        let native = NativeInput::default();
++        let error = native.execute(&service,&json!({"capture_id":capture.to_string(),"pid":1,"window_id":2,"x":0,"y":0,"_session_id":"second"}),"click").unwrap_err();
++        assert!(matches!(
++            error.downcast_ref::<cua_driver_core::capture_runtime::CaptureLookupError>(),
++            Some(cua_driver_core::capture_runtime::CaptureLookupError::GenerationMismatch)
++        ));
++        assert!(native.controller.lock().unwrap().is_none());
++        assert!(service.read_for_perception(capture, &binding).is_ok());
++    }
++
++    #[test]
++    fn native_plans_share_one_geometry_bound_connection_and_drop_releases_it() {
++        use std::io::{BufRead, BufReader, Write};
++        use std::os::unix::net::UnixListener;
++        let directory = tempfile::tempdir().unwrap();
++        let path = directory.path().join("native.sock");
++        let listener = UnixListener::bind(&path).unwrap();
++        let events = Arc::new(Mutex::new(Vec::new()));
++        let recorded = events.clone();
++        let server = std::thread::spawn(move || {
++            let (mut stream, _) = listener.accept().unwrap();
++            stream
++                .set_read_timeout(Some(std::time::Duration::from_secs(2)))
++                .unwrap();
++            let mut reader = BufReader::new(stream.try_clone().unwrap());
++            loop {
++                let mut line = String::new();
++                if reader.read_line(&mut line).unwrap() == 0 {
++                    break;
++                }
++                let request: Value = serde_json::from_str(&line).unwrap();
++                let reply = if request.pointer("/AgentInput/Create").is_some() {
++                    json!({"AgentInputCreated":{"seat_name":"agent-fixture","peer_id":7}})
++                } else if request == json!("InputCoordination") {
++                    json!({"InputCoordination":{"revision":13,"human_owned_windows":[]}})
++                } else {
++                    assert_eq!(
++                        request.pointer("/AgentInput/Coordinated/revision"),
++                        Some(&json!(13))
++                    );
++                    assert_eq!(
++                        request
++                            .pointer("/AgentInput/Coordinated/command/Captured/geometry/window_id"),
++                        Some(&json!(9))
++                    );
++                    recorded.lock().unwrap().push(
++                        request["AgentInput"]["Coordinated"]["command"]["Captured"]["command"]
++                            .clone(),
++                    );
++                    json!("Handled")
++                };
++                writeln!(stream, "{}", json!({"Ok":reply})).unwrap();
++            }
++        });
++        let geometry:CapturedInputGeometry=serde_json::from_value(json!({
++            "window_id":9,"pid":1,"compositor_pid":2,"compositor_start_time":3,"coordination_revision":13,
++            "output":"DP-1","output_geometry":{"x":0,"y":0,"width":100,"height":100,"scale":1.0,"transform":"Normal"},"rect":[0.0,0.0,50.0,50.0]
++        })).unwrap();
++        let mut actor = AgentController::connect_to(&path, "fixture").unwrap();
++        actor.use_coordination_revision(13);
++        actor.use_capture_geometry(geometry.clone());
++        for (operation, args) in [
++            ("click", json!({"x":1,"y":2})),
++            ("scroll", json!({"x":1,"y":2,"direction":"down","amount":2})),
++            ("press_key", json!({"key":"enter"})),
++            ("type_text", json!({"text":"a"})),
++            ("bring_to_front", json!({})),
++        ] {
++            Plan::parse(operation, &args)
++                .unwrap()
++                .deliver(&mut actor, &geometry, 1.0, 2.0)
++                .unwrap();
++            assert_eq!(actor.peer_id(), 7);
++        }
++        drop(actor);
++        server.join().unwrap();
++        let events = events.lock().unwrap();
++        assert_eq!(
++            events[0],
++            json!({"Targeted":{"window_id":9,"command":{"Move":{"output":"DP-1","x":1.0,"y":2.0}}}})
++        );
++        assert_eq!(
++            events[1],
++            json!({"Targeted":{"window_id":9,"command":{"Button":{"button":272,"state":"Pressed"}}}})
++        );
++        assert_eq!(
++            events[2],
++            json!({"Targeted":{"window_id":9,"command":{"Button":{"button":272,"state":"Released"}}}})
++        );
++        assert!(events
++            .iter()
++            .any(|event| event.pointer("/Targeted/command/TextKey/evdev") == Some(&json!(30))));
++        assert_eq!(events.last().unwrap(), &json!({"Focus":{"window_id":9}}));
++    }
++}
+diff --git a/libs/cua-driver/rust/crates/cua-driver/src/private_worker.rs b/libs/cua-driver/rust/crates/cua-driver/src/private_worker.rs
+--- a/libs/cua-driver/rust/crates/cua-driver/src/private_worker.rs
++++ b/libs/cua-driver/rust/crates/cua-driver/src/private_worker.rs
+@@ -118,12 +118,12 @@
+     let driver = match CuaDriver::try_create_configured_for_host(
+         initialization.configured_driver,
+         DriverHostOptions {
+-            cursor: cursor_overlay::CursorConfig::default(),
++            cursor: cursor_overlay::CursorConfig { enabled: initialization.host_bundle_id != "dojo", ..Default::default() },
+             host_owns_permission_ux: true,
+             host_bundle_id: Some(initialization.host_bundle_id.clone()),
+             claude_code_compatibility: false,
+-            prepare_desktop_environment: true,
+-            register_host_tools: Some(crate::check_update_tool::register_into),
++            prepare_desktop_environment: initialization.host_bundle_id != "dojo",
++            register_host_tools: if initialization.host_bundle_id == "dojo" { None } else { Some(crate::check_update_tool::register_into) },
+             authorization_host: None,
+             activity_observer: None,
+         },

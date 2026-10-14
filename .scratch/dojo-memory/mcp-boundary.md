@@ -1,0 +1,7 @@
+# Dojo memory MCP boundary
+
+Read-only investigation of the installed T3 bundle at `/tmp/dojo-t3-installed.mjs` found no arbitrary native Codex config/MCP/environment field in the public orchestration launch or dispatch contracts. `codexThreadRuntimeParams` at lines 212452 onward injects T3's own `t3-code` MCP config on native thread start/resume/fork. Codex homePath, launchArgs, and process environment are provider-instance settings, not thread settings.
+
+A read-only Codex app-server `config/read` request against an actual Dojo private turn workspace confirmed the project-local `.codex/config.toml` layer is disabled because the directory is untrusted. The disabledReason directs the user to add a trust record in the global Codex config. The effective MCP keys omit dojo-memory. No trust/config/threads were changed by the investigation.
+
+Dojo's authorized solution is to preserve private MCP files for providers that honor them and give its own workspace AGENTS an absolute command fallback through the existing voice socket. Foreground assistants execute `tools/speech/dojo-memory --socket PATH search QUERY`, then `zoom ID` to retrieve original records when prior evidence matters. This uses the provider's existing command execution tool and requires no global settings or provider registry change. Instructions forbid claiming retrieval solely from the compressed memory view. Summary workspace instructions remain unchanged and install no MCP/CLI instructions.

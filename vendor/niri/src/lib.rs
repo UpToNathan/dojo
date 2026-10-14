@@ -6,10 +6,12 @@ pub mod a11y;
 pub mod agent_input;
 pub mod animation;
 pub mod backend;
+pub mod browser_control;
 pub mod cli;
 pub mod cursor;
 #[cfg(feature = "dbus")]
 pub mod dbus;
+pub mod external_admission;
 pub mod frame_clock;
 pub mod handlers;
 pub mod input;
@@ -20,6 +22,7 @@ pub mod niri;
 pub mod protocols;
 pub mod render_helpers;
 pub mod rubber_band;
+mod scene_capture;
 #[cfg(feature = "xdp-gnome-screencast")]
 pub mod screencasting;
 pub mod ui;

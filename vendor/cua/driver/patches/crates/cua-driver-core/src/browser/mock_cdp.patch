@@ -1,0 +1,45 @@
+--- upstream/crates/cua-driver-core/src/browser/mock_cdp.rs
++++ dojo/crates/cua-driver-core/src/browser/mock_cdp.rs
+@@ -34,12 +34,14 @@
+ pub(crate) struct MockReply {
+     pub events: Vec<MockEvent>,
+     pub result: Result<Value, (i64, String)>,
++    pub reply_gate: Option<Arc<tokio::sync::Notify>>,
+ }
+ 
+ impl MockReply {
+     pub fn ok(result: Value) -> Self {
+         Self {
+             events: Vec::new(),
++            reply_gate: None,
+             result: Ok(result),
+         }
+     }
+@@ -47,6 +49,7 @@
+     pub fn err(code: i64, message: &str) -> Self {
+         Self {
+             events: Vec::new(),
++            reply_gate: None,
+             result: Err((code, message.to_owned())),
+         }
+     }
+@@ -54,6 +57,11 @@
+     /// The exact shape Chromium uses for an unimplemented method.
+     pub fn method_not_found(method: &str) -> Self {
+         Self::err(-32601, &format!("'{method}' wasn't found"))
++    }
++
++    pub fn with_reply_gate(mut self, gate: Arc<tokio::sync::Notify>) -> Self {
++        self.reply_gate = Some(gate);
++        self
+     }
+ 
+     pub fn with_events(mut self, events: Vec<MockEvent>) -> Self {
+@@ -107,6 +115,7 @@
+                                 .map(str::to_owned),
+                         };
+                         let reply = handler(&call);
++                        if let Some(gate) = &reply.reply_gate { gate.notified().await; }
+                         for event in reply.events {
+                             let mut frame =
+                                 json!({ "method": event.method, "params": event.params });

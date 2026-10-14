@@ -1,0 +1,1192 @@
+[
+  {
+    "path": "crates/cua-driver-core/src/batch_tools/flow_tests.rs",
+    "line": 68,
+    "source": "impl Tool for Fake {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/batch_tools/locate.rs",
+    "line": 526,
+    "source": ".call(\"list_windows\", list_args)"
+  },
+  {
+    "path": "crates/cua-driver-core/src/batch_tools/locate.rs",
+    "line": 666,
+    "source": "let Ok(listed) = self.call(\"list_apps\", json!({})).await else {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/batch_tools/locate.rs",
+    "line": 700,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/batch_tools/locate.rs",
+    "line": 713,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/batch_tools/reliability_tests.rs",
+    "line": 418,
+    "source": "impl Tool for Rerender {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/batch_tools/tests.rs",
+    "line": 25,
+    "source": "impl Tool for Probe {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/batch_tools.rs",
+    "line": 157,
+    "source": "impl Tool for RunStepsTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 246,
+    "source": "read_context: Option<Arc<super::read::ReadContext>>,"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 259,
+    "source": "Self::connect_with_read_context(ws_url, None).await"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 262,
+    "source": "async fn connect_with_read_context(ws_url: &str, read_context: Option<Arc<super::read::ReadContext>>) -> anyhow::Result<Self> {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 263,
+    "source": "if let Some(context) = &read_context {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 287,
+    "source": "read_context,"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 369,
+    "source": "if let Some(context) = &self.read_context {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 399,
+    "source": "if let Some(context) = &self.read_context {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 425,
+    "source": "let outcome = if let Some(context) = &self.read_context {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 434,
+    "source": "if let Some(context) = &self.read_context {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 487,
+    "source": "read_context: Option<Arc<super::read::ReadContext>>,"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 491,
+    "source": "pub fn new() -> Self { Self::new_with_read_context(None) }"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 493,
+    "source": "pub(crate) fn new_with_read_context(read_context: Option<Arc<super::read::ReadContext>>) -> Self {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 494,
+    "source": "Self { conns: Mutex::new(HashMap::new()), claimed_loopback_ports: StdMutex::new(HashSet::new()), read_context }"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 526,
+    "source": "let connect = CdpConnection::connect_with_read_context(ws_url, self.read_context.clone());"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 527,
+    "source": "let conn = if let Some(context) = &self.read_context {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 550,
+    "source": "if self.read_context.is_some() { anyhow::bail!(\"read-only episode refuses existing-profile grants\"); }"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 581,
+    "source": "if self.read_context.is_some() { anyhow::bail!(\"read-only episode refuses existing-profile grants\"); }"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 602,
+    "source": "if self.read_context.is_some() { anyhow::bail!(\"read-only episode refuses existing-profile grants\"); }"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 748,
+    "source": ".call(None, \"Echo.params\", json!({ \"x\": 7 }))"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 800,
+    "source": "let error = conn.call(None, method, json!({})).await.unwrap_err();"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 811,
+    "source": "conn.call(None, \"Target.getTargets\", json!({}))"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 882,
+    "source": ".call(Some(\"sess-1\"), \"Target.setAutoAttach\", json!({}))"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 913,
+    "source": "conn.call(None, \"Emitter.go\", json!({})).await.unwrap();"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 948,
+    "source": "conn.call(Some(\"tab-session-a\"), \"Dialog.open\", json!({}))"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 955,
+    "source": "conn.call(Some(\"tab-session-a\"), \"Dialog.close\", json!({}))"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 986,
+    "source": "conn.call(None, \"First.call\", json!({})),"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 987,
+    "source": "conn.call(None, \"Second.call\", json!({})),"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 1011,
+    "source": ".call(None, \"Never.replies\", json!({}))"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 1016,
+    "source": "let err = conn.call(None, \"After.close\", json!({})).await.unwrap_err();"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/cdp_ws.rs",
+    "line": 1032,
+    "source": "second.call(None, \"Ping.pong\", json!({})).await.unwrap();"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/download.rs",
+    "line": 195,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/download.rs",
+    "line": 273,
+    "source": "impl Tool for BrowserDownloadTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/download.rs",
+    "line": 279,
+    "source": "if self.engine.read_context.is_some() {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/download.rs",
+    "line": 359,
+    "source": ".call(Some(&validated.cdp_session), \"Page.getFrameTree\", json!({}))"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/download.rs",
+    "line": 387,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/download.rs",
+    "line": 421,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/download.rs",
+    "line": 443,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 79,
+    "source": "pub(crate) read_context: Option<Arc<super::read::ReadContext>>,"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 648,
+    "source": "read_context: Option<Arc<super::read::ReadContext>>) -> Arc<Self> {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 652,
+    "source": "pool: CdpPool::new_with_read_context(read_context.clone()),"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 653,
+    "source": "read_context,"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 663,
+    "source": "if engine.read_context.is_some() { return engine; }"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 1091,
+    "source": ".call(None, \"Target.getTargets\", json!({}))"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 1135,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 1151,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 1223,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 1401,
+    "source": "let _publication = self.read_context.as_ref().map(|context| context.guard()).transpose()?;"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 1437,
+    "source": "if self.read_context.is_some() { return Err(refuse(BrowserRefusalCode::BrowserRouteUnavailable, \"external mutation admission unproved\")); }"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 1617,
+    "source": "let dispatch_context = crate::tool::current_dispatch_authorization_context();"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 1653,
+    "source": ".call(Some(cdp_session), \"Page.getFrameTree\", json!({}))"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 1700,
+    "source": "if self.read_context.is_some() { return; }"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 1707,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 1724,
+    "source": ".call(Some(cdp_session), \"Page.getLayoutMetrics\", json!({}))"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 1765,
+    "source": "if self.read_context.is_some() { return Err(refuse(BrowserRefusalCode::BrowserRouteUnavailable, \"external mutation admission unproved\")); }"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 1788,
+    "source": ".call(Some(cdp_session), \"Page.getFrameTree\", json!({}))"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 1820,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 1976,
+    "source": ".call(Some(&cdp_session), \"Page.getLayoutMetrics\", json!({}))"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 1981,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 2074,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 2153,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 2202,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 2214,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 2251,
+    "source": "let _publication = self.read_context.as_ref().map(|context| context.guard()).transpose()?;"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 2292,
+    "source": "conn.call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 2301,
+    "source": "conn.call(Some(cdp_session), \"Page.getLayoutMetrics\", json!({})),"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 2312,
+    "source": ".call(Some(cdp_session), \"Accessibility.getFullAXTree\", json!({}))"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 2325,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 2365,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 2382,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 2439,
+    "source": "conn.call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 2607,
+    "source": "let _publication = self.read_context.as_ref().map(|context| context.guard()).transpose()?;"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 2722,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 2734,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 2778,
+    "source": "let _publication = self.read_context.as_ref().map(|context| context.guard()).transpose()?;"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/engine.rs",
+    "line": 2934,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/grant.rs",
+    "line": 63,
+    "source": "crate::tool::current_dispatch_authorization_context()"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/grant.rs",
+    "line": 128,
+    "source": "permission_mode: crate::tool::current_dispatch_authorization_context()"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/pointer.rs",
+    "line": 239,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/pointer.rs",
+    "line": 260,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/pointer.rs",
+    "line": 267,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/pointer.rs",
+    "line": 481,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/pointer.rs",
+    "line": 612,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/pointer.rs",
+    "line": 631,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/pointer.rs",
+    "line": 693,
+    "source": "let call = |params: Value| conn.call(Some(cdp_session), \"Input.dispatchMouseEvent\", params);"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/pointer.rs",
+    "line": 737,
+    "source": "impl Tool for BrowserPointerTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/pointer.rs",
+    "line": 767,
+    "source": "if self.engine.read_context.is_some() {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/prepare.rs",
+    "line": 806,
+    "source": "if self.read_context.is_some() { return Err(refusal(BrowserRefusalCode::BrowserRouteUnavailable, \"read-only episode refuses browser preparation\")); }"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/prepare.rs",
+    "line": 1028,
+    "source": "let mode = crate::tool::current_dispatch_authorization_context()"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/prepare.rs",
+    "line": 1041,
+    "source": "let context = crate::tool::current_dispatch_authorization_context().ok_or_else(|| {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/read.rs",
+    "line": 368,
+    "source": "conn.call(Some(&cdp_session), \"Page.getFrameTree\", json!({}))"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/read.rs",
+    "line": 554,
+    "source": "assert!(conn.call(None, method, params).await.is_err(), \"{method}\");"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/read.rs",
+    "line": 589,
+    "source": "crate::session::revive_session(&reader.context.key);"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/read.rs",
+    "line": 592,
+    "source": ".call(None, \"Target.getTargets\", json!({}))"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/read.rs",
+    "line": 632,
+    "source": "tokio::spawn(async move { calling.call(None, \"Target.getTargets\", json!({})).await });"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 123,
+    "source": "let runtime_session = crate::tool::current_dispatch_authorization_context()"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 162,
+    "source": "let runtime_session = crate::tool::current_dispatch_authorization_context()"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 325,
+    "source": "impl Tool for GetBrowserStateTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 686,
+    "source": "impl Tool for BrowserPrepareTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 692,
+    "source": "if self.engine.read_context.is_some() {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 833,
+    "source": "impl Tool for BrowserNavigateTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 863,
+    "source": "if self.engine.read_context.is_some() {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 909,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 995,
+    "source": "impl Tool for BrowserClickTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1025,
+    "source": "if self.engine.read_context.is_some() {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1155,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1188,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1195,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1216,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1254,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1261,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1304,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1324,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1342,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1465,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1495,
+    "source": "conn.call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1506,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1517,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1533,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1549,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1617,
+    "source": "impl Tool for BrowserTypeTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1647,
+    "source": "if self.engine.read_context.is_some() {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1722,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1740,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1764,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1788,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1795,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1835,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1857,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1871,
+    "source": "conn.call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1888,
+    "source": "conn.call(Some(cdp), \"Input.insertText\", json!({ \"text\": text }))"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1893,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1909,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1928,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1939,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1960,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1983,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 1991,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 2013,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 2035,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 2060,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 2067,
+    "source": "conn.call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 2082,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 2096,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 2192,
+    "source": "impl Tool for BrowserDialogTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 2228,
+    "source": "if self.engine.read_context.is_some() {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 2285,
+    "source": "if let Err(error) = conn.call(Some(cdp_session), \"Page.enable\", json!({})).await {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 2344,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 2443,
+    "source": "impl Tool for BrowserSetInputFilesTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 2449,
+    "source": "if self.engine.read_context.is_some() {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 2511,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/browser/tools.rs",
+    "line": 2549,
+    "source": ".call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/capture_scope.rs",
+    "line": 576,
+    "source": "assert!(crate::session::revive_session(&session));"
+  },
+  {
+    "path": "crates/cua-driver-core/src/cdp.rs",
+    "line": 77,
+    "source": "connection.call("
+  },
+  {
+    "path": "crates/cua-driver-core/src/clipboard.rs",
+    "line": 65,
+    "source": "impl Tool for ClipboardReadTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/clipboard.rs",
+    "line": 119,
+    "source": "impl Tool for ClipboardWriteTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/embedded.rs",
+    "line": 11,
+    "source": "//! use cua_driver_core::session::revive_session;"
+  },
+  {
+    "path": "crates/cua-driver-core/src/embedded.rs",
+    "line": 452,
+    "source": "assert!(crate::session::revive_session(&owner));"
+  },
+  {
+    "path": "crates/cua-driver-core/src/expectation.rs",
+    "line": 239,
+    "source": "impl Tool for VerifyStateTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/health_report.rs",
+    "line": 445,
+    "source": "impl Tool for HealthReportTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/history.rs",
+    "line": 1283,
+    "source": "impl Tool for HistoryStatusTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/history.rs",
+    "line": 1321,
+    "source": "impl Tool for HistoryQueryTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/page.rs",
+    "line": 356,
+    "source": "impl Tool for PageTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/perception_tools.rs",
+    "line": 71,
+    "source": "impl Tool for ParseVisualRegionsTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/recording_tools.rs",
+    "line": 44,
+    "source": "impl Tool for StartRecordingTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/recording_tools.rs",
+    "line": 232,
+    "source": "impl Tool for StopRecordingTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/recording_tools.rs",
+    "line": 294,
+    "source": "impl Tool for GetRecordingStateTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/recording_tools.rs",
+    "line": 346,
+    "source": "impl Tool for ReplayTrajectoryTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/recording_tools.rs",
+    "line": 597,
+    "source": "impl Tool for InstallFfmpegTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/script_tool/tests.rs",
+    "line": 24,
+    "source": "impl Tool for Fake {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/script_tool/tests.rs",
+    "line": 255,
+    "source": "\"await cua.call('kill_app', {pid: 42})\","
+  },
+  {
+    "path": "crates/cua-driver-core/src/script_tool/tests.rs",
+    "line": 259,
+    "source": "\"await cua.call('run_steps', {steps: []})\","
+  },
+  {
+    "path": "crates/cua-driver-core/src/script_tool/tests.rs",
+    "line": 263,
+    "source": "\"await cua.call('run_actions', {steps: []})\","
+  },
+  {
+    "path": "crates/cua-driver-core/src/script_tool/tests.rs",
+    "line": 267,
+    "source": "\"await cua.call('run_script', {script: '1'})\","
+  },
+  {
+    "path": "crates/cua-driver-core/src/script_tool/tests.rs",
+    "line": 271,
+    "source": "\"await cua.call('set_config', {key: 'experimental_script', value: true})\","
+  },
+  {
+    "path": "crates/cua-driver-core/src/script_tool/tests.rs",
+    "line": 275,
+    "source": "\"await cua.call('click', {pid: 42, _observation_only: true})\","
+  },
+  {
+    "path": "crates/cua-driver-core/src/script_tool/tests.rs",
+    "line": 279,
+    "source": "\"await cua.call('click', {pid: 42, session: 'someone-else'})\","
+  },
+  {
+    "path": "crates/cua-driver-core/src/script_tool/tests.rs",
+    "line": 361,
+    "source": "\"script\": \"for (let i = 0; i < 10; i++) await cua.call('press_key', {pid: 42, key: 'a'});\","
+  },
+  {
+    "path": "crates/cua-driver-core/src/script_tool/tests.rs",
+    "line": 406,
+    "source": "let script = \"while (true) { await cua.call('list_apps', {}); await cua.sleep(20); }\";"
+  },
+  {
+    "path": "crates/cua-driver-core/src/script_tool.rs",
+    "line": 157,
+    "source": "impl Tool for RunScriptTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/script_tool.rs",
+    "line": 187,
+    "source": "- `cua.call(tool, args)` for any other allowed tool: click, double_click, \\"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 619,
+    "source": "/// Unlike calling `revive_session_for_owner` and `activate_session` in two"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 625,
+    "source": "pub fn activate_or_revive_session_for_owner("
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 1138,
+    "source": "/// revived and rebound a recycled id. Unlike [`revive_session`], this does not"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 1518,
+    "source": "pub fn revive_session(session_id: &str) -> bool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 1537,
+    "source": "pub fn revive_session_for_owner("
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 1693,
+    "source": "pub fn evict_idle(ttl: Duration) -> Vec<String> {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 1717,
+    "source": "/// Runtime-scoped form of [`evict_idle`]. The namespace prefix is minted by"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 1719,
+    "source": "pub fn evict_idle_with_prefix(ttl: Duration, prefix: &str) -> Vec<String> {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 1875,
+    "source": "assert!(evict_idle_with_prefix(Duration::from_secs(3600), sid)"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 1879,
+    "source": "let evicted = evict_idle_with_prefix(Duration::ZERO, sid);"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 1892,
+    "source": "let evicted = evict_idle_with_prefix(Duration::ZERO, \"test-anonymous-never-matches\");"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 1924,
+    "source": "assert!(!evict_idle_with_prefix(Duration::ZERO, sid)"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 1969,
+    "source": "assert!(revive_session_for_owner(sid, owner_b).is_err());"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 1971,
+    "source": "assert_eq!(revive_session_for_owner(sid, owner_a), Ok(true));"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 1990,
+    "source": "assert!(activate_or_revive_session_for_owner("
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 2003,
+    "source": "activate_or_revive_session_for_owner("
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 2051,
+    "source": "assert!(revive_session_for_owner(sid, owner_b).is_err());"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 2058,
+    "source": "assert_eq!(revive_session_for_owner(sid, owner_a), Ok(true));"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 2140,
+    "source": "assert!(!evict_idle_with_prefix(Duration::ZERO, sid)"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 2179,
+    "source": "evict_idle_with_prefix(Duration::from_secs(3600), sid),"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 2225,
+    "source": "assert!(revive_session(sid));"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 2264,
+    "source": "evict_idle_with_prefix(Duration::ZERO, &implicit),"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 2268,
+    "source": "evict_idle_with_prefix(Duration::ZERO, &named),"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 2304,
+    "source": "assert!(revive_session(&implicit));"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 2305,
+    "source": "assert!(revive_session(&named));"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 2316,
+    "source": "assert!(revive_session(sid), \"revive reports the id was ended\");"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 2320,
+    "source": "assert!(!revive_session(sid), \"reviving a live id is a no-op\");"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 2321,
+    "source": "assert!(!revive_session(\"test-never-ended-778899\"));"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 2338,
+    "source": "assert!(revive_session(&sid));"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 2349,
+    "source": "assert!(!revive_session(\"default\"));"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session.rs",
+    "line": 2350,
+    "source": "assert!(!revive_session(\"\"));"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session_tools.rs",
+    "line": 154,
+    "source": "impl Tool for StartSessionTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session_tools.rs",
+    "line": 209,
+    "source": "let revived = match crate::session::activate_or_revive_session_for_owner("
+  },
+  {
+    "path": "crates/cua-driver-core/src/session_tools.rs",
+    "line": 284,
+    "source": "impl Tool for EscalateSessionTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session_tools.rs",
+    "line": 361,
+    "source": "impl Tool for GetSessionStateTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session_tools.rs",
+    "line": 401,
+    "source": "impl Tool for GetSessionTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session_tools.rs",
+    "line": 432,
+    "source": "impl Tool for ListSessionsTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/session_tools.rs",
+    "line": 494,
+    "source": "impl Tool for EndSessionTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/snapshot_store.rs",
+    "line": 272,
+    "source": "runtime_scope: current_runtime_scope(),"
+  },
+  {
+    "path": "crates/cua-driver-core/src/snapshot_store.rs",
+    "line": 752,
+    "source": "fn current_runtime_scope() -> String {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/snapshot_store.rs",
+    "line": 767,
+    "source": ".get(&current_runtime_scope())?"
+  },
+  {
+    "path": "crates/cua-driver-core/src/snapshot_store.rs",
+    "line": 1331,
+    "source": "begin_session_dispatch, evict_idle_with_prefix, register_scoped_session_end_hook,"
+  },
+  {
+    "path": "crates/cua-driver-core/src/snapshot_store.rs",
+    "line": 1360,
+    "source": "evict_idle_with_prefix(std::time::Duration::ZERO, &session),"
+  },
+  {
+    "path": "crates/cua-driver-core/src/snapshot_store.rs",
+    "line": 1379,
+    "source": "crate::session::revive_session(&session);"
+  },
+  {
+    "path": "crates/cua-driver-core/src/tool.rs",
+    "line": 46,
+    "source": "pub(crate) fn current_dispatch_authorization_context("
+  },
+  {
+    "path": "crates/cua-driver-core/src/tool.rs",
+    "line": 4366,
+    "source": "crate::session::evict_idle_with_prefix(Duration::ZERO, &prefix).len(),"
+  },
+  {
+    "path": "crates/cua-driver-core/src/window_target.rs",
+    "line": 141,
+    "source": "impl Tool for PidOnlyWindowTargetGuard {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/window_target.rs",
+    "line": 419,
+    "source": "impl Tool for EchoTool {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/window_target.rs",
+    "line": 691,
+    "source": "impl Tool for Echo {"
+  },
+  {
+    "path": "crates/cua-driver-core/src/window_target.rs",
+    "line": 791,
+    "source": "impl Tool for Echo {"
+  }
+]

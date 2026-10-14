@@ -1,0 +1,759 @@
+{
+  "schema_version": 1,
+  "upstream_commit": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+  "contracts": [
+    {
+      "product": "driver",
+      "file": "provenance/contracts/cua-driver.manifest.json",
+      "sha256": "309be90c4acf3a3a01e65b95a2d658feef6abaeb784a32fce96493868fab3124",
+      "contract_version": "0.8.0",
+      "mcp_protocol_version": "2025-06-18",
+      "tools": [
+        {
+          "name": "click",
+          "contract_sha256": "cba39dd0d3db83f87031d707fcf6903dbe75dc320a61ac2fc2113e8fa11454b5",
+          "status": "partial",
+          "evidence": [
+            {
+              "file": "provenance/evidence/cua-driver-service.json",
+              "sha256": "408fe9e533405f5490464b20e5c53f27d4a92c2eea5f069efeadd90f99bd9b00"
+            }
+          ]
+        },
+        {
+          "name": "clipboard_read",
+          "contract_sha256": "eb4c3ce7f2fdb5d2908522f54a33ad726a53f2a47f84d83b13b06457b01187e7",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "clipboard_write",
+          "contract_sha256": "cc21389632b689516cdaa28630a6423b9106266f9c9dd84c8498e1796b83541d",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "drag",
+          "contract_sha256": "80cc185468819d0ad9d98fe3ed4185458b49c4ca5acb6d41d81475a27a88dbc3",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "end_session",
+          "contract_sha256": "f8837185ad869e2505169f715123eb0187364bc2f2857be67ea25b7870c6d72f",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "escalate_session",
+          "contract_sha256": "f18e3808efe56a1af6d580a004a2b220715f5427806691845e17a26010335151",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "get_agent_cursor_state",
+          "contract_sha256": "a2b5530aae80cf91fbaa0cce02736853aff30eb540d96d568d83b8ce66149875",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "get_cursor_position",
+          "contract_sha256": "feea40811a184ebd4f31ee620bd2ba5f69c1f107f592facc30893d92863356cd",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "get_desktop_state",
+          "contract_sha256": "fe4e5f234f2043a8a54c298373bf5df9929cecc40df280f61ffe88efce69acaf",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "get_screen_size",
+          "contract_sha256": "2ec547d68d663d589216348c340f532641d8a7ae77879b0e858951c5d555e2ba",
+          "status": "partial",
+          "evidence": [
+            {
+              "file": "provenance/evidence/cua-read-slices.md",
+              "sha256": "8989bb13669e2052c779d1e1309caefac808a0d48a1b3c59bd8833c1dbdda1f4"
+            }
+          ]
+        },
+        {
+          "name": "get_session",
+          "contract_sha256": "c386a1d92e35d7254880d5dffa2300fd6268a45bbba6678bc01d7f9e16513b2b",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "get_session_state",
+          "contract_sha256": "1d077906232f0ab7c623f5f9aeac00381729c1da693bb8ee7b8c9e6d88f4a216",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "get_window_state",
+          "contract_sha256": "de17415a653c98b30834915501a9594aec94b7ac1d7793ceba1ee585dee9e7a3",
+          "status": "partial",
+          "evidence": [
+            {
+              "file": "provenance/evidence/cua-driver-service.json",
+              "sha256": "408fe9e533405f5490464b20e5c53f27d4a92c2eea5f069efeadd90f99bd9b00"
+            }
+          ]
+        },
+        {
+          "name": "hotkey",
+          "contract_sha256": "b36f927d8c11e17defd7fadc562a0c13c1bc2a1739a25d7d1a95876c4c9e496c",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "invoke_menu",
+          "contract_sha256": "51612faa4a2154a0876ecad8873bb003a8145bfee7c0b82fe6d89faf87daf4d9",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "list_apps",
+          "contract_sha256": "f652b6f786e009f2ab0d2475e111da08e6244745eeda0c653162a8efe402f2f9",
+          "status": "partial",
+          "evidence": [
+            {
+              "file": "provenance/evidence/cua-read-slices.md",
+              "sha256": "8989bb13669e2052c779d1e1309caefac808a0d48a1b3c59bd8833c1dbdda1f4"
+            }
+          ]
+        },
+        {
+          "name": "list_sessions",
+          "contract_sha256": "7f2bc48bad234dff1dbd3ead551afefa075835773ebbbc5f6683bf505c943576",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "list_windows",
+          "contract_sha256": "ddc6ddbe3ee3482592481d59097a7c3f9e0c05691d8b4fef60e48902b83b0bb2",
+          "status": "partial",
+          "evidence": [
+            {
+              "file": "provenance/evidence/cua-read-slices.md",
+              "sha256": "8989bb13669e2052c779d1e1309caefac808a0d48a1b3c59bd8833c1dbdda1f4"
+            }
+          ]
+        },
+        {
+          "name": "move_cursor",
+          "contract_sha256": "ea0bcb87f3f5028e42fea37b7844cc63ff8811ee8743b2da14fe3c67ac98fbb7",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "parse_visual_regions",
+          "contract_sha256": "096f6b496b7c73f5e9f5a691027ab9ce5f2af16f37b082e1242c794eacffe4bb",
+          "status": "partial",
+          "evidence": [
+            {
+              "file": "provenance/evidence/cua-read-slices.md",
+              "sha256": "8989bb13669e2052c779d1e1309caefac808a0d48a1b3c59bd8833c1dbdda1f4"
+            }
+          ]
+        },
+        {
+          "name": "press_key",
+          "contract_sha256": "5d0ae88d742a6f75831a42c3965e04730fa63e9c32ddda4b1c806f1ad567af5c",
+          "status": "partial",
+          "evidence": [
+            {
+              "file": "provenance/evidence/cua-driver-service.json",
+              "sha256": "408fe9e533405f5490464b20e5c53f27d4a92c2eea5f069efeadd90f99bd9b00"
+            }
+          ]
+        },
+        {
+          "name": "scroll",
+          "contract_sha256": "2d1d2c91cb95d6800b42667a2313b9d2bde81f9ba5044f2c6e04df335f07422f",
+          "status": "partial",
+          "evidence": [
+            {
+              "file": "provenance/evidence/cua-driver-service.json",
+              "sha256": "408fe9e533405f5490464b20e5c53f27d4a92c2eea5f069efeadd90f99bd9b00"
+            }
+          ]
+        },
+        {
+          "name": "set_agent_cursor_enabled",
+          "contract_sha256": "362c28553bf1bdffce92ca38917e6e6fa4ca0c18fbb9236aaa6fdc8cd435a208",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "set_agent_cursor_motion",
+          "contract_sha256": "edc21cb5ac9cae9d2c39dbf738cabe3c345d36928d805fafd2d97f50732069e1",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "set_agent_cursor_theme",
+          "contract_sha256": "21a8c27c179b30552d60d89fe02cef599736db4d0be634cf6161e98c527f8a3e",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "set_window_frame",
+          "contract_sha256": "139b0245fcd2cafa1dd240ddd0147f6c3fa921f4820b655509a7a220562d3be2",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "start_session",
+          "contract_sha256": "98b8bbe1001c1ce166af538ac19ce5d7545a87121e37163a8eba0611ca8e68a6",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "type_text",
+          "contract_sha256": "502b2bcd61be61095273445c57c259f2da1a55698d9de74c4c379cddea8ac666",
+          "status": "partial",
+          "evidence": [
+            {
+              "file": "provenance/evidence/cua-driver-service.json",
+              "sha256": "408fe9e533405f5490464b20e5c53f27d4a92c2eea5f069efeadd90f99bd9b00"
+            }
+          ]
+        },
+        {
+          "name": "verify_state",
+          "contract_sha256": "03ffb94737c58bfc81e359640394c4dd2f731c7659154f432ef42fa656dc65ca",
+          "status": "unverified",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "product": "spaces",
+      "file": "provenance/contracts/cua-spaces.manifest.json",
+      "sha256": "3103f3df0961ef655db54d8cdd6effdaad0d3f0f377a65f77781fb29f3b5f50e",
+      "contract_version": "0.7.0",
+      "mcp_protocol_version": "2025-06-18",
+      "tools": [
+        {
+          "name": "add_space",
+          "contract_sha256": "f8ed3545771cde243b074caacf5ad2be6db41b843d848d8546c403aad2dca17d",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "remove_space",
+          "contract_sha256": "23ff6a5dc047dae4ac92b00b986ee259eea9b800d7bb7e894b8b3c4dbb2206cb",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "list_spaces",
+          "contract_sha256": "add9557a54cfb786543d9f2802b9ecf464db24ba6ed8ed6515cd32dc07a3dd7b",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "create_space",
+          "contract_sha256": "4d094308ff50924c601a084cbb58d3c72e47be6b98183e3686fc8fda7ef6a6ee",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "delete_space",
+          "contract_sha256": "7ece0855cd518ddbd78463747fde9a587aa9f2a42e5e63d1335cd5a264eda84b",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "stop_space",
+          "contract_sha256": "ac55c135802ff5941a9d9f58457bbda85b58e837d3fa67a20f5b9b38351159c5",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "start_space",
+          "contract_sha256": "f5c3b4cae12579d975c1e0126dc8f99032a629ce9f3ab97a38c115681d92666f",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "space_bash",
+          "contract_sha256": "24e29f217a6a5321bfd7dc094c59f4d18db4a46d34d9e586e2b2ce5339d8169e",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "space_write",
+          "contract_sha256": "b9f29dce56927d48a43dc17c8a5ac4c7f8205c91d7a8f87479378acb613e0890",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "upload",
+          "contract_sha256": "a8fe0ec4fc7e646b0822de745e4106456a25379aaa5ea16b60391ad0cc3441a9",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "send_file",
+          "contract_sha256": "5b2d38f51683dd58eef5d27179e01ff460eaecc580b47e0627b5db9d7de5888d",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "download",
+          "contract_sha256": "ff3a2ee4202c4bbfaba2d23157e92ed6b4948a01d6a9574a6c7fe8f2b9f4601c",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "stream_endpoint",
+          "contract_sha256": "bae087e03577bbe94eb67d028d061ecf87ca9fd99c92cf63857aea417a21b035",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "list_space_windows",
+          "contract_sha256": "d69edf6d5432e2ff9c4fa900ef6c4219675e4dd499353729d34d556a01136712",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "stream_space_window",
+          "contract_sha256": "f58e9c07353aba573ac25eb30abe8dc27d4ef0508c3b47b284caa6c20ce93f9c",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "show_space_pip",
+          "contract_sha256": "d1152fea4626368be60ab9820aa8817fdb44bd9e72f99fa0f1c05f33d1af5274",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "hide_space_pip",
+          "contract_sha256": "a70eb63ab45994869d202e36177e05c1f92393c9690ee6fef8821a6bea458c9c",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "open_space_viewer",
+          "contract_sha256": "ecbcfaeb3c48e94a1a66a6dc76cb2bd73eb8722e00994d24889ab1e228e29498",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "list_tools",
+          "contract_sha256": "05878f371a8795b2502e6a24d4133fea9dc2f1fd6c543e10ecfd090ca8c5638e",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "call_tool",
+          "contract_sha256": "363e7c9899a00d1025a8675cbc9152fc3af8ce7d922769b3eb920a8d0e9d0263",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "agent_start",
+          "contract_sha256": "bcda0e7764b05bf2884c12a8e9266b40e9d441aafff99463e12609aef26f7991",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "agent_message",
+          "contract_sha256": "200673018e011d25993563fbfeb94eeeb7961dfb41088fc35317b6fd13057112",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "agent_events",
+          "contract_sha256": "5b2127b10743f3c2bbae8e4656abd26473772ad1be5834dbfc09feb2d49e9841",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "agent_status",
+          "contract_sha256": "0f8dcf5af8b3b4eff9498f28dcb4bcec62bd1395662f2a279fbfac63b3a52801",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "agent_interrupt",
+          "contract_sha256": "f794e5767531476050044daf9b239b3f4f8a4971ef1449df1f6c4db0e3dbbb03",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "agent_stop",
+          "contract_sha256": "c06bab91be1f9d980fb69018c0dbd7afe06a11b1042deaf79356fe6d74c4e233",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "agent_list",
+          "contract_sha256": "c4f4bd02d2bfab28de8256c308d63921fe21818d4173ecb3fd43d23e88027b40",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "agent_capabilities",
+          "contract_sha256": "6f64f3702f1ac603080f90c0751e99267ee60ad44ef0cee87944f9b5999abaab",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "persistent_agent_create",
+          "contract_sha256": "1097f4c5e20bd287dd12accc2b453f59c4aa547f76c5f76c7d6dfc4382265025",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "persistent_agent_list",
+          "contract_sha256": "dc37e1caf67ae3cb6a11fc03a1acf1df3e8460fb5c5bdf7fb4ffc84e8229b6d0",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "persistent_agent_remove",
+          "contract_sha256": "5b7d2791161c16ba5f2395cd37f1e0d1f332edad0613e46cbb11ce0abd0c214b",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "persistent_agent_send",
+          "contract_sha256": "bbaa50a776882464fd6b90a50bf27a76fc04bde87608f032e49dd951ee93ce8b",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "persistent_agent_save",
+          "contract_sha256": "3a96276ef59c4c8fd088dfd9716d230b5d38deeda9e9c238cdb3b8ff5059adc0",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "agent_pause",
+          "contract_sha256": "413e87156d7ead9e954c36d37c3decd34706d73c91beb5533789379b73875259",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "agent_resume",
+          "contract_sha256": "0492c905cb00c490516eabbb44210a43eb8dd3906f577e3a61253f17472fbd35",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "routine_add",
+          "contract_sha256": "a84abb5c65277beea1a57869cf36bc65d32c6c820102c765944a271fb4285e53",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "routine_list",
+          "contract_sha256": "cc8506b5e1ad4271ae58e2b1dc0ebece40c1ae1a507bc7118141151d59266499",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "routine_remove",
+          "contract_sha256": "16483331c7b43196207094bac013990e21fd03abc7b39d93f93c2300f3918a91",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "routine_set_enabled",
+          "contract_sha256": "7ac730ddf2a4be7ece811c8a91989e8b1e73217667b8c92fa2b84739dc6d99c2",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "notify_user",
+          "contract_sha256": "eb96eee3185b4ece3a67c7dd8eb8eeeb20136633f9ec601155c5bd0c3989beb8",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "notifications_list",
+          "contract_sha256": "01a669d4c559fc1b1e88ca30a0ba35e490aa7ab4ddd461c8e3037454ea1073ad",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "notifications_ack",
+          "contract_sha256": "f276582664d91647197d46ad916bad4f9a90f07939909d928cc1415ba434e539",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "computer_access_grant",
+          "contract_sha256": "ee1852de8f151132df6d7e9d4d2ebeeca5177c8d3fed6aa707c5ff18ddcd8281",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "computer_access_revoke",
+          "contract_sha256": "62f54d0bac3c5b119ada31fdb91eb97fdeb244830dc24c4fe8a68b57d25ea233",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "computer_access_list",
+          "contract_sha256": "d7347eb36178bd5215b025c44d4062e967f64947ef832bda9187e8bb28eed338",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "teleport_manifest",
+          "contract_sha256": "7100ae6f0ec75d8e5988f55eadbe52bbd5252982442cfd5735d6224c36865172",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "teleport_app",
+          "contract_sha256": "842480388a72b513cca1166d908522ef0570143a992e09c5f3305bb284dbdc6d",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "request_site_login",
+          "contract_sha256": "d8f0e10af7020df50a01fd16d804dc40959275bd4adcd20667552a93cacb7e54",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "hotspot_start",
+          "contract_sha256": "231c8465ef96beda21d2aa9f104919eee1e2d21aca9288e68af469bc7834e1e6",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "hotspot_stop",
+          "contract_sha256": "3329e0c7948137c27d1f49f87f740517684915e1f0c1b33bc8eaa9768b55d320",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "hotspot_status",
+          "contract_sha256": "5c631398887e5e408715441dc6f8dc441c5f27a0b8d11b7f44ac4dc7d2fd67e2",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_ls",
+          "contract_sha256": "058aecd3e6d39ab371880a4a57ab505bbe41bcb5aaadf161c0b7d1c1c8324974",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_read",
+          "contract_sha256": "7cbe87ffc9a4eda210ae15d005a9722a440c674fcce019603aecfeae0105cc69",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_write",
+          "contract_sha256": "3b9e14f97b3df07e02d10f6ade2a8405dc8b7e0a708e5b3738e496aa97fa1c8d",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_delete",
+          "contract_sha256": "78e3dc1f14b2c71e5f3a2d7b43a32604f42c5a6950bc5e17404c8f619df808a3",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_history",
+          "contract_sha256": "171686b1af3f675f54f35a41752248083bef0e128f19680fb33d852a4bd2aede",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_restore",
+          "contract_sha256": "d822527412b20ddf1a77909ae7dafc39380dc53ebc34bfd04fc18692b9b86ef1",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_grant",
+          "contract_sha256": "ff94574ec64f8d5dad5e8a3cde8d972dbe42ad14f3a0016b4f1b5d126643fd74",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_revoke",
+          "contract_sha256": "0fa6d45e25a26963642bc108b627eab012caf4d77738882ea1e5bf428e1a42c9",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_grants",
+          "contract_sha256": "d584e8690c10fae0b5f875d8d63a1f37f0bacfeaf80616646f84d93d6997c0b6",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_request_access",
+          "contract_sha256": "9bfe1707ca09ef62be49dcee36866a0fa90aff2c1d763e321cc47d62921bfeff",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_requests",
+          "contract_sha256": "031b3e7f8834eb483324294b9e197eae9c382baa3e3194a7e82b479e3e4377f1",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_approve",
+          "contract_sha256": "5887bf9c62e937946d8b5ef8b2309d968efb2a11ca410038aa37f53c1d01f21f",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_deny",
+          "contract_sha256": "c5a23e536b03d3139a678797fec6347ae3bd2f48742fa61c22d91e70027294a0",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_audit",
+          "contract_sha256": "8e15a8c6c04be5ab6023f28c1a0d564c3f2dfee0dbaa952a9a48eb83bb13f61e",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_storage",
+          "contract_sha256": "d10e4a5d891b75def64afbed2aed7de131ec672548de089d80d7e92f829b3967",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_storage_set",
+          "contract_sha256": "ddfdffeb6dfc5e30677524ce9faba533ea9a1e7f9161f433aaffb7958b34d43e",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_mount_status",
+          "contract_sha256": "58e306e0757cdef86ff27f0df4fbc745884a1d6a98353f95fcb061ae786bb9f2",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_mount",
+          "contract_sha256": "73d6407ed9190f2b6519c6e3ede0b344a9037c30fad71d594958b3a6b59997dc",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_unmount",
+          "contract_sha256": "8aaccbf76b80f1b2ef12f2c98abd5b4b729efd816a16da0e92fb31735393b3dc",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_sync_status",
+          "contract_sha256": "422258fb9c16f27d35bfc762141b94f2f6bd5b59bb35d9294a0dd1a831adc395",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_sync_events",
+          "contract_sha256": "b0a5dc02b19d181c29bfbc22da9425973d3d37abdf91d9a668c99a436f9a5e47",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_sync_resolve",
+          "contract_sha256": "3fc54f02524f82ee7e3a64cca4e12ef5f9575f3fee59152137deeb52e79f0c02",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_cache_stats",
+          "contract_sha256": "84e84e62884c82a254a800ac439a817a7615f2b6f5173d337651bef1503b43b2",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_cache_set",
+          "contract_sha256": "a35bd91e045b0200de4c0c9727e29b5afa907dc186d23a58555dd3d611b4b677",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "volume_cache_clear",
+          "contract_sha256": "83f871c6ff6d504245a05e639d99eb87be0738812a88a154fff6ffe1dec3ea05",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "share_space",
+          "contract_sha256": "86303ce51f028ab038b704fa55da18138132d8210a092154fc9beff3c0b5408d",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "unshare_space",
+          "contract_sha256": "e47be6317234a24036fe72813de9ac79d0a001de29623f16b2eee6d78ccf13dd",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "space_shares",
+          "contract_sha256": "95910bf71bf01e0af2d0bb25859b22a6df2f0e2f809902a6551f3ef30f798aa4",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "relay_register_space",
+          "contract_sha256": "23bf9bad405b85f25e26d17681ec52eb60d3b1c412f05a37b54a7c42abc6ec3b",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "relay_unregister_space",
+          "contract_sha256": "8340062c80d2559cac1d62af8769360985ec64b31edf3e5312938b1ae91439f8",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "cloud_status",
+          "contract_sha256": "b52710db8d61e32436fa5207d8b38374107da3ba2fcbf511cb19e39d793719c8",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "cloud_connect",
+          "contract_sha256": "e19324ff2419bb1fc4e163494667dff39f40d3428db516f838bb00d5ec2a4926",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "cloud_test",
+          "contract_sha256": "98ea7873be1b98a7d078935bd8578c729f649422ccd67574ad35aaf6296cec53",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "cloud_disconnect",
+          "contract_sha256": "899c09ab723009d0b007a5f7c23ca2fed06a1849e4a07fae919d34e39761c99f",
+          "status": "unverified",
+          "evidence": []
+        },
+        {
+          "name": "cloud_sweep",
+          "contract_sha256": "318ed1cc69e7fdce7c91b80ca08d85a00d82a25a7112ee46d2e85a9fc79eb59a",
+          "status": "unverified",
+          "evidence": []
+        }
+      ]
+    }
+  ]
+}

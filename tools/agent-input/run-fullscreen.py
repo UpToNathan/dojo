@@ -42,7 +42,7 @@ def main():
                 time.sleep(0.5)
 
             toggle()
-            baseline = screenshot(query, str(directory / "fullscreen-baseline.png"))
+            baseline = screenshot(query, str(directory / "fullscreen-baseline.png"), show_pointer=False)
             toggle()
             shell = subprocess.Popen([shell_binary, "--enable"], env=shell_env, stdout=shell_log, stderr=shell_log)
 
@@ -54,7 +54,7 @@ def main():
             wait_for(frame_mapped, "nested shell frame")
             time.sleep(0.5)
             toggle()
-            fullscreen = screenshot(query, str(directory / "fullscreen-with-shell.png"))
+            fullscreen = screenshot(query, str(directory / "fullscreen-with-shell.png"), show_pointer=False)
             output = next(iter(query.request("Outputs")["Outputs"].values()))
             width, height = output["logical"]["width"], output["logical"]["height"]
             scale = output["logical"]["scale"]
@@ -62,7 +62,7 @@ def main():
                       (width - 8, height / 2), (8, height - 8), (width / 2, height - 8), (width - 8, height - 8)]
             covered = [changed_pixels(baseline, fullscreen, x, y, scale) for x, y in points]
             toggle()
-            restored = screenshot(query, str(directory / "frame-restored.png"))
+            restored = screenshot(query, str(directory / "frame-restored.png"), show_pointer=False)
             agent = Peer(os.environ["NIRI_SOCKET"])
             agent.agent({"Create": {"name": "frame-pass-through"}})
             agent.agent({"Focus": {"window_id": target}})

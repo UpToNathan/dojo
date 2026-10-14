@@ -1,0 +1,25 @@
+[package]
+name = "dojo-cua-primitives"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "Pinned CUA capture, image, coordinate, coverage and CDP primitives"
+
+# Independent extraction; may be used as a path dependency without becoming a
+# member of Dojo's workspace. Root integration is owned separately.
+[workspace]
+
+[dependencies]
+anyhow = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Preserve upstream's decoder compatibility constraint even without its lock.
+zune-core = "=0.5.1"
+serde_json = "1"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+thiserror = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+tracing = "0.1"

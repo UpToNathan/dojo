@@ -563,12 +563,16 @@ impl Platform for TestPlatform {
             Some(factory) => factory()?,
             None => None,
         };
+        let display = params
+            .display_id
+            .and_then(|id| self.displays().into_iter().find(|display| display.id() == id))
+            .or_else(|| self.primary_display())
+            .unwrap_or_else(|| Rc::new(TestDisplay::new()));
         let window = TestWindow::new(
             handle,
             params,
             self.weak.clone(),
-            self.primary_display()
-                .unwrap_or_else(|| Rc::new(TestDisplay::new())),
+            display,
             renderer,
         );
         Ok(Box::new(window))

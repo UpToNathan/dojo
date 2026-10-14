@@ -1,0 +1,163 @@
+import http from "node:http"
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { Effect, Schema } from "effect"
+import * as BrowserControlClient from "../src/browser-control-client.ts"
+import { AuthenticatedJsonOutcome } from "../src/relay-schema.ts"
+import { browserControlBuildId, browserControlVersion } from "../src/version.ts"
+
+let server: http.Server
+let endpoint: string
+let authenticatedOutcome: unknown
+let extensionFailuresRemaining = 0
+let extensionChecks = 0
+
+const session = {
+  id: "x-live-chat-auth",
+  createdAt: "2026-07-19T00:00:00.000Z",
+  updatedAt: "2026-07-19T00:00:00.000Z",
+  connected: true,
+  pageUrl: "https://studio.x.com/live",
+  stateKeys: [],
+}
+
+beforeAll(async () => {
+  server = http.createServer((request, response) => {
+    const path = new URL(request.url ?? "/", "http://localhost").pathname
+    response.setHeader("content-type", "application/json")
+    if (path === "/version") {
+      response.end(JSON.stringify({ version: browserControlVersion, buildId: browserControlBuildId }))
+      return
+    }
+    if (path === "/extension/status") {
+      extensionChecks += 1
+      const connected = extensionFailuresRemaining === 0
+      extensionFailuresRemaining = Math.max(0, extensionFailuresRemaining - 1)
+      response.end(JSON.stringify({ connected, version: "test", activeTargets: connected ? 1 : 0 }))
+      return
+    }
+    const chunks: Buffer[] = []
+    request.on("data", (chunk: Buffer) => chunks.push(chunk))
+    request.on("end", () => {
+      if (path === "/v1/sessions/ensure") {
+        response.end(JSON.stringify({ session }))
+        return
+      }
+      if (path === "/cli/session/reset") {
+        response.end(JSON.stringify({ session }))
+        return
+      }
+      if (path === "/v1/authenticated-origin/json") {
+        response.end(JSON.stringify(authenticatedOutcome))
+        return
+      }
+      response.writeHead(404)
+      response.end(JSON.stringify({ error: "not found" }))
+    })
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  const address = server.address()
+  if (!address || typeof address === "string") throw new Error("Expected test server address")
+  endpoint = `http://127.0.0.1:${address.port}`
+})
+
+afterAll(async () => {
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+})
+
+beforeEach(() => {
+  extensionFailuresRemaining = 0
+  extensionChecks = 0
+})
+
+const makeOrigin = Effect.gen(function* () {
+  const client = yield* BrowserControlClient.make({ endpoint })
+  const liveSession = yield* client.ensureSession({ id: session.id })
+  return yield* liveSession.authenticatedOrigin({
+    origin: "https://studio.x.com",
+    startUrl: "/live",
+  })
+})
+
+describe("BrowserControlClient", () => {
+  it("waits through a transient extension reconnect on an existing relay", async () => {
+    extensionFailuresRemaining = 2
+    await Effect.runPromise(BrowserControlClient.make({ endpoint }))
+    expect(extensionChecks).toBe(3)
+  })
+
+  it("resets a named session", async () => {
+    const result = await Effect.runPromise(Effect.gen(function* () {
+      const client = yield* BrowserControlClient.make({ endpoint })
+      return yield* client.resetSession(session.id)
+    }))
+    expect(result.id).toBe(session.id)
+    expect(result.summary).toEqual(session)
+  })
+
+  it("schema-decodes authenticated JSON responses", async () => {
+    authenticatedOutcome = AuthenticatedJsonOutcome.cases.Success.make({ status: 200, value: { rows: [{ id: "1" }] } })
+    const result = await Effect.runPromise(Effect.gen(function* () {
+      const origin = yield* makeOrigin
+      return yield* origin.json({
+        path: "/api/live/get-broadcasts?limit=1000",
+        response: Schema.Struct({ rows: Schema.Array(Schema.Struct({ id: Schema.String })) }),
+      })
+    }))
+    expect(result).toEqual({ rows: [{ id: "1" }] })
+  })
+
+  it("returns sensitive values as Redacted and redacts schema failures", async () => {
+    const token = "distinctive-secret-chat-token"
+    authenticatedOutcome = AuthenticatedJsonOutcome.cases.Success.make({ status: 200, value: { accessToken: token } })
+    const redacted = await Effect.runPromise(Effect.gen(function* () {
+      const origin = yield* makeOrigin
+      return yield* origin.json({
+        path: "/api/live/get-chat-session",
+        method: "POST",
+        body: { broadcastId: "1" },
+        response: Schema.Struct({ accessToken: Schema.String }),
+        sensitive: true,
+      })
+    }))
+    expect(String(redacted)).not.toContain(token)
+    expect(BrowserControlClient.reveal(redacted)).toEqual({ accessToken: token })
+
+    authenticatedOutcome = AuthenticatedJsonOutcome.cases.Success.make({ status: 200, value: { accessToken: token } })
+    const error = await Effect.runPromise(Effect.gen(function* () {
+      const origin = yield* makeOrigin
+      return yield* origin.json({
+        path: "/api/live/get-chat-session",
+        response: Schema.Struct({ accessToken: Schema.Number }),
+        sensitive: true,
+      })
+    }).pipe(Effect.flip))
+    expect(error.message).not.toContain(token)
+    expect(String(error)).not.toContain(token)
+  })
+
+  it("reports mutating transport ambiguity as an unknown outcome", async () => {
+    authenticatedOutcome = AuthenticatedJsonOutcome.cases.RequestFailed.make({ outcome: "unknown" })
+    const error = await Effect.runPromise(Effect.gen(function* () {
+      const origin = yield* makeOrigin
+      return yield* origin.json({
+        path: "/api/live/go-live",
+        method: "POST",
+        body: { title: "Private stream" },
+        response: Schema.Unknown,
+      })
+    }).pipe(Effect.flip))
+    expect(error).toBeInstanceOf(BrowserControlClient.RequestOutcomeUnknown)
+  })
+
+  it("provides direct Promise-based origin.get and origin.post with default headers", async () => {
+    authenticatedOutcome = AuthenticatedJsonOutcome.cases.Success.make({ status: 200, value: { added: "Purple Magic" } })
+    const client = BrowserControlClient.origin("https://www.ubereats.com", {
+      session: session.id,
+      endpoint,
+      headers: { "x-csrf-token": "x" },
+      handoffOnAuthFailure: true,
+    })
+    const result = await client.post("/_p/api/createDraftOrderV2", { item: "Purple Magic" })
+    expect(result).toEqual({ added: "Purple Magic" })
+  })
+})
