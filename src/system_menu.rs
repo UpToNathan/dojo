@@ -11,15 +11,23 @@ use crate::config::ThemeColors;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PowerAction {
     Suspend,
+    Hibernate,
     Logout,
     Reboot,
     PowerOff,
 }
 impl PowerAction {
-    const ALL: [Self; 4] = [Self::Suspend, Self::Logout, Self::Reboot, Self::PowerOff];
+    const ALL: [Self; 5] = [
+        Self::Suspend,
+        Self::Hibernate,
+        Self::Logout,
+        Self::Reboot,
+        Self::PowerOff,
+    ];
     fn label(self) -> &'static str {
         match self {
             Self::Suspend => "Suspend",
+            Self::Hibernate => "Hibernate",
             Self::Logout => "Log out",
             Self::Reboot => "Restart",
             Self::PowerOff => "Shut down",
@@ -28,6 +36,7 @@ impl PowerAction {
     fn confirmation(self) -> Option<&'static str> {
         match self {
             Self::Suspend => None,
+            Self::Hibernate => Some("Hibernate this computer?"),
             Self::Logout => Some("Log out of this session?"),
             Self::Reboot => Some("Restart this computer?"),
             Self::PowerOff => Some("Shut down this computer?"),
@@ -36,6 +45,7 @@ impl PowerAction {
     fn method(self) -> Option<&'static str> {
         match self {
             Self::Suspend => Some("Suspend"),
+            Self::Hibernate => Some("Hibernate"),
             Self::Logout => None,
             Self::Reboot => Some("Reboot"),
             Self::PowerOff => Some("PowerOff"),
@@ -44,6 +54,7 @@ impl PowerAction {
     fn capability(self) -> Option<&'static str> {
         match self {
             Self::Suspend => Some("CanSuspend"),
+            Self::Hibernate => Some("CanHibernate"),
             Self::Logout => None,
             Self::Reboot => Some("CanReboot"),
             Self::PowerOff => Some("CanPowerOff"),
@@ -147,7 +158,7 @@ pub fn toggle(display_id: DisplayId, cx: &mut App) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn read_capabilities() -> anyhow::Result<[bool; 4]> {
+fn read_capabilities() -> anyhow::Result<[bool; 5]> {
     let connection = zbus::blocking::connection::Builder::system()?
         .method_timeout(Duration::from_secs(5))
         .build()?;
@@ -157,7 +168,7 @@ fn read_capabilities() -> anyhow::Result<[bool; 4]> {
         "/org/freedesktop/login1",
         "org.freedesktop.login1.Manager",
     )?;
-    let mut capabilities = [false; 4];
+    let mut capabilities = [false; 5];
     for (index, action) in PowerAction::ALL.iter().enumerate() {
         capabilities[index] = match action.capability() {
             Some(method) => {
@@ -201,7 +212,7 @@ fn execute(action: PowerAction) -> anyhow::Result<()> {
 
 struct Menu {
     focus: FocusHandle,
-    capabilities: Option<[bool; 4]>,
+    capabilities: Option<[bool; 5]>,
     phase: Phase,
     selected: usize,
     reveal: dojo::design::MenuReveal,
@@ -270,7 +281,16 @@ impl Render for Menu {
             window.remove_window();
         }
         let width = 264_f32.min((f32::from(viewport.width) - 24.).max(100.));
-        let height = 292_f32.min((f32::from(viewport.height) - 80.).max(80.));
+        let action_count = PowerAction::ALL.len() as f32;
+        let padding = 18.;
+        let gap = 8.;
+        let row_padding = 8.;
+        let action_line_height = 20.;
+        let title_line_height = 24.;
+        let content_height = padding * 2.
+            + title_line_height
+            + (gap + row_padding * 2. + action_line_height) * action_count;
+        let height = content_height.min((f32::from(viewport.height) - 80.).max(80.));
         let right = crate::geometry::RIGHT_INSET as f32;
         let bottom = crate::geometry::BOTTOM_INSET as f32;
         let bounds = Bounds::new(
@@ -283,10 +303,16 @@ impl Render for Menu {
         let mut content = div()
             .flex()
             .flex_col()
-            .gap(px(8.))
-            .p(px(18.))
+            .gap(px(gap))
+            .p(px(padding))
             .text_size(px(13.))
-            .child(div().text_size(px(16.)).child("Power"));
+            .line_height(px(action_line_height))
+            .child(
+                div()
+                    .text_size(px(16.))
+                    .line_height(px(title_line_height))
+                    .child("Power"),
+            );
         match self.phase {
             Phase::Choosing => {
                 for (index, action) in PowerAction::ALL.iter().copied().enumerate() {
@@ -298,7 +324,7 @@ impl Render for Menu {
                             .id(format!("power-action-{index}"))
                             .aria_label(action.label())
                             .px(px(12.))
-                            .py(px(8.))
+                            .py(px(row_padding))
                             .rounded(px(10.))
                             .bg(if self.selected == index {
                                 colors.background_highlight.rgb()
@@ -306,7 +332,11 @@ impl Render for Menu {
                                 colors.background.rgb()
                             })
                             .text_color(if available {
-                                colors.foreground.rgb()
+                                if self.selected == index {
+                                    colors.selection_foreground.rgb()
+                                } else {
+                                    colors.foreground.rgb()
+                                }
                             } else {
                                 colors.foreground_muted.rgb()
                             })
@@ -343,6 +373,7 @@ impl Render for Menu {
                             .py(px(10.))
                             .rounded(px(10.))
                             .bg(colors.background_highlight.rgb())
+                            .text_color(colors.selection_foreground.rgb())
                             .cursor_pointer()
                             .child(action.label())
                             .on_mouse_down(

@@ -14,7 +14,7 @@ agent unless actual profile behavior requires one. This keeps passwords out of
 process arguments while avoiding a second asynchronous prompt lifecycle.
 
 The user selected power actions only. The system menu therefore contains
-Suspend, Log out, Restart and Shut down, with no settings shortcuts. Power
+Suspend, Hibernate, Log out, Restart and Shut down, with no settings shortcuts. Power
 capabilities come from logind; logout uses Niri IPC. The existing host has no
 screen locker, so this scope does not add a nonfunctional Lock command.
 

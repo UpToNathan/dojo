@@ -9,11 +9,6 @@ inputs:
     inputs:
       nixpkgs:
         follows: nixpkgs
-  delta:
-    url: github:zed-industries/delta-nix/6aa23dbf48a75e77e50e5a9e9856cd2e24471a88
-    inputs:
-      nixpkgs:
-        follows: nixpkgs
   bend:
     url: github:bendlang/bend/60fa05dc28f847382554dae6ee76cd1b2911bcc3
     inputs:

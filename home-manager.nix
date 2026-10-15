@@ -86,8 +86,6 @@ in
         brightnessctl
         wlsunset
         pkgs.git
-        pkgs.zed-editor
-        inputs.delta.packages.${pkgs.stdenv.hostPlatform.system}.delta
         pkgs.openssh
         pkgs.neovim
         pkgs.cargo

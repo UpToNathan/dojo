@@ -15,8 +15,8 @@ use super::store::{read_json_optional, write_atomic};
 use super::{Appearance, Selection, ThemeStore};
 
 pub const TARGETS: &[&str] = &[
-    "dojo", "niri", "kitty", "ghostty", "nvim", "opencode", "pi", "t3code", "zed", "yazi", "zen",
-    "helium", "gtk", "qt", "delta",
+    "dojo", "niri", "kitty", "ghostty", "nvim", "opencode", "pi", "t3code", "yazi", "zen",
+    "helium", "gtk", "qt",
 ];
 
 #[derive(Debug, Serialize)]
@@ -240,79 +240,6 @@ fn patch_json_settings(path: &Path, updates: serde_json::Value) -> anyhow::Resul
     write_atomic(path, &serde_json::to_vec_pretty(&value)?)
 }
 
-fn merge_theme_values(current: &mut serde_json::Value, generated: &serde_json::Value) {
-    if let (Some(current), Some(generated)) = (current.as_object_mut(), generated.as_object()) {
-        for (key, value) in generated {
-            merge_theme_values(
-                current
-                    .entry(key.clone())
-                    .or_insert(serde_json::Value::Null),
-                value,
-            );
-        }
-    } else {
-        *current = generated.clone();
-    }
-}
-
-fn patch_zed_settings(
-    store: &ThemeStore,
-    selection: &Selection,
-    outputs: &BTreeMap<String, Vec<u8>>,
-) -> anyhow::Result<()> {
-    let path = store.paths.config.join("zed/settings.json");
-    if let Ok(info) = fs::symlink_metadata(&path) {
-        anyhow::ensure!(
-            info.is_file() && !info.file_type().is_symlink(),
-            "{} is declaratively managed or non-regular",
-            path.display()
-        );
-    }
-    let mut settings: serde_json::Value =
-        read_json_optional(&path)?.unwrap_or_else(|| serde_json::json!({}));
-    let object = settings
-        .as_object_mut()
-        .context("Zed settings must be a JSON object; JSONC requires deliberate integration")?;
-    let overrides = object
-        .entry("theme_overrides")
-        .or_insert(serde_json::json!({}));
-    let old: Option<serde_json::Value> =
-        read_json_optional(&store.paths.root.join("current/zed-overrides.json"))?;
-    // Migrate only our previous flat output, never an arbitrary user's overrides.
-    if old.as_ref() == Some(&*overrides) {
-        *overrides = serde_json::json!({});
-    }
-    let named = overrides
-        .as_object_mut()
-        .context("Zed theme_overrides must be an object")?;
-    anyhow::ensure!(
-        named.values().all(serde_json::Value::is_object),
-        "legacy flat Zed overrides are not unchanged Dojo output; preserve and migrate them manually"
-    );
-    let family: serde_json::Value = serde_json::from_slice(&outputs["zed.json"])?;
-    for theme in family["themes"]
-        .as_array()
-        .context("Zed theme family missing")?
-    {
-        let name = theme["name"].as_str().context("Zed theme name missing")?;
-        merge_theme_values(
-            named
-                .entry(name.to_string())
-                .or_insert(serde_json::json!({})),
-            &theme["style"],
-        );
-    }
-    object.insert(
-        "theme".into(),
-        serde_json::json!(if selection.appearance == Appearance::Dark {
-            "Dojo Dark"
-        } else {
-            "Dojo Light"
-        }),
-    );
-    write_atomic(&path, &serde_json::to_vec_pretty(&settings)?)
-}
-
 pub fn apply(store: &ThemeStore, selection: Selection) -> anyhow::Result<ApplyReport> {
     let _lock = store.lock()?;
     apply_locked(store, selection)
@@ -484,13 +411,6 @@ fn publish_target(
             let root=std::env::var_os("T3CODE_HOME").map(PathBuf::from).unwrap_or_else(||paths.home.join(".t3"));
             publish_t3_theme(&paths.home,&root,outputs.get("t3code.json").context("missing T3 exporter")?,registry)
         },
-        "zed"=>{
-            put("zed.json",&paths.config.join("zed/themes/dojo.json"),registry)?;
-            patch_zed_settings(store,selection,outputs)?;
-            let running=!application_instances("zed-editor")?.is_empty()||!application_instances("zed")?.is_empty();
-            Ok((if running {"reload_requested"} else {"ready"},"theme-name-keyed overrides published; Zed observes settings changes and refreshes windows without restart".into()))
-        },
-        "delta"=>Ok(("unsupported","Zed Delta uses synced account settings and an encrypted local cache. No verified external custom-palette/live-reload interface is available; its cache/database are never modified.".into())),
         "yazi"=>{
             let root=paths.config.join("yazi/flavors/dojo.yazi");
             put("yazi.toml",&root.join("flavor.toml"),registry)?;
@@ -618,133 +538,6 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn zed_live_overrides_are_named_and_preserve_unrelated_settings() -> anyhow::Result<()> {
-        let root = std::env::temp_dir().join(format!(
-            "dojo-zed-overrides-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)?
-                .as_nanos()
-        ));
-        let store = ThemeStore::new(super::super::Paths {
-            home: root.clone(),
-            config: root.join("config"),
-            data: root.join("data"),
-            root: root.join("themes"),
-        });
-        let settings = store.paths.config.join("zed/settings.json");
-        fs::create_dir_all(settings.parent().context("settings directory")?)?;
-        let other = serde_json::json!({"editor.background":"#112233"});
-        write_atomic(
-            &settings,
-            &serde_json::to_vec(
-                &serde_json::json!({"ui_font_size":16,"theme_overrides":{"Other Theme":other,"Dojo Dark":{"syntax":{"number":{"font_style":"italic","color":"#112233"}}}}}),
-            )?,
-        )?;
-        let catalog = super::super::presets()?;
-        let preset = catalog
-            .iter()
-            .find(|preset| preset.id == "tokyo-night-night")
-            .context("Night")?;
-        let theme = super::super::Theme::from_preset(preset, &store)?;
-        let generation = store.generate(&theme)?;
-        let report = apply(
-            &store,
-            Selection {
-                generation,
-                appearance: Appearance::Dark,
-                follow_system: false,
-                targets: vec!["zed".into()],
-            },
-        )?;
-        assert!(matches!(
-            report.targets[0].status.as_str(),
-            "reload_requested" | "ready"
-        ));
-        let actual: serde_json::Value = serde_json::from_slice(&fs::read(&settings)?)?;
-        assert_eq!(actual["ui_font_size"], 16);
-        assert_eq!(actual["theme_overrides"]["Other Theme"], other);
-        assert_eq!(
-            actual["theme_overrides"]["Dojo Dark"]["editor.background"],
-            "#1a1b26"
-        );
-        assert_eq!(
-            actual["theme_overrides"]["Dojo Dark"]["syntax"]["number"]["color"],
-            "#ff9e64"
-        );
-        assert_eq!(
-            actual["theme_overrides"]["Dojo Dark"]["syntax"]["number"]["font_style"],
-            "italic"
-        );
-        fs::remove_dir_all(root)?;
-        Ok(())
-    }
-
-    #[test]
-    fn only_unchanged_dojo_flat_zed_overrides_are_migrated() -> anyhow::Result<()> {
-        let root = std::env::temp_dir().join(format!(
-            "dojo-zed-migration-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)?
-                .as_nanos()
-        ));
-        let store = ThemeStore::new(super::super::Paths {
-            home: root.clone(),
-            config: root.join("config"),
-            data: root.join("data"),
-            root: root.join("themes"),
-        });
-        let catalog = super::super::presets()?;
-        let theme = super::super::Theme::from_preset(&catalog[0], &store)?;
-        let generation = store.generate(&theme)?;
-        store.commit(&Selection {
-            generation: generation.clone(),
-            appearance: Appearance::Light,
-            follow_system: false,
-            targets: vec!["dojo".into()],
-        })?;
-        let flat: serde_json::Value =
-            serde_json::from_slice(&theme.outputs(Appearance::Light)?["zed-overrides.json"])?;
-        let settings = store.paths.config.join("zed/settings.json");
-        fs::create_dir_all(settings.parent().context("settings directory")?)?;
-        write_atomic(
-            &settings,
-            &serde_json::to_vec(&serde_json::json!({"theme_overrides":flat}))?,
-        )?;
-        let report = apply(
-            &store,
-            Selection {
-                generation: generation.clone(),
-                appearance: Appearance::Light,
-                follow_system: false,
-                targets: vec!["zed".into()],
-            },
-        )?;
-        assert!(matches!(
-            report.targets[0].status.as_str(),
-            "reload_requested" | "ready"
-        ));
-        let updated: serde_json::Value = serde_json::from_slice(&fs::read(&settings)?)?;
-        assert!(updated["theme_overrides"]["Dojo Light"].is_object());
-        let user = serde_json::json!({"theme_overrides":{"editor.background":"#123456"}});
-        write_atomic(&settings, &serde_json::to_vec(&user)?)?;
-        let report = apply(
-            &store,
-            Selection {
-                generation,
-                appearance: Appearance::Light,
-                follow_system: false,
-                targets: vec!["zed".into()],
-            },
-        )?;
-        assert_eq!(report.targets[0].status, "blocked");
-        assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&fs::read(&settings)?)?,
-            user
-        );
-        fs::remove_dir_all(root)?;
-        Ok(())
-    }
     #[test]
     fn reload_identifies_nix_wrapped_executables_without_comm_truncation() {
         assert_eq!(

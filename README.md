@@ -158,7 +158,7 @@ colors fitted into semantic hue ranges. Run `dojo-theme --help`; see `docs/theme
 Home Manager setup, live-update contracts and rollback.
 
 GNOME Keyring's Secret Service component is started with the graphical session
-for applications such as Zed and Delta. They discover `org.freedesktop.secrets`
+for desktop applications. They discover `org.freedesktop.secrets`
 on the user session bus; no extra secrets-provider CLI argument is required.
 Starting the daemon does not bypass keyring locking or unlock prompts.
 GCR's SystemPrompter and PrivatePrompter D-Bus activation files are also

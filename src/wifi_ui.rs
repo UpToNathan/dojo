@@ -342,7 +342,7 @@ impl Dock {
             .justify_between()
             .gap(px(8.))
             .bg(if network.connected {
-                colors.background_highlight.rgb()
+                colors.surface_raised.rgb()
             } else {
                 colors.background.rgb()
             })
@@ -571,7 +571,7 @@ impl Render for Dock {
                     .w_full()
                     .p(px(9.))
                     .rounded(px(10.))
-                    .bg(colors.background_highlight.rgb())
+                    .bg(colors.surface_raised.rgb())
                     .text_size(px(11.))
                     .text_color(colors.foreground.rgb())
                     .child(error.clone()),
@@ -590,7 +590,7 @@ impl Render for Dock {
                     .w_full()
                     .p(px(12.))
                     .rounded(px(12.))
-                    .bg(colors.background_highlight.rgb())
+                    .bg(colors.surface_raised.rgb())
                     .flex()
                     .flex_col()
                     .gap(px(8.))

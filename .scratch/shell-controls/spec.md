@@ -8,7 +8,8 @@ Add a native system menu trigger in the bottom-right corner. It offers session
 and power actions only, without settings shortcuts. The trigger's render bounds
 also define its input region. Power/session failures remain visible. Destructive
 session actions require an in-menu confirmation. The menu contains Suspend,
-Log out, Restart and Shut down. Power actions delegate to the session/system services.
+Hibernate, Log out, Restart and Shut down. Hibernate requires its own confirmation.
+Power actions delegate to the session/system services.
 
 Add a Wi-Fi control immediately left of Bluetooth. Its native panel shows
 NetworkManager's radio state, current connection, nearby networks and signal,

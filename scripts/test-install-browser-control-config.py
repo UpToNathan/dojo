@@ -24,17 +24,17 @@ class ConfigurationTests(unittest.TestCase):
             zed.parent.mkdir(parents=True)
             zed.write_text('{"theme":"Dojo"}')
             command = "/nix/store/example/bin/browser-control-mcp"
-            self.assertEqual(installer.install(home, command, {}), ["Codex", "Claude Code", "Zed"])
+            self.assertEqual(installer.install(home, command, {}), ["Codex", "Claude Code"])
             self.assertIn(source.strip(), codex.read_text())
             self.assertEqual(tomllib.loads(codex.read_text())["mcp_servers"]["browser_control"]["command"], command)
             self.assertEqual(json.loads(claude.read_text())["preferences"], {"theme": "dark"})
             self.assertEqual(json.loads(claude.read_text())["mcpServers"]["other"], {"command": "other"})
             self.assertEqual(json.loads(zed.read_text())["theme"], "Dojo")
             backups = list(home.rglob("*.dojo-browser-backup-*"))
-            self.assertEqual(len(backups), 3)
+            self.assertEqual(len(backups), 2)
             self.assertTrue(all(path.stat().st_mode & 0o777 == 0o600 for path in backups))
             self.assertEqual(installer.install(home, command, {}), [])
-            self.assertEqual(len(list(home.rglob("*.dojo-browser-backup-*"))), 3)
+            self.assertEqual(len(list(home.rglob("*.dojo-browser-backup-*"))), 2)
 
     def test_updates_owned_entry_and_preserves_following_table(self):
         with tempfile.TemporaryDirectory() as temporary:

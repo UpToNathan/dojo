@@ -1632,6 +1632,12 @@ impl Render for FrameView {
                                 eprintln!("Failed to render Dojo's desktop surround: {error}")
                             }
                         }
+                        crate::design::paint_frame_shadow(
+                            window,
+                            inner_bounds,
+                            colors.background.rgb(),
+                            px(CORNER_RADIUS),
+                        );
                         if let Some(menu_bounds) = menu_surface {
                             crate::design::paint_shell_extension(
                                 window,

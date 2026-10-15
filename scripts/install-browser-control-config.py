@@ -96,11 +96,6 @@ def install(home, command, environ=None):
     if claude.exists() or (home / ".claude").exists():
         if install_json(claude, command, "mcpServers", typed=True):
             changed.append("Claude Code")
-    config_home = Path(environ.get("XDG_CONFIG_HOME", str(home / ".config")))
-    zed = config_home / "zed"
-    if zed.exists():
-        if install_json(zed / "settings.json", command, "context_servers"):
-            changed.append("Zed")
     return changed
 
 

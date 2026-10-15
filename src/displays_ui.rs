@@ -391,7 +391,7 @@ impl Editor {
             .px(px(12.))
             .py(px(8.))
             .rounded(px(dojo::design::PILL_RADIUS))
-            .bg(colors.background_highlight.rgb())
+            .bg(colors.surface_raised.rgb())
             .text_size(px(12.))
             .text_color(if enabled {
                 colors.foreground.rgb()
@@ -440,7 +440,7 @@ impl Render for Editor {
             .w_full()
             .h(px(map_height))
             .rounded(px(14.))
-            .bg(colors.background_highlight.rgb())
+            .bg(colors.surface_raised.rgb())
             .overflow_hidden();
         for (index, output) in self.draft.iter().enumerate().filter(|(_, o)| o.enabled) {
             let (x, y) = canvas.position(output.position);
@@ -525,6 +525,11 @@ impl Render for Editor {
                     })
                     .cursor_pointer()
                     .text_size(px(11.))
+                    .text_color(if index == self.selected {
+                        colors.selection_foreground.rgb()
+                    } else {
+                        colors.foreground.rgb()
+                    })
                     .child(format!(
                         "{}{}",
                         output.name,
@@ -609,7 +614,7 @@ impl Render for Editor {
                     .overflow_y_scroll()
                     .p(px(8.))
                     .rounded(px(12.))
-                    .bg(colors.background_highlight.rgb())
+                    .bg(colors.surface_raised.rgb())
                     .flex()
                     .flex_col()
                     .gap(px(4.))

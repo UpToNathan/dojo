@@ -13,6 +13,7 @@ from run import Peer, changed_pixels, events, screenshot, wait_for
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--log", required=True)
+    parser.add_argument("--menu-screenshots", action="store_true")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
     directory = Path(args.log).parent
@@ -93,6 +94,14 @@ def main():
             assert restored_pixels > 0, "Shell frame did not return after leaving fullscreen"
             print(json.dumps({"fullscreen_edge_changes": covered, "restored_frame_pixels": restored_pixels, "pointer_pass_through": True, "evidence": str(directory)}))
             assert covered == [0] * len(points), "Shell still covers the fullscreen client's edges"
+            if args.menu_screenshots:
+                for command, namespace in [("system-menu", "dojo-system-menu"), ("wifi", "dojo-wifi-panel")]:
+                    subprocess.run([shell_binary, f"--{command}"], env=shell_env, timeout=5, check=True)
+                    wait_for(lambda: any(item["namespace"] == namespace for item in query.request("Layers")["Layers"]), namespace)
+                    time.sleep(0.3)
+                    screenshot(query, str(directory / f"{command}-shadow.png"), show_pointer=False)
+                    subprocess.run([shell_binary, f"--{command}"], env=shell_env, timeout=5, check=True)
+                    wait_for(lambda: not any(item["namespace"] == namespace for item in query.request("Layers")["Layers"]), f"{namespace} closed")
         finally:
             if agent is not None:
                 agent.close()

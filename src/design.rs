@@ -4,6 +4,90 @@ pub const PILL_RADIUS: f32 = 9999.;
 
 pub const SURFACE_RADIUS: f32 = 22.;
 
+fn shadow_color(background: gpui::Rgba) -> gpui::Hsla {
+    let brightness = 0.2126 * background.r + 0.7152 * background.g + 0.0722 * background.b;
+    gpui::Rgba {
+        r: background.r * 0.12,
+        g: background.g * 0.12,
+        b: background.b * 0.12,
+        a: (0.09 + 0.07 * (1. - brightness)) * background.a,
+    }
+    .into()
+}
+
+fn paint_menu_shadow(
+    window: &mut gpui::Window,
+    bounds: gpui::Bounds<gpui::Pixels>,
+    background: gpui::Rgba,
+    attached_right: bool,
+    attached_bottom: bool,
+) {
+    use gpui::{Bounds, BoxShadow, ContentMask, Corners, point, px};
+    let radius = px(SURFACE_RADIUS).min(bounds.size.height / 2.);
+    let viewport = window.viewport_size();
+    let mask = Bounds::from_corners(
+        point(
+            px(0.),
+            if attached_bottom {
+                px(0.)
+            } else {
+                bounds.top()
+            },
+        ),
+        point(
+            if attached_right {
+                bounds.right()
+            } else {
+                viewport.width
+            },
+            if attached_bottom {
+                bounds.bottom()
+            } else {
+                viewport.height
+            },
+        ),
+    );
+    let corners = Corners {
+        top_left: if attached_bottom { radius } else { px(0.) },
+        top_right: px(0.),
+        bottom_left: if attached_bottom { px(0.) } else { radius },
+        bottom_right: if attached_right { px(0.) } else { radius },
+    };
+    window.with_content_mask(Some(ContentMask { bounds: mask }), |window| {
+        window.paint_drop_shadows(
+            bounds,
+            corners,
+            &[BoxShadow {
+                color: shadow_color(background),
+                offset: point(px(0.), px(3.)),
+                blur_radius: px(16.),
+                spread_radius: px(0.),
+                inset: false,
+            }],
+        );
+    });
+}
+
+pub fn paint_frame_shadow(
+    window: &mut gpui::Window,
+    opening: gpui::Bounds<gpui::Pixels>,
+    background: gpui::Rgba,
+    radius: gpui::Pixels,
+) {
+    use gpui::{BoxShadow, Corners, point, px};
+    window.paint_inset_shadows(
+        opening,
+        Corners::all(radius),
+        &[BoxShadow {
+            color: shadow_color(background).opacity(0.65),
+            offset: point(px(0.), px(1.)),
+            blur_radius: px(10.),
+            spread_radius: px(0.),
+            inset: true,
+        }],
+    );
+}
+
 pub struct MenuReveal {
     from: f32,
     to: f32,
@@ -84,6 +168,7 @@ pub fn paint_shell_extension(
     if bounds.size.height <= px(0.) {
         return;
     }
+    paint_menu_shadow(window, bounds, color, attached_right, false);
     let radius = px(SURFACE_RADIUS).min(bounds.size.height / 2.);
     let left = bounds.left();
     let right = bounds.right();
@@ -168,6 +253,7 @@ pub fn bottom_right_shell_extension(
             if bounds.size.height <= px(0.) {
                 return;
             }
+            paint_menu_shadow(window, bounds, color, true, true);
             let radius = px(SURFACE_RADIUS).min(bounds.size.height / 2.);
             let left = bounds.left();
             let right = bounds.right();

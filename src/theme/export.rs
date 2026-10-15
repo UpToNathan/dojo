@@ -10,6 +10,22 @@ fn json_bytes(value: &Value) -> anyhow::Result<Vec<u8>> {
     Ok(bytes)
 }
 
+fn unpaired_background<'a>(p: &'a SemanticPalette, preferred: &str) -> &'a str {
+    let foreground = Rgb::parse(p.color("foreground")).expect("validated palette");
+    let muted = Rgb::parse(p.color("foreground_muted")).expect("validated palette");
+    let readable = |role| {
+        let background = Rgb::parse(p.color(role)).expect("validated palette");
+        foreground.contrast(background) >= if p.authored { 3. } else { 4.5 }
+            && muted.contrast(background) >= 3.
+    };
+    for role in [preferred, "surface_raised", "surface", "background"] {
+        if readable(role) {
+            return p.color(role);
+        }
+    }
+    p.color("background")
+}
+
 pub(super) fn render(
     theme: &Theme,
     appearance: Appearance,
@@ -55,13 +71,6 @@ pub(super) fn render(
             &json!({"version":1,"name":"Dojo","appearance":appearance.name(),"colors":t3_colors(p),"variants":{"dark":t3_colors(&theme.dark),"light":t3_colors(&theme.light)}}),
         )?,
     );
-    add(
-        "zed.json",
-        json_bytes(
-            &json!({"name":"Dojo","author":"Dojo","themes":[{"name":"Dojo Dark","appearance":"dark","style":zed_style(&theme.dark)},{"name":"Dojo Light","appearance":"light","style":zed_style(&theme.light)}]}),
-        )?,
-    );
-    add("zed-overrides.json", json_bytes(&zed_style(p))?);
     add("yazi.toml", yazi(p).into_bytes());
     add("tmtheme.xml", textmate(p).into_bytes());
     add("zen.json", json_bytes(&zen(p))?);
@@ -234,8 +243,8 @@ fn opencode_mode(p: &SemanticPalette) -> anyhow::Result<Value> {
             "feedback":{"error":{"base":p.color("error")},"warning":{"base":p.color("warning")},"success":{"base":p.color("success")},"info":{"base":p.color("info")}}
         },
         "background":{
-            "base":p.color("background"),"raised":{"base":p.color("surface"),"high":p.color("surface_raised"),"max":p.color("background_highlight")},
-            "action":{"primary":{"base":"transparent","$hovered":p.color("background_highlight"),"$focused":p.color("primary"),"$selected":"transparent"},"secondary":{"base":"transparent"},"destructive":{"base":p.color("error")}},
+            "base":p.color("background"),"raised":{"base":p.color("surface"),"high":p.color("surface_raised"),"max":unpaired_background(p,"background_highlight")},
+            "action":{"primary":{"base":"transparent","$hovered":unpaired_background(p,"background_highlight"),"$focused":p.color("primary"),"$selected":"transparent"},"secondary":{"base":"transparent"},"destructive":{"base":p.color("error")}},
             "formfield":{"base":p.color("background")},
             "feedback":{"error":{"base":p.color_or("error_background","background")},"warning":{"base":p.color_or("warning_background","background")},"success":{"base":p.color_or("success_background","background")},"info":{"base":p.color_or("info_background","background")}}
         },
@@ -243,7 +252,7 @@ fn opencode_mode(p: &SemanticPalette) -> anyhow::Result<Value> {
         "diff":{"text":{"added":added,"removed":removed,"context":p.color("foreground_muted"),"hunkHeader":p.color("info")},"background":{"added":p.color("diff_added_background"),"removed":p.color("diff_removed_background"),"context":p.color("background")},"highlight":{"added":p.color("success"),"removed":p.color("error")},"lineNumber":{"text":p.color("foreground_muted"),"background":{"added":p.color("diff_added_background"),"removed":p.color("diff_removed_background")}}},
         "syntax":{"comment":p.syntax("comment"),"keyword":p.syntax("keyword"),"function":p.syntax("function"),"variable":p.syntax("variable"),"string":p.syntax("string"),"number":p.syntax("number"),"type":p.syntax("type"),"operator":p.syntax("operator"),"punctuation":p.syntax("punctuation")},
         "markdown":{"text":p.color("foreground"),"heading":p.color("secondary"),"link":p.color("primary"),"linkText":p.color("info"),"code":p.color("success"),"blockQuote":p.color("warning"),"emphasis":p.color("warning"),"strong":p.syntax("number"),"horizontalRule":p.color("border"),"listItem":p.color("primary"),"listEnumeration":p.color("info"),"image":p.color("primary"),"imageText":p.color("info"),"codeBlock":p.color("foreground")},
-        "@dialog":{"background":{"base":p.color("surface"),"action":{"primary":{"$hovered":p.color("background_highlight")}}}}
+        "@dialog":{"background":{"base":p.color("surface"),"action":{"primary":{"$hovered":unpaired_background(p,"background_highlight")}}}}
     }))
 }
 
@@ -304,7 +313,9 @@ fn pi(p: &SemanticPalette) -> Value {
     let colors: serde_json::Map<_, _> = roles
         .into_iter()
         .map(|(key, role)| {
-            let color = if let Some(token) = key.strip_prefix("syntax") {
+            let color = if key == "selectedBg" {
+                unpaired_background(p, "background_highlight")
+            } else if let Some(token) = key.strip_prefix("syntax") {
                 p.syntax(&token.to_ascii_lowercase())
             } else {
                 p.color(role)
@@ -422,10 +433,8 @@ fn t3_colors(p: &SemanticPalette) -> Value {
         ),
         ("error", &["error", "errorForeground"]),
         ("diff_removed_background", &["errorSurface"]),
-        (
-            "diff_added_background",
-            &["warningSurface", "updateSurface"],
-        ),
+        ("surface", &["warningSurface"]),
+        ("surface", &["updateSurface"]),
     ];
     let mut colors = serde_json::Map::new();
     for (role, keys) in groups {
@@ -450,145 +459,35 @@ fn t3_colors(p: &SemanticPalette) -> Value {
             );
         }
     }
-    if p.colors.contains_key("background_hover") {
-        for role in ["toolbarControlHover", "sidebarRowHover"] {
-            colors.insert(role.into(), json!(p.color("background_hover")));
-        }
+    for role in [
+        "toolbarControlHover",
+        "sidebarRowHover",
+        "sidebarRowActive",
+        "sidebarRowSelected",
+        "terminalSelection",
+        "terminalScrollbarHover",
+    ] {
+        let preferred = if role.ends_with("Hover") && p.colors.contains_key("background_hover") {
+            "background_hover"
+        } else {
+            "background_highlight"
+        };
+        colors.insert(role.into(), json!(unpaired_background(p, preferred)));
+    }
+    for role in ["searchMatchForeground", "searchMatchActiveForeground"] {
+        let foreground = super::readable(
+            Rgb::parse(p.color("selection_foreground")).expect("validated palette"),
+            Rgb::parse(p.color("warning")).expect("validated palette"),
+            4.5,
+        );
+        colors.insert(role.into(), json!(foreground.hex()));
+    }
+    let button_text = Rgb::parse(p.color("primary_foreground")).expect("validated palette");
+    let button_hover = Rgb::parse(p.color("background_highlight")).expect("validated palette");
+    if button_text.contrast(button_hover) < 4.5 {
+        colors.insert("messageActionHover".into(), json!(p.color("primary")));
     }
     Value::Object(colors)
-}
-
-fn zed_style(p: &SemanticPalette) -> Value {
-    let groups = [
-        (
-            "background",
-            &["background", "editor.background", "terminal.background"] as &[&str],
-        ),
-        (
-            "surface",
-            &[
-                "surface.background",
-                "panel.background",
-                "status_bar.background",
-                "title_bar.background",
-                "toolbar.background",
-                "tab_bar.background",
-                "editor.gutter.background",
-            ],
-        ),
-        (
-            "surface_raised",
-            &[
-                "elevated_surface.background",
-                "element.background",
-                "element.hover",
-                "ghost_element.hover",
-                "tab.active_background",
-            ],
-        ),
-        (
-            "foreground",
-            &[
-                "text",
-                "editor.foreground",
-                "terminal.foreground",
-                "terminal.bright_foreground",
-            ],
-        ),
-        (
-            "foreground_muted",
-            &[
-                "text.muted",
-                "text.placeholder",
-                "text.disabled",
-                "icon.muted",
-                "icon.disabled",
-                "editor.line_number",
-            ],
-        ),
-        (
-            "primary",
-            &[
-                "text.accent",
-                "icon.accent",
-                "border.focused",
-                "border.selected",
-                "editor.active_line_number",
-            ],
-        ),
-        ("border", &["border", "border.variant", "border.disabled"]),
-        ("error", &["error", "deleted"]),
-        ("success", &["success", "created"]),
-        ("warning", &["warning", "modified"]),
-        ("info", &["info", "hint"]),
-        (
-            "background_highlight",
-            &[
-                "element.selected",
-                "ghost_element.selected",
-                "editor.active_line.background",
-            ],
-        ),
-        ("diff_added_background", &["created.background"]),
-        ("diff_removed_background", &["deleted.background"]),
-    ];
-    let mut style = serde_json::Map::new();
-    for (role, keys) in groups {
-        for key in keys {
-            style.insert((*key).into(), json!(p.color(role)));
-        }
-    }
-    let names = [
-        "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
-    ];
-    for (index, name) in names.iter().enumerate() {
-        style.insert(format!("terminal.ansi.{name}"), json!(p.terminal[index]));
-        style.insert(
-            format!("terminal.ansi.bright_{name}"),
-            json!(p.terminal[index + 8]),
-        );
-        style.insert(
-            format!("terminal.ansi.dim_{name}"),
-            json!(p.terminal[index]),
-        );
-    }
-    style.insert("syntax".into(),json!({
-        "comment":{"color":p.syntax("comment")},"keyword":{"color":p.syntax("keyword")},"function":{"color":p.syntax("function")},"variable":{"color":p.syntax("variable")},"string":{"color":p.syntax("string")},"number":{"color":p.syntax("number")},"type":{"color":p.syntax("type")},"operator":{"color":p.syntax("operator")},"punctuation":{"color":p.syntax("punctuation")}
-    }));
-    style.insert(
-        "editor.gutter.background".into(),
-        json!(p.color("background")),
-    );
-    style.insert(
-        "editor.line_number".into(),
-        json!(p.color_or("line_number", "foreground_muted")),
-    );
-    style.insert(
-        "editor.active_line_number".into(),
-        json!(p.syntax("number")),
-    );
-    style.insert(
-        "editor.active_line.background".into(),
-        json!(p.color("surface_raised")),
-    );
-    for (name, foreground, background) in [
-        ("info", "info", "background_highlight"),
-        ("hint", "info", "background_highlight"),
-        ("warning", "warning", "surface_raised"),
-        ("modified", "warning", "surface_raised"),
-        ("conflict", "warning", "surface_raised"),
-        ("error", "error", "diff_removed_background"),
-        ("deleted", "error", "diff_removed_background"),
-        ("success", "success", "diff_added_background"),
-        ("created", "success", "diff_added_background"),
-    ] {
-        style.insert(
-            format!("{name}.background"),
-            json!(p.color_or(&format!("{name}_background"), background)),
-        );
-        style.insert(format!("{name}.border"), json!(p.color(foreground)));
-    }
-    Value::Object(style)
 }
 
 fn yazi(p: &SemanticPalette) -> String {
@@ -597,7 +496,20 @@ fn yazi(p: &SemanticPalette) -> String {
     let muted = p.color("foreground_muted");
     let accent = p.color("primary");
     let selection = p.color("background_highlight");
+    let selected_fg = p.color("selection_foreground");
     let border = p.color("border");
+    let on_fill = |role| {
+        super::readable(
+            Rgb::parse(bg).expect("validated palette"),
+            Rgb::parse(p.color(role)).expect("validated palette"),
+            4.5,
+        )
+        .hex()
+    };
+    let success_fg = on_fill("success");
+    let error_fg = on_fill("error");
+    let info_fg = on_fill("info");
+    let primary_fg = p.color("primary_foreground");
     format!(
         "# Generated by Dojo
 [app]
@@ -610,25 +522,25 @@ marker_copied = {{ fg = '{success}', bg = '{success}' }}
 marker_cut = {{ fg = '{error}', bg = '{error}' }}
 marker_marked = {{ fg = '{info}', bg = '{info}' }}
 marker_selected = {{ fg = '{accent}', bg = '{accent}' }}
-count_copied = {{ fg = '{bg}', bg = '{success}' }}
-count_cut = {{ fg = '{bg}', bg = '{error}' }}
-count_selected = {{ fg = '{bg}', bg = '{accent}' }}
+count_copied = {{ fg = '{success_fg}', bg = '{success}' }}
+count_cut = {{ fg = '{error_fg}', bg = '{error}' }}
+count_selected = {{ fg = '{primary_fg}', bg = '{accent}' }}
 border_symbol = '│'
 border_style = {{ fg = '{border}' }}
 [indicator]
-parent = {{ fg = '{fg}', bg = '{selection}' }}
-current = {{ fg = '{fg}', bg = '{selection}' }}
-preview = {{ fg = '{fg}', bg = '{selection}' }}
+parent = {{ fg = '{selected_fg}', bg = '{selection}' }}
+current = {{ fg = '{selected_fg}', bg = '{selection}' }}
+preview = {{ fg = '{selected_fg}', bg = '{selection}' }}
 [tabs]
-active = {{ fg = '{bg}', bg = '{accent}' }}
+active = {{ fg = '{primary_fg}', bg = '{accent}' }}
 inactive = {{ fg = '{muted}', bg = '{bg}' }}
 [mode]
-normal_main = {{ fg = '{bg}', bg = '{accent}', bold = true }}
-normal_alt = {{ fg = '{fg}', bg = '{selection}' }}
-select_main = {{ fg = '{bg}', bg = '{info}', bold = true }}
-select_alt = {{ fg = '{fg}', bg = '{selection}' }}
-unset_main = {{ fg = '{bg}', bg = '{error}', bold = true }}
-unset_alt = {{ fg = '{fg}', bg = '{selection}' }}
+normal_main = {{ fg = '{primary_fg}', bg = '{accent}', bold = true }}
+normal_alt = {{ fg = '{selected_fg}', bg = '{selection}' }}
+select_main = {{ fg = '{info_fg}', bg = '{info}', bold = true }}
+select_alt = {{ fg = '{selected_fg}', bg = '{selection}' }}
+unset_main = {{ fg = '{error_fg}', bg = '{error}', bold = true }}
+unset_alt = {{ fg = '{selected_fg}', bg = '{selection}' }}
 [status]
 overall = {{ fg = '{fg}', bg = '{bg}' }}
 perm_type = {{ fg = '{accent}' }}
@@ -637,31 +549,31 @@ perm_write = {{ fg = '{error}' }}
 perm_exec = {{ fg = '{info}' }}
 perm_sep = {{ fg = '{muted}' }}
 progress_label = {{ fg = '{fg}', bold = true }}
-progress_normal = {{ fg = '{accent}', bg = '{selection}' }}
-progress_error = {{ fg = '{error}', bg = '{selection}' }}
+progress_normal = {{ fg = '{accent}', bg = '{bg}' }}
+progress_error = {{ fg = '{error}', bg = '{bg}' }}
 [input]
 border = {{ fg = '{accent}' }}
 title = {{ fg = '{accent}' }}
 value = {{ fg = '{fg}' }}
-selected = {{ fg = '{fg}', bg = '{selection}' }}
+selected = {{ fg = '{selected_fg}', bg = '{selection}' }}
 [pick]
 border = {{ fg = '{accent}' }}
 active = {{ fg = '{accent}', bold = true }}
 inactive = {{ fg = '{muted}' }}
 [cmp]
 border = {{ fg = '{border}' }}
-active = {{ fg = '{fg}', bg = '{selection}' }}
+active = {{ fg = '{selected_fg}', bg = '{selection}' }}
 inactive = {{ fg = '{muted}' }}
 [tasks]
 border = {{ fg = '{border}' }}
 title = {{ fg = '{accent}' }}
-hovered = {{ fg = '{fg}', bg = '{selection}' }}
+hovered = {{ fg = '{selected_fg}', bg = '{selection}' }}
 [confirm]
 border = {{ fg = '{accent}' }}
 title = {{ fg = '{accent}' }}
 body = {{ fg = '{fg}' }}
 list = {{ fg = '{fg}' }}
-btn_yes = {{ fg = '{fg}', bg = '{selection}' }}
+btn_yes = {{ fg = '{selected_fg}', bg = '{selection}' }}
 btn_no = {{ fg = '{muted}' }}
 [which]
 cols = 3
@@ -675,7 +587,7 @@ separator_style = {{ fg = '{muted}' }}
 border = {{ fg = '{border}' }}
 chord = {{ fg = '{accent}' }}
 action = {{ fg = '{fg}' }}
-hovered = {{ fg = '{fg}', bg = '{selection}', bold = true }}
+hovered = {{ fg = '{selected_fg}', bg = '{selection}', bold = true }}
 [notify]
 title_info = {{ fg = '{info}' }}
 title_warn = {{ fg = '{warning}' }}
@@ -684,7 +596,7 @@ title_error = {{ fg = '{error}' }}
 border = {{ fg = '{accent}' }}
 title = {{ fg = '{accent}' }}
 tbl_col = {{ fg = '{accent}' }}
-tbl_cell = {{ fg = '{fg}', bg = '{selection}' }}
+tbl_cell = {{ fg = '{selected_fg}', bg = '{selection}' }}
 [filetype]
 rules = [{{ url = '*/', fg = '{accent}' }}, {{ url = '*', fg = '{fg}' }}]
 ",
@@ -763,7 +675,16 @@ fn zen(p: &SemanticPalette) -> Value {
     ];
     let colors: serde_json::Map<_, _> = pairs
         .into_iter()
-        .map(|(token, role)| (token.into(), json!(p.color(role))))
+        .map(|(token, role)| {
+            (
+                token.into(),
+                json!(if token == "button_background_hover" {
+                    unpaired_background(p, role)
+                } else {
+                    p.color(role)
+                }),
+            )
+        })
         .collect();
     json!({"colors":colors,"properties":{"color_scheme":p.appearance.name(),"content_color_scheme":p.appearance.name()}})
 }
@@ -851,6 +772,67 @@ fn qt(p: &SemanticPalette, count: usize) -> String {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn kanagawa_dragon_selection_keeps_text_readable_in_each_app() -> anyhow::Result<()> {
+        let preset = crate::theme::presets()?
+            .into_iter()
+            .find(|preset| preset.id == "kanagawa-dragon")
+            .unwrap();
+        let t3 = super::t3_colors(&preset.palette);
+        assert_eq!(t3["sidebarRowSelected"], "#262424");
+        assert_eq!(t3["sidebarForeground"], "#c5c9c5");
+        let yazi: toml::Value = toml::from_str(&super::yazi(&preset.palette))?;
+        assert_eq!(yazi["indicator"]["current"]["bg"].as_str(), Some("#c5c9c5"));
+        assert_eq!(yazi["indicator"]["current"]["fg"].as_str(), Some("#535453"));
+        Ok(())
+    }
+
+    #[test]
+    fn all_presets_keep_normal_text_readable_on_unpaired_selection_fills() -> anyhow::Result<()> {
+        for preset in crate::theme::presets()? {
+            let palette = &preset.palette;
+            let foreground = crate::extraction::Rgb::parse(palette.color("foreground"))?;
+            let minimum = if palette.authored { 3. } else { 4.5 };
+            for (target, background) in [
+                (
+                    "t3",
+                    super::t3_colors(palette)["sidebarRowSelected"]
+                        .as_str()
+                        .unwrap()
+                        .to_owned(),
+                ),
+                (
+                    "pi",
+                    super::pi(palette)["colors"]["selectedBg"]
+                        .as_str()
+                        .unwrap()
+                        .to_owned(),
+                ),
+                (
+                    "opencode",
+                    super::opencode_mode(palette)?["background"]["action"]["primary"]["$hovered"]
+                        .as_str()
+                        .unwrap()
+                        .to_owned(),
+                ),
+                (
+                    "zen",
+                    super::zen(palette)["colors"]["button_background_hover"]
+                        .as_str()
+                        .unwrap()
+                        .to_owned(),
+                ),
+            ] {
+                assert!(
+                    foreground.contrast(crate::extraction::Rgb::parse(&background)?) >= minimum,
+                    "{} {target}: text on {background}",
+                    preset.id
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn chromium_and_t3_share_exact_semantic_background_and_surfaces() {
         let preset = crate::theme::presets()
             .unwrap()
@@ -912,24 +894,6 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn zed_accent_buttons_use_the_palette_instead_of_default_bright_blue() {
-        let palette = SemanticPalette::derive(
-            &Palette {
-                colors: [Rgb(20, 25, 35); 16],
-            },
-            Appearance::Dark,
-        );
-        let style = zed_style(&palette);
-        assert_eq!(
-            style["info.background"],
-            palette.color("background_highlight")
-        );
-        assert_eq!(style["info.border"], palette.color("primary"));
-        for role in ["error", "success", "warning"] {
-            assert!(style.get(format!("{role}.background")).is_some());
-        }
-    }
     #[test]
     fn exported_structured_formats_parse_and_cover_target_roles() -> anyhow::Result<()> {
         let colors = [Rgb(20, 25, 35); 16];

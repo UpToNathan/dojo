@@ -46,7 +46,29 @@ pub struct Selection {
     pub generation: String,
     pub appearance: Appearance,
     pub follow_system: bool,
+    #[serde(deserialize_with = "active_targets")]
     pub targets: Vec<String>,
+}
+
+fn active_targets<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<String>, D::Error> {
+    let targets = Vec::<String>::deserialize(deserializer)?;
+    Ok(targets
+        .into_iter()
+        .filter(|target| !matches!(target.as_str(), "zed" | "delta"))
+        .collect())
+}
+
+#[cfg(test)]
+#[test]
+fn saved_selections_discard_retired_application_targets() -> anyhow::Result<()> {
+    let selection: Selection = serde_json::from_str(
+        r#"{"generation":"saved","appearance":"dark","follow_system":false,"targets":["dojo","zed","t3code","delta","yazi"]}"#,
+    )?;
+    assert_eq!(selection.targets, ["dojo", "t3code", "yazi"]);
+    assert_eq!(selection.generation, "saved");
+    Ok(())
 }
 
 pub struct ThemeStore {

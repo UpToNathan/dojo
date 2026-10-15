@@ -18,7 +18,7 @@ Conflicts and failed reloads are reported, never disguised as successful theming
 dojo-theme presets
 dojo-theme preview /path/to/wallpaper.jpg /tmp/previews.html
 dojo-theme apply /path/to/wallpaper.jpg --mode ocean --appearance dark
-dojo-theme preset tokyo-night-night --targets dojo,kitty,ghostty,nvim,opencode,zed,yazi
+dojo-theme preset tokyo-night-night --targets dojo,kitty,ghostty,nvim,opencode,yazi
 dojo-theme status
 dojo-theme rollback
 ```
@@ -79,7 +79,7 @@ wallpapers.
 | Nightfox | Dayfox, Dawnfox | Nightfox, Duskfox, Carbonfox |
 | Monokai Pro | — | Classic (unfiltered Pro palette) |
 | Poimandres | — | Poimandres |
-| Flexoki | Light | Light |
+| Flexoki | Light | — |
 | Miasma | — | Miasma |
 | Matte Black | — | Matte Black |
 | Osaka Jade | — | Osaka Jade |
@@ -99,6 +99,10 @@ foreground/surface validation has a 3:1 minimum for authored palettes rather tha
 silently changing them to the wallpaper derivation policy's 4.5:1 minimum.
 Presets use the same exporters and ownership/reload paths as
 wallpaper themes. Metadata records the preset ID rather than an extraction mode.
+
+Selection mappings and the repeatable all-preset audit are documented in
+[the preset export audit](theme-preset-audit.md). Apps without a selected-text
+foreground use compatible surfaces rather than a terminal selection fill.
 
 The `system` appearance follows darkman's control socket. Running Dojo checks mode
 transitions in its background reload path; `dojo-theme watch` supplies the same
@@ -140,9 +144,7 @@ Terminal includes stay declaratively owned; mutable fragments stay outside Nix.
 | OpenCode | Native V2 token trees preserve explicit background/text/syntax roles without V1 migration. CLI mode is pinned to Dojo's selected appearance and republished on darkman transitions. SIGUSR2 refreshes custom theme discovery in the installed V2 TUI; server/non-TUI commands are excluded. |
 | Pi | Complete 51-token theme, active user-theme publication and settings selection. Existing sessions need one initial selection of `dojo`; installed-version validation remains necessary. |
 | T3 Code | Regular watched JSON with all 61 roles and paired variants. When the desktop's bundled `~/.t3/bin/t3` CLI exists, Apply calls `theme set dojo` with the configured T3 data directory so connected clients select Dojo. Without that CLI, select Dojo once in the app. Selection failures are reported separately from publication; do not symlink published JSON. |
-| Zed | Paired resource plus theme-name-keyed overrides for Zed 1.19.2. Settings observation triggers theme reload without app restart. Unrelated named overrides and syntax font styles are preserved; only unchanged old Dojo flat overrides are migrated. Accent/tinted controls use explicit `info.background`/border colors rather than the default bright blue. |
 | Yazi | Flavor + TextMate palette use current 26.9.1 sections and `url`/`mime` filetype selectors. The stable DDS subscriber receives `ya pub-to 0 dojo-theme --str reload` → `app:theme`; existing sessions must have loaded it. Actual installed-parser validation uses a disposable PTY, not only a TOML syntax check. |
-| Delta (Zed Industries app) | Explicitly `unsupported`, not a fake successful exporter. No verified external custom-palette/live-reload interface is available. Current official docs describe synced settings with an encrypted local cache and instruct using the Settings Editor. No cache, database, account data or Git-pager configuration is touched. |
 | Zen | Rust native-messaging host and a trusted dynamic theme extension calling `browser.theme.update`. Stable Zen CSS bridge supplied. Extension/profile setup is a manual one-time step; no unsigned-extension/security bypass is applied automatically. Not yet installed into the running profile. |
 | Helium | Stock Helium watches Dojo's managed `BrowserThemeColor` policy. Apply uses the semantic background as the seed, keeping it subdued, and the browser uses its normal desktop appearance handling. Chrome derives the other browser colors, so they do not match T3's full palette exactly. No custom browser build, extension reload or debugging connection is required. The policy directory must be exposed by the Home Manager launcher. |
 | GTK3/GTK4 | Generation-named themes with toolkit-native base resources, generated roles and theme-setting notifications. CSS loads against installed GTK3/GTK4. Native settings delivery/app coverage needs runtime verification; libadwaita arbitrary palette coverage is not claimed. |

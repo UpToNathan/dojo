@@ -234,7 +234,7 @@ impl Dock {
                 colors.border.rgb().opacity(0.15)
             })
             .bg(if device.connected {
-                colors.background_highlight.rgb()
+                colors.surface_raised.rgb()
             } else {
                 colors.background.rgb()
             })
@@ -421,7 +421,7 @@ impl Render for Dock {
                 .rounded(px(18.))
                 .border_1()
                 .border_color(colors.primary.rgb().opacity(0.6))
-                .bg(colors.background_highlight.rgb())
+                .bg(colors.surface_raised.rgb())
                 .flex()
                 .flex_col()
                 .gap(px(10.))
@@ -489,7 +489,7 @@ impl Render for Dock {
             Availability::ServiceMissing | Availability::BusUnavailable => {
                 content = content.child(div().text_size(px(12.)).child("Bluetooth isn't set up yet."))
                     .child(div().text_size(px(11.)).text_color(colors.foreground_muted.rgb()).child("The system Bluetooth service is missing or unavailable. Run the setup command in a terminal, then this dock will update automatically."))
-                    .child(div().p(px(12.)).rounded(px(10.)).bg(colors.background_highlight.rgb()).text_size(px(10.)).child("bash ~/Dojo/scripts/setup-bluetooth.sh"));
+                    .child(div().p(px(12.)).rounded(px(10.)).bg(colors.surface_raised.rgb()).text_size(px(10.)).child("bash ~/Dojo/scripts/setup-bluetooth.sh"));
             }
             Availability::NoAdapter => {
                 content = content.child(
