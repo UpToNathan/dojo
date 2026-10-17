@@ -1,0 +1,19 @@
+#%PAM-1.0
+# /etc/pam.d/dojo-lock-fingerprint  -- fingerprint ONLY (never falls through to a password prompt).
+#
+# pam_fprintd options worth setting (man pam_fprintd):
+#   timeout=30    default 30 s; after this it returns PAM_AUTHINFO_UNAVAIL ("Verification timed out" TEXT_INFO,
+#                 observed).  Use a finite value so the locker's worker re-arms (and re-claims the sensor) on a
+#                 schedule it controls; timeout=-1 would hold the sensor claimed for the whole lock.
+#   max-tries=3   default 3; after 3 no-matches it returns PAM_MAXTRIES.  The locker should then show
+#                 "fingerprint disabled, use password" and NOT auto-restart until user activity / wake.
+#                 (Keep this finite: it is the only brute-force limit on this path.)
+# The locker must treat an immediate PAM_AUTHINFO_UNAVAIL (no enrolled print / no reader / fprintd missing)
+# as "no fingerprint available" and not restart-loop.
+#
+# Deliberately NO pam_faillock here: a stranger's wrong finger must not lock the owner's account out of
+# ly/sudo/password, and fprintd already bounds retries.  Fingerprint success also should not (and here does
+# not) reset the password failure tally.
+auth     required   pam_fprintd.so timeout=30 max-tries=3
+# Locker only calls pam_authenticate(); account stanza only to keep pam_acct_mgmt harmless if ever called.
+account  required   pam_permit.so

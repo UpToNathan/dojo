@@ -1,0 +1,69 @@
+diff --git a/vendor/niri/src/tests/lock_spike.rs b/vendor/niri/src/tests/lock_spike.rs
+new file mode 100644
+index 0000000000..b34d0a6d43
+--- /dev/null
++++ b/vendor/niri/src/tests/lock_spike.rs
+@@ -0,0 +1,51 @@
++//! Throwaway spike: an in-process, headless, multi-output niri listening on a real socket.
++use std::time::{Duration, Instant};
++
++use calloop::EventLoop;
++use niri_config::Config;
++use smithay::reexports::wayland_server::Display;
++
++use crate::niri::State;
++
++#[test]
++#[ignore]
++fn lock_spike_two_outputs() {
++    let mut event_loop: EventLoop<'static, State> = EventLoop::try_new().unwrap();
++    let handle = event_loop.handle();
++    let display = Display::new().unwrap();
++    let mut state = State::new(
++        Config::default(),
++        handle.clone(),
++        event_loop.get_signal(),
++        display,
++        true,
++        true,
++        false,
++        false,
++    )
++    .unwrap();
++    state.backend.headless().add_renderer().unwrap();
++    {
++        let niri = &mut state.niri;
++        state.backend.headless().add_output(niri, 1, (1280, 720));
++        state.backend.headless().add_output(niri, 2, (800, 600));
++    }
++    let socket = state.niri.socket_name.clone().unwrap();
++    std::fs::write(
++        "/tmp/lock-spike-headless.env",
++        format!("export WAYLAND_DISPLAY={}\n", socket.to_string_lossy()),
++    )
++    .unwrap();
++    eprintln!("HEADLESS SOCKET {socket:?}");
++    let seconds: u64 = std::env::var("LOCK_SPIKE_SECONDS")
++        .ok()
++        .and_then(|value| value.parse().ok())
++        .unwrap_or(120);
++    let deadline = Instant::now() + Duration::from_secs(seconds);
++    while Instant::now() < deadline {
++        event_loop
++            .dispatch(Duration::from_millis(16), &mut state)
++            .unwrap();
++        state.refresh_and_flush_clients();
++    }
++}
+diff --git a/vendor/niri/src/tests/mod.rs b/vendor/niri/src/tests/mod.rs
+index 376b4b58f6..ba8e7819e4 100644
+--- a/vendor/niri/src/tests/mod.rs
++++ b/vendor/niri/src/tests/mod.rs
+@@ -11,6 +11,7 @@ mod binds;
+ mod floating;
+ mod fullscreen;
+ mod layer_shell;
++mod lock_spike;
+ mod remove_output;
+ mod transactions;
+ mod virtual_pointer;

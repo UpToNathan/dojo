@@ -72,6 +72,7 @@ pub(crate) struct PlatformHandlers {
     pub(crate) system_sleep: Option<Box<dyn FnMut()>>,
     pub(crate) system_wake: Option<Box<dyn FnMut()>>,
     pub(crate) displays_changed: Option<Box<dyn FnMut()>>,
+    pub(crate) session_lock: Option<Box<dyn FnMut(gpui::SessionLockEvent)>>,
 }
 
 /// A logind `PrepareForSleep` signal, forwarded from the D-Bus listener to
@@ -724,6 +725,14 @@ impl Platform for LinuxPlatform {
 
     fn on_displays_changed(&self, callback: Box<dyn FnMut()>) {
         self.with_common(|common| common.callbacks.displays_changed = Some(callback));
+    }
+
+    fn on_session_lock_event(&self, callback: Box<dyn FnMut(gpui::SessionLockEvent)>) {
+        self.with_common(|common| common.callbacks.session_lock = Some(callback));
+    }
+
+    fn unlock_session(&self) {
+        self.connection.borrow().unlock_session();
     }
 
     #[cfg(feature = "screen-capture")]

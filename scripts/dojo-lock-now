@@ -1,0 +1,6 @@
+#!/bin/sh
+# Lock the session. The shell draws the closing and starts the locker. If the
+# shell cannot take the request, start the locker directly: a second start is a
+# no-op while it runs, and a second locker exits 0, so repeating this is harmless.
+"${HOME}/.local/bin/dojo-desktop" --leave lock 2>/dev/null && exit 0
+exec systemctl --user start dojo-lock.service

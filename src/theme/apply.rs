@@ -11,6 +11,9 @@ use anyhow::Context as _;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::extraction::Rgb;
+
+use super::lock_wallpaper;
 use super::store::{read_json_optional, write_atomic};
 use super::{Appearance, Selection, ThemeStore};
 
@@ -291,6 +294,63 @@ pub fn apply_wallpaper(
     apply_locked(store, selection)
 }
 
+/// What [`refresh_lock_wallpaper`] did for the selected generation.
+#[derive(Debug, Serialize)]
+pub struct LockWallpaperReport {
+    pub generation: String,
+    pub appearance: String,
+    /// The current activation's `lock-wallpaper.png`, `None` when the generation retains no wallpaper.
+    pub path: Option<PathBuf>,
+    /// The picture was rendered now rather than found current.
+    pub rendered: bool,
+    /// The activation gained the link now rather than already having it.
+    pub linked: bool,
+}
+
+/// Brings the current activation's `lock-wallpaper.png` up to date for the selected
+/// generation and appearance without applying anything: no target is published,
+/// nothing is signalled, no new activation is made and `current` does not move.
+/// For a theme applied before the lock wallpaper existed.
+pub fn refresh_lock_wallpaper(store: &ThemeStore) -> anyhow::Result<LockWallpaperReport> {
+    let _lock = store.lock()?;
+    let selection = store.selection()?.context("no selected theme")?;
+    let appearance = selection.appearance.name();
+    let source = store
+        .paths
+        .root
+        .join("generations")
+        .join(&selection.generation)
+        .join(appearance)
+        .join(lock_wallpaper::FILE_NAME);
+    let rendered = !lock_wallpaper::is_current(&source);
+    ensure_lock_wallpaper(store, &selection.generation)?;
+    let mut report = LockWallpaperReport {
+        generation: selection.generation,
+        appearance: appearance.into(),
+        path: None,
+        rendered: rendered && source.is_file(),
+        linked: false,
+    };
+    if !source.is_file() {
+        return Ok(report);
+    }
+    let active = store.paths.root.join("current");
+    let activation = store.paths.root.join(
+        fs::read_link(&active).with_context(|| format!("reading {}", active.display()))?,
+    );
+    let link = activation.join(lock_wallpaper::FILE_NAME);
+    report.path = Some(link.clone());
+    if fs::read_link(&link).is_ok_and(|target| target == source) {
+        return Ok(report);
+    }
+    let staged = activation.join(format!(".lock-wallpaper-{}", std::process::id()));
+    let _ = fs::remove_file(&staged);
+    std::os::unix::fs::symlink(&source, &staged)?;
+    fs::rename(&staged, &link)?;
+    report.linked = true;
+    Ok(report)
+}
+
 fn apply_locked(store: &ThemeStore, selection: Selection) -> anyhow::Result<ApplyReport> {
     for target in &selection.targets {
         anyhow::ensure!(
@@ -302,6 +362,8 @@ fn apply_locked(store: &ThemeStore, selection: Selection) -> anyhow::Result<Appl
     let outputs = theme.outputs(selection.appearance)?;
     let registry_path = store.paths.root.join("published.json");
     let mut registry: Published = read_json_optional(&registry_path)?.unwrap_or_default();
+    // Before commit, so the snapshot's symlinks include it. A failure is reported, not fatal.
+    let lock_wallpaper = ensure_lock_wallpaper(store, &selection.generation).err();
     let mut results = Vec::new();
     for target in &selection.targets {
         let result = publish_target(store, target, &selection, &outputs, &mut registry);
@@ -348,6 +410,13 @@ fn apply_locked(store: &ThemeStore, selection: Selection) -> anyhow::Result<Appl
             }
         }
     }
+    if let Some(error) = lock_wallpaper {
+        results.push(TargetResult {
+            target: "lock-wallpaper".into(),
+            status: "blocked".into(),
+            detail: format!("the lock screen falls back to a flat palette colour: {error:#}"),
+        });
+    }
     let report = ApplyReport {
         selection,
         targets: results,
@@ -357,6 +426,62 @@ fn apply_locked(store: &ThemeStore, selection: Selection) -> anyhow::Result<Appl
         &serde_json::to_vec_pretty(&report)?,
     )?;
     Ok(report)
+}
+
+/// Makes `lock-wallpaper.png` exist in both appearance directories of a generation
+/// exactly when the generation retained a wallpaper, rendered for that appearance's
+/// text colour by the current scrim rule. Idempotent: a file the current rule
+/// already rendered is kept, so appearance switches stay cheap, while one from an
+/// older rule is rendered again.
+fn ensure_lock_wallpaper(store: &ThemeStore, generation: &str) -> anyhow::Result<()> {
+    let directory = store.paths.root.join("generations").join(generation);
+    let targets = [Appearance::Dark, Appearance::Light].map(|appearance| {
+        (
+            appearance,
+            directory
+                .join(appearance.name())
+                .join(lock_wallpaper::FILE_NAME),
+        )
+    });
+    let wallpaper = match fs::read(directory.join("wallpaper")) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            for (_, path) in &targets {
+                match fs::remove_file(path) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => {
+                        return Err(error).with_context(|| format!("removing {}", path.display()));
+                    }
+                }
+            }
+            return Ok(());
+        }
+        Err(error) => return Err(error).context("reading the retained wallpaper"),
+    };
+    let stale: Vec<_> = targets
+        .iter()
+        .filter(|(_, path)| !lock_wallpaper::is_current(path))
+        .collect();
+    if stale.is_empty() {
+        return Ok(());
+    }
+    let theme = store.theme(generation)?;
+    let picture = lock_wallpaper::blur(&lock_wallpaper::decode(&wallpaper)?);
+    let mut encoded: Vec<(Rgb, Vec<u8>)> = Vec::new();
+    for (appearance, path) in stale {
+        // The hint line is drawn in the muted colour, the weakest text on the wallpaper.
+        let text = Rgb::parse(theme.palette(*appearance).color("foreground_muted"))?;
+        let png = match encoded.iter().find(|(known, _)| *known == text) {
+            Some((_, png)) => png,
+            None => {
+                encoded.push((text, lock_wallpaper::encode(&picture.scrimmed(text))?));
+                &encoded[encoded.len() - 1].1
+            }
+        };
+        write_atomic(path, png)?;
+    }
+    Ok(())
 }
 
 fn publish_target(
@@ -535,6 +660,300 @@ mod tests {
         let (status, _) = publish_t3_theme(&home, &root, bytes, &mut registry)?;
         assert_eq!(status, "needs_selection");
         fs::remove_dir_all(home)?;
+        Ok(())
+    }
+
+    fn test_store(root: &Path) -> ThemeStore {
+        ThemeStore::new(super::super::Paths {
+            home: root.join("home"),
+            config: root.join("config"),
+            data: root.join("data"),
+            root: root.join("themes"),
+        })
+    }
+
+    fn gradient_png(width: u32, height: u32) -> anyhow::Result<Vec<u8>> {
+        let image = image::RgbaImage::from_fn(width, height, |x, y| {
+            image::Rgba([(x * 255 / width) as u8, (y * 255 / height) as u8, 90, 255])
+        });
+        let mut png = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut png, image::ImageFormat::Png)?;
+        Ok(png.into_inner())
+    }
+
+    fn dojo_selection(generation: String, appearance: Appearance) -> Selection {
+        Selection {
+            generation,
+            appearance,
+            follow_system: false,
+            targets: vec!["dojo".into()],
+        }
+    }
+
+    fn lock_wallpaper_in_current(store: &ThemeStore) -> PathBuf {
+        store
+            .paths
+            .root
+            .join("current")
+            .join(lock_wallpaper::FILE_NAME)
+    }
+
+    #[test]
+    fn refreshing_the_lock_wallpaper_repairs_the_current_activation_and_nothing_else() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let store = test_store(dir.path());
+        let fallback = crate::theme::presets()?[0].palette.clone();
+        let report = apply_wallpaper(
+            &store,
+            &dir.path().join("wall.png"),
+            gradient_png(1920, 1080)?,
+            Some(fallback),
+        )?;
+        let root = &store.paths.root;
+        let current = lock_wallpaper_in_current(&store);
+        let rendered = fs::read(&current)?;
+        let activation = fs::read_link(root.join("current"))?;
+        let palette_target = fs::read_link(root.join("current/palette.json"))?;
+
+        // The state a theme applied before the lock wallpaper existed is in.
+        let generation = root.join("generations").join(&report.selection.generation);
+        for appearance in ["dark", "light"] {
+            fs::remove_file(generation.join(appearance).join(lock_wallpaper::FILE_NAME))?;
+        }
+        fs::remove_file(&current)?;
+        let published = fs::read(root.join("published.json"))?;
+
+        let first = refresh_lock_wallpaper(&store)?;
+        assert!(first.rendered && first.linked);
+        assert_eq!(first.path.as_deref(), Some(fs::canonicalize(root.join("current"))?.join(lock_wallpaper::FILE_NAME).as_path()));
+        assert_eq!(fs::read(&current)?, rendered);
+        assert_eq!(fs::read_link(root.join("current"))?, activation, "no new activation");
+        assert_eq!(fs::read_link(root.join("current/palette.json"))?, palette_target);
+        assert_eq!(fs::read(root.join("published.json"))?, published, "nothing was published");
+        assert_eq!(fs::read_dir(root.join("activations"))?.count(), 1);
+
+        let again = refresh_lock_wallpaper(&store)?;
+        assert!(!again.rendered && !again.linked);
+        assert_eq!(fs::read(&current)?, rendered);
+        Ok(())
+    }
+
+    #[test]
+    fn refreshing_without_a_retained_wallpaper_writes_nothing() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let store = test_store(dir.path());
+        assert!(refresh_lock_wallpaper(&store).is_err(), "no theme is selected");
+        let preset = &crate::theme::presets()?[0];
+        let theme = super::super::Theme::from_preset(preset, &store)?;
+        let generation = store.generate(&theme)?;
+        apply(&store, dojo_selection(generation, preset.appearance))?;
+        let report = refresh_lock_wallpaper(&store)?;
+        assert_eq!(report.path, None);
+        assert!(!report.rendered && !report.linked);
+        assert!(fs::symlink_metadata(lock_wallpaper_in_current(&store)).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn lock_wallpaper_follows_the_wallpaper_snapshot_and_never_leaks() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let store = test_store(dir.path());
+        let fallback = crate::theme::presets()?[0].palette.clone();
+        let current = lock_wallpaper_in_current(&store);
+
+        let report = apply_wallpaper(
+            &store,
+            &dir.path().join("wall.png"),
+            gradient_png(1920, 1080)?,
+            Some(fallback.clone()),
+        )?;
+        assert_eq!(report.targets.len(), 1, "success adds no extra result");
+        let png = image::open(&current)?;
+        assert_eq!((png.width(), png.height()), (480, 270));
+        assert!(store.paths.root.join("current/palette.json").is_file());
+        let generation = report.selection.generation.clone();
+        let light_copy = store
+            .paths
+            .root
+            .join("generations")
+            .join(&generation)
+            .join("light")
+            .join(lock_wallpaper::FILE_NAME);
+        assert!(light_copy.is_file());
+        let dark_bytes = fs::read(&current)?;
+
+        let light = apply(
+            &store,
+            dojo_selection(generation.clone(), Appearance::Light),
+        )?;
+        assert_eq!(light.targets.len(), 1);
+        assert_eq!(
+            fs::read(&current)?,
+            dark_bytes,
+            "appearance switch keeps the same image"
+        );
+
+        // A stale file planted in a generation without a wallpaper is removed, not linked.
+        let bare = store.generate(&super::super::Theme::from_palette(fallback.clone())?)?;
+        let planted = store
+            .paths
+            .root
+            .join("generations")
+            .join(&bare)
+            .join("dark")
+            .join(lock_wallpaper::FILE_NAME);
+        fs::write(&planted, b"stale")?;
+        let report = apply(&store, dojo_selection(bare, Appearance::Dark))?;
+        assert_eq!(report.targets.len(), 1);
+        assert!(
+            fs::symlink_metadata(&current).is_err(),
+            "no wallpaper, no lock image"
+        );
+        assert!(!planted.exists());
+        assert!(store.paths.root.join("current/palette.json").is_file());
+
+        // A preset applied with no wallpaper retained writes nothing either.
+        let fresh = tempfile::tempdir()?;
+        let fresh_store = test_store(fresh.path());
+        let preset = &crate::theme::presets()?[0];
+        let theme = super::super::Theme::from_preset(preset, &fresh_store)?;
+        let generation = fresh_store.generate(&theme)?;
+        apply(&fresh_store, dojo_selection(generation, preset.appearance))?;
+        assert!(fs::symlink_metadata(lock_wallpaper_in_current(&fresh_store)).is_err());
+
+        // Re-selecting the wallpaper generation restores the image.
+        let report = apply(
+            &store,
+            dojo_selection(light.selection.generation, Appearance::Dark),
+        )?;
+        assert_eq!(report.targets.len(), 1);
+        assert_eq!(fs::read(&current)?, dark_bytes);
+        Ok(())
+    }
+
+    fn two_palette_generation(store: &ThemeStore, wallpaper: Vec<u8>) -> anyhow::Result<String> {
+        let presets = crate::theme::presets()?;
+        let pick = |appearance| {
+            presets
+                .iter()
+                .find(|preset| preset.appearance == appearance)
+                .map(|preset| preset.palette.clone())
+                .context("preset")
+        };
+        let mut theme = super::super::Theme::from_palette(pick(Appearance::Dark)?)?;
+        theme.light = pick(Appearance::Light)?;
+        let theme = theme.with_wallpaper_snapshot(Path::new("/wall.png"), wallpaper)?;
+        store.generate(&theme)
+    }
+
+    fn generation_file(store: &ThemeStore, generation: &str, appearance: Appearance) -> PathBuf {
+        store
+            .paths
+            .root
+            .join("generations")
+            .join(generation)
+            .join(appearance.name())
+            .join(lock_wallpaper::FILE_NAME)
+    }
+
+    #[test]
+    fn each_appearance_gets_a_wallpaper_scrimmed_for_its_own_text() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let store = test_store(dir.path());
+        let generation = two_palette_generation(&store, gradient_png(1920, 1080)?)?;
+
+        apply(
+            &store,
+            dojo_selection(generation.clone(), Appearance::Light),
+        )?;
+
+        let dark = fs::read(generation_file(&store, &generation, Appearance::Dark))?;
+        let light = fs::read(generation_file(&store, &generation, Appearance::Light))?;
+        assert_ne!(dark, light, "different palettes, different scrims");
+        let head = |bytes: &[u8]| {
+            String::from_utf8_lossy(&bytes[..lock_wallpaper::MARKER_PREFIX]).into_owned()
+        };
+        assert!(head(&dark).contains("scrim=Dark:"), "{}", head(&dark));
+        assert!(head(&light).contains("scrim=Light:"), "{}", head(&light));
+        assert_eq!(fs::read(lock_wallpaper_in_current(&store))?, light);
+        assert!(lock_wallpaper::is_current(&generation_file(
+            &store,
+            &generation,
+            Appearance::Dark
+        )));
+        Ok(())
+    }
+
+    #[test]
+    fn a_wallpaper_from_an_older_rule_is_rendered_again_and_a_current_one_is_kept()
+    -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let store = test_store(dir.path());
+        let generation = two_palette_generation(&store, gradient_png(1920, 1080)?)?;
+        apply(&store, dojo_selection(generation.clone(), Appearance::Dark))?;
+        let dark_path = generation_file(&store, &generation, Appearance::Dark);
+        let light_path = generation_file(&store, &generation, Appearance::Light);
+        let dark = fs::read(&dark_path)?;
+        let light = fs::read(&light_path)?;
+
+        // The light file predates the rule (a plain PNG, as the constant 45% dim wrote).
+        let mut plain = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(480, 270, image::Rgba([40, 40, 40, 255]))
+            .write_to(&mut plain, image::ImageFormat::Png)?;
+        fs::write(&light_path, plain.get_ref())?;
+        let kept = fs::metadata(&dark_path)?.ino();
+
+        apply(&store, dojo_selection(generation.clone(), Appearance::Dark))?;
+        assert_eq!(fs::read(&light_path)?, light, "the old file was replaced");
+        assert_eq!(fs::read(&dark_path)?, dark);
+        assert_eq!(
+            fs::metadata(&dark_path)?.ino(),
+            kept,
+            "a current file is not rewritten"
+        );
+
+        // A file stamped with an earlier rule number is replaced too.
+        let mut older = dark.clone();
+        let at = older
+            .windows(6)
+            .position(|w| w == b"rule=2")
+            .context("rule marker")?;
+        older[at + 5] = b'1';
+        fs::write(&dark_path, &older)?;
+        apply(&store, dojo_selection(generation, Appearance::Dark))?;
+        assert_eq!(fs::read(&dark_path)?, dark);
+        Ok(())
+    }
+
+    #[test]
+    fn a_failed_lock_wallpaper_render_is_reported_and_does_not_fail_the_apply() -> anyhow::Result<()>
+    {
+        let dir = tempfile::tempdir()?;
+        let store = test_store(dir.path());
+        let fallback = crate::theme::presets()?[0].palette.clone();
+        let mut theme = super::super::Theme::from_palette(fallback)?;
+        theme.image_bytes = b"retained bytes that are not an image".to_vec();
+        let generation = store.generate(&theme)?;
+
+        let report = apply(&store, dojo_selection(generation.clone(), Appearance::Dark))?;
+
+        assert_eq!(store.selection()?.map(|s| s.generation), Some(generation));
+        assert!(store.paths.root.join("current/palette.json").is_file());
+        assert!(fs::symlink_metadata(lock_wallpaper_in_current(&store)).is_err());
+        assert_eq!(report.targets[0].target, "dojo");
+        assert_eq!(report.targets[0].status, "published");
+        let failure = report.targets.last().context("results")?;
+        assert_eq!(failure.target, "lock-wallpaper");
+        assert_eq!(failure.status, "blocked");
+        assert!(
+            failure.detail.contains("decoding wallpaper"),
+            "{}",
+            failure.detail
+        );
+        let recorded: serde_json::Value =
+            serde_json::from_slice(&fs::read(store.paths.root.join("last-apply.json"))?)?;
+        assert_eq!(recorded["targets"][1]["target"], "lock-wallpaper");
+        assert_eq!(recorded["targets"][1]["status"], "blocked");
         Ok(())
     }
 

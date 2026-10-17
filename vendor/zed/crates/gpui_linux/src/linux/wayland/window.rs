@@ -3,6 +3,7 @@ use std::{
     ffi::c_void,
     ptr::NonNull,
     rc::Rc,
+    sync::mpsc,
     sync::Arc,
     time::Instant,
 };
@@ -10,6 +11,9 @@ use std::{
 use calloop::ping::Ping;
 use collections::{FxHashMap, HashMap};
 use futures::channel::oneshot::Receiver;
+use super::dbus_annotation::client::{
+    xdg_dbus_annotation_v1::{BusEnum, XdgDbusAnnotationV1},
+};
 
 use raw_window_handle as rwh;
 use wayland_backend::client::ObjectId;
@@ -26,6 +30,7 @@ use wayland_protocols::xdg::shell::client::xdg_surface;
 use wayland_protocols::xdg::shell::client::xdg_toplevel::{self};
 use wayland_protocols::{
     ext::background_effect::v1::client::ext_background_effect_surface_v1,
+    ext::session_lock::v1::client::ext_session_lock_surface_v1,
     wp::fractional_scale::v1::client::wp_fractional_scale_v1,
     xdg::dialog::v1::client::xdg_dialog_v1::XdgDialogV1,
 };
@@ -33,7 +38,7 @@ use wayland_protocols_plasma::blur::client::org_kde_kwin_blur;
 use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1;
 
 use crate::linux::wayland::{display::WaylandDisplay, serial::SerialKind};
-use crate::linux::{Globals, Output, WaylandClientStatePtr, get_window};
+use crate::linux::{Globals, Output, SessionLock, WaylandClientStatePtr, get_window};
 use gpui::{
     AnyWindowHandle, Bounds, Capslock, Decorations, DevicePixels, ExternalDragPayload,
     FrameRequestSource, GpuSpecs, Modifiers, Pixels, PlatformAtlas, PlatformDisplay,
@@ -144,11 +149,19 @@ pub struct WaylandWindowState {
     window_controls: WindowControls,
     client_inset: Option<Pixels>,
     accesskit_adapter: Option<accesskit_unix::Adapter>,
+    accessibility_endpoint_updates:
+        Option<mpsc::Receiver<Option<accesskit_unix::AccessibilityEndpoint>>>,
+    accessibility_endpoint: Option<accesskit_unix::AccessibilityEndpoint>,
+    accessibility_annotation: Option<XdgDbusAnnotationV1>,
 }
 
 pub enum WaylandSurfaceState {
     Xdg(WaylandXdgSurfaceState),
     LayerShell(WaylandLayerSurfaceState),
+    SessionLock {
+        lock_surface: ext_session_lock_surface_v1::ExtSessionLockSurfaceV1,
+        output: ObjectId,
+    },
     Popup(WaylandPopupSurfaceState),
 }
 
@@ -161,6 +174,27 @@ impl WaylandSurfaceState {
         popup_grab: Option<(u32, wl_seat::WlSeat)>,
         target_output: Option<wl_output::WlOutput>,
     ) -> anyhow::Result<Self> {
+        if params.kind == WindowKind::SessionLock {
+            let Some(manager) = globals.session_lock_manager.as_ref() else {
+                anyhow::bail!("Compositor doesn't support ext_session_lock_v1");
+            };
+            let Some(output) = target_output.as_ref() else {
+                anyhow::bail!("a session lock window needs a connected display");
+            };
+            let mut session_lock = globals.session_lock.borrow_mut();
+            let lock = &session_lock
+                .get_or_insert_with(|| SessionLock {
+                    lock: manager.lock(&globals.qh, ()),
+                    locked: false,
+                })
+                .lock;
+            let lock_surface = lock.get_lock_surface(surface, output, &globals.qh, surface.id());
+            return Ok(WaylandSurfaceState::SessionLock {
+                lock_surface,
+                output: output.id(),
+            });
+        }
+
         // For layer_shell windows, create a layer surface instead of an xdg surface
         if let WindowKind::LayerShell(options) = &params.kind {
             let Some(layer_shell) = globals.layer_shell.as_ref() else {
@@ -385,6 +419,9 @@ impl WaylandSurfaceState {
             WaylandSurfaceState::LayerShell(WaylandLayerSurfaceState { layer_surface, .. }) => {
                 layer_surface.ack_configure(serial);
             }
+            WaylandSurfaceState::SessionLock { lock_surface, .. } => {
+                lock_surface.ack_configure(serial);
+            }
             WaylandSurfaceState::Popup(WaylandPopupSurfaceState { xdg_surface, .. }) => {
                 xdg_surface.ack_configure(serial);
             }
@@ -415,7 +452,7 @@ impl WaylandSurfaceState {
             WaylandSurfaceState::Popup(WaylandPopupSurfaceState { xdg_surface, .. }) => {
                 Some(xdg_surface)
             }
-            WaylandSurfaceState::LayerShell(_) => None,
+            WaylandSurfaceState::LayerShell(_) | WaylandSurfaceState::SessionLock { .. } => None,
         }
     }
 
@@ -438,6 +475,8 @@ impl WaylandSurfaceState {
                 // cannot set window position of a layer surface
                 layer_surface.set_size(width as u32, height as u32);
             }
+            // The compositor dictates a lock surface's size.
+            WaylandSurfaceState::SessionLock { .. } => {}
             WaylandSurfaceState::Popup(WaylandPopupSurfaceState { xdg_surface, .. }) => {
                 xdg_surface.set_window_geometry(x, y, width, height);
             }
@@ -533,6 +572,9 @@ impl WaylandSurfaceState {
             WaylandSurfaceState::LayerShell(WaylandLayerSurfaceState { layer_surface, .. }) => {
                 layer_surface.destroy();
             }
+            WaylandSurfaceState::SessionLock { lock_surface, .. } => {
+                lock_surface.destroy();
+            }
             WaylandSurfaceState::Popup(WaylandPopupSurfaceState {
                 xdg_surface,
                 xdg_popup,
@@ -559,7 +601,7 @@ impl WaylandWindowState {
     pub(crate) fn new(
         handle: AnyWindowHandle,
         surface: wl_surface::WlSurface,
-        surface_state: WaylandSurfaceState,
+        mut surface_state: WaylandSurfaceState,
         appearance: WindowAppearance,
         viewport: Option<wp_viewport::WpViewport>,
         client: WaylandClientStatePtr,
@@ -588,7 +630,17 @@ impl WaylandWindowState {
                 // Prefer Mailbox to avoid blocking. Falls back to FIFO if Mailbox is unsupported.
                 preferred_present_mode: Some(wgpu::PresentMode::Mailbox),
             };
-            WgpuRenderer::new(gpu_context, &raw_window, config, compositor_gpu)?
+            match WgpuRenderer::new(gpu_context, &raw_window, config, compositor_gpu) {
+                Ok(renderer) => renderer,
+                Err(error) => {
+                    surface_state.destroy();
+                    if let Some(viewport) = &viewport {
+                        viewport.destroy();
+                    }
+                    surface.destroy();
+                    return Err(error);
+                }
+            }
         };
 
         if let WaylandSurfaceState::Xdg(ref xdg_state) = surface_state {
@@ -647,6 +699,9 @@ impl WaylandWindowState {
             window_controls: WindowControls::default(),
             client_inset: None,
             accesskit_adapter: None,
+            accessibility_endpoint_updates: None,
+            accessibility_endpoint: None,
+            accessibility_annotation: None,
         })
     }
 
@@ -787,6 +842,13 @@ impl Drop for WaylandWindow {
 
         let client = state.client.clone();
 
+        state.accesskit_adapter.take();
+        state.accessibility_endpoint_updates.take();
+        state.accessibility_endpoint = None;
+        if let Some(annotation) = state.accessibility_annotation.take() {
+            annotation.destroy();
+        }
+
         state.renderer.take();
 
         // Destroy blur first, this has no dependencies.
@@ -855,7 +917,8 @@ impl WaylandWindow {
             parent.clone(),
             popup_grab,
             target_output,
-        )?;
+        )
+        .inspect_err(|_| surface.destroy())?;
 
         if let Some(fractional_scale_manager) = globals.fractional_scale_manager.as_ref() {
             fractional_scale_manager.get_fractional_scale(&surface, &globals.qh, surface.id());
@@ -887,14 +950,68 @@ impl WaylandWindow {
             scheduled_frame_at: Rc::new(Cell::new(None)),
         });
 
-        // Kick things off
-        surface.commit();
+        // Kick things off. A lock surface is configured without a commit, and committing one
+        // before the first ack_configure is a protocol error.
+        if this.0.session_lock_output().is_none() {
+            surface.commit();
+        }
 
         Ok((this, surface.id()))
     }
 }
 
 impl WaylandWindowStatePtr {
+    /// Apply AccessKit endpoint changes on the Wayland event-loop thread. This
+    /// runs from the shared Ping source, independent of whether the window is
+    /// visible or has a frame scheduled.
+    pub(crate) fn process_accessibility_endpoint_updates(&self) {
+        let mut state = self.state.borrow_mut();
+        let Some(updates) = state.accessibility_endpoint_updates.as_ref() else {
+            return;
+        };
+        let mut pending = Vec::new();
+        while let Ok(endpoint) = updates.try_recv() {
+            pending.push(endpoint);
+        }
+
+        for endpoint in pending {
+            if endpoint == state.accessibility_endpoint {
+                continue;
+            }
+            match endpoint {
+                Some(endpoint) => {
+                    let Some(manager) = state.globals.dbus_annotation_manager.clone() else {
+                        state.accessibility_endpoint = Some(endpoint);
+                        continue;
+                    };
+                    let surface = state.surface.clone();
+                    let qh = state.globals.qh.clone();
+                    let annotation = state.accessibility_annotation.take().unwrap_or_else(|| {
+                        manager.annotate_surface(
+                            "org.a11y.atspi.Accessible".to_owned(),
+                            &surface,
+                            &qh,
+                            (),
+                        )
+                    });
+                    annotation.set_bus(BusEnum::Atspi);
+                    annotation.set_bus_name(endpoint.bus_name.clone());
+                    annotation.set_object_path(endpoint.object_path.clone());
+                    state.surface.commit();
+                    state.accessibility_annotation = Some(annotation);
+                    state.accessibility_endpoint = Some(endpoint);
+                }
+                None => {
+                    if let Some(annotation) = state.accessibility_annotation.take() {
+                        annotation.destroy();
+                        state.surface.commit();
+                    }
+                    state.accessibility_endpoint = None;
+                }
+            }
+        }
+    }
+
     pub fn handle(&self) -> AnyWindowHandle {
         self.state.borrow().handle
     }
@@ -1174,7 +1291,13 @@ impl WaylandWindowStatePtr {
 
             let initial_configure = self.frame_loop.get() == FrameLoop::Unconfigured;
             drop(state);
-            if initial_configure {
+            if initial_configure && self.session_lock_output().is_some() {
+                // The compositor sends the preferred scale in the same batch as the first
+                // configure. Drawing here would commit one frame at scale 1 before it is read,
+                // and a lock screen's first frame is the one the compositor swaps in.
+                self.frame_loop.set(FrameLoop::Parked);
+                self.schedule_frame();
+            } else if initial_configure {
                 self.frame(None, FrameRequestSource::NativeCallback);
             } else {
                 self.request_redraw();
@@ -1336,6 +1459,39 @@ impl WaylandWindowStatePtr {
             }
             _ => false,
         }
+    }
+
+    /// The output a session lock window is bound to, or `None` for other kinds of window.
+    pub fn session_lock_output(&self) -> Option<ObjectId> {
+        match &self.state.borrow().surface_state {
+            WaylandSurfaceState::SessionLock { output, .. } => Some(output.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn handle_lock_surface_event(&self, event: ext_session_lock_surface_v1::Event) {
+        let ext_session_lock_surface_v1::Event::Configure {
+            width,
+            height,
+            serial,
+        } = event
+        else {
+            return;
+        };
+        let size = if width == 0 || height == 0 {
+            None
+        } else {
+            Some(size(px(width as f32), px(height as f32)))
+        };
+        self.state.borrow_mut().in_progress_configure = Some(InProgressConfigure {
+            size,
+            fullscreen: false,
+            maximized: false,
+            resizing: false,
+            visibility: WindowVisibility::Visible,
+            tiling: Tiling::default(),
+        });
+        self.handle_xdg_surface_event(xdg_surface::Event::Configure { serial });
     }
 
     pub fn handle_layersurface_event(&self, event: zwlr_layer_surface_v1::Event) -> bool {
@@ -2355,10 +2511,22 @@ impl PlatformWindow for WaylandWindow {
             callback: callbacks.deactivation,
         };
 
-        let adapter =
-            accesskit_unix::Adapter::new(activation_handler, action_handler, deactivation_handler);
+        let (endpoint_tx, endpoint_rx) = mpsc::channel();
+        let endpoint_ping = self.0.frame_ping.clone();
+        let adapter = accesskit_unix::Adapter::new_with_endpoint(
+            activation_handler,
+            action_handler,
+            deactivation_handler,
+            move |endpoint| {
+                if endpoint_tx.send(endpoint).is_ok() {
+                    endpoint_ping.ping();
+                }
+            },
+        );
 
-        self.borrow_mut().accesskit_adapter = Some(adapter);
+        let mut state = self.borrow_mut();
+        state.accessibility_endpoint_updates = Some(endpoint_rx);
+        state.accesskit_adapter = Some(adapter);
     }
 
     fn a11y_tree_update(&self, tree_update: accesskit::TreeUpdate) {

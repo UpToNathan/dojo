@@ -16,7 +16,7 @@ fn run() -> anyhow::Result<()> {
     let command = args.next().unwrap_or_else(|| "help".into());
     if command == "help" || command == "--help" {
         println!(
-            "Usage:\n  dojo-theme preview IMAGE OUTPUT.html\n  dojo-theme generate IMAGE [--mode MODE]\n  dojo-theme apply IMAGE [--mode MODE] [--appearance system|dark|light] [--targets LIST]\n  dojo-theme presets\n  dojo-theme preset ID [--targets LIST]\n  dojo-theme select GENERATION [--appearance system|dark|light] [--targets LIST]\n  dojo-theme rollback\n  dojo-theme status\n  dojo-theme watch\nTargets: {}",
+            "Usage:\n  dojo-theme preview IMAGE OUTPUT.html\n  dojo-theme generate IMAGE [--mode MODE]\n  dojo-theme apply IMAGE [--mode MODE] [--appearance system|dark|light] [--targets LIST]\n  dojo-theme presets\n  dojo-theme preset ID [--targets LIST]\n  dojo-theme select GENERATION [--appearance system|dark|light] [--targets LIST]\n  dojo-theme rollback\n  dojo-theme lock-wallpaper\n  dojo-theme status\n  dojo-theme watch\nTargets: {}",
             theme::TARGETS.join(",")
         );
         return Ok(());
@@ -104,6 +104,12 @@ fn run() -> anyhow::Result<()> {
                 "{}",
                 serde_json::to_string_pretty(&theme::apply(&store, previous)?)?
             );
+            return Ok(());
+        }
+        "lock-wallpaper" => {
+            anyhow::ensure!(args.next().is_none(), "lock-wallpaper takes no arguments");
+            let report = theme::refresh_lock_wallpaper(&store)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
             return Ok(());
         }
         "watch" => {

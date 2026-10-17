@@ -17,6 +17,7 @@ default = ["wayland", "x11"]
 test-support = ["gpui/test-support"]
 wayland = [
     "dep:accesskit_unix",
+    "dep:wayland-scanner",
     "gpui_wgpu",
     "ashpd/wayland",
 
@@ -78,6 +79,7 @@ oo7 = { workspace = true, features = [
     "native_crypto",
 ] }
 calloop = "0.14.3"
+wayland-scanner = { version = "0.31.11", optional = true }
 notify-rust.workspace = true
 raw-window-handle.workspace = true
 

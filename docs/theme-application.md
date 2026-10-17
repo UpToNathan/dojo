@@ -200,6 +200,25 @@ remain accepted: missing surfaces use background and highlight, respectively;
 a missing paired foreground uses normal text when it meets 4.5:1 against the
 fill, otherwise whichever of black or white has higher contrast.
 
+### Lock screen wallpaper
+
+Applying a generation that retains a wallpaper also renders
+`lock-wallpaper.png` (480 px wide, three box-blur passes, 45% dim) next to
+`palette.json`, so the locker loads it from `current/` and never blurs live.
+The render runs once per generation inside the apply lock, before `current`
+switches. Generations without a wallpaper have no such file. A render failure
+does not fail the apply; it is recorded in `last-apply.json` as a `lock-wallpaper`
+result with status `blocked`, and the locker falls back to a flat palette colour.
+The shell's closing and the locker read the same file, or draw the same flat
+colour when it is absent, so the wallpaper never changes at the handoff.
+
+A theme applied before the lock wallpaper existed has none. `dojo-theme lock-wallpaper`
+renders it for the selected generation and appearance and links it into the
+current activation. It publishes no target, signals nothing, makes no new
+activation and leaves `current` where it is; it prints what it did as JSON
+and is idempotent. A generation without a retained wallpaper gets no file
+(`path` is `null`).
+
 ### Monitor wallpaper preparation
 
 The original wallpaper snapshot stays intact. Each wallpaper window prepares

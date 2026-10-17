@@ -35,11 +35,14 @@ use wayland_client::protocol::{
     wl_data_device, wl_data_device_manager, wl_data_offer, wl_data_source, wl_output, wl_region,
 };
 use wayland_client::{
-    Connection, Dispatch, Proxy, QueueHandle, delegate_noop,
+    Connection, Dispatch, DispatchError, EventQueue, Proxy, QueueHandle, delegate_noop,
     protocol::{
         wl_buffer, wl_compositor, wl_keyboard, wl_pointer, wl_registry, wl_seat, wl_shm,
         wl_shm_pool, wl_surface,
     },
+};
+use wayland_protocols::ext::session_lock::v1::client::{
+    ext_session_lock_manager_v1, ext_session_lock_surface_v1, ext_session_lock_v1,
 };
 use wayland_protocols::wp::pointer_gestures::zv1::client::{
     zwp_pointer_gesture_pinch_v1, zwp_pointer_gestures_v1,
@@ -83,6 +86,7 @@ use xkbcommon::xkb::ffi::XKB_KEYMAP_FORMAT_TEXT_V1;
 use xkbcommon::xkb::{self, KEYMAP_COMPILE_NO_FLAGS, Keycode};
 
 use super::{
+    dbus_annotation::client::{xdg_dbus_annotation_manager_v1, xdg_dbus_annotation_v1},
     display::{WaylandDisplay, refresh_interval_from_millihertz},
     window::{ImeInput, WaylandWindowStatePtr},
 };
@@ -256,12 +260,17 @@ pub struct Globals {
         Option<wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1>,
     pub decoration_manager: Option<zxdg_decoration_manager_v1::ZxdgDecorationManagerV1>,
     pub layer_shell: Option<zwlr_layer_shell_v1::ZwlrLayerShellV1>,
+    pub session_lock_manager: Option<ext_session_lock_manager_v1::ExtSessionLockManagerV1>,
+    /// The lock shared by every session lock window, while one is requested.
+    pub session_lock: Rc<RefCell<Option<SessionLock>>>,
     pub blur_manager: Option<org_kde_kwin_blur_manager::OrgKdeKwinBlurManager>,
     pub background_effect_manager: Option<ext_background_effect_manager_v1::ExtBackgroundEffectManagerV1>,
     pub text_input_manager: Option<zwp_text_input_manager_v3::ZwpTextInputManagerV3>,
     pub gesture_manager: Option<zwp_pointer_gestures_v1::ZwpPointerGesturesV1>,
     pub dialog: Option<xdg_wm_dialog_v1::XdgWmDialogV1>,
     pub system_bell: Option<xdg_system_bell_v1::XdgSystemBellV1>,
+    pub dbus_annotation_manager:
+        Option<xdg_dbus_annotation_manager_v1::XdgDbusAnnotationManagerV1>,
     pub executor: ForegroundExecutor,
     pub frame_ping: Ping,
 }
@@ -307,12 +316,15 @@ impl Globals {
             fractional_scale_manager: globals.bind(&qh, 1..=1, ()).ok(),
             decoration_manager: globals.bind(&qh, 1..=1, ()).ok(),
             layer_shell: globals.bind(&qh, 1..=5, ()).ok(),
+            session_lock_manager: globals.bind(&qh, 1..=1, ()).ok(),
+            session_lock: Rc::default(),
             blur_manager: globals.bind(&qh, 1..=1, ()).ok(),
             background_effect_manager: globals.bind(&qh, 1..=1, ()).ok(),
             text_input_manager: globals.bind(&qh, 1..=1, ()).ok(),
             gesture_manager: globals.bind(&qh, 1..=3, ()).ok(),
             dialog: globals.bind(&qh, dialog_v..=dialog_v, ()).ok(),
             system_bell: globals.bind(&qh, 1..=1, ()).ok(),
+            dbus_annotation_manager: globals.bind(&qh, 1..=1, ()).ok(),
             executor,
             qh,
             frame_ping,
@@ -707,6 +719,7 @@ impl WaylandClientStatePtr {
             .cloned()
             .collect::<Vec<WaylandWindowStatePtr>>();
         for window in windows {
+            window.process_accessibility_endpoint_updates();
             window.scheduled_frame_fired();
         }
     }
@@ -955,6 +968,13 @@ impl WaylandClientStatePtr {
 }
 
 impl WaylandClientState {
+    /// The open session lock windows, with the output each one covers.
+    fn session_lock_windows(&self) -> impl Iterator<Item = (ObjectId, &WaylandWindowStatePtr)> {
+        self.windows
+            .values()
+            .filter_map(|window| Some((window.session_lock_output()?, window)))
+    }
+
     pub(crate) fn event_mouse_position(&self) -> Point<Pixels> {
         self.current_event_seat
             .as_ref()
@@ -1385,9 +1405,9 @@ impl WaylandConnection {
             .log_err();
 
         client.register_source(
-            handle.insert_source(WaylandSource::new(conn, event_queue), {
+            handle.insert_source(WaylandSource::new(conn.clone(), event_queue), {
                 let mut client = pointer;
-                move |_, queue, _| queue.dispatch_pending(&mut client)
+                move |_, queue, _| dispatch_wayland_events(&conn, queue, &mut client)
             }),
             "failed to register Wayland connection source",
         )?;
@@ -1437,6 +1457,24 @@ impl WaylandConnection {
 
     pub(crate) fn primary_display(&self) -> Option<Rc<dyn PlatformDisplay>> {
         None
+    }
+
+    pub(crate) fn unlock_session(&self) {
+        let globals = self.0.borrow().globals.clone();
+        let Some(session_lock) = globals.session_lock.borrow_mut().take() else {
+            return;
+        };
+        if session_lock.locked {
+            session_lock.lock.unlock_and_destroy();
+        } else {
+            session_lock.lock.destroy();
+        }
+        // The request must reach the compositor even if the process exits right after this.
+        if let Some(backend) = session_lock.lock.backend().upgrade()
+            && let Err(error) = backend.flush()
+        {
+            log::error!("failed to flush session unlock: {error}");
+        }
     }
 
     #[cfg(feature = "screen-capture")]
@@ -1533,10 +1571,21 @@ impl WaylandConnection {
                 .map(|(_, output)| output.clone())
         });
 
+        let is_session_lock = params.kind == WindowKind::SessionLock;
+        if is_session_lock
+            && let Some(output) = &target_output
+            && state
+                .session_lock_windows()
+                .any(|(locked_output, _)| locked_output == output.id())
+        {
+            // A second lock surface for an output is a protocol error, which ends the connection.
+            anyhow::bail!("this display already has a session lock window");
+        }
+
         let appearance = state.common.borrow().appearance;
         let compositor_gpu = state.compositor_gpu.take();
 
-        let (window, surface_id) = WaylandWindow::new(
+        let result = WaylandWindow::new(
             handle,
             state.globals.clone(),
             state.gpu_context.clone(),
@@ -1547,7 +1596,21 @@ impl WaylandConnection {
             parent,
             popup_grab,
             target_output,
-        )?;
+        );
+        let (window, surface_id) = match result {
+            Ok(window) => window,
+            Err(error) => {
+                if is_session_lock && state.session_lock_windows().next().is_none() {
+                    // Abandon a lock this window just requested, so that another locker can take
+                    // over instead of a live client holding a lock it can never draw.
+                    let mut session_lock = state.globals.session_lock.borrow_mut();
+                    if let Some(abandoned) = session_lock.take_if(|lock| !lock.locked) {
+                        abandoned.lock.destroy();
+                    }
+                }
+                return Err(error);
+            }
+        };
 
         if window.0.toplevel().is_some() {
             state.consume_startup_activation_token(&window.0.surface());
@@ -1846,6 +1909,22 @@ impl Dispatch<zwp_linux_dmabuf_feedback_v1::ZwpLinuxDmabufFeedbackV1, ()> for Dm
     }
 }
 
+/// Dispatches queued events, failing once the connection is dead so the event loop stops.
+///
+/// `dispatch_pending` doesn't report a dead connection, and the calloop source ignores protocol
+/// errors, so the closed socket would otherwise wake the loop forever.
+fn dispatch_wayland_events<D>(
+    connection: &Connection,
+    queue: &mut EventQueue<D>,
+    data: &mut D,
+) -> Result<usize, DispatchError> {
+    let dispatched = queue.dispatch_pending(data)?;
+    match connection.backend().last_error() {
+        Some(error) => Err(DispatchError::Backend(error)),
+        None => Ok(dispatched),
+    }
+}
+
 fn detect_compositor_gpu() -> Option<CompositorGpuHint> {
     let connection = Connection::connect_to_env().ok()?;
     let (globals, mut event_queue) = registry_queue_init::<DmabufProbeState>(&connection).ok()?;
@@ -2002,8 +2081,17 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for WaylandClientStat
                 {
                     output.release();
                 }
+                let lock_windows: Vec<_> = state
+                    .session_lock_windows()
+                    .filter(|(output, _)| *output == id)
+                    .map(|(_, window)| window.clone())
+                    .collect();
+                drop(state);
+                // Unlike other windows, a lock surface can't move to another output.
+                for window in lock_windows {
+                    window.close();
+                }
                 if was_complete {
-                    drop(state);
                     this.report_displays_changed();
                 }
             }
@@ -2014,6 +2102,8 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for WaylandClientStat
 
 delegate_noop!(WaylandClientStatePtr: ignore xdg_activation_v1::XdgActivationV1);
 delegate_noop!(WaylandClientStatePtr: ignore xdg_system_bell_v1::XdgSystemBellV1);
+delegate_noop!(WaylandClientStatePtr: ignore xdg_dbus_annotation_manager_v1::XdgDbusAnnotationManagerV1);
+delegate_noop!(WaylandClientStatePtr: ignore xdg_dbus_annotation_v1::XdgDbusAnnotationV1);
 delegate_noop!(WaylandClientStatePtr: ignore wl_compositor::WlCompositor);
 delegate_noop!(WaylandClientStatePtr: ignore wp_cursor_shape_device_v1::WpCursorShapeDeviceV1);
 delegate_noop!(WaylandClientStatePtr: ignore wp_cursor_shape_manager_v1::WpCursorShapeManagerV1);
@@ -2026,6 +2116,7 @@ delegate_noop!(WaylandClientStatePtr: ignore wl_region::WlRegion);
 delegate_noop!(WaylandClientStatePtr: ignore wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1);
 delegate_noop!(WaylandClientStatePtr: ignore zxdg_decoration_manager_v1::ZxdgDecorationManagerV1);
 delegate_noop!(WaylandClientStatePtr: ignore zwlr_layer_shell_v1::ZwlrLayerShellV1);
+delegate_noop!(WaylandClientStatePtr: ignore ext_session_lock_manager_v1::ExtSessionLockManagerV1);
 delegate_noop!(WaylandClientStatePtr: ignore xdg_positioner::XdgPositioner);
 delegate_noop!(WaylandClientStatePtr: ignore org_kde_kwin_blur_manager::OrgKdeKwinBlurManager);
 delegate_noop!(WaylandClientStatePtr: ignore ext_background_effect_manager_v1::ExtBackgroundEffectManagerV1);
@@ -2290,6 +2381,83 @@ impl Dispatch<xdg_toplevel::XdgToplevel, ObjectId> for WaylandClientStatePtr {
             // The close logic will be handled in drop_window()
             window.close();
         }
+    }
+}
+
+pub(crate) struct SessionLock {
+    pub(crate) lock: ext_session_lock_v1::ExtSessionLockV1,
+    /// Whether the compositor sent `locked`, after which only `unlock_and_destroy` may end it.
+    pub(crate) locked: bool,
+}
+
+impl Dispatch<ext_session_lock_v1::ExtSessionLockV1, ()> for WaylandClientStatePtr {
+    fn event(
+        this: &mut Self,
+        lock: &ext_session_lock_v1::ExtSessionLockV1,
+        event: <ext_session_lock_v1::ExtSessionLockV1 as Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        let (globals, common) = {
+            let client = this.get_client();
+            let state = client.borrow();
+            (state.globals.clone(), state.common.clone())
+        };
+        let gpui_event = match event {
+            ext_session_lock_v1::Event::Locked => {
+                if let Some(session_lock) = globals.session_lock.borrow_mut().as_mut() {
+                    session_lock.locked = true;
+                }
+                gpui::SessionLockEvent::Locked
+            }
+            ext_session_lock_v1::Event::Finished => {
+                // The compositor refused or ended the lock, so its surfaces will never be shown.
+                globals.session_lock.borrow_mut().take();
+                lock.destroy();
+                let windows: Vec<_> = this
+                    .get_client()
+                    .borrow()
+                    .session_lock_windows()
+                    .map(|(_, window)| window.clone())
+                    .collect();
+                for window in windows {
+                    window.close();
+                }
+                gpui::SessionLockEvent::Finished
+            }
+            _ => return,
+        };
+        let callback = common.borrow_mut().callbacks.session_lock.take();
+        if let Some(mut callback) = callback {
+            callback(gpui_event);
+            common
+                .borrow_mut()
+                .callbacks
+                .session_lock
+                .get_or_insert(callback);
+        }
+    }
+}
+
+impl Dispatch<ext_session_lock_surface_v1::ExtSessionLockSurfaceV1, ObjectId>
+    for WaylandClientStatePtr
+{
+    fn event(
+        this: &mut Self,
+        _: &ext_session_lock_surface_v1::ExtSessionLockSurfaceV1,
+        event: <ext_session_lock_surface_v1::ExtSessionLockSurfaceV1 as Proxy>::Event,
+        surface_id: &ObjectId,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        let client = this.get_client();
+        let mut state = client.borrow_mut();
+        let Some(window) = get_window(&mut state, surface_id) else {
+            return;
+        };
+        drop(state);
+        window.handle_lock_surface_event(event);
     }
 }
 
@@ -4336,8 +4504,72 @@ impl Dispatch<XdgDialogV1, ()> for WaylandClientStatePtr {
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
+    use std::io::{Read as _, Write as _};
+    use std::os::unix::net::UnixStream;
 
     use super::*;
+
+    struct SyncState;
+
+    impl Dispatch<WlCallback, ()> for SyncState {
+        fn event(
+            _: &mut Self,
+            _: &WlCallback,
+            _: wl_callback::Event,
+            _: &(),
+            _: &Connection,
+            _: &QueueHandle<Self>,
+        ) {
+        }
+    }
+
+    /// Returns how many dispatches a client event loop runs before it stops, after the compositor
+    /// answers a `wl_display.sync` with `reply` and closes the connection.
+    fn dispatches_after_disconnect(reply: &[u32]) -> usize {
+        let (client_socket, mut compositor_socket) = UnixStream::pair().expect("socket pair");
+        let connection = Connection::from_socket(client_socket).expect("client connection");
+        let queue = connection.new_event_queue();
+        connection.display().sync(&queue.handle(), ());
+        connection.flush().expect("flush sync");
+        let mut event_loop = calloop::EventLoop::<SyncState>::try_new().expect("event loop");
+        event_loop
+            .handle()
+            .insert_source(WaylandSource::new(connection.clone(), queue), {
+                let connection = connection.clone();
+                move |_, queue, state| dispatch_wayland_events(&connection, queue, state)
+            })
+            .expect("insert Wayland source");
+        // Read the request first, as closing a socket with unread data resets the connection.
+        compositor_socket
+            .read_exact(&mut [0; 12])
+            .expect("read wl_display.sync");
+        let bytes: Vec<u8> = reply.iter().flat_map(|word| word.to_ne_bytes()).collect();
+        compositor_socket.write_all(&bytes).expect("reply");
+        drop(compositor_socket);
+        (1..=20)
+            .find(|_| {
+                event_loop
+                    .dispatch(Duration::from_millis(50), &mut SyncState)
+                    .is_err()
+            })
+            .expect("the event loop kept running on a dead connection")
+    }
+
+    #[test]
+    fn a_protocol_error_stops_the_event_loop() {
+        // wl_display.error(wl_callback#2, 0, "boom"). An error on any object but the display is a
+        // protocol error rather than an I/O error.
+        let boom = u32::from_ne_bytes(*b"boom");
+        assert_eq!(
+            dispatches_after_disconnect(&[1, 28 << 16, 2, 0, 5, boom, 0]),
+            1
+        );
+    }
+
+    #[test]
+    fn a_closed_connection_stops_the_event_loop() {
+        assert_eq!(dispatches_after_disconnect(&[]), 1);
+    }
 
     #[test]
     fn rejects_required_globals_below_supported_versions() {

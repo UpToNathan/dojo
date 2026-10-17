@@ -53,8 +53,6 @@ dependencies = [
 [[package]]
 name = "accesskit_unix"
 version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03e156ed3802e35eefe894ef2671bc6c889303d8a7e110b5e1b48f504b91362f"
 dependencies = [
  "accesskit",
  "accesskit_atspi_common",
@@ -679,9 +677,9 @@ dependencies = [
 
 [[package]]
 name = "blocking"
-version = "1.7.0"
+version = "1.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a70e4329df6cb94385eed412ec92375c3cdd8a6e502493d1229b6414e4036dfa"
+checksum = "e83f8d02be6967315521be875afa792a316e28d57b5a2d401897e2a7921b7f21"
 dependencies = [
  "async-channel",
  "async-task",
@@ -1640,10 +1638,12 @@ dependencies = [
  "async-channel",
  "async-trait",
  "base64",
+ "blocking",
  "cua-driver-contract",
  "cua-driver-core",
  "dojo-accessibility",
  "dojo-agent-setup",
+ "dojo-browser-control",
  "dojo-capture-wayland",
  "dojo-computer",
  "dojo-computer-recording",
@@ -1672,6 +1672,7 @@ dependencies = [
  "unicode-segmentation",
  "uuid",
  "zbus",
+ "zeroize",
 ]
 
 [[package]]
@@ -1701,6 +1702,18 @@ dependencies = [
  "sha2",
  "thiserror 2.0.21",
  "toml_edit 0.25.16+spec-1.1.0",
+]
+
+[[package]]
+name = "dojo-browser-control"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha1",
 ]
 
 [[package]]
@@ -1795,13 +1808,18 @@ name = "dojo-external-admission"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-io",
+ "async-trait",
+ "futures-lite",
  "getrandom 0.2.17",
  "libc",
  "niri-ipc",
  "serde",
  "serde_json",
  "sha2",
+ "tokio",
  "tungstenite",
+ "zbus",
 ]
 
 [[package]]
@@ -2714,6 +2732,7 @@ dependencies = [
  "wayland-protocols",
  "wayland-protocols-plasma",
  "wayland-protocols-wlr",
+ "wayland-scanner",
  "xkbcommon",
 ]
 
@@ -6017,7 +6036,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -7194,7 +7213,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

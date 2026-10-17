@@ -49,6 +49,15 @@ let
     # If Dojo never starts, show 1Password instead of leaving it hidden.
     exec "$onepassword"
   '';
+  opencode = inputs.opencode.packages.${pkgs.stdenv.hostPlatform.system}.default.overrideAttrs (_: {
+    # The current upstream CLI build imports script/native-arch.ts, which its
+    # Nix node_modules source fileset leaves out.
+    src = inputs.opencode.outPath;
+  });
+  pi = pkgs.callPackage ./nix/pi.nix { inherit inputs; };
+  # Every lock trigger runs this: the Niri bind, stasis and the logind bridge.
+  dojoLockNow = ./scripts/dojo-lock-now;
+  dojoLockIdleSeconds = 300;
 in
 {
       imports = [
@@ -58,7 +67,9 @@ in
         ./browser-control-home-manager.nix
         ./rift-home-manager.nix
         ./voice-home-manager.nix
-        ./gamepad-home-manager.nix
+        ./native-accessibility-home-manager.nix
+        ./qt6-annotation-home-manager.nix
+        ./qt5-annotation-home-manager.nix
         ./yazi-home-manager.nix
         ./update-home-manager.nix
       ];
@@ -67,6 +78,9 @@ in
       home.stateVersion = "26.05";
       targets.genericLinux.enable = true;
       dojo.themeIntegrations.enable = true;
+      programs.dojoNativeAccessibility.enable = true;
+      programs.dojoQt6Annotation.enable = true;
+      programs.dojoQt5Annotation.enable = true;
       nixpkgs.config.allowUnfreePredicate =
         pkg:
         builtins.elem (lib.getName pkg) [
@@ -148,8 +162,8 @@ in
         inputs.clipvault.packages.${pkgs.stdenv.hostPlatform.system}.default
         inputs.utsushot.packages.${pkgs.stdenv.hostPlatform.system}.default
         inputs.vigiland.packages.${pkgs.stdenv.hostPlatform.system}.default
-        inputs.opencode.packages.${pkgs.stdenv.hostPlatform.system}.default
-        inputs.pi.packages.${pkgs.stdenv.hostPlatform.system}.default
+        opencode
+        pi
         pkgs.xdg-desktop-portal
         pkgs.xdg-desktop-portal-gtk
         pkgs.xdg-desktop-portal-gnome
@@ -272,6 +286,11 @@ in
             pause_on_lid_close true
             monitor_media false
             ignore_remote_media true
+
+            lock_screen:
+              timeout ${toString dojoLockIdleSeconds}
+              command "${dojoLockNow}"
+            end
           end
         '';
       };
@@ -289,10 +308,18 @@ in
       xdg.dataFile."dbus-1/services/org.gnome.keyring.PrivatePrompter.service".source =
         "${pkgs.gcr_3}/share/dbus-1/services/org.gnome.keyring.PrivatePrompter.service";
 
+      # Restart only after a crash (signal or non-zero exit). A clean Quit or
+      # a session stop is left alone, unlike Restart=always.
       xdg.configFile."systemd/user/app-1password@autostart.service.d/10-dojo-tray.conf".text = ''
+        [Unit]
+        StartLimitIntervalSec=10min
+        StartLimitBurst=5
+
         [Service]
         ExecStart=
         ExecStart=${onepasswordAutostart}
+        Restart=on-failure
+        RestartSec=3s
       '';
       xdg.configFile."autostart/dojo.desktop".text = ''
         [Desktop Entry]
@@ -325,6 +352,48 @@ in
           ExecStart = "${pkgs.speechd}/bin/speech-dispatcher -s -t 0";
         };
       };
+      # Started on demand by dojo-lock-now, never at login. A crashed locker is
+      # restarted while the compositor keeps the session locked; a second locker
+      # exits 0. Override the Vulkan pin with a drop-in that sets VK_DRIVER_FILES.
+      systemd.user.services.dojo-lock = {
+        Unit = {
+          Description = "Dojo lock screen";
+          After = [ "graphical-session.target" ];
+          PartOf = [ "graphical-session.target" ];
+          ConditionEnvironment = "WAYLAND_DISPLAY";
+          StartLimitIntervalSec = 0;
+          X-SwitchMethod = "keep-old";
+        };
+        Service = {
+          Type = "simple";
+          ExecStart = "${homeDirectory}/.local/bin/dojo-lock";
+          Environment = [ "VK_DRIVER_FILES=/run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json" ];
+          Restart = "on-failure";
+          RestartSec = "250ms";
+          KillMode = "control-group";
+          TimeoutStopSec = "5s";
+        };
+      };
+      # stasis cannot hold a sleep delay inhibitor or react to `loginctl lock-session`.
+      systemd.user.services.dojo-lock-session-bridge = {
+        Unit = {
+          Description = "Lock Dojo on loginctl lock-session and before suspend";
+          After = [ "graphical-session.target" ];
+          PartOf = [ "graphical-session.target" ];
+          ConditionEnvironment = "WAYLAND_DISPLAY";
+        };
+        Service = {
+          ExecStart = "${pkgs.bash}/bin/bash ${./scripts/dojo-lock-session-bridge}";
+          Environment = [
+            "PATH=${lib.makeBinPath [ pkgs.coreutils pkgs.gnused pkgs.systemd pkgs.glib pkgs.util-linux ]}"
+            "DOJO_LOCK_NOW=${dojoLockNow}"
+          ];
+          Restart = "on-failure";
+          RestartSec = "5s";
+        };
+        Install.WantedBy = [ "graphical-session.target" ];
+      };
+
       systemd.user.services.wlsunset = {
         Unit = {
           Description = "Warm screen color temperature adjustment";
@@ -575,6 +644,10 @@ in
 	  _props.hotkey-overlay-title = "Toggle idle inhibition";
 	  spawn = [ "toggle-vigiland" ];
 	};
+	settings.binds."Super+Alt+L" = {
+	  _props.hotkey-overlay-title = "Lock the screen";
+	  spawn = [ "${dojoLockNow}" ];
+	};
 	settings.binds."Mod+Shift+D" = {
 	  _props.hotkey-overlay-title = "Toggle light/dark mode";
 	  spawn = [ "darkman" "toggle" ];
@@ -593,6 +666,9 @@ in
 	};
       settings.layout = {
         gaps = 16;
+        # Dojo frame colour (ThemeColors default background) until the theme
+        # export publishes the palette background in themes/niri.kdl.
+        background-color = "#1e1e2e";
         focus-ring = {
           width = 3;
           # Fallback until Dojo has published a theme-specific focus ring.

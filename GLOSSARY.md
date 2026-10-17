@@ -12,3 +12,51 @@ An edge inset that keeps tiled windows within the desktop frame.
 
 **Frame state**:
 Whether the desktop frame and its reserved edges are enabled or disabled.
+
+**Account**:
+One credential source that can carry agent model requests, such as a Claude subscription or an OpenCode key. Accounts are discovered independently and any subset may be present.
+
+**Model picker**:
+The shell menu that lists the models an available account can serve and sets the agent's global model selection.
+
+### Locking
+
+**Occasion**:
+The reason the desktop frame opens or closes: lock, unlock, login, logout, suspend, hibernate, restart or shutdown.
+_Avoid_: Event, mode
+
+**Session lock**:
+The state in which the desktop is hidden and input is withheld from every application until the user proves their identity.
+_Avoid_: Screen lock, lock state
+
+**Lock screen**:
+The full-screen surface Dojo shows on every output while the session is locked.
+_Avoid_: Screensaver, greeter
+
+**Unlock method**:
+A way of proving identity at the lock screen: fingerprint or password. Both are live at the same time and the first to succeed unlocks.
+_Avoid_: Credential, factor
+
+**Dial**:
+The clock inside a tick ring at the centre of the lock screen. It also shows the fingerprint reader's state.
+_Avoid_: Ring, clock widget
+
+**Session transition**:
+The movement in which the desktop frame closes in over the workspace, or opens back out, when the session changes occasion.
+_Avoid_: Lock animation, shutters, iris
+
+**Greeting**:
+The one short line shown as the desktop frame opens, on unlock or login.
+_Avoid_: Welcome message, splash
+
+**Farewell**:
+The one short line shown as the desktop frame closes in, on lock, logout, suspend, hibernate, restart or shutdown.
+_Avoid_: Goodbye message, splash
+
+**Active output**:
+The output whose lock screen currently takes keyboard input, which is the one under the pointer. Other outputs show only a dim clock.
+_Avoid_: Focused monitor
+
+**Password pause**:
+A timed refusal of password attempts after repeated failures.
+_Avoid_: Lockout

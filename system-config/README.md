@@ -26,6 +26,54 @@ files stay outside version control. `pam.d/system-local-login` adds fingerprint
 authentication before the normal system-login stack. `nix/nix.conf` contains a
 public Cachix signing key, not a secret.
 
+`pam.d/ly` is the ly login stack. Stock ly lists `pam_gnome_keyring.so` as
+optional with a leading `-`, so it is skipped unless the module exists, and it
+reaches `system-local-login`, whose `sufficient pam_fprintd.so` ends the auth
+phase on a fingerprint before the keyring sees a password. The tracked copy
+authenticates with the password only. The Arch `gnome-keyring` package provides
+`/usr/lib/security/pam_gnome_keyring.so`, and the module only unlocks a keyring
+named `login`. `scripts/enable-keyring-login-unlock.sh` installs the package and
+renames an existing default keyring to `login`, keeping a backup;
+`scripts/install-system-config.sh` links the ly stack. The keyring password has to
+equal the login password, and a fingerprint login or autologin cannot unlock it
+because no password is entered. The Home Manager daemon stays and hands over to
+the one PAM starts.
+
+## Lock screen
+
+`pam.d/dojo-lock-fingerprint` and `pam.d/dojo-lock-password` are the two PAM
+services `dojo-lock` runs (ADR 0002). `scripts/install-system-config.sh` installs
+them as root-owned mode 0644 copies, not symlinks, because a symlink into this
+user-writable checkout would let any process running as the user rewrite how the
+session unlocks. Re-run the installer after editing them. Refresh the inventory
+afterwards with `dojo-update --only inventory`; it has no entries for them yet.
+
+Install the locker with the desktop release:
+
+```sh
+devenv shell -- cargo build --release --bin dojo --bin dojo-lock --bin dojo-lock-pam
+devenv shell -- scripts/install-dojo-release.sh
+devenv machines deploy venus
+```
+
+The release installer puts `dojo-lock` and `dojo-lock-pam` beside `dojo`, links
+`~/.local/bin/dojo-lock`, and refuses to install if `dojo-lock-pam` cannot load
+libpam under the host loader (`scripts/check-dojo-lock-helper.py`). Home Manager
+adds `dojo-lock.service` (on demand, never enabled at login; override the Vulkan
+pin with a drop-in setting `VK_DRIVER_FILES`), `dojo-lock-session-bridge.service`
+(`loginctl lock-session` and a sleep delay inhibitor, because stasis can do
+neither), the `Super+Alt+L` bind, a stasis `lock_screen` step after 300 s idle,
+and a fallback Niri `background-color`.
+
+Test in the nested compositor (`tools/agent-input/run-nested.sh`), not the live
+session. Keep a second TTY ready: Ctrl+Alt+F3, log in, then
+`systemctl --user restart dojo-lock` starts a fresh locker that takes the lock
+over; unlock it with your password. `loginctl unlock-session` does nothing,
+because no program listens for it. Killing the locker leaves the session locked.
+
+Not exercised for real: suspend, lock-before-suspend, the stasis idle step, the
+login background colour, and installing the PAM files.
+
 The [package baseline](packages/README.md) records every installed pacman package,
 the explicit packages to restore, and foreign-package provenance gaps.
 The [service baseline](services/README.md) records enabled system and user units.

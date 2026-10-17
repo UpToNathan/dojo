@@ -2,16 +2,17 @@ mod audio;
 mod bluetooth;
 mod bluetooth_ui;
 mod clock;
-mod config;
 mod displays_ui;
 mod file_events;
 mod frame;
-mod geometry;
 mod launcher;
+mod model_picker;
 mod niri_layout;
-mod power;
+mod picker_menu;
 mod quick_terminal;
+mod session_overlay;
 mod shell;
+mod sign_in;
 mod state;
 mod system_menu;
 mod theme_picker;
@@ -22,7 +23,7 @@ mod wifi_ui;
 
 use anyhow::bail;
 use control::ControlCommand;
-use dojo::{control, design, speech};
+use dojo::{config, control, design, geometry, power, speech};
 
 fn main() {
     if let Err(error) = run() {
@@ -58,8 +59,20 @@ fn run() -> anyhow::Result<()> {
         Some("--displays") => ControlCommand::Displays,
         Some("--wifi") => ControlCommand::Wifi,
         Some("--system-menu") => ControlCommand::SystemMenu,
+        Some("--models") => ControlCommand::Models,
         Some("--terminal") => ControlCommand::Terminal,
         Some("--terminal-closed") => ControlCommand::TerminalClosed,
+        Some("--leave") => {
+            let word = arguments
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("missing occasion"))?;
+            let occasion = dojo::session::Occasion::parse_closing(&word).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "unknown occasion {word:?}; use lock, logout, suspend, hibernate, restart or shutdown"
+                )
+            })?;
+            ControlCommand::Leave(occasion)
+        }
         Some("--speech-state") => {
             let phase = arguments
                 .next()
@@ -81,7 +94,7 @@ fn run() -> anyhow::Result<()> {
         }
         Some("--help") | Some("-h") => {
             println!(
-                "Usage: dojo [--toggle|--enable|--disable|--quit|--launcher|--launcher-up|--launcher-down|--launcher-activate|--launcher-dismiss|--theme|--displays|--wifi|--system-menu|--terminal|--launcher-benchmark|--speech-state STATE|--speech-response TEXT|--speech-transcript TEXT]"
+                "Usage: dojo [--toggle|--enable|--disable|--quit|--launcher|--launcher-up|--launcher-down|--launcher-activate|--launcher-dismiss|--theme|--displays|--wifi|--system-menu|--models|--terminal|--leave OCCASION|--launcher-benchmark|--speech-state STATE|--speech-response TEXT|--speech-transcript TEXT]"
             );
             return Ok(());
         }
@@ -107,12 +120,14 @@ fn run() -> anyhow::Result<()> {
             bail!("start Dojo and open the launcher before navigating it")
         }
         ControlCommand::Theme => shell::run_with_theme_picker(None),
+        ControlCommand::Models => shell::run_with_models(None),
         ControlCommand::Displays | ControlCommand::Wifi | ControlCommand::SystemMenu => {
             bail!("start Dojo before opening shell settings")
         }
         ControlCommand::Terminal | ControlCommand::TerminalClosed => {
             bail!("start Dojo before using its quick terminal")
         }
+        ControlCommand::Leave(occasion) => session_overlay::leave_without_shell(occasion),
         ControlCommand::Speech(_) => bail!("start Dojo before sending speech events"),
     }
 }

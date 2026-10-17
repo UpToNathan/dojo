@@ -1,6 +1,7 @@
 mod client;
 mod clipboard;
 mod cursor;
+mod dbus_annotation;
 mod display;
 mod popup;
 mod serial;

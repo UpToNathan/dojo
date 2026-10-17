@@ -30,8 +30,11 @@ pub enum ControlCommand {
     Displays,
     Wifi,
     SystemMenu,
+    Models,
     Terminal,
     TerminalClosed,
+    /// Close the frame for an occasion, then run its action.
+    Leave(crate::session::Occasion),
     Speech(crate::speech::SpeechEvent),
 }
 
@@ -41,6 +44,7 @@ impl ControlCommand {
             Self::Speech(event) => {
                 return serde_json::to_string(event).expect("speech events serialize");
             }
+            Self::Leave(occasion) => return format!("leave {}", occasion.key()),
             Self::Toggle => "toggle",
             Self::Enable => "enable",
             Self::Disable => "disable",
@@ -54,6 +58,7 @@ impl ControlCommand {
             Self::Displays => "displays",
             Self::Wifi => "wifi",
             Self::SystemMenu => "system-menu",
+            Self::Models => "models",
             Self::Terminal => "terminal",
             Self::TerminalClosed => "terminal-closed",
         }
@@ -75,12 +80,18 @@ impl ControlCommand {
             "displays" => Some(Self::Displays),
             "wifi" => Some(Self::Wifi),
             "system-menu" => Some(Self::SystemMenu),
+            "models" => Some(Self::Models),
             "terminal" => Some(Self::Terminal),
             "terminal-closed" => Some(Self::TerminalClosed),
-            _ => serde_json::from_str::<crate::speech::SpeechEvent>(value)
-                .ok()
-                .filter(|event| event.validate().is_ok())
-                .map(Self::Speech),
+            _ => value
+                .strip_prefix("leave ")
+                .map(|word| crate::session::Occasion::parse_closing(word).map(Self::Leave))
+                .unwrap_or_else(|| {
+                    serde_json::from_str::<crate::speech::SpeechEvent>(value)
+                        .ok()
+                        .filter(|event| event.validate().is_ok())
+                        .map(Self::Speech)
+                }),
         }
     }
 }
@@ -247,6 +258,7 @@ mod tests {
         for (token, expected) in [
             ("wifi", ControlCommand::Wifi),
             ("system-menu", ControlCommand::SystemMenu),
+            ("models", ControlCommand::Models),
         ] {
             assert_eq!(ControlCommand::parse(token), Some(expected.clone()));
             let (sender, receiver) = async_channel::bounded(1);
@@ -306,6 +318,38 @@ mod tests {
         client.write_all(b"launcher\n")?;
         handle_client(server, &sender);
         assert_eq!(receiver.try_recv()?, ControlCommand::Launcher);
+        let mut response = String::new();
+        BufReader::new(client).read_line(&mut response)?;
+        assert_eq!(response, "queued\n");
+        Ok(())
+    }
+
+    #[test]
+    fn leave_names_exactly_the_closing_occasions() -> anyhow::Result<()> {
+        use crate::session::Occasion;
+        for occasion in [
+            Occasion::Lock,
+            Occasion::Logout,
+            Occasion::Suspend,
+            Occasion::Hibernate,
+            Occasion::Restart,
+            Occasion::Shutdown,
+        ] {
+            let command = ControlCommand::Leave(occasion);
+            assert_eq!(ControlCommand::parse(&command.as_str()), Some(command));
+        }
+        assert_eq!(
+            ControlCommand::parse("leave shutdown"),
+            Some(ControlCommand::Leave(Occasion::Shutdown))
+        );
+        for invalid in ["leave", "leave ", "leave unlock", "leave login", "leave reboot", "leave  lock", "leave Lock"] {
+            assert!(ControlCommand::parse(invalid).is_none(), "{invalid:?}");
+        }
+        let (sender, receiver) = async_channel::bounded(1);
+        let (server, mut client) = UnixStream::pair()?;
+        client.write_all(b"leave lock\n")?;
+        handle_client(server, &sender);
+        assert_eq!(receiver.try_recv()?, ControlCommand::Leave(Occasion::Lock));
         let mut response = String::new();
         BufReader::new(client).read_line(&mut response)?;
         assert_eq!(response, "queued\n");

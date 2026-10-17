@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+installation=${XDG_DATA_HOME:-"$HOME/.local/share"}/dojo/desktop/current
+source "$installation/environment.sh"
+exec "$installation/dojo-lock" "$@"

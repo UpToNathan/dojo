@@ -16,7 +16,7 @@ if [[ ! -x "$niri_binary" ]]; then
     printf 'Missing compositor binary: %s\n' "$niri_binary" >&2
     exit 1
 fi
-DOJO_AGENT_INPUT=1 RUST_LOG=niri=info "$niri_binary" --config "$repo_root/tools/agent-input/nested.kdl" >"$run_directory/niri.log" 2>&1 &
+DOJO_AGENT_INPUT=${DOJO_NESTED_AGENT_INPUT:-1} RUST_LOG=niri=info "$niri_binary" --config "$repo_root/tools/agent-input/nested.kdl" >"$run_directory/niri.log" 2>&1 &
 niri_pid=$!
 for _ in {1..200}; do
     if ! kill -0 "$niri_pid" 2>/dev/null; then
@@ -42,8 +42,14 @@ if [[ "${1:-}" == --mcp ]]; then
 elif [[ "${1:-}" == --handoff ]]; then
     shift
     driver="$repo_root/tools/agent-input/run-handoff.py"
+elif [[ "${1:-}" == --model-picker ]]; then
+    shift
+    driver="$repo_root/tools/agent-input/run-model-picker.py"
 elif [[ "${1:-}" == --fullscreen ]]; then
     shift
     driver="$repo_root/tools/agent-input/run-fullscreen.py"
+elif [[ "${1:-}" == --lock ]]; then
+    shift
+    driver="$repo_root/tools/agent-input/run-lock.py"
 fi
 WAYLAND_DISPLAY="$child_display" NIRI_SOCKET="$child_socket" python3 "$driver" --log "$run_directory/events.jsonl" "$@"

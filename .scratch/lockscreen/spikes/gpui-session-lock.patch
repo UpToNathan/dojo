@@ -1,0 +1,749 @@
+diff --git a/vendor/zed/crates/gpui/examples/session_lock.rs b/vendor/zed/crates/gpui/examples/session_lock.rs
+new file mode 100644
+index 0000000000..b70fa4e9aa
+--- /dev/null
++++ b/vendor/zed/crates/gpui/examples/session_lock.rs
+@@ -0,0 +1,287 @@
++//! Throwaway spike: lock the session through `ext-session-lock-v1` with one GPUI window per
++//! output, a clock and a password field. Type `test` and press Enter to unlock.
++#[cfg(all(target_os = "linux", feature = "wayland"))]
++mod example {
++    use std::{
++        ops::Range,
++        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
++    };
++
++    use gpui::{
++        App, Bounds, Context, ElementInputHandler, Entity, EntityInputHandler, FocusHandle,
++        Focusable, KeyBinding, SessionLockEvent, UTF16Selection, Window, WindowBounds,
++        WindowKind, WindowOptions, actions, canvas, div, point, prelude::*, px, rgb, size, white,
++    };
++    use gpui_platform::application;
++
++    actions!(session_lock, [Submit, Backspace]);
++
++    struct LockView {
++        focus_handle: FocusHandle,
++        password: String,
++        marked: Option<Range<usize>>,
++        message: &'static str,
++    }
++
++    impl LockView {
++        fn submit(&mut self, _: &Submit, _: &mut Window, cx: &mut Context<Self>) {
++            eprintln!("event=submit len={}", self.password.chars().count());
++            if self.password == "test" {
++                cx.unlock_session();
++                eprintln!("event=unlock-requested");
++                cx.quit();
++            } else {
++                self.password.clear();
++                self.message = "wrong password";
++                cx.notify();
++            }
++        }
++
++        fn backspace(&mut self, _: &Backspace, _: &mut Window, cx: &mut Context<Self>) {
++            self.password.pop();
++            cx.notify();
++        }
++    }
++
++    impl Focusable for LockView {
++        fn focus_handle(&self, _: &App) -> FocusHandle {
++            self.focus_handle.clone()
++        }
++    }
++
++    impl EntityInputHandler for LockView {
++        fn text_for_range(
++            &mut self,
++            _: Range<usize>,
++            _: &mut Option<Range<usize>>,
++            _: &mut Window,
++            _: &mut Context<Self>,
++        ) -> Option<String> {
++            None
++        }
++
++        fn selected_text_range(
++            &mut self,
++            _: bool,
++            _: &mut Window,
++            _: &mut Context<Self>,
++        ) -> Option<UTF16Selection> {
++            let end = self.password.encode_utf16().count();
++            Some(UTF16Selection {
++                range: end..end,
++                reversed: false,
++            })
++        }
++
++        fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
++            self.marked.clone()
++        }
++
++        fn unmark_text(&mut self, _: &mut Window, _: &mut Context<Self>) {
++            self.marked = None;
++        }
++
++        fn replace_text_in_range(
++            &mut self,
++            _: Option<Range<usize>>,
++            text: &str,
++            window: &mut Window,
++            cx: &mut Context<Self>,
++        ) {
++            let viewport = window.viewport_size();
++            eprintln!(
++                "event=text-input text={text:?} window={}x{}",
++                f32::from(viewport.width),
++                f32::from(viewport.height)
++            );
++            if let Some(marked) = self.marked.take() {
++                self.password.truncate(marked.start);
++            }
++            self.password.push_str(text);
++            cx.notify();
++        }
++
++        fn replace_and_mark_text_in_range(
++            &mut self,
++            _: Option<Range<usize>>,
++            text: &str,
++            _: Option<Range<usize>>,
++            _: &mut Window,
++            cx: &mut Context<Self>,
++        ) {
++            eprintln!("event=ime-preedit text={text:?}");
++            let start = self
++                .marked
++                .take()
++                .map_or(self.password.len(), |marked| marked.start);
++            self.password.truncate(start);
++            self.password.push_str(text);
++            self.marked = Some(start..self.password.len());
++            cx.notify();
++        }
++
++        fn bounds_for_range(
++            &mut self,
++            _: Range<usize>,
++            bounds: Bounds<gpui::Pixels>,
++            _: &mut Window,
++            _: &mut Context<Self>,
++        ) -> Option<Bounds<gpui::Pixels>> {
++            Some(bounds)
++        }
++
++        fn character_index_for_point(
++            &mut self,
++            _: gpui::Point<gpui::Pixels>,
++            _: &mut Window,
++            _: &mut Context<Self>,
++        ) -> Option<usize> {
++            None
++        }
++    }
++
++    impl Render for LockView {
++        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
++            let now = SystemTime::now()
++                .duration_since(UNIX_EPOCH)
++                .map_or(0, |elapsed| elapsed.as_secs());
++            let clock = format!(
++                "{:02}:{:02}",
++                (now / 3600) % 24,
++                (now / 60) % 60
++            );
++            let dots = "\u{25cf}".repeat(self.password.chars().count());
++            let entity = cx.entity();
++            let focus_handle = self.focus_handle.clone();
++            let size = window.viewport_size();
++            div()
++                .key_context("LockView")
++                .track_focus(&self.focus_handle)
++                .on_action(cx.listener(Self::submit))
++                .on_action(cx.listener(Self::backspace))
++                .size_full()
++                .bg(rgb(0x101018))
++                .text_color(white())
++                .flex()
++                .flex_col()
++                .items_center()
++                .justify_center()
++                .gap_4()
++                .child(div().text_size(px(96.)).child(clock))
++                .child(
++                    div()
++                        .w(px(360.))
++                        .h(px(48.))
++                        .px_3()
++                        .flex()
++                        .items_center()
++                        .border_1()
++                        .border_color(rgb(0x7aa2f7))
++                        .rounded_md()
++                        .text_size(px(24.))
++                        .child(dots)
++                        .child(canvas(
++                            |_, _, _| {},
++                            move |bounds, (), window, cx| {
++                                window.handle_input(
++                                    &focus_handle,
++                                    ElementInputHandler::new(bounds, entity),
++                                    cx,
++                                );
++                            },
++                        )),
++                )
++                .child(div().text_size(px(16.)).child(format!(
++                    "{} ({}x{} px)",
++                    self.message,
++                    f32::from(size.width),
++                    f32::from(size.height)
++                )))
++        }
++    }
++
++    pub fn main() {
++        let started = Instant::now();
++        application().run(move |cx: &mut App| {
++            cx.bind_keys([
++                KeyBinding::new("enter", Submit, Some("LockView")),
++                KeyBinding::new("backspace", Backspace, Some("LockView")),
++            ]);
++            cx.on_session_lock_event(move |event, cx| {
++                eprintln!(
++                    "event={event:?} elapsed_ms={}",
++                    started.elapsed().as_millis()
++                );
++                if event == SessionLockEvent::Finished {
++                    cx.quit();
++                }
++            });
++            cx.observe_keystrokes(|event, _, _| {
++                eprintln!(
++                    "event=keystroke key={} key_char={:?}",
++                    event.keystroke.unparse(),
++                    event.keystroke.key_char
++                );
++            })
++            .detach();
++
++            let displays = cx.displays();
++            eprintln!("event=displays count={}", displays.len());
++            for display in displays {
++                let bounds = Bounds {
++                    origin: point(px(0.), px(0.)),
++                    size: size(px(800.), px(600.)),
++                };
++                eprintln!("event=open-window-start elapsed_ms={}", started.elapsed().as_millis());
++                let window = cx
++                    .open_window(
++                        WindowOptions {
++                            titlebar: None,
++                            window_bounds: Some(WindowBounds::Windowed(bounds)),
++                            display_id: Some(display.id()),
++                            app_id: Some("dojo-lock-spike".to_string()),
++                            kind: WindowKind::SessionLock,
++                            ..Default::default()
++                        },
++                        |window, cx| {
++                            let view = cx.new(|cx| LockView {
++                                focus_handle: cx.focus_handle(),
++                                password: String::new(),
++                                marked: None,
++                                message: "type 'test' and press Enter",
++                            });
++                            window.focus(&view.focus_handle(cx), cx);
++                            view
++                        },
++                    )
++                    .expect("open session lock window");
++                eprintln!("event=open-window-done elapsed_ms={}", started.elapsed().as_millis());
++                let view: Entity<LockView> = window
++                    .entity(cx)
++                    .expect("window root entity");
++                let view = view.downgrade();
++                cx.spawn(async move |cx| {
++                    loop {
++                        let seconds_into_minute = SystemTime::now()
++                            .duration_since(UNIX_EPOCH)
++                            .map_or(0, |elapsed| elapsed.as_secs() % 60);
++                        cx.background_executor()
++                            .timer(Duration::from_secs(60 - seconds_into_minute))
++                            .await;
++                        if view.update(cx, |_, cx| cx.notify()).is_err() {
++                            break;
++                        }
++                    }
++                })
++                .detach();
++            }
++        });
++    }
++}
++
++fn main() {
++    #[cfg(all(target_os = "linux", feature = "wayland"))]
++    example::main();
++    #[cfg(not(all(target_os = "linux", feature = "wayland")))]
++    panic!("This example requires the `wayland` feature and a linux system.");
++}
+diff --git a/vendor/zed/crates/gpui/src/app.rs b/vendor/zed/crates/gpui/src/app.rs
+index cdbd5593b1..e25dae102a 100644
+--- a/vendor/zed/crates/gpui/src/app.rs
++++ b/vendor/zed/crates/gpui/src/app.rs
+@@ -52,7 +52,7 @@ use crate::{
+     OwnedMenu, PathPromptOptions, Pixels, Platform, PlatformDisplay, PlatformKeyboardLayout,
+     PlatformKeyboardMapper, Point, Priority, PromptBuilder, PromptButton, PromptHandle,
+     PromptLevel, Render, RenderImage, RenderablePromptHandle, Reservation, ScreenCaptureSource,
+-    SharedString, SubscriberSet, Subscription, SvgRenderer, SystemNotification,
++    SessionLockEvent, SharedString, SubscriberSet, Subscription, SvgRenderer, SystemNotification,
+     SystemNotificationResponse, Task, TextRenderingMode, TextSystem, ThermalState, Window,
+     WindowAppearance, WindowButtonLayout, WindowHandle, WindowId, WindowInvalidator,
+     WindowingRequest,
+@@ -847,6 +847,7 @@ pub struct App {
+     missing_glyph_callback: Rc<MissingGlyphCallbackSlot>,
+     pub(crate) thermal_state_observers: SubscriberSet<(), Handler>,
+     pub(crate) display_observers: SubscriberSet<(), DisplayHandler>,
++    session_lock_callback: Option<Box<dyn FnMut(SessionLockEvent, &mut App)>>,
+     /// The connected displays, as of the platform's last display change
+     /// notification.
+     displays: HashMap<DisplayId, DisplayState>,
+@@ -987,6 +988,7 @@ impl App {
+                 missing_glyph_callback: Rc::default(),
+                 thermal_state_observers: SubscriberSet::new(),
+                 display_observers: SubscriberSet::new(),
++                session_lock_callback: None,
+                 displays: read_displays(platform.as_ref()),
+                 system_sleep_observers: SubscriberSet::new(),
+                 system_wake_observers: SubscriberSet::new(),
+@@ -1051,6 +1053,19 @@ impl App {
+             }
+         }));
+ 
++        platform.on_session_lock_event(Box::new({
++            let app = Rc::downgrade(&app);
++            move |event| {
++                if let Some(app) = app.upgrade() {
++                    let cx = &mut app.borrow_mut();
++                    if let Some(mut callback) = cx.session_lock_callback.take() {
++                        callback(event, cx);
++                        cx.session_lock_callback.get_or_insert(callback);
++                    }
++                }
++            }
++        }));
++
+         platform.on_displays_changed(Box::new({
+             let app = Rc::downgrade(&app);
+             move || {
+@@ -1627,6 +1642,19 @@ impl App {
+         subscription
+     }
+ 
++    /// Registers the (single) handler for session lock lifecycle events.
++    pub fn on_session_lock_event(
++        &mut self,
++        callback: impl FnMut(SessionLockEvent, &mut App) + 'static,
++    ) {
++        self.session_lock_callback = Some(Box::new(callback));
++    }
++
++    /// Unlocks the session lock held by this process.
++    pub fn unlock_session(&self) {
++        self.platform.unlock_session();
++    }
++
+     pub(crate) fn displays_changed(&mut self) {
+         let current = read_displays(self.platform.as_ref());
+         let events = display_events(&self.displays, &current);
+diff --git a/vendor/zed/crates/gpui/src/platform.rs b/vendor/zed/crates/gpui/src/platform.rs
+index f3e85b5c41..a2a3323ba8 100644
+--- a/vendor/zed/crates/gpui/src/platform.rs
++++ b/vendor/zed/crates/gpui/src/platform.rs
+@@ -392,6 +392,11 @@ pub trait Platform: 'static {
+     /// [`Self::displays`] to find out what changed, so calls may be spurious.
+     /// The callback runs on the main thread outside of any window update.
+     fn on_displays_changed(&self, callback: Box<dyn FnMut()>);
++    /// Registers a callback for `ext-session-lock-v1` lifecycle events.
++    fn on_session_lock_event(&self, _callback: Box<dyn FnMut(SessionLockEvent)>) {}
++    /// Unlocks the session (`unlock_and_destroy`) if it is locked, otherwise just
++    /// releases the lock request.
++    fn unlock_session(&self) {}
+     fn active_window(&self) -> Option<AnyWindowHandle>;
+     fn window_stack(&self) -> Option<Vec<AnyWindowHandle>> {
+         None
+@@ -2703,6 +2708,15 @@ pub struct TitlebarOptions {
+     pub traffic_light_position: Option<Point<Pixels>>,
+ }
+ 
++/// Lifecycle events of an `ext-session-lock-v1` session lock.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum SessionLockEvent {
++    /// The compositor confirmed the session is locked.
++    Locked,
++    /// The lock was refused or ended by the compositor; lock windows are closed.
++    Finished,
++}
++
+ /// The kind of window to create
+ #[derive(Clone, Debug, PartialEq, Eq)]
+ pub enum WindowKind {
+@@ -2729,6 +2743,11 @@ pub enum WindowKind {
+     #[cfg(all(target_os = "linux", feature = "wayland"))]
+     LayerShell(layer_shell::LayerShellOptions),
+ 
++    /// An `ext-session-lock-v1` lock surface. Open one per output (set
++    /// `WindowOptions::display_id`); the first one acquires the session lock.
++    #[cfg(all(target_os = "linux", feature = "wayland"))]
++    SessionLock,
++
+     /// A window that appears on top of its parent window and blocks interaction with it
+     /// until the modal window is closed
+     Dialog,
+diff --git a/vendor/zed/crates/gpui_linux/src/linux/display_connection.rs b/vendor/zed/crates/gpui_linux/src/linux/display_connection.rs
+index d7849d0c4a..4e836ce246 100644
+--- a/vendor/zed/crates/gpui_linux/src/linux/display_connection.rs
++++ b/vendor/zed/crates/gpui_linux/src/linux/display_connection.rs
+@@ -126,6 +126,13 @@ impl DisplayConnection {
+         dispatch!(self, connection => connection.displays(), headless(connection) => connection.displays())
+     }
+ 
++    pub(crate) fn unlock_session(&self) {
++        #[cfg(feature = "wayland")]
++        if let DisplayConnection::Wayland(connection) = self {
++            connection.unlock_session();
++        }
++    }
++
+     pub(crate) fn primary_display(&self) -> Option<Rc<dyn PlatformDisplay>> {
+         dispatch!(
+             self,
+diff --git a/vendor/zed/crates/gpui_linux/src/linux/platform.rs b/vendor/zed/crates/gpui_linux/src/linux/platform.rs
+index 1fd4139058..7f3f12926d 100644
+--- a/vendor/zed/crates/gpui_linux/src/linux/platform.rs
++++ b/vendor/zed/crates/gpui_linux/src/linux/platform.rs
+@@ -72,6 +72,7 @@ pub(crate) struct PlatformHandlers {
+     pub(crate) system_sleep: Option<Box<dyn FnMut()>>,
+     pub(crate) system_wake: Option<Box<dyn FnMut()>>,
+     pub(crate) displays_changed: Option<Box<dyn FnMut()>>,
++    pub(crate) session_lock: Option<Box<dyn FnMut(gpui::SessionLockEvent)>>,
+ }
+ 
+ /// A logind `PrepareForSleep` signal, forwarded from the D-Bus listener to
+@@ -726,6 +727,14 @@ impl Platform for LinuxPlatform {
+         self.with_common(|common| common.callbacks.displays_changed = Some(callback));
+     }
+ 
++    fn on_session_lock_event(&self, callback: Box<dyn FnMut(gpui::SessionLockEvent)>) {
++        self.with_common(|common| common.callbacks.session_lock = Some(callback));
++    }
++
++    fn unlock_session(&self) {
++        self.connection.borrow().unlock_session();
++    }
++
+     #[cfg(feature = "screen-capture")]
+     fn is_screen_capture_supported(&self) -> bool {
+         self.connection.borrow().is_screen_capture_supported()
+diff --git a/vendor/zed/crates/gpui_linux/src/linux/wayland/client.rs b/vendor/zed/crates/gpui_linux/src/linux/wayland/client.rs
+index 7167b188ba..92dfb679c1 100644
+--- a/vendor/zed/crates/gpui_linux/src/linux/wayland/client.rs
++++ b/vendor/zed/crates/gpui_linux/src/linux/wayland/client.rs
+@@ -57,6 +57,9 @@ use wayland_protocols::wp::text_input::zv3::client::zwp_text_input_v3::{
+ use wayland_protocols::wp::text_input::zv3::client::{
+     zwp_text_input_manager_v3, zwp_text_input_v3,
+ };
++use wayland_protocols::ext::session_lock::v1::client::{
++    ext_session_lock_manager_v1, ext_session_lock_surface_v1, ext_session_lock_v1,
++};
+ use wayland_protocols::wp::viewporter::client::{wp_viewport, wp_viewporter};
+ use wayland_protocols::xdg::activation::v1::client::{xdg_activation_token_v1, xdg_activation_v1};
+ use wayland_protocols::xdg::decoration::zv1::client::{
+@@ -256,6 +259,10 @@ pub struct Globals {
+         Option<wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1>,
+     pub decoration_manager: Option<zxdg_decoration_manager_v1::ZxdgDecorationManagerV1>,
+     pub layer_shell: Option<zwlr_layer_shell_v1::ZwlrLayerShellV1>,
++    pub session_lock_manager: Option<ext_session_lock_manager_v1::ExtSessionLockManagerV1>,
++    /// The one lock object shared by every lock surface; `None` until the first lock surface is
++    /// requested and again after `unlock_and_destroy` or `finished`.
++    pub session_lock: Rc<RefCell<Option<SessionLock>>>,
+     pub blur_manager: Option<org_kde_kwin_blur_manager::OrgKdeKwinBlurManager>,
+     pub background_effect_manager: Option<ext_background_effect_manager_v1::ExtBackgroundEffectManagerV1>,
+     pub text_input_manager: Option<zwp_text_input_manager_v3::ZwpTextInputManagerV3>,
+@@ -307,6 +314,8 @@ impl Globals {
+             fractional_scale_manager: globals.bind(&qh, 1..=1, ()).ok(),
+             decoration_manager: globals.bind(&qh, 1..=1, ()).ok(),
+             layer_shell: globals.bind(&qh, 1..=5, ()).ok(),
++            session_lock_manager: globals.bind(&qh, 1..=1, ()).ok(),
++            session_lock: Rc::default(),
+             blur_manager: globals.bind(&qh, 1..=1, ()).ok(),
+             background_effect_manager: globals.bind(&qh, 1..=1, ()).ok(),
+             text_input_manager: globals.bind(&qh, 1..=1, ()).ok(),
+@@ -1439,6 +1448,24 @@ impl WaylandConnection {
+         None
+     }
+ 
++    pub(crate) fn unlock_session(&self) {
++        let globals = self.0.borrow().globals.clone();
++        let Some(session_lock) = globals.session_lock.borrow_mut().take() else {
++            return;
++        };
++        if session_lock.locked {
++            session_lock.lock.unlock_and_destroy();
++        } else {
++            session_lock.lock.destroy();
++        }
++        // The request must reach the compositor even if the process exits right after this.
++        if let Some(backend) = session_lock.lock.backend().upgrade()
++            && let Err(error) = backend.flush()
++        {
++            log::error!("failed to flush session unlock: {error}");
++        }
++    }
++
+     #[cfg(feature = "screen-capture")]
+     pub(crate) fn is_screen_capture_supported(&self) -> bool {
+         true
+@@ -2026,6 +2053,7 @@ delegate_noop!(WaylandClientStatePtr: ignore wl_region::WlRegion);
+ delegate_noop!(WaylandClientStatePtr: ignore wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1);
+ delegate_noop!(WaylandClientStatePtr: ignore zxdg_decoration_manager_v1::ZxdgDecorationManagerV1);
+ delegate_noop!(WaylandClientStatePtr: ignore zwlr_layer_shell_v1::ZwlrLayerShellV1);
++delegate_noop!(WaylandClientStatePtr: ignore ext_session_lock_manager_v1::ExtSessionLockManagerV1);
+ delegate_noop!(WaylandClientStatePtr: ignore xdg_positioner::XdgPositioner);
+ delegate_noop!(WaylandClientStatePtr: ignore org_kde_kwin_blur_manager::OrgKdeKwinBlurManager);
+ delegate_noop!(WaylandClientStatePtr: ignore ext_background_effect_manager_v1::ExtBackgroundEffectManagerV1);
+@@ -2293,6 +2321,85 @@ impl Dispatch<xdg_toplevel::XdgToplevel, ObjectId> for WaylandClientStatePtr {
+     }
+ }
+ 
++pub struct SessionLock {
++    pub lock: ext_session_lock_v1::ExtSessionLockV1,
++    pub locked: bool,
++}
++
++impl Dispatch<ext_session_lock_v1::ExtSessionLockV1, ()> for WaylandClientStatePtr {
++    fn event(
++        this: &mut Self,
++        lock: &ext_session_lock_v1::ExtSessionLockV1,
++        event: <ext_session_lock_v1::ExtSessionLockV1 as Proxy>::Event,
++        _: &(),
++        _: &Connection,
++        _: &QueueHandle<Self>,
++    ) {
++        let (globals, common) = {
++            let client = this.get_client();
++            let state = client.borrow();
++            (state.globals.clone(), state.common.clone())
++        };
++        let gpui_event = match event {
++            ext_session_lock_v1::Event::Locked => {
++                if let Some(session_lock) = globals.session_lock.borrow_mut().as_mut() {
++                    session_lock.locked = true;
++                }
++                gpui::SessionLockEvent::Locked
++            }
++            ext_session_lock_v1::Event::Finished => {
++                // The compositor refused or ended the lock; the object is inert and must only
++                // be destroyed. Lock surfaces are closed by the windows' own `Closed` path.
++                globals.session_lock.borrow_mut().take();
++                lock.destroy();
++                let windows: Vec<_> = this
++                    .get_client()
++                    .borrow()
++                    .windows
++                    .values()
++                    .filter(|window| window.is_session_lock())
++                    .cloned()
++                    .collect();
++                for window in windows {
++                    window.close();
++                }
++                gpui::SessionLockEvent::Finished
++            }
++            _ => return,
++        };
++        let callback = common.borrow_mut().callbacks.session_lock.take();
++        if let Some(mut callback) = callback {
++            callback(gpui_event);
++            common
++                .borrow_mut()
++                .callbacks
++                .session_lock
++                .get_or_insert(callback);
++        }
++    }
++}
++
++impl Dispatch<ext_session_lock_surface_v1::ExtSessionLockSurfaceV1, ObjectId>
++    for WaylandClientStatePtr
++{
++    fn event(
++        this: &mut Self,
++        _: &ext_session_lock_surface_v1::ExtSessionLockSurfaceV1,
++        event: <ext_session_lock_surface_v1::ExtSessionLockSurfaceV1 as Proxy>::Event,
++        surface_id: &ObjectId,
++        _: &Connection,
++        _: &QueueHandle<Self>,
++    ) {
++        let client = this.get_client();
++        let mut state = client.borrow_mut();
++        let Some(window) = get_window(&mut state, surface_id) else {
++            return;
++        };
++        drop(state);
++        window.handle_lock_surface_event(event);
++    }
++}
++
+ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ObjectId> for WaylandClientStatePtr {
+     fn event(
+         this: &mut Self,
+diff --git a/vendor/zed/crates/gpui_linux/src/linux/wayland/window.rs b/vendor/zed/crates/gpui_linux/src/linux/wayland/window.rs
+index c805211d9d..65caf95dad 100644
+--- a/vendor/zed/crates/gpui_linux/src/linux/wayland/window.rs
++++ b/vendor/zed/crates/gpui_linux/src/linux/wayland/window.rs
+@@ -30,6 +30,7 @@ use wayland_protocols::{
+     xdg::dialog::v1::client::xdg_dialog_v1::XdgDialogV1,
+ };
+ use wayland_protocols_plasma::blur::client::org_kde_kwin_blur;
++use wayland_protocols::ext::session_lock::v1::client::ext_session_lock_surface_v1;
+ use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1;
+ 
+ use crate::linux::wayland::{display::WaylandDisplay, serial::SerialKind};
+@@ -149,6 +150,7 @@ pub struct WaylandWindowState {
+ pub enum WaylandSurfaceState {
+     Xdg(WaylandXdgSurfaceState),
+     LayerShell(WaylandLayerSurfaceState),
++    SessionLock(ext_session_lock_surface_v1::ExtSessionLockSurfaceV1),
+     Popup(WaylandPopupSurfaceState),
+ }
+ 
+@@ -161,6 +163,33 @@ impl WaylandSurfaceState {
+         popup_grab: Option<(u32, wl_seat::WlSeat)>,
+         target_output: Option<wl_output::WlOutput>,
+     ) -> anyhow::Result<Self> {
++        if matches!(params.kind, WindowKind::SessionLock) {
++            let Some(manager) = globals.session_lock_manager.as_ref() else {
++                return Err(anyhow::anyhow!(
++                    "Compositor doesn't support ext_session_lock_v1"
++                ));
++            };
++            let Some(output) = target_output.as_ref() else {
++                return Err(anyhow::anyhow!(
++                    "a session lock surface needs a target display"
++                ));
++            };
++            let mut session_lock = globals.session_lock.borrow_mut();
++            let lock = match session_lock.as_ref() {
++                Some(session_lock) => session_lock.lock.clone(),
++                None => {
++                    let lock = manager.lock(&globals.qh, ());
++                    *session_lock = Some(super::client::SessionLock {
++                        lock: lock.clone(),
++                        locked: false,
++                    });
++                    lock
++                }
++            };
++            let lock_surface = lock.get_lock_surface(&surface, output, &globals.qh, surface.id());
++            return Ok(WaylandSurfaceState::SessionLock(lock_surface));
++        }
++
+         // For layer_shell windows, create a layer surface instead of an xdg surface
+         if let WindowKind::LayerShell(options) = &params.kind {
+             let Some(layer_shell) = globals.layer_shell.as_ref() else {
+@@ -385,6 +414,9 @@ impl WaylandSurfaceState {
+             WaylandSurfaceState::LayerShell(WaylandLayerSurfaceState { layer_surface, .. }) => {
+                 layer_surface.ack_configure(serial);
+             }
++            WaylandSurfaceState::SessionLock(lock_surface) => {
++                lock_surface.ack_configure(serial);
++            }
+             WaylandSurfaceState::Popup(WaylandPopupSurfaceState { xdg_surface, .. }) => {
+                 xdg_surface.ack_configure(serial);
+             }
+@@ -415,7 +447,7 @@ impl WaylandSurfaceState {
+             WaylandSurfaceState::Popup(WaylandPopupSurfaceState { xdg_surface, .. }) => {
+                 Some(xdg_surface)
+             }
+-            WaylandSurfaceState::LayerShell(_) => None,
++            WaylandSurfaceState::LayerShell(_) | WaylandSurfaceState::SessionLock(_) => None,
+         }
+     }
+ 
+@@ -438,6 +470,8 @@ impl WaylandSurfaceState {
+                 // cannot set window position of a layer surface
+                 layer_surface.set_size(width as u32, height as u32);
+             }
++            // The compositor dictates a lock surface's size.
++            WaylandSurfaceState::SessionLock(_) => {}
+             WaylandSurfaceState::Popup(WaylandPopupSurfaceState { xdg_surface, .. }) => {
+                 xdg_surface.set_window_geometry(x, y, width, height);
+             }
+@@ -533,6 +567,9 @@ impl WaylandSurfaceState {
+             WaylandSurfaceState::LayerShell(WaylandLayerSurfaceState { layer_surface, .. }) => {
+                 layer_surface.destroy();
+             }
++            WaylandSurfaceState::SessionLock(lock_surface) => {
++                lock_surface.destroy();
++            }
+             WaylandSurfaceState::Popup(WaylandPopupSurfaceState {
+                 xdg_surface,
+                 xdg_popup,
+@@ -887,8 +924,11 @@ impl WaylandWindow {
+             scheduled_frame_at: Rc::new(Cell::new(None)),
+         });
+ 
+-        // Kick things off
+-        surface.commit();
++        // Kick things off. A lock surface is configured without a commit, and committing
++        // before the first ack_configure is a protocol error.
++        if !this.0.is_session_lock() {
++            surface.commit();
++        }
+ 
+         Ok((this, surface.id()))
+     }
+@@ -1338,6 +1378,38 @@ impl WaylandWindowStatePtr {
+         }
+     }
+ 
++    pub fn is_session_lock(&self) -> bool {
++        matches!(
++            self.state.borrow().surface_state,
++            WaylandSurfaceState::SessionLock(_)
++        )
++    }
++
++    pub fn handle_lock_surface_event(&self, event: ext_session_lock_surface_v1::Event) {
++        let ext_session_lock_surface_v1::Event::Configure {
++            width,
++            height,
++            serial,
++        } = event
++        else {
++            return;
++        };
++        let size = if width == 0 || height == 0 {
++            None
++        } else {
++            Some(size(px(width as f32), px(height as f32)))
++        };
++        self.state.borrow_mut().in_progress_configure = Some(InProgressConfigure {
++            size,
++            fullscreen: false,
++            maximized: false,
++            resizing: false,
++            visibility: WindowVisibility::Visible,
++            tiling: Tiling::default(),
++        });
++        self.handle_xdg_surface_event(xdg_surface::Event::Configure { serial });
++    }
++
+     pub fn handle_layersurface_event(&self, event: zwlr_layer_surface_v1::Event) -> bool {
+         match event {
+             zwlr_layer_surface_v1::Event::Configure {

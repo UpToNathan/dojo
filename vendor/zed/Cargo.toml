@@ -981,6 +981,7 @@ features = [
 ]
 
 [patch.crates-io]
+accesskit_unix = { path = "../accesskit-unix" }
 cpal = { git = "https://github.com/RustAudio/cpal", rev = "e1612d5d98152f8dc2a62e1b51ef7cbf4f7f26b7" }
 # Unify `tree_sitter_language::LanguageFn` between crates.io grammar crates and
 # the git tree-sitter above; two instances of the crate would make grammar

@@ -126,6 +126,13 @@ impl DisplayConnection {
         dispatch!(self, connection => connection.displays(), headless(connection) => connection.displays())
     }
 
+    pub(crate) fn unlock_session(&self) {
+        #[cfg(feature = "wayland")]
+        if let DisplayConnection::Wayland(connection) = self {
+            connection.unlock_session();
+        }
+    }
+
     pub(crate) fn primary_display(&self) -> Option<Rc<dyn PlatformDisplay>> {
         dispatch!(
             self,
@@ -139,6 +146,11 @@ impl DisplayConnection {
         handle: AnyWindowHandle,
         params: WindowParams,
     ) -> anyhow::Result<Box<dyn PlatformWindow>> {
+        // Elsewhere a lock window would open as an ordinary window and leave the session unlocked.
+        #[cfg(feature = "wayland")]
+        if params.kind == gpui::WindowKind::SessionLock && !matches!(self, Self::Wayland(_)) {
+            anyhow::bail!("session lock windows need a Wayland compositor");
+        }
         dispatch!(
             self,
             connection => connection.open_window(handle, params),

@@ -11,7 +11,8 @@ gpui = { path = "vendor/zed/crates/gpui", default-features = false }
 gpui_platform = { path = "vendor/zed/crates/gpui_platform", default-features = false, features = ["wayland"] }
 niri-ipc = { path = "vendor/niri/niri-ipc" }
 dojo-computer = { path = "crates/dojo-computer" }
-dojo-external-admission = { path = "crates/dojo-external-admission", default-features = false }
+dojo-external-admission = { path = "crates/dojo-external-admission", default-features = false, features = ["atspi-transport"] }
+dojo-browser-control = { path = "crates/dojo-browser-control" }
 dojo-computer-verification = { path = "crates/dojo-computer-verification" }
 dojo-capture-wayland = { path = "crates/dojo-capture-wayland" }
 dojo-accessibility = { path = "crates/dojo-accessibility" }
@@ -41,6 +42,20 @@ rustix = { version = "=1.1.5", features = ["fs", "event"] }
 freedesktop-icons = "=0.4.0"
 rmcp = { version = "=3.5.1", default-features = false, features = ["server", "macros", "transport-io"] }
 tokio = { version = "=1.53.2", features = ["rt-multi-thread", "macros", "sync", "signal", "time"] }
+zeroize = "=1.9.1"
+# blocking 1.7.0 never retires idle pool threads, so each one wakes every 500 ms for the
+# life of the process (smol-rs/blocking#81). zbus connects through this pool.
+blocking = "=1.6.2"
+
+[features]
+# Lets dojo-lock-pam read service files from a private directory. Tests only; never in a release build.
+fake-pam-stack = []
+# Compiles session::action::RecordingRunner so tests and the nested Niri can record actions. Never in a release build.
+record-session-actions = []
+
+# Line tables keep backtraces readable at a fraction of full debug-info size.
+[profile.dev]
+debug = "line-tables-only"
 
 # Window creation compiles shader pipelines. Keep this work optimized even
 # while Dojo's own code retains a fast, debuggable development build.
@@ -68,5 +83,17 @@ path = "crates/dojo-computer-verification/src/bin/dojo-computer-verification.rs"
 name = "dojo-computer-recording"
 path = "crates/dojo-computer-recording/src/bin/dojo-computer-recording.rs"
 
+[[bin]]
+name = "dojo-accessibility-fixture"
+path = "tools/accessibility/gpui_fixture.rs"
+
+[[test]]
+name = "lock_worker"
+path = "tests/lock_worker.rs"
+required-features = ["fake-pam-stack"]
+
 [profile.dev.package.sha2]
 opt-level = 3
+
+[patch.crates-io]
+accesskit_unix = { path = "vendor/accesskit-unix" }

@@ -1,3 +1,5 @@
+pub const BORDER_WIDTH: f32 = 1.;
+pub const SHELL_BORDER_OPACITY: f32 = 0.1;
 pub const BORDER_ALPHA: u8 = 0x33;
 pub const BORDER_OPACITY: f32 = BORDER_ALPHA as f32 / 255.;
 pub const PILL_RADIUS: f32 = 9999.;
@@ -88,6 +90,176 @@ pub fn paint_frame_shadow(
     );
 }
 
+pub fn paint_desktop_frame(
+    window: &mut gpui::Window,
+    bounds: gpui::Bounds<gpui::Pixels>,
+    opening: gpui::Bounds<gpui::Pixels>,
+    radius: gpui::Pixels,
+    surround: gpui::Rgba,
+    border: gpui::Rgba,
+) {
+    use gpui::{FillOptions, FillRule, PathBuilder, PathStyle, px};
+    let mut builder = PathBuilder::fill().with_style(PathStyle::Fill(
+        FillOptions::default().with_fill_rule(FillRule::NonZero),
+    ));
+    append_rounded_rectangle(&mut builder, bounds, px(0.));
+    append_rounded_rectangle_reverse(&mut builder, opening, radius);
+
+    match builder.build() {
+        Ok(path) => window.paint_path(path, surround),
+        Err(error) => {
+            eprintln!("Failed to render Dojo's desktop surround: {error}")
+        }
+    }
+    paint_frame_shadow(window, opening, surround, radius);
+    let mut edge = PathBuilder::stroke(px(BORDER_WIDTH));
+    append_rounded_rectangle(
+        &mut edge,
+        opening.dilate(px(-BORDER_WIDTH / 2.)),
+        radius - px(BORDER_WIDTH / 2.),
+    );
+    if let Ok(edge) = edge.build() {
+        window.paint_path(edge, border.opacity(SHELL_BORDER_OPACITY));
+    }
+}
+
+pub fn shell_clock_element(
+    label: impl Into<gpui::SharedString>,
+    bounds: gpui::Bounds<gpui::Pixels>,
+    text_px: f32,
+    colors: &crate::config::ThemeColors,
+) -> gpui::Stateful<gpui::Div> {
+    use gpui::{InteractiveElement as _, ParentElement as _, Styled as _, div, px};
+    div()
+        .id("shell-clock")
+        .absolute()
+        .top(px(0.))
+        .left(bounds.origin.x)
+        .w(bounds.size.width)
+        .h(bounds.size.height)
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(px(text_px))
+        .overflow_hidden()
+        .text_ellipsis()
+        .text_color(colors.foreground.rgb())
+        .child(label.into())
+}
+
+fn append_rounded_rectangle(
+    builder: &mut gpui::PathBuilder,
+    bounds: gpui::Bounds<gpui::Pixels>,
+    radius: gpui::Pixels,
+) {
+    use gpui::{point, px};
+    let radius = radius
+        .min(bounds.size.width / 2.)
+        .min(bounds.size.height / 2.);
+    let left = bounds.left();
+    let top = bounds.top();
+    let right = bounds.right();
+    let bottom = bounds.bottom();
+
+    if radius == px(0.) {
+        builder.add_polygon(
+            &[
+                point(left, top),
+                point(right, top),
+                point(right, bottom),
+                point(left, bottom),
+            ],
+            true,
+        );
+        return;
+    }
+
+    builder.move_to(point(left + radius, top));
+    builder.line_to(point(right - radius, top));
+    builder.arc_to(
+        point(radius, radius),
+        px(0.),
+        false,
+        true,
+        point(right, top + radius),
+    );
+    builder.line_to(point(right, bottom - radius));
+    builder.arc_to(
+        point(radius, radius),
+        px(0.),
+        false,
+        true,
+        point(right - radius, bottom),
+    );
+    builder.line_to(point(left + radius, bottom));
+    builder.arc_to(
+        point(radius, radius),
+        px(0.),
+        false,
+        true,
+        point(left, bottom - radius),
+    );
+    builder.line_to(point(left, top + radius));
+    builder.arc_to(
+        point(radius, radius),
+        px(0.),
+        false,
+        true,
+        point(left + radius, top),
+    );
+    builder.close();
+}
+
+fn append_rounded_rectangle_reverse(
+    builder: &mut gpui::PathBuilder,
+    bounds: gpui::Bounds<gpui::Pixels>,
+    radius: gpui::Pixels,
+) {
+    use gpui::{point, px};
+    let radius = radius
+        .min(bounds.size.width / 2.)
+        .min(bounds.size.height / 2.);
+    let left = bounds.left();
+    let top = bounds.top();
+    let right = bounds.right();
+    let bottom = bounds.bottom();
+
+    builder.move_to(point(left + radius, top));
+    builder.arc_to(
+        point(radius, radius),
+        px(0.),
+        false,
+        false,
+        point(left, top + radius),
+    );
+    builder.line_to(point(left, bottom - radius));
+    builder.arc_to(
+        point(radius, radius),
+        px(0.),
+        false,
+        false,
+        point(left + radius, bottom),
+    );
+    builder.line_to(point(right - radius, bottom));
+    builder.arc_to(
+        point(radius, radius),
+        px(0.),
+        false,
+        false,
+        point(right, bottom - radius),
+    );
+    builder.line_to(point(right, top + radius));
+    builder.arc_to(
+        point(radius, radius),
+        px(0.),
+        false,
+        false,
+        point(right - radius, top),
+    );
+    builder.line_to(point(left + radius, top));
+    builder.close();
+}
+
 pub struct MenuReveal {
     from: f32,
     to: f32,
@@ -162,6 +334,7 @@ pub fn paint_shell_extension(
     window: &mut gpui::Window,
     bounds: gpui::Bounds<gpui::Pixels>,
     color: gpui::Rgba,
+    border: gpui::Rgba,
     attached_right: bool,
 ) {
     use gpui::{PathBuilder, point, px};
@@ -174,66 +347,86 @@ pub fn paint_shell_extension(
     let right = bounds.right();
     let top = bounds.top();
     let bottom = bounds.bottom();
-    let mut path = PathBuilder::fill();
-    path.move_to(point(left - radius, top));
-    path.arc_to(
-        point(radius, radius),
-        px(0.),
-        false,
-        true,
-        point(left, top + radius),
-    );
-    path.line_to(point(left, bottom - radius));
-    path.arc_to(
-        point(radius, radius),
-        px(0.),
-        false,
-        false,
-        point(left + radius, bottom),
-    );
-    path.line_to(point(right - radius, bottom));
-    if attached_right {
+    for outline in [false, true] {
+        let mut path = if outline {
+            PathBuilder::stroke(px(BORDER_WIDTH))
+        } else {
+            PathBuilder::fill()
+        };
+        path.move_to(point(left - radius, top));
         path.arc_to(
             point(radius, radius),
             px(0.),
             false,
             true,
-            point(right, bottom + radius),
+            point(left, top + radius),
         );
-        path.line_to(point(window.viewport_size().width, bottom + radius));
-        path.line_to(point(window.viewport_size().width, top));
-    } else {
+        path.line_to(point(left, bottom - radius));
         path.arc_to(
             point(radius, radius),
             px(0.),
             false,
             false,
-            point(right, bottom - radius),
+            point(left + radius, bottom),
         );
-        path.line_to(point(right, top + radius));
-        path.arc_to(
-            point(radius, radius),
-            px(0.),
-            false,
-            true,
-            point(right + radius, top),
-        );
-    }
-    path.close();
-    if let Ok(path) = path.build() {
-        window.paint_path(path, color);
+        path.line_to(point(right - radius, bottom));
+        if attached_right {
+            path.arc_to(
+                point(radius, radius),
+                px(0.),
+                false,
+                true,
+                point(right, bottom + radius),
+            );
+            if !outline {
+                path.line_to(point(window.viewport_size().width, bottom + radius));
+                path.line_to(point(window.viewport_size().width, top));
+            }
+        } else {
+            path.arc_to(
+                point(radius, radius),
+                px(0.),
+                false,
+                false,
+                point(right, bottom - radius),
+            );
+            path.line_to(point(right, top + radius));
+            path.arc_to(
+                point(radius, radius),
+                px(0.),
+                false,
+                true,
+                point(right + radius, top),
+            );
+        }
+        if !outline {
+            path.close();
+        }
+        if let Ok(path) = path.build() {
+            window.paint_path(
+                path,
+                if outline {
+                    border.opacity(SHELL_BORDER_OPACITY)
+                } else {
+                    color
+                },
+            );
+        }
     }
 }
 
 pub fn shell_extension(
     bounds: gpui::Bounds<gpui::Pixels>,
     color: gpui::Rgba,
+    border: gpui::Rgba,
     attached_right: bool,
 ) -> gpui::AnyElement {
     use gpui::prelude::*;
     gpui::canvas(
         |_, _, _| (),
-        move |_, (), window, _| paint_shell_extension(window, bounds, color, attached_right),
+        move |_, (), window, _| {
+            paint_shell_extension(window, bounds, color, border, attached_right)
+        },
     )
     .absolute()
     .top(gpui::px(0.))
@@ -245,6 +438,7 @@ pub fn shell_extension(
 pub fn bottom_right_shell_extension(
     bounds: gpui::Bounds<gpui::Pixels>,
     color: gpui::Rgba,
+    border: gpui::Rgba,
 ) -> gpui::AnyElement {
     use gpui::{PathBuilder, point, prelude::*, px};
     gpui::canvas(
@@ -259,40 +453,55 @@ pub fn bottom_right_shell_extension(
             let right = bounds.right();
             let top = bounds.top();
             let bottom = bounds.bottom();
-            let mut path = PathBuilder::fill();
-            path.move_to(point(left - radius, bottom));
-            path.arc_to(
-                point(radius, radius),
-                px(0.),
-                false,
-                false,
-                point(left, bottom - radius),
-            );
-            path.line_to(point(left, top + radius));
-            path.arc_to(
-                point(radius, radius),
-                px(0.),
-                false,
-                true,
-                point(left + radius, top),
-            );
-            path.line_to(point(right - radius, top));
-            path.arc_to(
-                point(radius, radius),
-                px(0.),
-                false,
-                false,
-                point(right, top - radius),
-            );
-            path.line_to(point(window.viewport_size().width, top - radius));
-            path.line_to(point(
-                window.viewport_size().width,
-                window.viewport_size().height,
-            ));
-            path.line_to(point(left - radius, window.viewport_size().height));
-            path.close();
-            if let Ok(path) = path.build() {
-                window.paint_path(path, color);
+            for outline in [false, true] {
+                let mut path = if outline {
+                    PathBuilder::stroke(px(BORDER_WIDTH))
+                } else {
+                    PathBuilder::fill()
+                };
+                path.move_to(point(left - radius, bottom));
+                path.arc_to(
+                    point(radius, radius),
+                    px(0.),
+                    false,
+                    false,
+                    point(left, bottom - radius),
+                );
+                path.line_to(point(left, top + radius));
+                path.arc_to(
+                    point(radius, radius),
+                    px(0.),
+                    false,
+                    true,
+                    point(left + radius, top),
+                );
+                path.line_to(point(right - radius, top));
+                path.arc_to(
+                    point(radius, radius),
+                    px(0.),
+                    false,
+                    false,
+                    point(right, top - radius),
+                );
+                if !outline {
+                    path.line_to(point(window.viewport_size().width, top - radius));
+                    path.line_to(point(
+                        window.viewport_size().width,
+                        window.viewport_size().height,
+                    ));
+                    path.line_to(point(left - radius, window.viewport_size().height));
+                    path.close();
+                }
+                if let Ok(path) = path.build() {
+                    window.paint_path(
+                        path,
+                        if outline {
+                            border.opacity(SHELL_BORDER_OPACITY)
+                        } else {
+                            color
+                        },
+                    );
+                }
             }
         },
     )

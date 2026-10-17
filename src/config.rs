@@ -89,8 +89,8 @@ impl<'de> Deserialize<'de> for ThemeColors {
             .unwrap_or(defaults.background_highlight);
         let readable = |fill: Color| {
             let fill =
-                dojo::extraction::Rgb((fill.0 >> 16) as u8, (fill.0 >> 8) as u8, fill.0 as u8);
-            let foreground_rgb = dojo::extraction::Rgb(
+                crate::extraction::Rgb((fill.0 >> 16) as u8, (fill.0 >> 8) as u8, fill.0 as u8);
+            let foreground_rgb = crate::extraction::Rgb(
                 (foreground.0 >> 16) as u8,
                 (foreground.0 >> 8) as u8,
                 foreground.0 as u8,
@@ -98,8 +98,8 @@ impl<'de> Deserialize<'de> for ThemeColors {
             if foreground_rgb.contrast(fill) >= 4.5 {
                 return foreground;
             }
-            let black = dojo::extraction::Rgb(0, 0, 0);
-            let white = dojo::extraction::Rgb(255, 255, 255);
+            let black = crate::extraction::Rgb(0, 0, 0);
+            let white = crate::extraction::Rgb(255, 255, 255);
             if black.contrast(fill) >= white.contrast(fill) {
                 Color(0)
             } else {
@@ -130,15 +130,15 @@ impl gpui::Global for ThemeColors {}
 impl ThemeColors {
     pub fn semantic_palette(
         self,
-        appearance: dojo::theme::Appearance,
-    ) -> anyhow::Result<dojo::theme::SemanticPalette> {
-        use dojo::extraction::{Palette, Rgb};
+        appearance: crate::theme::Appearance,
+    ) -> anyhow::Result<crate::theme::SemanticPalette> {
+        use crate::extraction::{Palette, Rgb};
         let color = |value: Color| Rgb::parse(&value.hex());
         let mut terminal = [color(self.background)?; 16];
         terminal[4] = color(self.primary)?;
         terminal[7] = color(self.foreground)?;
         let mut palette =
-            dojo::theme::SemanticPalette::derive(&Palette { colors: terminal }, appearance);
+            crate::theme::SemanticPalette::derive(&Palette { colors: terminal }, appearance);
         for (role, color) in [
             ("background", self.background),
             ("foreground", self.foreground),
@@ -168,6 +168,16 @@ struct Theme {
 #[serde(default, deny_unknown_fields)]
 struct Config {
     theme: Theme,
+    session: crate::session::settings::SessionSettings,
+}
+
+/// Parses only the `[session]` switches. The rest of the file is validated with it.
+pub fn parse_session_settings(
+    source: &str,
+) -> anyhow::Result<crate::session::settings::SessionSettings> {
+    Ok(toml::from_str::<Config>(source)
+        .context("invalid Dojo config")?
+        .session)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -205,12 +215,22 @@ impl ConfigStore {
             path: config_home.join("dojo/config.toml"),
             last_source: None,
             runtime_path: Some(
-                dojo::theme::Paths::user_default()?
+                crate::theme::Paths::user_default()?
                     .root
                     .join("current/dojo.json"),
             ),
             last_runtime: None,
         })
+    }
+
+    /// The session switches from the config file; a missing file means the defaults.
+    pub fn session_settings(&self) -> anyhow::Result<crate::session::settings::SessionSettings> {
+        match fs::read_to_string(&self.path) {
+            Ok(contents) => parse_session_settings(&contents)
+                .with_context(|| format!("reading {}", self.path.display())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Default::default()),
+            Err(error) => Err(error).with_context(|| format!("reading {}", self.path.display())),
+        }
     }
 
     pub fn load(&mut self) -> anyhow::Result<Option<ThemeColors>> {
@@ -274,8 +294,8 @@ mod tests {
 
     #[test]
     fn preset_exports_preserve_readable_foreground_pairs() -> anyhow::Result<()> {
-        use dojo::extraction::Rgb;
-        use dojo::theme::{Theme, presets};
+        use crate::extraction::Rgb;
+        use crate::theme::{Theme, presets};
         for preset in presets()? {
             let theme = Theme::from_palette(preset.palette.clone())?;
             let outputs = theme.outputs(preset.appearance)?;

@@ -2,6 +2,7 @@
 
 mod apply;
 mod export;
+pub mod lock_wallpaper;
 mod presets;
 mod preview;
 mod refined;
@@ -17,8 +18,9 @@ use crate::extraction::{Mode, Palette, Rgb};
 /// Fits an RGBA source within the existing 256 MiB image allocation budget.
 pub const MAX_WALLPAPER_PIXELS: u64 = 64_000_000;
 pub use apply::{
-    ApplyReport, TARGETS, TargetResult, apply, apply_wallpaper, refresh_system, refresh_target,
-    set_system_appearance, system_appearance, watch,
+    ApplyReport, LockWallpaperReport, TARGETS, TargetResult, apply, apply_wallpaper,
+    refresh_lock_wallpaper, refresh_system, refresh_target, set_system_appearance, system_appearance,
+    watch,
 };
 pub use presets::{Preset, apply_preset, presets};
 pub use preview::preview;

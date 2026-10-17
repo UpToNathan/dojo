@@ -173,6 +173,7 @@ impl ShellController {
         crate::displays_ui::close(cx);
         crate::wifi_ui::close(cx);
         crate::system_menu::close(cx);
+        crate::model_picker::close(cx);
         self.quick_terminal.close(cx);
         if !self.enabled {
             if persist {
@@ -201,6 +202,21 @@ impl ShellController {
         }
 
         Ok(())
+    }
+
+    /// Everything a closing must cover: the launcher, the pickers and the panels.
+    fn close_temporary_surfaces(&mut self, cx: &mut App) {
+        if let Err(error) = self
+            .launcher
+            .navigate(crate::launcher::Navigation::Dismiss, cx)
+        {
+            eprintln!("Dojo could not close the launcher: {error:#}");
+        }
+        crate::bluetooth_ui::close(cx);
+        crate::displays_ui::close(cx);
+        crate::wifi_ui::close(cx);
+        crate::system_menu::close(cx);
+        crate::model_picker::close(cx);
     }
 
     fn quit(&mut self, cx: &mut App) -> anyhow::Result<()> {
@@ -331,17 +347,22 @@ pub fn run(force_enabled: Option<bool>) -> anyhow::Result<()> {
 }
 
 pub fn run_with_launcher(force_enabled: Option<bool>, show_launcher: bool) -> anyhow::Result<()> {
-    run_with_surfaces(force_enabled, show_launcher, false)
+    run_with_surfaces(force_enabled, show_launcher, false, false)
 }
 
 pub fn run_with_theme_picker(force_enabled: Option<bool>) -> anyhow::Result<()> {
-    run_with_surfaces(force_enabled, false, true)
+    run_with_surfaces(force_enabled, false, true, false)
+}
+
+pub fn run_with_models(force_enabled: Option<bool>) -> anyhow::Result<()> {
+    run_with_surfaces(force_enabled, false, false, true)
 }
 
 fn run_with_surfaces(
     force_enabled: Option<bool>,
     show_launcher: bool,
     show_theme: bool,
+    show_models: bool,
 ) -> anyhow::Result<()> {
     let launcher = Launcher::new()?;
     let mut config_store = ConfigStore::user_default()?;
@@ -393,6 +414,7 @@ fn run_with_surfaces(
         .with_quit_mode(QuitMode::Explicit)
         .run(move |cx: &mut App| {
             cx.set_global(initial_colors);
+            crate::session_overlay::begin_login(cx);
             cx.set_global(crate::speech::SpeechUi::default());
             crate::frame::initialize_host_state(cx);
             crate::audio::initialize(cx);
@@ -401,6 +423,7 @@ fn run_with_surfaces(
                 eprintln!("Dojo could not start its Wi-Fi controls: {error:#}");
             }
             crate::bluetooth_ui::initialize(cx);
+            crate::model_picker::watch_setup(cx);
             if let Err(error) = crate::wallpaper::start(cx, wallpaper_events) {
                 eprintln!("Dojo could not start its wallpaper surfaces: {error:#}");
             }
@@ -492,6 +515,13 @@ fn run_with_surfaces(
                     eprintln!("Dojo could not open theme picker: {error:#}");
                 }
             }
+            if show_models {
+                if let Some(display) = cx.primary_display() {
+                    if let Err(error) = crate::model_picker::toggle(display.id(), cx) {
+                        eprintln!("Dojo could not open model picker: {error:#}");
+                    }
+                }
+            }
 
             let controller_for_theme = controller.downgrade();
             cx.on_action(move |action: &crate::theme_picker::ToggleThemePicker, cx| {
@@ -570,6 +600,14 @@ fn run_with_surfaces(
                                 controller.launcher.navigate(navigation, cx)
                             }
                             ControlCommand::Theme => controller.theme_picker.toggle(None, cx),
+                            ControlCommand::Models => {
+                                let display = focused_display_id(cx)
+                                    .or_else(|| cx.primary_display().map(|display| display.id()))
+                                    .ok_or_else(|| {
+                                        anyhow::anyhow!("no output available for model picker")
+                                    })?;
+                                crate::model_picker::toggle(display, cx)
+                            }
                             ControlCommand::Displays => {
                                 let display = focused_display_id(cx)
                                     .or_else(|| cx.primary_display().map(|display| display.id()))
@@ -589,6 +627,10 @@ fn run_with_surfaces(
                                 } else {
                                     crate::system_menu::toggle(display, cx)
                                 }
+                            }
+                            ControlCommand::Leave(occasion) => {
+                                controller.close_temporary_surfaces(cx);
+                                crate::session_overlay::leave(occasion, cx)
                             }
                             ControlCommand::Terminal => controller
                                 .set_enabled(true, cx)
@@ -622,7 +664,9 @@ fn run_with_surfaces(
                 }
             })
             .detach();
+            crate::session_overlay::start_login(cx);
         });
+    crate::session_overlay::clear_overlay_ready();
     appearance_task.borrow_mut().take();
     if let Some(watcher) = &mut file_watcher {
         watcher.shutdown();

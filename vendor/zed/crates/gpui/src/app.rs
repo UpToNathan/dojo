@@ -52,7 +52,7 @@ use crate::{
     OwnedMenu, PathPromptOptions, Pixels, Platform, PlatformDisplay, PlatformKeyboardLayout,
     PlatformKeyboardMapper, Point, Priority, PromptBuilder, PromptButton, PromptHandle,
     PromptLevel, Render, RenderImage, RenderablePromptHandle, Reservation, ScreenCaptureSource,
-    SharedString, SubscriberSet, Subscription, SvgRenderer, SystemNotification,
+    SessionLockEvent, SharedString, SubscriberSet, Subscription, SvgRenderer, SystemNotification,
     SystemNotificationResponse, Task, TextRenderingMode, TextSystem, ThermalState, Window,
     WindowAppearance, WindowButtonLayout, WindowHandle, WindowId, WindowInvalidator,
     WindowingRequest,
@@ -335,6 +335,7 @@ impl Application {
 
 type Handler = Box<dyn FnMut(&mut App) -> bool + 'static>;
 type DisplayHandler = Box<dyn FnMut(DisplayEvent, &mut App) -> bool + 'static>;
+type SessionLockHandler = Box<dyn FnMut(SessionLockEvent, &mut App) -> bool + 'static>;
 
 /// The properties of a display that GPUI reports changes to.
 #[derive(Clone, Copy, PartialEq)]
@@ -847,6 +848,7 @@ pub struct App {
     missing_glyph_callback: Rc<MissingGlyphCallbackSlot>,
     pub(crate) thermal_state_observers: SubscriberSet<(), Handler>,
     pub(crate) display_observers: SubscriberSet<(), DisplayHandler>,
+    pub(crate) session_lock_observers: SubscriberSet<(), SessionLockHandler>,
     /// The connected displays, as of the platform's last display change
     /// notification.
     displays: HashMap<DisplayId, DisplayState>,
@@ -987,6 +989,7 @@ impl App {
                 missing_glyph_callback: Rc::default(),
                 thermal_state_observers: SubscriberSet::new(),
                 display_observers: SubscriberSet::new(),
+                session_lock_observers: SubscriberSet::new(),
                 displays: read_displays(platform.as_ref()),
                 system_sleep_observers: SubscriberSet::new(),
                 system_wake_observers: SubscriberSet::new(),
@@ -1047,6 +1050,18 @@ impl App {
                     cx.thermal_state_observers
                         .clone()
                         .retain(&(), move |callback| (callback)(cx));
+                }
+            }
+        }));
+
+        platform.on_session_lock_event(Box::new({
+            let app = Rc::downgrade(&app);
+            move |event| {
+                if let Some(app) = app.upgrade() {
+                    let cx = &mut app.borrow_mut();
+                    cx.session_lock_observers
+                        .clone()
+                        .retain(&(), move |callback| (callback)(event, cx));
                 }
             }
         }));
@@ -1625,6 +1640,29 @@ impl App {
         );
         activate();
         subscription
+    }
+
+    /// Invokes a handler when the compositor confirms or ends the session lock that
+    /// `WindowKind::SessionLock` windows requested.
+    pub fn on_session_lock_event<F>(&self, mut callback: F) -> Subscription
+    where
+        F: 'static + FnMut(SessionLockEvent, &mut App),
+    {
+        let (subscription, activate) = self.session_lock_observers.insert(
+            (),
+            Box::new(move |event, cx| {
+                callback(event, cx);
+                true
+            }),
+        );
+        activate();
+        subscription
+    }
+
+    /// Unlocks the session and releases the lock that `WindowKind::SessionLock` windows
+    /// requested. Lock windows stay open until they are closed or the app quits.
+    pub fn unlock_session(&self) {
+        self.platform.unlock_session();
     }
 
     pub(crate) fn displays_changed(&mut self) {

@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="xdg_dbus_annotation_v1">
+  <copyright><![CDATA[
+    Copyright © 2017 David Edmundson
+    Copyright © 2023 Janet Blackquill
+    Copyright © 2026 Nicolas Fella
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice (including the next
+    paragraph) shall be included in all copies or substantial portions of the
+    Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+    THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+  ]]></copyright>
+
+  <description summary="Wayland protocol for associating D-Bus objects with surfaces">
+    The dbus_annotation_manager allows a client to annotate surfaces with information
+    about associated D-Bus objects.
+
+    Clients should request the creation of an dbus_annotation object when they create a relevant
+    D-Bus object, and should release the annotation when they destroy a D-Bus object associated
+    with their wl_surface.
+
+    Each surface can only have one annotation with a given interface name.
+    The already_annotated protocol error will be raised if the client requests more than
+    one dbus_annotation object with a given interface name for a surface.
+  </description>
+
+  <interface name="xdg_dbus_annotation_manager_v1" version="1">
+    <description summary="controller object for registering dbus objects associated with wl_surfaces">
+      An object that provides access to the creation of dbus_annotation objects.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="release the memory for the application menu manager object">
+        Destroy the xdg_dbus_annotation_manager object. xdg_dbus_annotation objects created from this
+        object remain valid and should be destroyed separately.
+      </description>
+    </request>
+
+    <request name="annotate_surface">
+      <description summary="create surface annotation">
+        Creates an annotation associated with a given wl_surface.
+      </description>
+      <arg name="interface" type="string">
+        <description summary="identifies what kind of dbus object this is expected to be">
+          The interface other D-Bus clients can expect the object specified by the
+          annotation to implement.
+        </description>
+      </arg>
+      <arg name="id" type="new_id" interface="xdg_dbus_annotation_v1"/>
+      <arg name="surface" type="object" interface="wl_surface">
+        <description summary="the surface to annotate">
+          The surface to associate the annotation with.
+        </description>
+      </arg>
+    </request>
+
+    <enum name="error">
+      <entry name="already_annotated" value="0" summary="given wl_surface already has a dbus_annotation with the same interface"/>
+    </enum>
+  </interface>
+
+  <interface name="xdg_dbus_annotation_v1" version="1">
+    <description summary="annotation object for a surface">
+      An object that provides access to clients to notify the compositor of
+      associated D-Bus objects for a wl_surface.
+
+      This state is double-buffered, see wl_surface.commit.
+
+      If not applicable, clients should remove this object.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="release the dbus annotation object"/>
+    </request>
+
+    <enum name="bus_enum">
+      <entry name="session" value="0"
+             summary="the session bus"/>
+      <entry name="system" value="1"
+             summary="the system bus"/>
+      <entry name="atspi" value="2"
+             summary="the AT-SPI2 accessibility bus"/>
+    </enum>
+
+    <request name="set_bus">
+      <description summary="notify the compositor of a dbus object's bus">
+        Set or update the bus corresponding to the
+        D-Bus object.
+
+        If not set by the time the surface is commited the incomplete protocol error will be raised.
+      </description>
+      <arg name="bus" type="uint" enum="bus_enum" summary="the dbus bus of a dbus object"/>
+    </request>
+
+    <request name="set_bus_name">
+      <description summary="notify the compositor of a dbus object's bus name">
+        Set or update the pending bus name corresponding to the
+        D-Bus object.
+
+        Strings should be formatted according to the relevant D-Bus specifications.
+
+        If not set by the time the surface is commited the incomplete protocol error will be raised.
+      </description>
+      <arg name="bus_name" type="string" summary="the dbus bus name of a dbus object"/>
+    </request>
+
+    <request name="set_object_path">
+      <description summary="notify the compositor of a dbus object's object path">
+        Set or update the pending object path corresponding to the
+        D-Bus object.
+
+        Strings should be formatted according to the relevant D-Bus specifications.
+
+        If not set by the time the surface is commited the incomplete protocol error will be raised.
+      </description>
+      <arg name="object_path" type="string" summary="the dbus object path of a dbus object"/>
+    </request>
+
+    <enum name="error">
+      <entry name="incomplete" value="0" summary="Incomplete request"/>
+    </enum>
+  </interface>
+</protocol>

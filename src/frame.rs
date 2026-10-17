@@ -3,9 +3,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
 use gpui::{
-    AnyElement, App, Bounds, Context, DisplayId, FillOptions, FillRule, ImageSource, MouseButton,
-    PathBuilder, PathStyle, Size, Window, WindowBackgroundAppearance, WindowBounds, WindowKind,
-    WindowOptions, div, img, layer_shell::Anchor, point, prelude::*, px,
+    AnyElement, App, Bounds, Context, DisplayId, ImageSource, MouseButton, Size, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, div, img,
+    layer_shell::Anchor, point, prelude::*, px,
 };
 
 use crate::config::ThemeColors;
@@ -13,7 +13,6 @@ use crate::geometry::{BOTTOM_INSET, LEFT_PANEL_WIDTH, RIGHT_INSET, TOP_BAR_HEIGH
 use crate::power::{self, PowerStatus};
 use crate::tray::{TrayAction, TrayHandle, TrayImageCache, TrayItem, TrayMenu, TrayMenuItem};
 
-const CORNER_RADIUS: f32 = 28.;
 const LAUNCHER_BUTTON_SIZE: f32 = 36.;
 const TOP_BAR_GAP: f32 = 3.;
 const TOP_BAR_BUTTON_WIDTH: f32 = 18.;
@@ -38,6 +37,7 @@ struct FrameView {
     launcher_hovered: bool,
     wlsunset_hovered: bool,
     theme_hovered: bool,
+    model_hovered: bool,
     audio_hovered: bool,
     audio_drag: Option<(f32, u8)>,
     audio_dragged: bool,
@@ -407,117 +407,6 @@ fn is_already_closed_window(error: &anyhow::Error) -> bool {
         .any(|cause| cause.to_string().contains("window not found"))
 }
 
-fn append_rounded_rectangle(
-    builder: &mut PathBuilder,
-    bounds: Bounds<gpui::Pixels>,
-    radius: gpui::Pixels,
-) {
-    let radius = radius
-        .min(bounds.size.width / 2.)
-        .min(bounds.size.height / 2.);
-    let left = bounds.left();
-    let top = bounds.top();
-    let right = bounds.right();
-    let bottom = bounds.bottom();
-
-    if radius == px(0.) {
-        builder.add_polygon(
-            &[
-                point(left, top),
-                point(right, top),
-                point(right, bottom),
-                point(left, bottom),
-            ],
-            true,
-        );
-        return;
-    }
-
-    builder.move_to(point(left + radius, top));
-    builder.line_to(point(right - radius, top));
-    builder.arc_to(
-        point(radius, radius),
-        px(0.),
-        false,
-        true,
-        point(right, top + radius),
-    );
-    builder.line_to(point(right, bottom - radius));
-    builder.arc_to(
-        point(radius, radius),
-        px(0.),
-        false,
-        true,
-        point(right - radius, bottom),
-    );
-    builder.line_to(point(left + radius, bottom));
-    builder.arc_to(
-        point(radius, radius),
-        px(0.),
-        false,
-        true,
-        point(left, bottom - radius),
-    );
-    builder.line_to(point(left, top + radius));
-    builder.arc_to(
-        point(radius, radius),
-        px(0.),
-        false,
-        true,
-        point(left + radius, top),
-    );
-    builder.close();
-}
-
-fn append_rounded_rectangle_reverse(
-    builder: &mut PathBuilder,
-    bounds: Bounds<gpui::Pixels>,
-    radius: gpui::Pixels,
-) {
-    let radius = radius
-        .min(bounds.size.width / 2.)
-        .min(bounds.size.height / 2.);
-    let left = bounds.left();
-    let top = bounds.top();
-    let right = bounds.right();
-    let bottom = bounds.bottom();
-
-    builder.move_to(point(left + radius, top));
-    builder.arc_to(
-        point(radius, radius),
-        px(0.),
-        false,
-        false,
-        point(left, top + radius),
-    );
-    builder.line_to(point(left, bottom - radius));
-    builder.arc_to(
-        point(radius, radius),
-        px(0.),
-        false,
-        false,
-        point(left + radius, bottom),
-    );
-    builder.line_to(point(right - radius, bottom));
-    builder.arc_to(
-        point(radius, radius),
-        px(0.),
-        false,
-        false,
-        point(right, bottom - radius),
-    );
-    builder.line_to(point(right, top + radius));
-    builder.arc_to(
-        point(radius, radius),
-        px(0.),
-        false,
-        false,
-        point(right - radius, top),
-    );
-    builder.line_to(point(left + radius, top));
-    builder.close();
-}
-
 fn tray_menu_height(items: &[TrayMenuItem]) -> f32 {
     16. + items
         .iter()
@@ -612,15 +501,6 @@ fn system_button_bounds(viewport: Size<gpui::Pixels>) -> Bounds<gpui::Pixels> {
             viewport.height - px(SYSTEM_BUTTON_SIZE / 2. + 13.),
         ),
         Size::new(px(SYSTEM_BUTTON_SIZE), px(SYSTEM_BUTTON_SIZE)),
-    )
-}
-
-fn clock_bounds(viewport: Size<gpui::Pixels>, controls_width: f32) -> Bounds<gpui::Pixels> {
-    let width = 240_f32
-        .min((f32::from(viewport.width) - 2. * (controls_width + RIGHT_INSET as f32 + 8.)).max(0.));
-    Bounds::new(
-        point((viewport.width - px(width)) / 2., px(0.)),
-        Size::new(px(width), px(TOP_BAR_HEIGHT as f32)),
     )
 }
 
@@ -783,6 +663,7 @@ impl FrameView {
             launcher_hovered: false,
             wlsunset_hovered: false,
             theme_hovered: false,
+            model_hovered: false,
             audio_hovered: false,
             audio_drag: None,
             audio_dragged: false,
@@ -1038,6 +919,7 @@ impl Render for FrameView {
         let launcher_hovered = self.launcher_hovered && window.is_window_hovered();
         let wlsunset_hovered = self.wlsunset_hovered && window.is_window_hovered();
         let theme_hovered = self.theme_hovered && window.is_window_hovered();
+        let model_hovered = self.model_hovered && window.is_window_hovered();
 
         let battery_glyph = power::battery_glyph(power.capacity, power.battery_status.as_deref());
         let charging = power.battery_status.as_deref() == Some("Charging");
@@ -1213,10 +1095,11 @@ impl Render for FrameView {
             + audio_width
             + TOP_BAR_BUTTON_WIDTH
             + TOP_BAR_BUTTON_WIDTH
+            + TOP_BAR_BUTTON_WIDTH
             + TOP_BAR_GAP
             + TOP_BAR_GAP * 2.
             + (tray_count + indicator_count) as f32 * (TOP_BAR_BUTTON_WIDTH + TOP_BAR_GAP);
-        let clock_bounds = clock_bounds(viewport, top_bar_width);
+        let clock_bounds = crate::geometry::top_bar_clock_bounds(viewport, top_bar_width);
         let tray_group = div()
             .flex()
             .items_center()
@@ -1428,6 +1311,63 @@ impl Render for FrameView {
                     ),
             );
 
+        top_bar = top_bar.child(
+            div()
+                .id("model-picker-button")
+                .aria_label(if crate::model_picker::setup_needed(cx) {
+                    "Choose agent model (sign-in needed)"
+                } else {
+                    "Choose agent model"
+                })
+                .relative()
+                .w(px(TOP_BAR_BUTTON_WIDTH))
+                .h(px(18.))
+                .flex_shrink_0()
+                .rounded(px(crate::design::PILL_RADIUS))
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_pointer()
+                .text_size(px(18.5))
+                .bg(if model_hovered {
+                    colors.background_highlight.rgb().opacity(0.35)
+                } else {
+                    colors.background.rgb()
+                })
+                .text_color(colors.foreground.rgb())
+                .on_hover(cx.listener(|this, hovered, _, cx| {
+                    if this.model_hovered != *hovered {
+                        this.model_hovered = *hovered;
+                        cx.notify();
+                    }
+                }))
+                .child(top_bar_icon("\u{f06a9}", 0.62))
+                .when(crate::model_picker::setup_needed(cx), |button| {
+                    button.child(
+                        div()
+                            .absolute()
+                            .top(px(1.))
+                            .right(px(3.))
+                            .size(px(6.))
+                            .rounded_full()
+                            .bg(colors.primary.rgb()),
+                    )
+                })
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, window, cx| {
+                        this.model_hovered = false;
+                        this.close_tray_menu(cx);
+                        cx.stop_propagation();
+                        if let Some(display) = window.display(cx) {
+                            if let Err(error) = crate::model_picker::toggle(display.id(), cx) {
+                                eprintln!("Dojo could not open model picker: {error:#}");
+                            }
+                        }
+                    }),
+                ),
+        );
+
         if tray_count > 0 {
             top_bar = top_bar.child(tray_group);
         }
@@ -1606,43 +1546,23 @@ impl Render for FrameView {
                 gpui::canvas(
                     |_, _, _| (),
                     move |bounds, (), window, _| {
-                        let inner_bounds = Bounds::from_corners(
-                            point(
-                                bounds.left() + px(LEFT_PANEL_WIDTH as f32),
-                                bounds.top() + px(TOP_BAR_HEIGHT as f32),
-                            ),
-                            point(
-                                bounds.right() - px(RIGHT_INSET as f32),
-                                bounds.bottom() - px(BOTTOM_INSET as f32),
-                            ),
-                        );
-                        let mut builder = PathBuilder::fill().with_style(PathStyle::Fill(
-                            FillOptions::default().with_fill_rule(FillRule::NonZero),
-                        ));
-                        append_rounded_rectangle(&mut builder, bounds, px(0.));
-                        append_rounded_rectangle_reverse(
-                            &mut builder,
-                            inner_bounds,
-                            px(CORNER_RADIUS),
-                        );
-
-                        match builder.build() {
-                            Ok(path) => window.paint_path(path, colors.background.rgb()),
-                            Err(error) => {
-                                eprintln!("Failed to render Dojo's desktop surround: {error}")
-                            }
-                        }
-                        crate::design::paint_frame_shadow(
+                        let opening = crate::geometry::desktop_opening(bounds.size);
+                        let inner_bounds =
+                            Bounds::new(bounds.origin + opening.origin, opening.size);
+                        crate::design::paint_desktop_frame(
                             window,
+                            bounds,
                             inner_bounds,
+                            px(crate::geometry::OPENING_RADIUS),
                             colors.background.rgb(),
-                            px(CORNER_RADIUS),
+                            colors.border.rgb(),
                         );
                         if let Some(menu_bounds) = menu_surface {
                             crate::design::paint_shell_extension(
                                 window,
                                 menu_bounds,
                                 colors.background.rgb(),
+                                colors.border.rgb(),
                                 true,
                             );
                         }
@@ -1651,23 +1571,12 @@ impl Render for FrameView {
                 .size_full(),
             )
             .child(top_bar)
-            .child(
-                div()
-                    .id("shell-clock")
-                    .absolute()
-                    .top(px(0.))
-                    .left(clock_bounds.origin.x)
-                    .w(clock_bounds.size.width)
-                    .h(px(TOP_BAR_HEIGHT as f32))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_size(px(11.))
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .text_color(colors.foreground.rgb())
-                    .child(cx.global::<crate::clock::Clock>().label.clone()),
-            )
+            .child(crate::design::shell_clock_element(
+                cx.global::<crate::clock::Clock>().label.clone(),
+                clock_bounds,
+                crate::geometry::TOP_BAR_CLOCK_PX,
+                &colors,
+            ))
             .child(
                 div()
                     .id("system-menu-button")
@@ -2072,12 +1981,6 @@ mod tests {
             gpui::point(gpui::px(1897.), gpui::px(1057.))
         );
         assert_eq!(trigger.size, gpui::size(gpui::px(20.), gpui::px(20.)));
-        let clock = super::clock_bounds(viewport, 300.);
-        assert_eq!(clock.origin, gpui::point(gpui::px(840.), gpui::px(0.)));
-        assert_eq!(clock.size, gpui::size(gpui::px(240.), gpui::px(24.)));
-        let narrow = super::clock_bounds(gpui::size(gpui::px(800.), gpui::px(600.)), 300.);
-        assert_eq!(narrow.origin.x, gpui::px(320.));
-        assert_eq!(narrow.size.width, gpui::px(160.));
     }
     use super::*;
 

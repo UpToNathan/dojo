@@ -392,6 +392,11 @@ pub trait Platform: 'static {
     /// [`Self::displays`] to find out what changed, so calls may be spurious.
     /// The callback runs on the main thread outside of any window update.
     fn on_displays_changed(&self, callback: Box<dyn FnMut()>);
+    /// Registers a callback for `ext-session-lock-v1` lifecycle events.
+    fn on_session_lock_event(&self, _callback: Box<dyn FnMut(SessionLockEvent)>) {}
+    /// Unlocks the session (`unlock_and_destroy`) if it is locked, otherwise just
+    /// releases the lock request.
+    fn unlock_session(&self) {}
     fn active_window(&self) -> Option<AnyWindowHandle>;
     fn window_stack(&self) -> Option<Vec<AnyWindowHandle>> {
         None
@@ -2703,6 +2708,15 @@ pub struct TitlebarOptions {
     pub traffic_light_position: Option<Point<Pixels>>,
 }
 
+/// Lifecycle events of an `ext-session-lock-v1` session lock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionLockEvent {
+    /// The compositor confirmed the session is locked.
+    Locked,
+    /// The lock was refused or ended by the compositor; lock windows are closed.
+    Finished,
+}
+
 /// The kind of window to create
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WindowKind {
@@ -2728,6 +2742,12 @@ pub enum WindowKind {
     /// docks, notifications or wallpapers.
     #[cfg(all(target_os = "linux", feature = "wayland"))]
     LayerShell(layer_shell::LayerShellOptions),
+
+    /// An `ext-session-lock-v1` lock surface. Open one per display, including displays added
+    /// while locked, by setting [`WindowOptions::display_id`]. The first one requests the
+    /// session lock, and each closes when its display is removed.
+    #[cfg(all(target_os = "linux", feature = "wayland"))]
+    SessionLock,
 
     /// A window that appears on top of its parent window and blocks interaction with it
     /// until the modal window is closed

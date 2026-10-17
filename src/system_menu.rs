@@ -7,9 +7,12 @@ use gpui::{
 };
 
 use crate::config::ThemeColors;
+use dojo::session::Occasion;
+use dojo::session::action::Action;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PowerAction {
+    Lock,
     Suspend,
     Hibernate,
     Logout,
@@ -17,7 +20,8 @@ enum PowerAction {
     PowerOff,
 }
 impl PowerAction {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
+        Self::Lock,
         Self::Suspend,
         Self::Hibernate,
         Self::Logout,
@@ -26,6 +30,7 @@ impl PowerAction {
     ];
     fn label(self) -> &'static str {
         match self {
+            Self::Lock => "Lock",
             Self::Suspend => "Suspend",
             Self::Hibernate => "Hibernate",
             Self::Logout => "Log out",
@@ -35,7 +40,7 @@ impl PowerAction {
     }
     fn confirmation(self) -> Option<&'static str> {
         match self {
-            Self::Suspend => None,
+            Self::Lock | Self::Suspend => None,
             Self::Hibernate => Some("Hibernate this computer?"),
             Self::Logout => Some("Log out of this session?"),
             Self::Reboot => Some("Restart this computer?"),
@@ -46,7 +51,7 @@ impl PowerAction {
         match self {
             Self::Suspend => Some("Suspend"),
             Self::Hibernate => Some("Hibernate"),
-            Self::Logout => None,
+            Self::Lock | Self::Logout => None,
             Self::Reboot => Some("Reboot"),
             Self::PowerOff => Some("PowerOff"),
         }
@@ -55,9 +60,32 @@ impl PowerAction {
         match self {
             Self::Suspend => Some("CanSuspend"),
             Self::Hibernate => Some("CanHibernate"),
-            Self::Logout => None,
+            Self::Lock | Self::Logout => None,
             Self::Reboot => Some("CanReboot"),
             Self::PowerOff => Some("CanPowerOff"),
+        }
+    }
+    /// The occasion the shell closes for when this action is chosen.
+    fn occasion(self) -> Occasion {
+        match self {
+            Self::Lock => Occasion::Lock,
+            Self::Suspend => Occasion::Suspend,
+            Self::Hibernate => Occasion::Hibernate,
+            Self::Logout => Occasion::Logout,
+            Self::Reboot => Occasion::Restart,
+            Self::PowerOff => Occasion::Shutdown,
+        }
+    }
+    /// The power action behind a session action. The locker is not one.
+    #[cfg_attr(feature = "record-session-actions", allow(dead_code))]
+    fn from_action(action: Action) -> Option<Self> {
+        match action {
+            Action::StartLocker => None,
+            Action::Suspend => Some(Self::Suspend),
+            Action::Hibernate => Some(Self::Hibernate),
+            Action::Logout => Some(Self::Logout),
+            Action::Restart => Some(Self::Reboot),
+            Action::Shutdown => Some(Self::PowerOff),
         }
     }
 }
@@ -158,7 +186,7 @@ pub fn toggle(display_id: DisplayId, cx: &mut App) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn read_capabilities() -> anyhow::Result<[bool; 5]> {
+fn read_capabilities() -> anyhow::Result<[bool; PowerAction::ALL.len()]> {
     let connection = zbus::blocking::connection::Builder::system()?
         .method_timeout(Duration::from_secs(5))
         .build()?;
@@ -168,9 +196,10 @@ fn read_capabilities() -> anyhow::Result<[bool; 5]> {
         "/org/freedesktop/login1",
         "org.freedesktop.login1.Manager",
     )?;
-    let mut capabilities = [false; 5];
+    let mut capabilities = [false; PowerAction::ALL.len()];
     for (index, action) in PowerAction::ALL.iter().enumerate() {
         capabilities[index] = match action.capability() {
+            _ if *action == PowerAction::Lock => true,
             Some(method) => {
                 let value: String = proxy.call(method, &())?;
                 matches!(value.as_str(), "yes" | "challenge")
@@ -181,7 +210,20 @@ fn read_capabilities() -> anyhow::Result<[bool; 5]> {
     Ok(capabilities)
 }
 
+/// Performs a session action the way the menu always has: logind for machine
+/// power, Niri IPC for logout. Blocking; the caller keeps it off the UI thread.
+#[cfg_attr(feature = "record-session-actions", allow(dead_code))]
+pub fn perform(action: Action) -> anyhow::Result<()> {
+    let power = PowerAction::from_action(action)
+        .ok_or_else(|| anyhow::anyhow!("{} is not a power action", action.key()))?;
+    execute(power)
+}
+
 fn execute(action: PowerAction) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        action != PowerAction::Lock,
+        "locking goes through the locker, not logind"
+    );
     if let Some(method) = action.method() {
         let connection = zbus::blocking::connection::Builder::system()?
             .method_timeout(Duration::from_secs(15))
@@ -212,7 +254,7 @@ fn execute(action: PowerAction) -> anyhow::Result<()> {
 
 struct Menu {
     focus: FocusHandle,
-    capabilities: Option<[bool; 5]>,
+    capabilities: Option<[bool; PowerAction::ALL.len()]>,
     phase: Phase,
     selected: usize,
     reveal: dojo::design::MenuReveal,
@@ -247,20 +289,20 @@ impl Menu {
             self.run(action, cx);
         }
     }
+    /// Hands the action to the shell's closing, which draws the transition and
+    /// then performs it. The menu closes once the closing has begun.
     fn run(&mut self, action: PowerAction, cx: &mut Context<Self>) {
         self.phase = Phase::Running(action);
         cx.notify();
         self.action = Some(cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { execute(action) })
-                .await;
-            let _ = this.update_in(cx, |menu, window, cx| match result {
-                Ok(()) => window.remove_window(),
-                Err(error) => {
-                    menu.phase = Phase::Choosing;
-                    menu.error = Some(error.to_string());
-                    cx.notify();
+            let _ = this.update_in(cx, |menu, window, cx| {
+                match crate::session_overlay::leave(action.occasion(), cx) {
+                    Ok(()) => window.remove_window(),
+                    Err(error) => {
+                        menu.phase = Phase::Choosing;
+                        menu.error = Some(error.to_string());
+                        cx.notify();
+                    }
                 }
             });
         }));
@@ -452,6 +494,7 @@ impl Render for Menu {
             .child(dojo::design::bottom_right_shell_extension(
                 bounds,
                 colors.background.rgb(),
+                colors.border.rgb(),
             ))
             .child(
                 div()
@@ -472,6 +515,30 @@ impl Render for Menu {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn every_menu_action_leaves_through_its_own_occasion_and_back() {
+        for action in PowerAction::ALL {
+            let session = action.occasion().action().unwrap();
+            let back = PowerAction::from_action(session);
+            if action == PowerAction::Lock {
+                assert_eq!(session, Action::StartLocker);
+                assert_eq!(back, None);
+            } else {
+                assert_eq!(back, Some(action), "{action:?}");
+            }
+        }
+        let occasions: Vec<_> = PowerAction::ALL.map(PowerAction::occasion).to_vec();
+        for (index, occasion) in occasions.iter().enumerate() {
+            assert!(!occasions[..index].contains(occasion), "{occasion:?}");
+        }
+    }
+    #[test]
+    fn locking_is_never_executed_as_logout() {
+        assert!(execute(PowerAction::Lock).is_err());
+        assert!(perform(Action::StartLocker).is_err());
+        assert_eq!(PowerAction::Lock.method(), None);
+        assert!(PowerAction::Lock.confirmation().is_none());
+    }
     #[test]
     fn power_actions_keep_log_out_separate_from_machine_power() {
         assert_eq!(PowerAction::Suspend.method(), Some("Suspend"));

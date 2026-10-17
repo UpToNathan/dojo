@@ -18,6 +18,7 @@ if [[ ${1:-} == --chromium-theme-only ]]; then theme_only=true; shift; fi
 config_links=(
     '1password/custom_allowed_browsers|/etc/1password/custom_allowed_browsers'
     'nix/nix.conf|/etc/nix/nix.conf'
+    'pam.d/ly|/etc/pam.d/ly'
     'pam.d/system-local-login|/etc/pam.d/system-local-login'
     'systemd/system/update-nix-gl.service|/etc/systemd/system/update-nix-gl.service'
     'tmpfiles.d/nix-pam-unix-chkpwd.conf|/etc/tmpfiles.d/nix-pam-unix-chkpwd.conf'
@@ -48,6 +49,8 @@ done
 config_copies=(
     'bin/dojo-chromium-theme-policy|/usr/local/bin/dojo-chromium-theme-policy|0755'
     'sudoers.d/dojo-chromium-theme-policy|/etc/sudoers.d/dojo-chromium-theme-policy|0440'
+    'pam.d/dojo-lock-fingerprint|/etc/pam.d/dojo-lock-fingerprint|0644'
+    'pam.d/dojo-lock-password|/etc/pam.d/dojo-lock-password|0644'
 )
 
 for config_copy in "${config_copies[@]}"; do
