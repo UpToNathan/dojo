@@ -12,6 +12,21 @@ Dojo has two kinds of tracked work: a Rust Niri desktop shell and the desktop co
 
 The repository also maintains devenv inputs, Home Manager modules, application configs, and system configuration. Before changing installed system files, read [system-config/README.md](system-config/README.md) to distinguish tracked inputs from generated runtime state. Use `scripts/install-system-config.sh` to install those files; it preserves replaced files as timestamped backups.
 
+### Isolated workspaces and build disk
+
+Use Rift for isolated or parallel work. Do not use git worktrees: no `git worktree add`, no `EnterWorktree`, no `isolation: "worktree"` on subagents, and no worktree workspace strategy when launching threads. A worktree starts with empty build directories and gets its own multi-gigabyte `target/`. A Rift workspace is a copy-on-write snapshot of this checkout, created in seconds, and builds warm through the shared mbx cache. Details are in [docs/rift.md](docs/rift.md).
+
+```sh
+rift create --name <task>        # from the main checkout; prints ~/.rifts/Dojo/<task>
+cd ~/.rifts/Dojo/<task>          # HEAD is detached: git switch -c <branch> before committing
+rift remove                      # from inside the workspace when finished; then `rift gc`
+```
+
+- Work only inside your workspace and leave the main checkout alone. Rift documents no merge-back; the main checkout integrates with `git fetch ~/.rifts/Dojo/<task> <branch>` followed by a merge or cherry-pick.
+- Remove the workspace once its branch is integrated or abandoned. Never `rift init` a busy checkout; the main checkout is already registered.
+- Run Cargo through `devenv shell --`. That puts the mbx shim first on `PATH`, which shares compiled work across checkouts and prunes its own storage. Do not point `CARGO_TARGET_DIR` at a private directory, and do not leave build outputs in `/tmp`.
+- Do not leave `tmp_pack_*` files, spike targets or other large scratch output behind. Check `du -sh` on anything you created before you finish.
+
 ### Rust changes
 
 Read the relevant module and its callers before changing behavior. Keep configuration parsing and external input validation at the boundary, and keep domain logic independent of GPUI, Niri, and host services where the existing design allows it.

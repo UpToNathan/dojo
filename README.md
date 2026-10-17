@@ -3,8 +3,6 @@
 
 # Dojo
 
-USB PS5 controller support is described in [the controller guide](docs/gamepad.md).
-
 ## Desktop configuration
 
 This repository is the source for the desktop's devenv inputs and definition,
@@ -223,6 +221,23 @@ Click the power icon in the bottom-right corner for Suspend, Log out, Restart,
 and Shut down. Log out, Restart, and Shut down require confirmation inside the
 menu. Escape cancels or closes it. The terminal shortcuts are
 `dojo-desktop --wifi` and `dojo-desktop --system-menu`.
+
+Click the agent glyph in the top bar or run `dojo --models` to open the model
+picker, a compact two-step menu. The first step lists accounts with the model in use
+(or Sign in); choosing a signed-in account shows its models, with Back and Sign out.
+Up, Down, Enter and Escape work throughout, and long model lists show a short window
+that follows the cursor. On a long list, type to filter by name or id (Escape or Ctrl+U
+clears it), and use Page Up/Down, Home and End to jump; the mouse wheel moves one row
+per notch, and touchpads one row per row's worth of travel. Choosing a model applies to future agent requests, closes the
+menu, and leaves a request already running on its original model. Dojo never reroutes a
+failed request to a different account.
+
+ChatGPT signs in with a device code shown in the menu (or the browser, with a pasted
+redirect when port 1455 is busy). OpenCode Go and Zen take an API key typed into a
+masked field; the voice service checks it and stores it in the system password store
+(GNOME Keyring), never in the shell. With no usable account the glyph shows a dot. To
+check the menu against a fake service in an isolated compositor, run
+`DOJO_NESTED_AGENT_INPUT=0 nix shell nixpkgs#wtype nixpkgs#wlrctl -c devenv shell -- tools/agent-input/run-nested.sh --model-picker`.
 
 ## Monitor settings
 

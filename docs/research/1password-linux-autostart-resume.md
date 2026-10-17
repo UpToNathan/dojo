@@ -14,6 +14,10 @@ Generally, **no—not as the standard way to manage the 1Password desktop app**.
 
 User services **can remain running across suspend** and can receive resume/lock events only if they subscribe to the relevant D-Bus/session signals (or are explicitly wired to suitable targets/hooks by the desktop/system). A service unit's `Restart=` policy reacts to process termination, not to suspend, resume, lock, or unlock signals. User-manager lifetime is also distinct from a graphical session's lifetime; desktop environments differ in how they integrate `graphical-session.target`.
 
+### Crash recovery in Dojo
+
+Dojo's autostart drop-in (`home-manager.nix`) sets `Restart=on-failure` with a 3 s delay and at most five starts per ten minutes. On 2026-10-15 niri closed 1Password's Wayland connection and Electron aborted with SIGTRAP (`code=dumped`), which is a failure exit that this policy restarts. A clean Quit exits 0 and a session stop is not a failure, so neither is restarted. The wrapper waits for the StatusNotifierWatcher before launching, so the new instance registers with Dojo's tray.
+
 ## Practical triage
 
 1. After resume, determine whether the 1Password process is present. If it is, try opening the app/Quick Access and distinguish a locked vault from a dead process.

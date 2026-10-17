@@ -301,8 +301,7 @@ fn evaluate_element(
             Some(json!({"matches":trusted_matches.len()})),
         );
     }
-    if snapshot.source == ObservationSource::BrowserDom
-        && !snapshot.elements_complete
+    if !snapshot.elements_complete
         && (predicate.value_equals.is_some()
             || predicate.enabled.is_some()
             || predicate.selected.is_some())
@@ -584,7 +583,7 @@ mod tests {
             window: Some(window()),
             elements: Some(elements),
             element_source_trusted: true,
-            elements_complete: false,
+            elements_complete: true,
         }
     }
 
@@ -839,6 +838,20 @@ mod tests {
                 elements_complete: false,
             },
         );
+        assert_eq!(outcomes[0].status, VerificationStatus::Unknown);
+        assert_eq!(
+            outcomes[0].unknown_reason,
+            Some(UnknownReason::ObservationUnavailable)
+        );
+    }
+
+    #[test]
+    fn incomplete_native_walk_cannot_prove_a_unique_control_value() {
+        let mut snapshot = observed(vec![
+            json!({"element_index": 1, "role": "checkbox", "label": "updates", "value": "1"}),
+        ]);
+        snapshot.elements_complete = false;
+        let outcomes = evaluate_predicates(&[element_predicate("updates")], &snapshot);
         assert_eq!(outcomes[0].status, VerificationStatus::Unknown);
         assert_eq!(
             outcomes[0].unknown_reason,

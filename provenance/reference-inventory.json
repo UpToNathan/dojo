@@ -20,12 +20,6 @@
       "narHash": "sha256-EN4g0pozhn8DuozxIJO7JFkdLsEuUOK83imwmo1QtUQ="
     },
     {
-      "name": "delta",
-      "repository": "https://github.com/zed-industries/delta-nix",
-      "commit": "6aa23dbf48a75e77e50e5a9e9856cd2e24471a88",
-      "narHash": "sha256-QLomEmH5+1flz42ONMI8yFc4fNuKITGRj0RSkxPsxyE="
-    },
-    {
       "name": "devenv",
       "repository": "https://github.com/cachix/devenv",
       "commit": "c69190c2702bad99474200b6b7a80be86146ae71",
@@ -111,7 +105,7 @@
   "dependency_locks": [
     {
       "file": "Cargo.lock",
-      "sha256": "6a5009403ded37d2ea2f759f283826d56cad5299065df569de602316084cded1"
+      "sha256": "d2753adaf5f67760aef4be3ba82be0601ddd720150c081329b53f91c1da5108f"
     },
     {
       "file": "crates/dojo-accessibility/Cargo.lock",
@@ -155,7 +149,7 @@
     },
     {
       "file": "crates/dojo-external-admission/Cargo.lock",
-      "sha256": "72e4b479b7f6de516d6e3bc35f2bdf68c13eafdbd0d5a04c9d9b482ccf47ab62"
+      "sha256": "2f31c1e572be31881e0ac8440d7a2bbd96fe7acff8f0e2ef05af7a12805bcd66"
     },
     {
       "file": "crates/dojo-icon-cache/Cargo.lock",
@@ -171,7 +165,7 @@
     },
     {
       "file": "devenv.lock",
-      "sha256": "9e372e7a1777066940516a190ade823675e0b1ea7917c66a9d0594e520a36e82"
+      "sha256": "6a164f793544c64969ed5a75eaf15896acf0bcb7d7692194b7c3f1db411c5500"
     },
     {
       "file": "nvim-config/lazy-lock.json",
@@ -200,6 +194,10 @@
     {
       "file": "tools/speech/package-lock.json",
       "sha256": "502df2e9f749ee4bdf3679ccc4dcb910976969afbf81a657e624b6c01c18bc29"
+    },
+    {
+      "file": "vendor/accesskit-unix/Cargo.lock",
+      "sha256": "b7ffe78bf30ba0ef866d2bc5cd8982898eddd43d3919e1ad70d61d68fe826a96"
     },
     {
       "file": "vendor/browser-control/upstream/crates/bc-studio/Cargo.lock",
@@ -279,7 +277,7 @@
     },
     {
       "file": "vendor/niri/Cargo.lock",
-      "sha256": "83a62c2fec4e60de2714645140befaa4e79a014aaba45d2670f8a35fd76bca8a"
+      "sha256": "a178e3934fe171ba24a67b640e461afb8f55465eb4b8bee90eb7ad6cd138898b"
     },
     {
       "file": "vendor/niri/docs/uv.lock",
@@ -291,7 +289,7 @@
     },
     {
       "file": "vendor/zed/Cargo.lock",
-      "sha256": "ba312ec3680d02e034ea42a3b27ac645ab8da08879e6aafad71f28a7e31c6253"
+      "sha256": "6849b026000b80a6e0477083a82eaee290aff6b3e1349827550165c439bfcd29"
     },
     {
       "file": "vendor/zed/flake.lock",
@@ -317,7 +315,7 @@
     },
     {
       "file": "Cargo.toml",
-      "sha256": "bf795b13951d58fe0ee2122ff1a59269556aeba18edcceb4d191f7aeb903cb15"
+      "sha256": "5d8c6393e8760e22539c14b1d7486375da0fbc7b60a870f7357ea7f07e054d0f"
     },
     {
       "file": "crates/dojo-accessibility/Cargo.toml",
@@ -361,7 +359,7 @@
     },
     {
       "file": "crates/dojo-external-admission/Cargo.toml",
-      "sha256": "96cbaa6103edc2a648864dd263b813a2a4de4525f5a6d1cfa12ad64c63ec7833"
+      "sha256": "98e4f141b685e2120db112c387264c18b8c615dbd2aae1676f0fda432f641bc2"
     },
     {
       "file": "crates/dojo-icon-cache/Cargo.toml",
@@ -385,11 +383,11 @@
     },
     {
       "file": "devenv.yaml",
-      "sha256": "ebcaa0662fcb27440c79638da63d96e6bcda9a8b0ed8db728228b1b3efb3f085"
+      "sha256": "79921b2e6c901fde0fbf0ba6f46ca0507351762956865a1c3f0218dc5357fbbd"
     },
     {
       "file": "home-manager.nix",
-      "sha256": "3503ecfa5e44d02f0881b6ded7e599ce2e034b83073c316f353a531df45176cf"
+      "sha256": "ce56da385d8f95053ffd2dee5e083e3355c00eace3a2d464c5e56fc3f31bd644"
     },
     {
       "file": "tools/agent-input/Cargo.toml",
@@ -398,6 +396,10 @@
     {
       "file": "tools/speech/package.json",
       "sha256": "af56cdecd16374cc70d03dd1aa65df9df5f8291ba9ca47c2959d4e139e272cfd"
+    },
+    {
+      "file": "vendor/accesskit-unix/Cargo.toml",
+      "sha256": "2f1bb12679396e02bed65a1e51bba2375f639cdbceb3773b5226f7dc8f3b9818"
     },
     {
       "file": "vendor/browser-control/upstream/crates/bc-studio/Cargo.toml",
@@ -673,7 +675,7 @@
     },
     {
       "file": "vendor/niri/Cargo.toml",
-      "sha256": "5b2ae24219434c1b60360ae475d297c056df11e3cd6f4578bba23d2020e48e11"
+      "sha256": "36328a815af8d0ea3a555b75534d36de6d4886515f60d581a7c4fec1fa64b0aa"
     },
     {
       "file": "vendor/niri/niri-config/Cargo.toml",
@@ -689,7 +691,7 @@
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "sha256": "06f8deea95e1fb07deac04ee23d8df65f1305aa7ebc107fe52532fe4e9523b7e"
+      "sha256": "277602193ede246cb42aca44ec309984ab8e8a3bc5650856f38f3a9a3990d5ed"
     },
     {
       "file": "vendor/zed/crates/acp_thread/Cargo.toml",
@@ -1069,7 +1071,7 @@
     },
     {
       "file": "vendor/zed/crates/gpui_linux/Cargo.toml",
-      "sha256": "d419e8b98de3a9f42a1b20e2e09c4e0cbf4f4a97f9d77c07a430c90cc0ba58f8"
+      "sha256": "8d51a73e6d0418f47dda69b98f3a7db4501bf1ff0762777dc884a7b7721b2921"
     },
     {
       "file": "vendor/zed/crates/gpui_macos/Cargo.toml",
@@ -43864,6 +43866,107 @@
       "status": "requires-classification"
     },
     {
+      "file": ".scratch/native-assistance/electron-ground.md",
+      "line": 18,
+      "url": "https://github.com/electron/electron/blob/34a45a290c7debc4907937cbb77509759247cebb/DEPS",
+      "identity": {
+        "git_commit": "34a45a290c7debc4907937cbb77509759247cebb"
+      },
+      "status": "commit-pinned"
+    },
+    {
+      "file": ".scratch/native-assistance/electron-ground.md",
+      "line": 57,
+      "url": "https://chromium.googlesource.com/chromium/src/+/2c592105bbcd9490a9894df48d0fe59b2c512651/ui/views/widget/desktop_aura/desktop_window_tree_host_linux.cc",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": ".scratch/native-assistance/electron-ground.md",
+      "line": 58,
+      "url": "https://chromium.googlesource.com/chromium/src/+/2c592105bbcd9490a9894df48d0fe59b2c512651/ui/views/widget/desktop_aura/desktop_window_tree_host_platform.h",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": ".scratch/native-assistance/electron-ground.md",
+      "line": 59,
+      "url": "https://chromium.googlesource.com/chromium/src/+/2c592105bbcd9490a9894df48d0fe59b2c512651/ui/views/accessibility/view_ax_platform_node_delegate_auralinux.cc",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": ".scratch/native-assistance/electron-ground.md",
+      "line": 60,
+      "url": "https://chromium.googlesource.com/chromium/src/+/2c592105bbcd9490a9894df48d0fe59b2c512651/ui/aura/window_tree_host_platform.h",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": ".scratch/native-assistance/electron-ground.md",
+      "line": 61,
+      "url": "https://chromium.googlesource.com/chromium/src/+/2c592105bbcd9490a9894df48d0fe59b2c512651/ui/platform_window/platform_window.h",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": ".scratch/native-assistance/electron-ground.md",
+      "line": 62,
+      "url": "https://chromium.googlesource.com/chromium/src/+/2c592105bbcd9490a9894df48d0fe59b2c512651/ui/ozone/platform/wayland/host/wayland_window.h",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": ".scratch/native-assistance/electron-ground.md",
+      "line": 63,
+      "url": "https://chromium.googlesource.com/chromium/src/+/2c592105bbcd9490a9894df48d0fe59b2c512651/ui/ozone/platform/wayland/host/wayland_window.cc",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": ".scratch/native-assistance/electron-ground.md",
+      "line": 64,
+      "url": "https://chromium.googlesource.com/chromium/src/+/2c592105bbcd9490a9894df48d0fe59b2c512651/ui/ozone/platform/wayland/host/wayland_surface.h",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": ".scratch/native-assistance/electron-ground.md",
+      "line": 74,
+      "url": "https://github.com/GNOME/at-spi2-core/blob/3a214cddffbf345b8c0d0b17e458abbc5ed851b1/atk-adaptor/object.c#L93",
+      "identity": {
+        "git_commit": "3a214cddffbf345b8c0d0b17e458abbc5ed851b1"
+      },
+      "status": "commit-pinned"
+    },
+    {
+      "file": ".scratch/native-assistance/electron-ground.md",
+      "line": 75,
+      "url": "https://github.com/GNOME/at-spi2-core/blob/3a214cddffbf345b8c0d0b17e458abbc5ed851b1/atk-adaptor/bridge.c",
+      "identity": {
+        "git_commit": "3a214cddffbf345b8c0d0b17e458abbc5ed851b1"
+      },
+      "status": "commit-pinned"
+    },
+    {
+      "file": ".scratch/native-assistance/electron-ground.md",
+      "line": 108,
+      "url": "https://github.com/electron/electron/blob/34a45a290c7debc4907937cbb77509759247cebb/shell/browser/native_window_views.cc",
+      "identity": {
+        "git_commit": "34a45a290c7debc4907937cbb77509759247cebb"
+      },
+      "status": "commit-pinned"
+    },
+    {
+      "file": ".scratch/native-assistance/electron-ground.md",
+      "line": 162,
+      "url": "https://github.com/electron/electron/blob/34a45a290c7debc4907937cbb77509759247cebb/docs/development/build-instructions-gn.md",
+      "identity": {
+        "git_commit": "34a45a290c7debc4907937cbb77509759247cebb"
+      },
+      "status": "commit-pinned"
+    },
+    {
       "file": ".scratch/pi-durable/hex-opencode.md",
       "line": 3,
       "url": "https://github.com/anomalyco/hex/commit/104a8ac1eb87c9f393fc4ee2d434f1df30b10d1a",
@@ -44780,15 +44883,6 @@
     {
       "file": "devenv.yaml",
       "line": 13,
-      "url": "github:zed-industries/delta-nix/6aa23dbf48a75e77e50e5a9e9856cd2e24471a88",
-      "identity": {
-        "git_commit": "6aa23dbf48a75e77e50e5a9e9856cd2e24471a88"
-      },
-      "status": "commit-pinned"
-    },
-    {
-      "file": "devenv.yaml",
-      "line": 18,
       "url": "github:bendlang/bend/60fa05dc28f847382554dae6ee76cd1b2911bcc3",
       "identity": {
         "git_commit": "60fa05dc28f847382554dae6ee76cd1b2911bcc3"
@@ -44797,7 +44891,7 @@
     },
     {
       "file": "devenv.yaml",
-      "line": 23,
+      "line": 18,
       "url": "github:youwen5/zen-browser-flake/0ae74880377f493555038d52edd9c90178e05186",
       "identity": {
         "git_commit": "0ae74880377f493555038d52edd9c90178e05186"
@@ -44806,7 +44900,7 @@
     },
     {
       "file": "devenv.yaml",
-      "line": 28,
+      "line": 23,
       "url": "github:rockorager/rush/7698fd561e5823a7cd30768734f5450aafbd0433",
       "identity": {
         "git_commit": "7698fd561e5823a7cd30768734f5450aafbd0433"
@@ -44815,7 +44909,7 @@
     },
     {
       "file": "devenv.yaml",
-      "line": 33,
+      "line": 28,
       "url": "github:Rolv-Apneseth/clipvault/3332dd0287fc10727b2b081cdc2d3dd785ae999b",
       "identity": {
         "git_commit": "3332dd0287fc10727b2b081cdc2d3dd785ae999b"
@@ -44824,7 +44918,7 @@
     },
     {
       "file": "devenv.yaml",
-      "line": 38,
+      "line": 33,
       "url": "github:saltnpepper97/stasis/99b9e9676e464ac03e224bcdfde34aa1a41cb547",
       "identity": {
         "git_commit": "99b9e9676e464ac03e224bcdfde34aa1a41cb547"
@@ -44833,7 +44927,7 @@
     },
     {
       "file": "devenv.yaml",
-      "line": 43,
+      "line": 38,
       "url": "github:xevrion/utsushot/e30ad5bd487516664809d1e3335c36a71ae471e1",
       "identity": {
         "git_commit": "e30ad5bd487516664809d1e3335c36a71ae471e1"
@@ -44842,7 +44936,7 @@
     },
     {
       "file": "devenv.yaml",
-      "line": 48,
+      "line": 43,
       "url": "github:Jappie3/vigiland/62d0d6be2e19690c88e627eff76161ba41adbf97",
       "identity": {
         "git_commit": "62d0d6be2e19690c88e627eff76161ba41adbf97"
@@ -44851,7 +44945,7 @@
     },
     {
       "file": "devenv.yaml",
-      "line": 53,
+      "line": 48,
       "url": "github:anomalyco/opencode/9b4ec5714d481559990db0a816d5dec19541a814",
       "identity": {
         "git_commit": "9b4ec5714d481559990db0a816d5dec19541a814"
@@ -44860,7 +44954,7 @@
     },
     {
       "file": "devenv.yaml",
-      "line": 58,
+      "line": 53,
       "url": "github:earendil-works/pi/abe508e1b89912adde45528136c3221eb69acdd7",
       "identity": {
         "git_commit": "abe508e1b89912adde45528136c3221eb69acdd7"
@@ -44903,14 +44997,14 @@
     },
     {
       "file": "docs/agent-input.md",
-      "line": 297,
+      "line": 306,
       "url": "https://github.com/modelcontextprotocol/rust-sdk",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "docs/agent-input.md",
-      "line": 298,
+      "line": 307,
       "url": "https://modelcontextprotocol.io/specification/2025-11-25/basic/transports",
       "identity": null,
       "status": "requires-classification"
@@ -45309,33 +45403,6 @@
       "file": "docs/research/cua-dojo-relevance.md",
       "line": 17,
       "url": "https://github.com/trycua/cua/blob/88aff7e5424e9ed45b93ded85eb4111472ca5190/libs/cua-driver/rust/crates/cua-driver-core/src/capture_registry.rs",
-      "identity": {
-        "git_commit": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
-      },
-      "status": "commit-pinned"
-    },
-    {
-      "file": "docs/research/cua-dojo-relevance.md",
-      "line": 18,
-      "url": "https://github.com/trycua/cua/blob/88aff7e5424e9ed45b93ded85eb4111472ca5190/libs/cua-driver/rust/crates/cua-driver-core/src/browser/engine.rs",
-      "identity": {
-        "git_commit": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
-      },
-      "status": "commit-pinned"
-    },
-    {
-      "file": "docs/research/cua-dojo-relevance.md",
-      "line": 18,
-      "url": "https://github.com/trycua/cua/blob/88aff7e5424e9ed45b93ded85eb4111472ca5190/libs/cua-driver/rust/crates/cua-driver-core/src/browser/mutation.rs",
-      "identity": {
-        "git_commit": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
-      },
-      "status": "commit-pinned"
-    },
-    {
-      "file": "docs/research/cua-dojo-relevance.md",
-      "line": 19,
-      "url": "https://github.com/trycua/cua/blob/88aff7e5424e9ed45b93ded85eb4111472ca5190/libs/cua-driver/rust/crates/platform-linux/src/tools/impl_.rs",
       "identity": {
         "git_commit": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
       },
@@ -47717,21 +47784,21 @@
     },
     {
       "file": "home-manager.nix",
-      "line": 165,
+      "line": 169,
       "url": "https://rubjo.github.io/victor-mono/VictorMonoAll.zip",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "home-manager.nix",
-      "line": 180,
+      "line": 184,
       "url": "https://codeberg.org/julmajustus/btrbg/archive/main.tar.gz",
       "identity": null,
       "status": "moving-reference"
     },
     {
       "file": "home-manager.nix",
-      "line": 199,
+      "line": 203,
       "url": "https://addons.mozilla.org/en-US/firefox/downloads/latest/1password-x-password-manager/latest.xpi",
       "identity": null,
       "status": "moving-reference"
@@ -47794,7 +47861,7 @@
     },
     {
       "file": "nix/browser-control.nix",
-      "line": 87,
+      "line": 83,
       "url": "https://github.com/anomalyco/browser-control",
       "identity": null,
       "status": "requires-classification"
@@ -48123,14 +48190,14 @@
     },
     {
       "file": "src/theme/export.rs",
-      "line": 169,
+      "line": 178,
       "url": "https://opencode.ai/theme.json",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "src/theme/export.rs",
-      "line": 700,
+      "line": 612,
       "url": "http://www.apple.com/DTDs/PropertyList-1.0.dtd\\",
       "identity": null,
       "status": "requires-classification"
@@ -48153,6 +48220,1562 @@
       "file": "src/theme_picker/portal_tests.rs",
       "line": 308,
       "url": "https:///tmp/a",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/atk-bridge/default.nix",
+      "line": 6,
+      "url": "https://github.com/GNOME/at-spi2-core/archive/3a214cddffbf345b8c0d0b17e458abbc5ed851b1.tar.gz",
+      "identity": {
+        "git_commit": "3a214cddffbf345b8c0d0b17e458abbc5ed851b1"
+      },
+      "status": "commit-pinned"
+    },
+    {
+      "file": "tools/accessibility/atk-bridge/provenance.json",
+      "line": 4,
+      "url": "https://github.com/GNOME/at-spi2-core",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron-fuses/provenance.json",
+      "line": 4,
+      "url": "https://github.com/electron/fuses",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/chromium-producer-provenance.json",
+      "line": 91,
+      "url": "https://chromium.googlesource.com/chromium/src/+/2c592105bbcd9490a9894df48d0fe59b2c512651/LICENSE",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/nix-packaging-provenance.json",
+      "line": 5,
+      "url": "https://github.com/NixOS/nixpkgs",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/nixpkgs-binary.nix",
+      "line": 49,
+      "url": "https://github.com/electron/electron",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/nixpkgs-binary.upstream.nix",
+      "line": 51,
+      "url": "https://github.com/electron/electron",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/nixpkgs-binary.upstream.nix",
+      "line": 62,
+      "url": "https://www.electronjs.org/docs/latest/tutorial/electron-timelines",
+      "identity": null,
+      "status": "moving-reference"
+    },
+    {
+      "file": "tools/accessibility/electron/nixpkgs-binary.upstream.nix",
+      "line": 69,
+      "url": "https://github.com/electron/electron/releases/download/v${vers",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/nixpkgs-binary.upstream.nix",
+      "line": 77,
+      "url": "https://artifacts.electronjs.org/headers/dist/v${vers",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://github.com/electron/electron",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromium/src.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://github.com/nodejs/node.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://github.com/EngFlow/reclient-configs.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://github.com/nodejs/nan.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://github.com/Squirrel/Squirrel.Mac.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://github.com/Mantle/Mantle.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://github.com/ReactiveCocoa/ReactiveObjC.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromium/agents.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/gn/gn/linux-amd64/+/7iT3d95EdMdSpYrUmMzjso6j92ctDaMuUkyedp_Gx_kC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/chromium/buildtools/third_party/mold/mold/+/w9QqZ-oP3GovA-zjOawYzb5yca-t47GbT-ejPa0BQmYC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromium/canvas_bench.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromium/frame_rate/content.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/toji/webvr.info.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/chromium/chrome/test/data/variations/cipd/+/mVEsPtSXI4F46cdHi9Gsnn89DOjyf6rCqZvL0QEqCQ8C",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/chromium/testing/meet-effects-videos/+/I5ME8r-BP_A2lRn-c5E-9POZkrJwGS8BNnRdREhYbs8C",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/website.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromium/cdm.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://quiche.googlesource.com/quiche.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/v8/fuzzer_wasm_corpus.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/angle/angle.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/anonymous-tokens.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/infra/3pp/tools/httpd-php/linux-amd64/+/hAhTmNI_veuaekdEg2V2-gLOfwaO8O_HABUsKVPGTRsC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/w3c/aria-practices.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://boringssl.googlesource.com/boringssl.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/breakpad/breakpad.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/cast_core/public",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/catapult.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/compact_enc_det.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/chromium/third_party/checkstyle/+/vnbLn0H_kr5nVeziAzIlGqjH1LhxEslL7O0w-UKTHh4C",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/clang/tools/clang-format.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/cld_3.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/colorama.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/compiler-rt.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/chromium/content_analysis_sdk.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/cpu_features.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/pytorch/cpuinfo.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/webmproject/CrabbyAvif.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/crc32c.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/google3/cros_components.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromiumos/platform2/system_api.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/crossbench.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromium/web-tests.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/videolan/dav1d.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://dawn.googlesource.com/dawn.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromium/tools/depot_tools.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/devtools/devtools-frontend",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/aengelke/disarm.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromium/dom-distiller/dist.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/googleprojectzero/domato.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/jk-jeon/dragonbox.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/gitlab.com/libeigen/eigen.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/emoji-segmenter.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/chromium/third_party/enterprise_companion/chromium_linux64/+/2Avm0P2fe4X6lKyXE7GLZyXSpXrsHq17Ei3Igzi97PQC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/libexpat/libexpat.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/aengelke/fadec.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/farmhash.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/fastfloat/fast_float.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google-parfait/federated-compute.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromium/third_party/ffmpeg.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromium/deps/flac.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/flatbuffers.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/fontconfig.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/Maratyszcza/FP16.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromium/src/third_party/freetype2.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/fuzztest.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/Maratyszcza/FXdiv.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/gemmlowp.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/glslang",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/chromium/third_party/google-java-format/+/vwy9yNEcAztEM-pQboJifH7_IPdxc5LkhQZMp2XKQ-UC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/benchmark.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/googletest.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/infra/3pp/tools/gperf/linux-amd64/+/otrRUeHQr9zlxtT4sJfSJqspytBWr9IkPrhZ8bFolnYC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/harfbuzz/harfbuzz.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/highway.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromium/deps/hunspell_dictionaries.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromium/deps/icu.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/ink.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromium/third_party/instrumented_libraries.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/chromium/third_party/jdk/linux-amd64/+/cDuC3u3OzEOIqUd__pmM4_od6uaH_NKxejSQOOF7cfMC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/WebKit/JetStream.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/WebKit/JetStream.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/open-source-parsers/jsoncpp.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/leveldb.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/compiler-rt/lib/fuzzer.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/libaddressinput.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://aomedia.googlesource.com/aom.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libcxx.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libcxxabi.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromiumos/third_party/libdrm.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/gitlab.freedesktop.org/libinput/libei.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/codecs/libgav1.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromiumos/platform2/libipp.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromium/deps/libjpeg_turbo.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/liblouis-github.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/git.code.sf.net/p/perfmon2/libpfm4.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/libphonenumber.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/libprotobuf-mutator.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromium/deps/libsrtp.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/aosp/platform/system/core/libsync.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libunwind.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromiumos/platform/libva-fake-driver.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/webm/libvpx.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/webm/libwebm.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/webm/libwebp.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/libyuv/libyuv.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google-ai-edge/LiteRT.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/linux-syscall-support.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/material-foundation/material-color-utilities.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromiumos/platform/minigbm.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromium/deps/nasm.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/nearby-connections.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/intel/ARM_NEON_2_x86_SSE.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/infra/3pp/tools/ninja/linux-amd64/+/Px8cwPaaG8_fZ_tsK8dBmx3YEruNDnmvqb-oo1U7UIIC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/nlohmann/json.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/project-oak/oak.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/cisco/openh264",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/openscreen",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/khaledhosny/ots.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://pdfium.googlesource.com/pdfium.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/perfetto.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/gitlab.freedesktop.org/pipewire/pipewire.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/protocolbuffers/protobuf-javascript",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/pthreadpool.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromiumos/third_party/pyelftools.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/GoogleChromeLabs/pywebsocket3.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/quic-trace.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/re2.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/mozilla/readability.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/ruy.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/chromium/third_party/screen-ai/linux/+/Td8lZJxrs4c_bZOR1_qPQzN3g06pXHYSmAgXn5WL0dYC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/search_engines_data.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/securemessage.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/cisco/sframe",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/build/siso/linux-amd64/+/95KynknYs0JOBvFjlY1l_AjuEFS8zQ-OW9rDYdU5mDgC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://skia.googlesource.com/skia.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/smhasher.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/snappy.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/WebKit/Speedometer.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/WebKit/Speedometer.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/WebKit/Speedometer.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/WebKit/Speedometer.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/WebKit/Speedometer.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/SPIRV-Cross",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/SPIRV-Headers",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/SPIRV-Tools",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromium/deps/sqlite.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://swiftshader.googlesource.com/SwiftShader.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/GoogleChromeLabs/text-fragments-polyfill.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/tensorflow/tensorflow.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/chromium/third_party/typescript/linux-amd64/+/pcZTu9RNYs3eOnxT6zGtBurLL72EU2ddd7wgkEmhiMMC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/ukey2.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/chromium/third_party/updater/chrome_linux64/+/TDXMj-xAYNvLVyhYHAhUvD0OQ-6oTm7tHGAveo_8m7wC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/chromium/third_party/updater/chrome_linux64/+/ytJ0UbU9gMLUMLRQlmqQpGpOy1dYswI3rOJ0ILnIFbUC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/chromium/third_party/updater/chromium_linux64/+/xt967EcgRmt4O5eIJo8CV5CF9tRj9H0XO3v3JXvpV18C",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/chromium/third_party/updater/chromium_linux64/+/OLbfeePAbqPnFqcPmkFtR-GK8dN3T3NeH2AChZwBHjgC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/vulkan-deps",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Headers",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Loader",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Tools",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Utility-Libraries",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-ValidationLayers",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/GNOME/gtk.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/KDE/plasma-wayland-protocols.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/anongit.freedesktop.org/git/wayland/wayland-protocols.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/anongit.freedesktop.org/git/wayland/wayland.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/SeleniumHQ/selenium/py.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/khronosgroup/webgl.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/gpuweb/cts.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/webpagereplay.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://webrtc.googlesource.com/src.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/anongit.freedesktop.org/git/wayland/weston.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://skia.googlesource.com/external/github.com/google/wuffs-mirror-release-c.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/google/XNNPACK.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/facebook/zstd.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/infra/tools/luci/cas/linux-amd64/+/bOpjhY3zp1Kknmhhe8UUKThwSD6AbOzrLNN-fCW8E4UC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/infra/tools/luci/isolate/linux-amd64/+/Pe95CmJZ72BTyNUdKbdNEqLN_p1cqes6qqdpaQx3nNwC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/infra/tools/luci/swarming/linux-amd64/+/094dhlP93Hut-EYm2xWW0Unu4KBm4nnRMVgNJqxEseYC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/infra/tools/result_adapter/linux-amd64/+/v9d06vVBFkAEPeZc_T_Hlp7dru37V52eI1N19xBapo4C",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/skia/tools/goldctl/linux-amd64/+/-r2o3R-j8b0B9bDj8Un0cFydT__ZDzqZfwGzAzMYF2sC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/v8/v8.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/VK-GL-CTS",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/glmark2/glmark2",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/Tencent/rapidjson",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/EGL-Registry",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/OpenGL-Registry",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/microsoft/DirectX-Headers",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/microsoft/DirectXShaderCompiler",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/glfw/glfw",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/infra/3pp/tools/ninja/linux-amd64/+/Px8cwPaaG8_fZ_tsK8dBmx3YEruNDnmvqb-oo1U7UIIC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/gpuweb/cts",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/webgpu-native/webgpu-headers",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/infra/3pp/tools/go/linux-amd64/+/q1uqtK25V1pAT8kzOFXPV5Od3U9_1aWbiaSxMNqDQ7cC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/infra/3pp/tools/go/linux-arm64/+/V0waRqakZ3u2Raq-iGyr4MIGEKTk7dbiw6AWCWvV3msC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/infra/3pp/tools/esbuild/linux-amd64/+/UgVUscCtBFIBMQWCoB73oLqbXQM9jwOnCcNpxS-B2ckC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/infra/3pp/tools/rollup_libs/linux-amd64/+/6DMgpONfO6mF69eCoESMpyMBsMmo_4FotiP_ZVeE1AwC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/chromium/src/buildtools",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/intel/tinycbor.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/clang/tools/clang-format.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron/resolved-source-revisions.json",
+      "line": 1,
+      "url": "https://chrome-infra-packages.appspot.com/p/infra/3pp/tools/go/linux-amd64/+/AEgPyuHEKK7dRWU42qT-H7APtkafvf3WzZS3PqMJLikC",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/electron43/chromium-producer-provenance.json",
+      "line": 100,
+      "url": "https://chromium.googlesource.com/chromium/src/+/f916f1b7136907af19d96b95b891533d091d932a/LICENSE",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/qt5-annotation/provenance.json",
+      "line": 4,
+      "url": "https://code.qt.io/qt/qtbase.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/qt5-annotation/provenance.json",
+      "line": 12,
+      "url": "https://code.qt.io/qt/qtwayland.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/qt5-annotation/provenance.json",
+      "line": 29,
+      "url": "https://code.qt.io/cgit/qt/qtbase.git/plain/LICENSE.LGPL3?id=c68297f66533200c9ff626b056d096c78b4b94db",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/qt5-annotation/provenance.json",
+      "line": 34,
+      "url": "https://code.qt.io/cgit/qt/qtbase.git/plain/LICENSE.GPL3?id=c68297f66533200c9ff626b056d096c78b4b94db",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/qt6-annotation/provenance.json",
+      "line": 4,
+      "url": "https://code.qt.io/qt/qtbase.git",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/qt6-annotation/provenance.json",
+      "line": 15,
+      "url": "https://codereview.qt-project.org/qt/qtbase",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/qt6-annotation/provenance.json",
+      "line": 22,
+      "url": "https://gitlab.freedesktop.org/wayland/wayland-protocols",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/qt6-annotation/provenance.json",
+      "line": 33,
+      "url": "https://code.qt.io/cgit/qt/qtbase.git/plain/LICENSES/LGPL-3.0-only.txt?id=ef55f427f2c8b410d34f8a7681020a3000cf6866",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "tools/accessibility/qt6-annotation/provenance.json",
+      "line": 38,
+      "url": "https://code.qt.io/cgit/qt/qtbase.git/plain/LICENSES/GPL-3.0-only.txt?id=ef55f427f2c8b410d34f8a7681020a3000cf6866",
       "identity": null,
       "status": "requires-classification"
     },
@@ -49070,6 +50693,1238 @@
       "file": "tools/speech/t3-client.mjs",
       "line": 31,
       "url": "http://127.0.0.1:${runtime.port",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 71,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.22.0...accesskit_unix-v0.22.1",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 76,
+      "url": "https://github.com/AccessKit/accesskit/issues/741",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 76,
+      "url": "https://github.com/AccessKit/accesskit/commit/a7d65458bd8d81ded693c7b8eae451e1e16aaa01",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 77,
+      "url": "https://github.com/AccessKit/accesskit/issues/740",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 77,
+      "url": "https://github.com/AccessKit/accesskit/commit/e1f63acbb2c36e3cae741871300aeb121c9e6274",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 86,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.21.1...accesskit_unix-v0.22.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 91,
+      "url": "https://github.com/AccessKit/accesskit/issues/719",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 91,
+      "url": "https://github.com/AccessKit/accesskit/commit/61bdabdb70016068c21e31bf42b36bc4209232cd",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 96,
+      "url": "https://github.com/AccessKit/accesskit/issues/715",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 96,
+      "url": "https://github.com/AccessKit/accesskit/commit/e7299a753d78e8b00dd75e1d2182abb517648f98",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 106,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.21.0...accesskit_unix-v0.21.1",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 115,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.20.0...accesskit_unix-v0.21.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 120,
+      "url": "https://github.com/AccessKit/accesskit/issues/695",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 120,
+      "url": "https://github.com/AccessKit/accesskit/commit/33fc4f06699da335f9b2de3ab381cc940314e9c1",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 125,
+      "url": "https://github.com/AccessKit/accesskit/issues/694",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 125,
+      "url": "https://github.com/AccessKit/accesskit/commit/b5979a4c88f5d9084f70525cf24f3a37c0988f57",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 134,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.19.1...accesskit_unix-v0.20.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 139,
+      "url": "https://github.com/AccessKit/accesskit/issues/683",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 143,
+      "url": "https://github.com/AccessKit/accesskit/issues/683",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 143,
+      "url": "https://github.com/AccessKit/accesskit/commit/f8c22cbb53ce6b1859adeff3c0b7154ad9e1f25e",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 153,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.19.0...accesskit_unix-v0.19.1",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 162,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.18.0...accesskit_unix-v0.19.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 167,
+      "url": "https://github.com/AccessKit/accesskit/issues/655",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 171,
+      "url": "https://github.com/AccessKit/accesskit/issues/669",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 171,
+      "url": "https://github.com/AccessKit/accesskit/commit/6202e63c667e73216a306b3dd45ff25c364a4f45",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 172,
+      "url": "https://github.com/AccessKit/accesskit/issues/655",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 172,
+      "url": "https://github.com/AccessKit/accesskit/commit/c16eb80c49d14f39e8a7defb1694bf22b8ceed6f",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 182,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.17.2...accesskit_unix-v0.18.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 187,
+      "url": "https://github.com/AccessKit/accesskit/issues/642",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 188,
+      "url": "https://github.com/AccessKit/accesskit/issues/626",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 192,
+      "url": "https://github.com/AccessKit/accesskit/issues/643",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 192,
+      "url": "https://github.com/AccessKit/accesskit/commit/1e5abca737d1ee942c0804fec2c06d3cb08faa94",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 193,
+      "url": "https://github.com/AccessKit/accesskit/issues/638",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 193,
+      "url": "https://github.com/AccessKit/accesskit/commit/0fdcebb55e308e039ec99fbc31e94e8087a69f2d",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 198,
+      "url": "https://github.com/AccessKit/accesskit/issues/628",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 198,
+      "url": "https://github.com/AccessKit/accesskit/commit/ec67fdf1ec549913437a601fcd1fa142ec52c47d",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 199,
+      "url": "https://github.com/AccessKit/accesskit/commit/dbf81c968739187a9f4c3c105d0618c0f9db3135",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 204,
+      "url": "https://github.com/AccessKit/accesskit/issues/642",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 204,
+      "url": "https://github.com/AccessKit/accesskit/commit/4d46c2740631c5fe4f057707b949d12b26931d0b",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 205,
+      "url": "https://github.com/AccessKit/accesskit/issues/626",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 205,
+      "url": "https://github.com/AccessKit/accesskit/commit/ea23ec424c7dbb8841e03d71b6a15b74264850a9",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 215,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.17.1...accesskit_unix-v0.17.2",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 224,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.17.0...accesskit_unix-v0.17.1",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 234,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.16.0...accesskit_unix-v0.17.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 239,
+      "url": "https://github.com/AccessKit/accesskit/issues/594",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 243,
+      "url": "https://github.com/AccessKit/accesskit/issues/594",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 243,
+      "url": "https://github.com/AccessKit/accesskit/commit/1d9b74c057051509b3ffbf63afeacfb16f544ff8",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 244,
+      "url": "https://github.com/AccessKit/accesskit/issues/593",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 244,
+      "url": "https://github.com/AccessKit/accesskit/commit/70b534bed168a84b84cc35199588aa8ab784fb43",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 254,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.15.0...accesskit_unix-v0.16.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 259,
+      "url": "https://github.com/AccessKit/accesskit/issues/589",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 263,
+      "url": "https://github.com/AccessKit/accesskit/issues/589",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 263,
+      "url": "https://github.com/AccessKit/accesskit/commit/2887cddde817ba3851688068d8d10de5cef7c624",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 273,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.14.0...accesskit_unix-v0.15.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 278,
+      "url": "https://github.com/AccessKit/accesskit/issues/550",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 282,
+      "url": "https://github.com/AccessKit/accesskit/commit/341a11bca2c8a29682c11ddcfe91fa58776ea11d",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 283,
+      "url": "https://github.com/AccessKit/accesskit/issues/559",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 283,
+      "url": "https://github.com/AccessKit/accesskit/commit/b0cf01a26ded03d722818a193fa6902f69bbc102",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 288,
+      "url": "https://github.com/AccessKit/accesskit/issues/550",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 288,
+      "url": "https://github.com/AccessKit/accesskit/commit/56abf17356e4c7f13f64aaeaca6a63c8f7ede553",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 298,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.13.1...accesskit_unix-v0.14.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 303,
+      "url": "https://github.com/AccessKit/accesskit/issues/492",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 307,
+      "url": "https://github.com/AccessKit/accesskit/commit/6c622cff4c0c989d9a5f16b775adff9cdacf534c",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 308,
+      "url": "https://github.com/AccessKit/accesskit/issues/513",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 308,
+      "url": "https://github.com/AccessKit/accesskit/commit/753d90473cf57682568c7a17c82474c8e5d00b25",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 309,
+      "url": "https://github.com/AccessKit/accesskit/issues/521",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 309,
+      "url": "https://github.com/AccessKit/accesskit/commit/9dfad9796f71563a78bc6a7d5f01b111d80e63e6",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 310,
+      "url": "https://github.com/AccessKit/accesskit/issues/509",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 310,
+      "url": "https://github.com/AccessKit/accesskit/commit/579b9c12dd8abc44ecab41fa3c326a1d8999871d",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 311,
+      "url": "https://github.com/AccessKit/accesskit/issues/519",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 311,
+      "url": "https://github.com/AccessKit/accesskit/commit/4c10b801b6924c7010b83f4eb44c8c350c860cf6",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 316,
+      "url": "https://github.com/AccessKit/accesskit/issues/492",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 316,
+      "url": "https://github.com/AccessKit/accesskit/commit/089794c8f74957e91a19ae3df508e2a892f39ebc",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 326,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.12.3...accesskit_unix-v0.13.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 331,
+      "url": "https://github.com/AccessKit/accesskit/issues/468",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 335,
+      "url": "https://github.com/AccessKit/accesskit/issues/468",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 335,
+      "url": "https://github.com/AccessKit/accesskit/commit/2fa0d3f5b2b7ac11ef1751c133706f29e548bd6d",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 345,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.12.1...accesskit_unix-v0.12.2",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 350,
+      "url": "https://github.com/AccessKit/accesskit/issues/457",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 350,
+      "url": "https://github.com/AccessKit/accesskit/commit/fc622fe7657c80a4eedad6f6cded11d2538b54d5",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 351,
+      "url": "https://github.com/AccessKit/accesskit/issues/456",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 351,
+      "url": "https://github.com/AccessKit/accesskit/commit/95db8f1c5f7f56598eab6910a990ccbf9d864dda",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 361,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.12.0...accesskit_unix-v0.12.1",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 366,
+      "url": "https://github.com/AccessKit/accesskit/issues/454",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 366,
+      "url": "https://github.com/AccessKit/accesskit/commit/8a84abf81eaf22dd3672813ca36f1a422b5c0f1e",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 376,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.11.1...accesskit_unix-v0.12.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 381,
+      "url": "https://github.com/AccessKit/accesskit/issues/434",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 385,
+      "url": "https://github.com/AccessKit/accesskit/issues/434",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 385,
+      "url": "https://github.com/AccessKit/accesskit/commit/7086bc0fad446d3ed4a0fd5eff641a1e75f6c599",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 395,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.10.1...accesskit_unix-v0.11.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 400,
+      "url": "https://github.com/AccessKit/accesskit/issues/424",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 400,
+      "url": "https://github.com/AccessKit/accesskit/commit/0d1c56f0bdde58715e1c69f6015df600cb7cb8c1",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 410,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.9.2...accesskit_unix-v0.10.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 415,
+      "url": "https://github.com/AccessKit/accesskit/issues/362",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 415,
+      "url": "https://github.com/AccessKit/accesskit/commit/52540f82cf9fc148358351ed486bab3e7e91f1d6",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 416,
+      "url": "https://github.com/AccessKit/accesskit/issues/417",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 416,
+      "url": "https://github.com/AccessKit/accesskit/commit/8f4a0a1c10f83fcc8580a37d8013fec2d110865b",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 425,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.8.0...accesskit_unix-v0.9.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 430,
+      "url": "https://github.com/AccessKit/accesskit/issues/398",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 434,
+      "url": "https://github.com/AccessKit/accesskit/issues/398",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 434,
+      "url": "https://github.com/AccessKit/accesskit/commit/87b8b92b74a102c7cae48e013d2c2ae1cc2f9598",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 435,
+      "url": "https://github.com/AccessKit/accesskit/issues/396",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 435,
+      "url": "https://github.com/AccessKit/accesskit/commit/a8398b847aa003de91042ac45e33126fc2cae053",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 445,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.7.5...accesskit_unix-v0.8.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 450,
+      "url": "https://github.com/AccessKit/accesskit/issues/375",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 454,
+      "url": "https://github.com/AccessKit/accesskit/issues/375",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 454,
+      "url": "https://github.com/AccessKit/accesskit/commit/9baebdceed7300389b6768815d7ae48f1ce401e4",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 464,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.7.1...accesskit_unix-v0.7.2",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 469,
+      "url": "https://github.com/AccessKit/accesskit/issues/354",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 469,
+      "url": "https://github.com/AccessKit/accesskit/commit/b39216cb31df692fef377f9b3c3c718fd225cc3c",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 470,
+      "url": "https://github.com/AccessKit/accesskit/issues/356",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 470,
+      "url": "https://github.com/AccessKit/accesskit/commit/b2a468ccb91ee4e6d3435e73eb00c65cbe75060a",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 472,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.7.0...accesskit_unix-v0.7.1",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 477,
+      "url": "https://github.com/AccessKit/accesskit/issues/336",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 477,
+      "url": "https://github.com/AccessKit/accesskit/commit/c0348024665a615a30fd8fe2f02e8c93cf9c6332",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 478,
+      "url": "https://github.com/AccessKit/accesskit/issues/337",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 478,
+      "url": "https://github.com/AccessKit/accesskit/commit/8f937baaa510dd96da196501822b82f75f05b595",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 480,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.6.2...accesskit_unix-v0.7.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 485,
+      "url": "https://github.com/AccessKit/accesskit/issues/324",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 489,
+      "url": "https://github.com/AccessKit/accesskit/issues/316",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 489,
+      "url": "https://github.com/AccessKit/accesskit/commit/c8d1a5638fa6c33adfa059815c04f7e043c56026",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 494,
+      "url": "https://github.com/AccessKit/accesskit/issues/324",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 494,
+      "url": "https://github.com/AccessKit/accesskit/commit/54ed036c99d87428a8eb5bb03fd77e9e31562d4c",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 504,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.6.1...accesskit_unix-v0.6.2",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 509,
+      "url": "https://github.com/AccessKit/accesskit/issues/321",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 509,
+      "url": "https://github.com/AccessKit/accesskit/commit/99120b828d65306ab71d41f71979dc67e8b0bf6b",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 511,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.5.2...accesskit_unix-v0.6.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 516,
+      "url": "https://github.com/AccessKit/accesskit/issues/291",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 517,
+      "url": "https://github.com/AccessKit/accesskit/issues/296",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 518,
+      "url": "https://github.com/AccessKit/accesskit/issues/289",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 519,
+      "url": "https://github.com/AccessKit/accesskit/issues/278",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 520,
+      "url": "https://github.com/AccessKit/accesskit/issues/276",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 524,
+      "url": "https://github.com/AccessKit/accesskit/issues/282",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 524,
+      "url": "https://github.com/AccessKit/accesskit/commit/ddbef37158b57f56217317b480e40d58f83a9c24",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 525,
+      "url": "https://github.com/AccessKit/accesskit/issues/291",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 525,
+      "url": "https://github.com/AccessKit/accesskit/commit/531386023257150f49b5e4be942f359855fb7cb6",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 526,
+      "url": "https://github.com/AccessKit/accesskit/issues/299",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 526,
+      "url": "https://github.com/AccessKit/accesskit/commit/8d52a5fc4271a3b5edcc602b23fd7b920446eab0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 527,
+      "url": "https://github.com/AccessKit/accesskit/issues/292",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 527,
+      "url": "https://github.com/AccessKit/accesskit/commit/43ecf4b3ab96d9e8f7d2c2222c7e664c4f4f4abf",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 532,
+      "url": "https://github.com/AccessKit/accesskit/issues/290",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 532,
+      "url": "https://github.com/AccessKit/accesskit/commit/cf61e477adff26b032fa0b24502c0ae0a96c1987",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 533,
+      "url": "https://github.com/AccessKit/accesskit/issues/287",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 533,
+      "url": "https://github.com/AccessKit/accesskit/commit/09c12045ff4ccdb22f0cf643077a27465013572d",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 538,
+      "url": "https://github.com/AccessKit/accesskit/issues/289",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 538,
+      "url": "https://github.com/AccessKit/accesskit/commit/4fc9c55c91812472593923d93ff89d75ff305ee4",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 539,
+      "url": "https://github.com/AccessKit/accesskit/issues/278",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 539,
+      "url": "https://github.com/AccessKit/accesskit/commit/d360d20cf951e7643b81a5303006c9f7daa5bd56",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 540,
+      "url": "https://github.com/AccessKit/accesskit/issues/296",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 540,
+      "url": "https://github.com/AccessKit/accesskit/commit/4fc7846d732d61fb45c023060ebab96801a0053e",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 541,
+      "url": "https://github.com/AccessKit/accesskit/issues/276",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 541,
+      "url": "https://github.com/AccessKit/accesskit/commit/3eadd48ec47854faa94a94ebf910ec08f514642f",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 551,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.4.0...accesskit_unix-v0.5.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 556,
+      "url": "https://github.com/AccessKit/accesskit/issues/248",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 556,
+      "url": "https://github.com/AccessKit/accesskit/commit/b56b4ea7c967ee5a1dae21a2fa0dcd385346031e",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 558,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.3.3...accesskit_unix-v0.4.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 563,
+      "url": "https://github.com/AccessKit/accesskit/issues/234",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 567,
+      "url": "https://github.com/AccessKit/accesskit/issues/234",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 567,
+      "url": "https://github.com/AccessKit/accesskit/commit/773389bff857fa18edf15de426e029251fc34591",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 576,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.3.0...accesskit_unix-v0.3.1",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 581,
+      "url": "https://github.com/AccessKit/accesskit/issues/217",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 581,
+      "url": "https://github.com/AccessKit/accesskit/commit/93f2dc9bf0a57a8b7592c3a4cf4aa3885a3356f2",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 583,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.2.0...accesskit_unix-v0.3.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 588,
+      "url": "https://github.com/AccessKit/accesskit/issues/212",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 592,
+      "url": "https://github.com/AccessKit/accesskit/issues/212",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 592,
+      "url": "https://github.com/AccessKit/accesskit/commit/5df52e5545faddf6a51905409013c2f5be23981e",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 602,
+      "url": "https://github.com/AccessKit/accesskit/compare/accesskit_unix-v0.1.1...accesskit_unix-v0.2.0",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 607,
+      "url": "https://github.com/AccessKit/accesskit/issues/205",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 611,
+      "url": "https://github.com/AccessKit/accesskit/issues/205",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 611,
+      "url": "https://github.com/AccessKit/accesskit/commit/48111521439b76c1a8687418a4b20f9b705eac6d",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 626,
+      "url": "https://github.com/AccessKit/accesskit/issues/198",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/CHANGELOG.md",
+      "line": 626,
+      "url": "https://github.com/AccessKit/accesskit/commit/1cea32e44ee743b778ac941ceff9087ae745cb37",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/Cargo.toml",
+      "line": 33,
+      "url": "https://github.com/AccessKit/accesskit",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/PROVENANCE.md",
+      "line": 4,
+      "url": "https://github.com/AccessKit/accesskit",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/README.md",
+      "line": 3,
+      "url": "https://accesskit.dev/",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/accesskit-unix/src/atspi/object_address.rs",
+      "line": 13,
+      "url": "https://gnome.pages.gitlab.gnome.org/at-spi2-core/libatspi/const.DBUS_PATH_NULL.html",
       "identity": null,
       "status": "requires-classification"
     },
@@ -50275,7 +53130,7 @@
     },
     {
       "file": "vendor/cua/ledger.json",
-      "line": 4442,
+      "line": 4484,
       "url": "https://github.com/trycua/cua",
       "identity": null,
       "status": "requires-classification"
@@ -74365,6 +77220,13 @@
       "status": "requires-classification"
     },
     {
+      "file": "vendor/niri/resources/gtk-shell.provenance.json",
+      "line": 2,
+      "url": "https://github.com/GNOME/gtk",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
       "file": "vendor/niri/src/animation/bezier.rs",
       "line": 17,
       "url": "https://gitlab.gnome.org/GNOME/libadwaita/-/blob/1.7.6/src/adw-easing.c?ref_type=tags#L469-531",
@@ -74506,14 +77368,14 @@
     },
     {
       "file": "vendor/niri/src/external_admission.rs",
-      "line": 1091,
+      "line": 1089,
       "url": "https://example.invalid/test",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/niri/src/handlers/compositor.rs",
-      "line": 487,
+      "line": 490,
       "url": "https://github.com/rust-windowing/winit/pull/3625",
       "identity": null,
       "status": "requires-classification"
@@ -74562,7 +77424,7 @@
     },
     {
       "file": "vendor/niri/src/handlers/xdg_shell.rs",
-      "line": 1003,
+      "line": 1011,
       "url": "https://github.com/libsdl-org/SDL/issues/8173",
       "identity": null,
       "status": "requires-classification"
@@ -75515,50 +78377,43 @@
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "line": 984,
+      "line": 985,
       "url": "https://github.com/RustAudio/cpal",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "line": 988,
+      "line": 989,
       "url": "https://github.com/tree-sitter/tree-sitter",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "line": 989,
+      "line": 990,
       "url": "https://github.com/zed-industries/async-process.git",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "line": 990,
+      "line": 991,
       "url": "https://github.com/zed-industries/async-task.git",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "line": 991,
+      "line": 992,
       "url": "https://github.com/zed-industries/windows-capture.git",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "line": 992,
-      "url": "https://github.com/zed-industries/calloop",
-      "identity": null,
-      "status": "requires-classification"
-    },
-    {
-      "file": "vendor/zed/Cargo.toml",
       "line": 993,
-      "url": "https://github.com/zed-industries/livekit-rust-sdks",
+      "url": "https://github.com/zed-industries/calloop",
       "identity": null,
       "status": "requires-classification"
     },
@@ -75572,7 +78427,7 @@
     {
       "file": "vendor/zed/Cargo.toml",
       "line": 995,
-      "url": "https://github.com/zed-industries/notify",
+      "url": "https://github.com/zed-industries/livekit-rust-sdks",
       "identity": null,
       "status": "requires-classification"
     },
@@ -75586,27 +78441,34 @@
     {
       "file": "vendor/zed/Cargo.toml",
       "line": 997,
+      "url": "https://github.com/zed-industries/notify",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/zed/Cargo.toml",
+      "line": 998,
       "url": "https://github.com/zed-industries/livekit-rust-sdks",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "line": 999,
+      "line": 1000,
       "url": "https://github.com/timothee-haudebourg/khronos-egl/pull/37",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "line": 1000,
+      "line": 1001,
       "url": "https://github.com/zed-industries/khronos-egl",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "line": 1011,
+      "line": 1012,
       "url": "https://github.com/dtolnay/cxx/issues/1752",
       "identity": null,
       "status": "requires-classification"
@@ -84269,7 +87131,7 @@
     },
     {
       "file": "vendor/zed/crates/gpui_linux/Cargo.toml",
-      "line": 127,
+      "line": 129,
       "url": "https://github.com/zed-industries/xim-rs.git",
       "identity": null,
       "status": "requires-classification"
@@ -84299,21 +87161,21 @@
     },
     {
       "file": "vendor/zed/crates/gpui_linux/src/linux/wayland/window.rs",
-      "line": 529,
+      "line": 537,
       "url": "https://wayland.app/protocols/xdg-shell#xdg_surface:request:destroy",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/crates/gpui_linux/src/linux/wayland/window.rs",
-      "line": 798,
+      "line": 816,
       "url": "https://wayland.app/protocols/xdg-decoration-unstable-v1#zxdg_toplevel_decoration_v1",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/crates/gpui_linux/src/linux/wayland/window.rs",
-      "line": 808,
+      "line": 826,
       "url": "https://wayland.app/protocols/viewporter#wp_viewport",
       "identity": null,
       "status": "requires-classification"

@@ -5,6 +5,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
+import { spawnSync } from 'node:child_process';
 
 const directory = await mkdtemp(join(tmpdir(), 'dojo-voice-test-'));
 process.env.XDG_RUNTIME_DIR = directory;
@@ -38,6 +39,42 @@ async function request(payload) {
   for await (const data of socket) response += data;
   return response;
 }
+
+test('trace command exports the current runtime without changing its activity or chat', async () => {
+  const result = service();
+  const current = chat(result);
+  const activity = result.lastActivity;
+  const trace = { schema_version: 'dojo.computer.trace/1', events: [] };
+  result.runtime = { exportDesktopTrace: async () => trace };
+  assert.equal(await result.handle({ action: 'trace' }), trace);
+  assert.equal(result.active(), current);
+  assert.equal(result.lastActivity, activity);
+});
+
+test('trace CLI does not start a daemon when the service is absent', async () => {
+  const runtimeDirectory = await mkdtemp(join(tmpdir(), 'dojo-trace-offline-'));
+  try {
+    const child = spawnSync(process.execPath, [new URL('./voice.mjs', import.meta.url).pathname, 'trace'], {
+      env: { ...process.env, XDG_RUNTIME_DIR: runtimeDirectory, XDG_STATE_HOME: runtimeDirectory }, encoding: 'utf8',
+    });
+    assert.equal(child.status, 1, child.stderr);
+    assert.match(JSON.parse(child.stdout).error, /service is not running/);
+    await assert.rejects(readFile(join(runtimeDirectory, 'dojo/voice/voice.log')), { code: 'ENOENT' });
+  } finally { await rm(runtimeDirectory, { recursive: true, force: true }); }
+});
+
+test('trace export failure does not mark the agent task as failed', async () => {
+  const result = service();
+  let failures = 0;
+  result.start = async () => {};
+  result.failure = async () => { failures++; };
+  result.runtime = { exportDesktopTrace: async () => { throw new Error('Trace limit exceeded'); }, close: async () => {} };
+  const server = await serve(result);
+  try {
+    assert.deepEqual(JSON.parse(await request('{"action":"trace"}\n')), { error: 'Trace limit exceeded' });
+    assert.equal(failures, 0);
+  } finally { await server.shutdown(); }
+});
 
 test('every server launch takes the same lock before preload and socket replacement', async () => {
   const first = service(), second = service();

@@ -47,6 +47,8 @@ fribidi
 fuse-common
 gawk
 gcc-libs
+gcr
+gcr-4
 gdbm
 gdk-pixbuf2
 gettext
@@ -253,6 +255,7 @@ nspr
 nss
 numactl
 openjpeg2
+openssh
 openssl
 opus
 p11-kit

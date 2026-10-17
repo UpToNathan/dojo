@@ -1,0 +1,42 @@
+{
+  "qtbase": {
+    "version": "5.15.19",
+    "repository": "https://code.qt.io/qt/qtbase.git",
+    "commit": "c68297f66533200c9ff626b056d096c78b4b94db",
+    "reused": [
+      "src/platformsupport/linuxaccessibility/bridge.cpp:QSpiAccessibleBridge::dBusConnection",
+      "src/platformsupport/linuxaccessibility/atspiadaptor.cpp:AtSpiAdaptor::pathForInterface"
+    ]
+  },
+  "qtwayland": {
+    "repository": "https://code.qt.io/qt/qtwayland.git",
+    "commit": "a0e9561ac7bc47997b6ecf75f87fea22d497b382",
+    "patch": "qtwayland-atspi-connection.patch",
+    "patch_sha256": "b8343b4bc11f524e295208259e9ceaf19daa0cb13ea722ffa4327df60b1b9179",
+    "changes": "Add one versioned exported accessor copying the existing bridge QDBusConnection into caller-owned storage on the GUI thread. Rebuild QtWayland only."
+  },
+  "producer_policy": "Shared ../qt6-annotation/annotation.cpp and fixture.cpp with explicit Qt version branches; Qt5 obtains its connection only through the new authoritative accessor. No object-memory inspection.",
+  "protocol_provenance": "../qt6-annotation/provenance.json",
+  "license": "LGPL-3.0-only",
+  "qpa_gate": {
+    "source": "qpa-gate.cpp",
+    "reference": "qtbase src/gui/kernel/qplatformintegrationfactory.cpp and src/corelib/plugin/qlibrary.cpp at the pinned Qt5 commit",
+    "policy": "No QtWayland dependency. Check exact Qt version/library directory before absolute loading of the patched backend. Reject to normal loader for another runtime."
+  },
+  "license_files": [
+    {
+      "path": "licenses/LICENSE.LGPL3",
+      "upstream_url": "https://code.qt.io/cgit/qt/qtbase.git/plain/LICENSE.LGPL3?id=c68297f66533200c9ff626b056d096c78b4b94db",
+      "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+    },
+    {
+      "path": "licenses/LICENSE.GPL3",
+      "upstream_url": "https://code.qt.io/cgit/qt/qtbase.git/plain/LICENSE.GPL3?id=c68297f66533200c9ff626b056d096c78b4b94db",
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+    }
+  ],
+  "upstream_notice": {
+    "path": "licenses/UPSTREAM-NOTICE.txt",
+    "sha256": "0b47203179b40413c3ee18811e37e08fdacec689533a5c234a959c37719660d8"
+  }
+}

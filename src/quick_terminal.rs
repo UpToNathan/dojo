@@ -274,6 +274,7 @@ impl Render for TerminalSurface {
         crate::design::shell_extension(
             self.placement.bounds(progress),
             cx.global::<ThemeColors>().background.rgb(),
+            cx.global::<ThemeColors>().border.rgb(),
             false,
         )
     }

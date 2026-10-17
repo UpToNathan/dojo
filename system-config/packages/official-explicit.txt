@@ -14,6 +14,7 @@ evtest
 firewalld
 fprintd
 fuse3
+gnome-keyring
 gtk3
 iw
 libfprint
@@ -41,5 +42,6 @@ power-profiles-daemon
 python-gobject
 sudo
 tailscale
+usbmuxd
 uwsm
 wireplumber

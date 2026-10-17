@@ -16,14 +16,13 @@ use dojo_computer::{
     CAPTURE_TTL_SECONDS, CaptureAction, CaptureAuthority, CaptureInput, CaptureScope,
     CaptureSession, normalize_key, physical_text,
 };
-use niri_ipc::Response;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::{DesktopAction, DesktopSession, screenshot, validate_name};
 
-const VERSION: u32 = 7;
+const VERSION: u32 = 9;
 const MAX_LINE: u64 = 65536;
 const MAX_REPLY: u64 = 48 * 1024 * 1024;
 const EMPTY_GRACE: Duration = Duration::from_millis(250);
@@ -56,6 +55,9 @@ enum Message {
     ParseVisualRegions {
         input: super::perception::VisualParseInput,
     },
+    AccessibilityAction {
+        input: super::AccessibilityActionRequest,
+    },
     Accessibility {
         input: super::AccessibilityRequest,
     },
@@ -82,6 +84,9 @@ fn authorize_message(policy: &super::policy::DesktopPolicy, message: &Message) -
             ("parse_visual_regions", serde_json::to_value(input)?)
         }
         Message::Accessibility { input } => ("desktop_accessibility", serde_json::to_value(input)?),
+        Message::AccessibilityAction { input } => {
+            ("desktop_accessibility_action", serde_json::to_value(input)?)
+        }
         Message::DriverTools {} => ("desktop_driver_tools", json!({})),
         Message::DriverCall { name, arguments } => (name.as_str(), arguments.clone()),
     };
@@ -324,6 +329,13 @@ impl ActiveSession {
         self.request(&Message::ParseVisualRegions { input })
     }
 
+    pub(super) fn accessibility_action(
+        &mut self,
+        input: super::AccessibilityActionRequest,
+    ) -> Result<Value> {
+        self.request(&Message::AccessibilityAction { input })
+    }
+
     pub(super) fn accessibility(&mut self, input: super::AccessibilityRequest) -> Result<Value> {
         self.request(&Message::Accessibility { input })
     }
@@ -342,6 +354,7 @@ impl ActiveSession {
 struct Session {
     desktop: DesktopSession,
     captures: CaptureSession,
+    semantics: super::accessibility_actions::Session,
     cancelled: Arc<AtomicBool>,
     native_retirement: NativeRetirement,
     driver: Option<super::driver::Driver>,
@@ -417,11 +430,13 @@ impl Session {
                 self.last_observation
                     .map(|last| last + Duration::from_secs(CAPTURE_TTL_SECONDS)),
             )
+            .chain(self.semantics.next_expiry())
             .min()
     }
 
     fn active(&self) -> bool {
-        self.driver.is_some()
+        self.semantics.active()
+            || self.driver.is_some()
             || self.desktop.controller.is_some()
             || self
                 .last_observation
@@ -588,6 +603,17 @@ impl Session {
     }
 
     fn handle(&mut self, message: Message) -> Result<Value> {
+        self.semantics.poll();
+        if matches!(
+            &message,
+            Message::Action { .. }
+                | Message::CaptureAction { .. }
+                | Message::DriverCall { .. }
+                | Message::Release { .. }
+                | Message::Observe { .. }
+        ) {
+            self.semantics.retire();
+        }
         match message {
             Message::DriverTools {} => {
                 self.ensure_driver()?;
@@ -627,6 +653,31 @@ impl Session {
                 bail!("perception must execute outside the desktop service loop")
             }
 
+            Message::AccessibilityAction { input } => {
+                let attempt = (|| -> Result<Value> {
+                    let reference = self.semantics.consume(&input.element_ref)?;
+                    self.captures.retire()?;
+                    self.last_observation = None;
+                    self.ensure_controller()?;
+                    let peer = self
+                        .desktop
+                        .controller
+                        .as_ref()
+                        .context("agent seat unavailable")?
+                        .peer_id();
+                    self.last_action = Instant::now();
+                    self.semantics.perform(
+                        self.desktop.socket.as_deref(),
+                        peer,
+                        reference,
+                        input.action.into(),
+                        &self.cancelled,
+                    )
+                })();
+                // perform returns errors only before a possible FD handoff. Once
+                // transferred, every failure is a receipt with unknown effect.
+                Ok(attempt.unwrap_or_else(|error| json!({"effect":"refused","reference_consumed":true,"reason":format!("{error:#}"),"verified":false,"requires_fresh_observation":true})))
+            }
             Message::Accessibility { input } => {
                 ensure!(
                     !self.cancelled.load(Ordering::Acquire),
@@ -637,43 +688,21 @@ impl Session {
                     "invalid window/query"
                 );
                 let mut socket = super::desktop_socket(self.desktop.socket.as_deref())?;
-                let Response::Windows(windows) = socket
-                    .send(niri_ipc::Request::Windows)?
-                    .map_err(anyhow::Error::msg)?
-                else {
-                    bail!("unexpected windows response");
-                };
-                let window = windows
-                    .into_iter()
-                    .find(|window| window.id == input.window_id)
-                    .context("window disappeared")?;
-                let pid: u32 = window
-                    .pid
-                    .context("window has no process identity")?
-                    .try_into()?;
-                let start = screenshot::process_start_time(pid)?;
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()?;
-                let observation = runtime.block_on(dojo_accessibility::observe(
-                    &dojo_accessibility::ObserveRequest {
-                        pid,
-                        process_start_time: start,
-                        deadline: Instant::now() + Duration::from_secs(5),
-                        cancelled: &self.cancelled,
-                        options: dojo_accessibility::Options {
-                            max_nodes: 500,
-                            max_text_chars: 1024,
-                            query: input.query,
-                            ..Default::default()
-                        },
-                    },
-                ))?;
+                self.semantics.retire();
+                let mut observation = super::accessibility::observe(
+                    &mut socket,
+                    input.window_id,
+                    input.query,
+                    Instant::now() + Duration::from_secs(5),
+                    &self.cancelled,
+                )?;
                 ensure!(
                     !self.cancelled.load(Ordering::Acquire),
                     "desktop session disconnected"
                 );
-                let value = serde_json::to_value(observation)?;
+                self.semantics.issue(&mut observation);
+                let mut value = serde_json::to_value(observation)?;
+                value["semantic_receipts"] = serde_json::to_value(self.semantics.take_receipts())?;
                 ensure!(
                     serde_json::to_vec(&value)?.len() <= 16 * 1024 * 1024,
                     "accessibility observation exceeds byte budget"
@@ -1399,6 +1428,7 @@ pub(super) fn run(socket: PathBuf) -> Result<()> {
                                         controller: None,
                                     },
                                     captures: captures.session(format!("connection-{id}"))?,
+                                    semantics: Default::default(),
                                     cancelled,
                                     native_retirement,
                                     driver: None,
@@ -1769,6 +1799,7 @@ mod tests {
             cancelled: Arc::new(AtomicBool::new(false)),
             native_retirement: Arc::new(Mutex::new(Retirements::default())),
             driver: None,
+            semantics: Default::default(),
             last_observation: Some(Instant::now()),
             idle_timeout: Duration::from_secs(2),
             last_action,
@@ -1798,6 +1829,7 @@ mod tests {
             cancelled: Arc::new(AtomicBool::new(false)),
             native_retirement: Arc::new(Mutex::new(Retirements::default())),
             driver: None,
+            semantics: Default::default(),
             last_observation: None,
             idle_timeout: Duration::from_secs(2),
             last_action,

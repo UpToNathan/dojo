@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
-import { join } from 'node:path';
+import { helperBinary } from './helper-binary.mjs';
 import { createHash } from 'node:crypto';
+import { desktopReplay } from './desktop-extension.mjs';
 
 // pi-ai Usage.input excludes cacheRead/cacheWrite (models.js calculateCost;
 // anthropic-messages and openai-responses-shared provider normalization).
@@ -30,7 +31,10 @@ export function desktopTraceUsage(entries, conversationId) {
 }
 
 // Only Pi-owned entries are projected. The Rust codec redacts before export.
-const desktopRoute = name => typeof name === 'string' && (name.startsWith('desktop_') || name.startsWith('computer_steps_'));
+const desktopRoute = name => typeof name === 'string' && (
+  ['desktop_', 'driver_', 'browser_control_', 'computer_steps_'].some(prefix => name.startsWith(prefix))
+  || desktopReplay(name) === 'safe'
+);
 
 export function desktopTraceEvents(entries) {
   const events = [];
@@ -45,21 +49,30 @@ export function desktopTraceEvents(entries) {
     if (entry.kind === 'pi.assistant') {
       for (const call of message?.content ?? []) {
         if (call.type !== 'toolCall' || !desktopRoute(call.name)) continue;
-        calls.set(call.id, call.name);
+        calls.set(call.id, { route: call.name, intentId: String(entry.id) });
         events.push({ time_ms: elapsed, kind: 'intent', pi_intent_id: String(entry.id), call_id: call.id,
           route: call.name, observation_id: call.arguments?.capture_id ?? call.arguments?.action?.capture_id ?? null, effect: null, data: { arguments: call.arguments } });
       }
     } else if (entry.kind === 'pi.tool-result') {
-      const route = message?.toolName ?? calls.get(message?.toolCallId);
+      const call = calls.get(message?.toolCallId);
+      const route = call?.route ?? message?.toolName;
       if (!desktopRoute(route)) continue;
-      let data = {};
-      for (const block of message?.content ?? []) if (block.type === 'text') {
-        try { data = JSON.parse(block.text); break; } catch {}
+      const text = (message?.content ?? []).filter(block => block.type === 'text').map(block => block.text);
+      let data = { text: text.join('\n') };
+      for (const value of text) {
+        try { data = JSON.parse(value); break; } catch {}
       }
-      const effect = message.isError ? 'refused' : data.effect === 'partial' ? 'partial' : data.effect === 'refused' ? 'refused' : 'unknown';
+      // Transport/tool errors can follow a delivered effect. Only an explicit
+      // refusal receipt establishes refusal; uncertainty takes precedence.
+      const effect = data?.effect === 'unknown' || (data?.unknownCommandIds?.length ?? 0) > 0 ? 'unknown'
+        : data?.effect === 'partial' ? 'partial' : data?.effect === 'refused' ? 'refused' : 'unknown';
       // Delivery acknowledgements cannot establish verified UI success.
-      events.push({ time_ms: elapsed, kind: 'receipt', pi_intent_id: String(entry.id), call_id: message.toolCallId ?? null,
-        route, observation_id: data.capture_id ?? null, effect, data });
+      events.push({ time_ms: elapsed, kind: 'receipt', pi_intent_id: call?.intentId ?? String(entry.id), call_id: message.toolCallId ?? null,
+        route, observation_id: data?.capture_id ?? null, effect, data: { result: data, is_error: message.isError ?? false } });
+      if (['desktop_verify', 'driver_verify_state'].includes(route) && !message.isError) {
+        events.push({ time_ms: elapsed, kind: 'verification', pi_intent_id: call?.intentId ?? null,
+          call_id: message.toolCallId ?? null, route, observation_id: null, effect: null, data });
+      }
     }
     if (events.length > 1000) throw new Error('Desktop export exceeds 1000 events; select a smaller conversation');
   }
@@ -83,7 +96,7 @@ export async function exportDesktopTrace(runtime, { secretValues = [], timeoutMs
     events: desktopTraceEvents(entries), ...(usage.length ? { usage } : {}) });
   if (Buffer.byteLength(input) > 8388608) throw new Error('Desktop export byte budget exceeded');
   return new Promise((resolve, reject) => {
-    const child = spawn(join(runtime.root, 'target/debug/dojo-computer-recording'), [], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(helperBinary(runtime.root, 'dojo-computer-recording'), [], { stdio: ['pipe', 'pipe', 'pipe'] });
     const output = []; let size = 0;
     const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('Desktop export timed out')); }, timeoutMs);
     child.on('error', error => { clearTimeout(timer); reject(error); });

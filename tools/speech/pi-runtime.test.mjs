@@ -24,6 +24,42 @@ async function fixture(t, responses, overrides = {}) {
 
 async function idle(runtime) { await runtime.queue; await runtime.conversation.waitForIdle(runtime.context); await runtime.archived; }
 
+test('the runtime starts without an account and fails a request clearly instead of routing to a fallback', async t => {
+  const stateDir = await mkdtemp(join(tmpdir(), 'dojo-pi-no-account-'));
+  const events = [];
+  const credentials = { backend: 'file', read: async () => undefined, importAccount: async () => { throw new Error('Not signed in.'); },
+    importCandidate: async () => { throw new Error('Not signed in.'); } };
+  const runtime = await PiRuntime.open({ stateDir, root: process.cwd(), memory: { append: async () => {}, readyView: async () => '<chat>\n</chat>' },
+    config: { storage: new MemoryStorage(), credentials, instructions: 'Fixed', desktopTools: false }, onEvent: event => events.push(event) });
+  try {
+    assert.equal(runtime.selection, null);
+    await runtime.submit('Do not route', { requestId: 'no-account' });
+    await runtime.queue;
+    assert(events.some(event => event.type === 'run' && event.status === 'error' && /Sign in to use Dojo|Not signed in/.test(event.error)));
+    assert.equal((await runtime.state()).admissions['no-account'].status, 'failed');
+    assert.equal(runtime.agent.model.provider, 'openai-codex');
+  } finally { await runtime.close(); await rm(stateDir, { recursive: true, force: true }); }
+});
+
+test('a locked keyring raises the unlock dialog when a command starts, then the request proceeds', async t => {
+  const stateDir = await mkdtemp(join(tmpdir(), 'dojo-pi-locked-keyring-'));
+  const events = []; let locked = true, unlocks = 0;
+  const credentials = { backend: 'keyring',
+    read: async id => { if (locked) throw new Error('The Dojo keyring is locked. Unlock it in the system dialog, then retry.'); return id === 'opencode-go' ? { type: 'api_key', key: 'k' } : undefined; },
+    unlock: async () => { unlocks++; locked = false; return true; },
+    importAccount: async () => {}, importCandidate: async () => { throw new Error('Not signed in.'); } };
+  const runtime = await PiRuntime.open({ stateDir, root: process.cwd(), memory: { append: async () => {}, readyView: async () => { throw new Error('stop after unlock'); } },
+    config: { storage: new MemoryStorage(), credentials, instructions: 'Fixed', desktopTools: false }, onEvent: event => events.push(event) });
+  try {
+    assert.equal(runtime.selection, null);
+    await runtime.submit('Open T3 code', { requestId: 'locked' });
+    await runtime.queue;
+    assert.equal(unlocks, 1);
+    assert(events.some(event => event.type === 'run' && event.status === 'error' && /stop after unlock/.test(event.error)), JSON.stringify(events));
+    assert.equal(runtime.selectionAvailable, true);
+  } finally { await runtime.close(); await rm(stateDir, { recursive: true, force: true }); }
+});
+
 test('fresh foreground context has prior view, stable tools, logs calls/results and no thoughts', async t => {
   const requests = [];
   const { runtime, records, calls } = await fixture(t, [
@@ -62,6 +98,28 @@ test('summary uses same tools and prompt, blocks execution, repairs five times a
 test('summary task uses a 512 dash ruler and exact merge range', () => {
   const task = summaryTask('a\nb', { kind: 'merge', ref: [3, 5] });
   assert(task.includes('-'.repeat(512))); assert.match(task, /40\+4 and 44\+4/); assert.match(task, /40 to 47/);
+});
+
+test('model selection switches only subsequent idle requests and not the request already completed', async t => {
+  const stateDir = await mkdtemp(join(tmpdir(), 'dojo-pi-model-switch-'));
+  const faux = fauxProvider({ models: [{ id: 'model-a' }, { id: 'model-b' }] });
+  const models = createModels(); models.setProvider(faux.provider);
+  const used = [];
+  let releaseFirst, firstStarted;
+  const firstGate = new Promise(resolve => { releaseFirst = resolve; });
+  const began = new Promise(resolve => { firstStarted = resolve; });
+  faux.setResponses([async (context, options, state, model) => { used.push(model.id); firstStarted(); await firstGate; return fauxAssistantMessage('first'); },
+    (context, options, state, model) => { used.push(model.id); return fauxAssistantMessage('second'); }]);
+  const runtime = await PiRuntime.open({ stateDir, root: process.cwd(), memory: { async append() {}, async readyView() { return '<chat>\n</chat>'; } },
+    config: { storage: new MemoryStorage(), models, provider: 'faux', model: 'model-a', instructions: 'Fixed', desktopTools: false } });
+  try {
+    await runtime.submit('First', { requestId: 'model-a' }); await began;
+    await runtime.setModelSelection({ account: 'faux', model: 'model-b' }, { available: true, summaryModelId: 'model-b' });
+    assert.equal(runtime.agent.model.modelId, 'model-a');
+    releaseFirst(); await idle(runtime);
+    await runtime.submit('Second', { requestId: 'model-b' }); await idle(runtime);
+    assert.deepEqual(used, ['model-a', 'model-b']);
+  } finally { await runtime.close(); await rm(stateDir, { recursive: true, force: true }); }
 });
 
 test('active input steers the same run between tool calls without a second memory view', async t => {
@@ -138,6 +196,12 @@ test('zoom retrieves original durable images only for an owned result leaf first
   assert.equal((await runtime.zoom({ id: 0, n: 8 })).content.filter(block => block.type === 'image').length, 0);
   memory.readRecord = async () => ({ key: `pi:${runtime.id + 1}:${source.id}:result` });
   assert.equal((await runtime.zoom({ id: 7, n: 1 })).content.filter(block => block.type === 'image').length, 0);
+});
+
+test('a failed model call reports the error instead of ending the run silently', async t => {
+  const { runtime, events } = await fixture(t, [fauxAssistantMessage([], { stopReason: 'error', errorMessage: 'Connection error.' })]);
+  await runtime.submit('Navigate somewhere', { requestId: 'fails' }); await idle(runtime);
+  assert(events.some(event => event.type === 'run' && event.status === 'error' && event.error === 'Connection error.'));
 });
 
 test('fresh view explicitly archives a committed final reply when the watcher lags', async t => {

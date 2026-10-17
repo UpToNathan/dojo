@@ -2,6 +2,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[path = "dojo-agent/accessibility.rs"]
+mod accessibility;
+#[path = "dojo-agent/accessibility_actions.rs"]
+mod accessibility_actions;
 #[path = "dojo-agent/discovery.rs"]
 mod discovery;
 #[path = "dojo-agent/driver.rs"]
@@ -53,6 +57,31 @@ struct AccessibilityRequest {
     window_id: u64,
     /// Optional read-only query. Returned indices are display labels, not action refs.
     query: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct AccessibilityActionRequest {
+    element_ref: String,
+    action: AccessibilityAction,
+}
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum AccessibilityAction {
+    Invoke {},
+    Select {},
+    ReplaceText { text: String },
+    SetNumeric { value: f64 },
+}
+impl From<AccessibilityAction> for dojo_accessibility::actions::Action {
+    fn from(value: AccessibilityAction) -> Self {
+        match value {
+            AccessibilityAction::Invoke {} => Self::Invoke,
+            AccessibilityAction::Select {} => Self::Select,
+            AccessibilityAction::ReplaceText { text } => Self::ReplaceText { text },
+            AccessibilityAction::SetNumeric { value } => Self::SetNumeric { value },
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -506,7 +535,7 @@ impl DesktopServer {
     }
 
     #[tool(
-        description = "Read a bounded AT-SPI accessibility tree for the process owning window_id. This is application-scoped and may include other windows of that process. It returns no actionable refs; display indices and application-reported rectangles are not native window evidence. Password text is redacted. Reads check process generation and accessibility bus owner identity. Unavailable/truncated trees carry explicit coverage issues. At most 500 nodes, 1024 text characters per field and a five-second deadline. No input, clipboard or accessibility mutation."
+        description = "Read a bounded AT-SPI accessibility tree. GTK7 clients that announce their root on the exact Wayland surface return window-scoped evidence; other clients return application-scoped evidence that may include sibling windows. Check scope and window_scoped. Reads recheck the native target, annotation generation, process generation and bus owner. Exact bound nodes can return short-lived session-owned element_refs for desktop_accessibility_action; display indices and application-reported rectangles never authorize input. Password text is redacted. Coverage issues report incomplete/unavailable trees. At most 500 nodes, 1024 characters per field and five seconds. No input, clipboard or semantic mutation."
     )]
     async fn desktop_accessibility(
         &self,
@@ -530,6 +559,23 @@ impl DesktopServer {
                 .as_mut()
                 .context("desktop service unavailable")?
                 .accessibility(input)
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Perform one semantic action using a fresh exact-window element_ref from desktop_accessibility. action.kind is invoke, select for an observed direct child of a Selection container, replace_text with text, or set_numeric with value. References belong to this session and are consumed before any attempt. Native human ownership is checked immediately before dispatch. Acknowledged means the application returned success, not verified UI success. Unknown effects block follow-ons; never retry a reference or recreate the same action automatically. Use desktop_verify or a fresh observation for the UI result. Application-scoped trees provide no action refs. Helium pages use browser-control."
+    )]
+    async fn desktop_accessibility_action(
+        &self,
+        Parameters(input): Parameters<AccessibilityActionRequest>,
+    ) -> CallToolResult {
+        self.execute(move |session| {
+            session
+                .connection
+                .as_mut()
+                .context("observe accessibility in this session first")?
+                .accessibility_action(input)
         })
         .await
     }
@@ -608,7 +654,7 @@ impl DesktopServer {
     }
 
     #[tool(
-        description = "Deterministically verify predicates against one exact process/window. Returns satisfied, unsatisfied or unknown after bounded consecutive samples. Verifies native window existence, title and rendered bounds; application-scoped accessibility predicates return unknown. timeout_ms is 0 through 10000, stable_samples is 1 through 5. No input seat or persistent polling. include_screenshot=true is unsupported; call desktop_observe for visual evidence. handled action receipts do not imply success."
+        description = "Deterministically verify predicates against one exact process/window. Returns satisfied, unsatisfied or unknown after bounded consecutive samples. Verifies native window existence, title and rendered bounds, plus native element labels/values/states when GTK7 surface metadata proves the exact accessibility root. Unbound application trees and embedded web content cannot prove window element predicates. Incomplete trees cannot prove absence. timeout_ms is 0 through 10000, stable_samples is 1 through 5. No input or persistent polling. include_screenshot=true is unsupported; use desktop_observe. handled action receipts do not imply success."
     )]
     async fn desktop_verify(
         &self,
@@ -789,7 +835,7 @@ impl ServerHandler for DesktopServer {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("dojo-agent", env!("CARGO_PKG_VERSION")))
-            .with_instructions("Desktop tools use an independent seat in the experimental Dojo Niri fork. Inspect desktop_context, then prefer desktop_observe on an exact positioned window and desktop_capture_action in its PNG pixels. Each action attempt requires another observation; never replay a consumed capture. Capture again to verify the UI result. desktop_screenshot and low-level desktop_action remain compatibility tools. Use desktop_feedback for brief visual responses and set complete=true when the task finishes. Release the seat when finished. desktop_accessibility supplies read-only application-scoped AT-SPI observations with no actionable refs. desktop_verify checks bounded window predicates, returning unknown for unavailable evidence. desktop_decode_model parses supported computer-use output against the unchanged delivered PNG without executing it.")
+            .with_instructions("Desktop tools use an independent seat in the experimental Dojo Niri fork. Inspect desktop_context, then prefer desktop_observe on an exact positioned window and desktop_capture_action in its PNG pixels. Each action attempt requires another observation; never replay a consumed capture. Capture again to verify the UI result. desktop_screenshot and low-level desktop_action remain compatibility tools. Use desktop_feedback for brief visual responses and set complete=true when the task finishes. Release the seat when finished. desktop_accessibility supplies AT-SPI observations with explicit window or application scope. Only exact-window element_refs authorize desktop_accessibility_action; references are one-use and unknown dispatch must never be replayed. desktop_verify checks window predicates and exactly bound native elements, returning unknown for unavailable or unbound evidence. parse_visual_regions reads text/icons from a fresh capture without authorizing input. desktop_decode_model parses supported computer-use output against the unchanged delivered PNG without executing it.")
     }
 }
 

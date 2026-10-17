@@ -512,6 +512,11 @@ pub mod unix {
         request: &Request,
         fd: Option<&OwnedFd>,
     ) -> io::Result<()> {
+        send_packet(socket, path, request, fd)
+    }
+    pub fn send_packet<T: serde::Serialize>(
+        socket: &UnixDatagram, path: &Path, request: &T, fd: Option<&OwnedFd>,
+    ) -> io::Result<()> {
         let bytes = serde_json::to_vec(request)?;
         if bytes.len() > MAX_FRAME {
             return Err(io::Error::new(
@@ -549,6 +554,11 @@ pub mod unix {
     pub fn receive(
         socket: &UnixDatagram,
     ) -> io::Result<Option<(Request, Option<OwnedFd>, libc::ucred, PathBuf)>> {
+        receive_packet(socket)
+    }
+    pub fn receive_packet<T: serde::de::DeserializeOwned>(
+        socket: &UnixDatagram,
+    ) -> io::Result<Option<(T, Option<OwnedFd>, libc::ucred, PathBuf)>> {
         let mut bytes = vec![0u8; MAX_FRAME];
         let mut control = [0usize; 32];
         let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };

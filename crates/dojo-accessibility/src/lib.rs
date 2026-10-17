@@ -1,5 +1,7 @@
-//! Bounded read-only, application-scoped AT-SPI observation.
+//! Bounded read-only AT-SPI observation, with optional compositor-bound roots.
 //! Derived from CUA's native AT-SPI traversal, privacy, and query semantics.
+pub mod actions;
+
 use anyhow::{Context, Result, bail, ensure};
 use atspi_common::{Role, State, StateSet};
 use serde::Serialize;
@@ -18,6 +20,30 @@ pub struct ObserveRequest<'a> {
     pub deadline: Instant,
     pub cancelled: &'a AtomicBool,
     pub options: Options,
+}
+
+/// An accessibility endpoint announced on the selected native Wayland surface.
+/// The caller must obtain this from the compositor, never from model arguments.
+/// This is read evidence, not an action capability.
+pub struct WindowRoot {
+    owner: String,
+    path: String,
+}
+impl WindowRoot {
+    pub fn new(owner: String, path: String) -> Result<Self> {
+        ensure!(
+            owner.len() <= 255 && path.len() <= 4096,
+            "invalid accessibility endpoint"
+        );
+        zbus::names::UniqueName::try_from(owner.as_str())
+            .context("accessibility endpoint requires a unique bus owner")?;
+        OwnedObjectPath::try_from(path.as_str()).context("invalid accessibility object path")?;
+        ensure!(
+            path != "/org/a11y/atspi/null",
+            "null accessibility endpoint"
+        );
+        Ok(Self { owner, path })
+    }
 }
 #[derive(Clone)]
 pub struct Options {
@@ -40,6 +66,7 @@ impl Default for Options {
 }
 #[derive(Debug, Serialize)]
 pub struct Observation {
+    pub bus_guid: Option<String>,
     pub pid: u32,
     pub process_start_time: u64,
     pub scope: &'static str,
@@ -72,9 +99,19 @@ pub struct Node {
     pub selected: Option<bool>,
     pub states: Vec<String>,
     pub actions: Vec<String>,
+    pub interfaces: Vec<String>,
+    pub numeric_range: Option<(f64, f64)>,
+    /// Read evidence for this node's direct Selection parent, not an action token.
+    pub selection_parent: Option<SelectionParent>,
     /// Application-reported screen extents. No native window mapping is claimed.
     pub reported_screen_bounds: Option<(i32, i32, i32, i32)>,
     pub bounds_authoritative: bool,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct SelectionParent {
+    pub bus_owner: String,
+    pub object_path: String,
+    pub index: i32,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Object {
@@ -179,6 +216,22 @@ pub async fn observe_process(
     .await
 }
 pub async fn observe(request: &ObserveRequest<'_>) -> Result<Observation> {
+    observe_selected(request, None).await
+}
+
+/// Walk only the endpoint announced on the selected native surface, proving its
+/// bus owner belongs to the exact process generation supplied by the caller.
+pub async fn observe_window(
+    request: &ObserveRequest<'_>,
+    root: &WindowRoot,
+) -> Result<Observation> {
+    observe_selected(request, Some(root)).await
+}
+
+async fn observe_selected(
+    request: &ObserveRequest<'_>,
+    root: Option<&WindowRoot>,
+) -> Result<Observation> {
     ensure!(
         request.pid > 0 && request.process_start_time > 0,
         "invalid process identity"
@@ -213,9 +266,14 @@ pub async fn observe(request: &ObserveRequest<'_>) -> Result<Observation> {
     );
     let budget = Budget { request };
     let mut observation = Observation {
+        bus_guid: None,
         pid: request.pid,
         process_start_time: start,
-        scope: "application",
+        scope: if root.is_some() {
+            "window"
+        } else {
+            "application"
+        },
         actionable: false,
         window_scoped: false,
         available: false,
@@ -273,7 +331,7 @@ pub async fn observe(request: &ObserveRequest<'_>) -> Result<Observation> {
             return Ok(observation);
         }
     };
-    let result = observe_on_connection(request, &conn, uid, &mut observation).await;
+    let result = observe_selected_on_connection(request, &conn, uid, &mut observation, root).await;
     // Connection lifetime is local to this observation. Dropping proxies and
     // connections retires their internal reader; close does not wait for app RPC.
     let _ = budget.read(conn.close()).await;
@@ -321,6 +379,115 @@ async fn resolve_owner(
         .await?;
     Ok((owner, pid, uid))
 }
+async fn selection_reference_matches(
+    budget: &Budget<'_>,
+    conn: &Connection,
+    actual: (String, OwnedObjectPath),
+    expected: &Object,
+    uid: u32,
+    observation: &mut Observation,
+) -> Result<bool> {
+    if actual.1.as_str() != expected.path {
+        return Ok(false);
+    }
+    if actual.0 == expected.owner {
+        return Ok(true);
+    }
+    if actual.0.starts_with(':') {
+        return Ok(false);
+    }
+    match resolve_owner(budget, conn, &actual.0).await {
+        Ok((owner, pid, owner_uid)) => {
+            Ok(owner == expected.owner && pid == budget.request.pid && owner_uid == uid)
+        }
+        Err(error) => {
+            issue(observation, error)?;
+            Ok(false)
+        }
+    }
+}
+
+async fn selection_parent_evidence(
+    budget: &Budget<'_>,
+    conn: &Connection,
+    child_proxy: &Proxy<'_>,
+    child: &Object,
+    parent: &Object,
+    uid: u32,
+    observation: &mut Observation,
+) -> Result<Option<SelectionParent>> {
+    let index: i32 = match budget.read(child_proxy.call("GetIndexInParent", &())).await {
+        Ok(index) => index,
+        Err(error) => {
+            issue(observation, error)?;
+            return Ok(None);
+        }
+    };
+    if !(0..2048).contains(&index) || index as usize >= budget.request.options.max_children {
+        observation
+            .issues
+            .insert("invalid_selection_child_index".into());
+        return Ok(None);
+    }
+    let actual_parent = match budget.read(child_proxy.get_property("Parent")).await {
+        Ok(parent) => parent,
+        Err(error) => {
+            issue(observation, error)?;
+            return Ok(None);
+        }
+    };
+    if !selection_reference_matches(budget, conn, actual_parent, parent, uid, observation).await? {
+        observation
+            .issues
+            .insert("selection_relationship_changed".into());
+        return Ok(None);
+    }
+    let parent_proxy = match budget
+        .proxy(conn, parent, "org.a11y.atspi.Accessible")
+        .await
+    {
+        Ok(proxy) => proxy,
+        Err(error) => {
+            issue(observation, error)?;
+            return Ok(None);
+        }
+    };
+    let count: i32 = match budget.read(parent_proxy.get_property("ChildCount")).await {
+        Ok(count) => count,
+        Err(error) => {
+            issue(observation, error)?;
+            return Ok(None);
+        }
+    };
+    if index >= count {
+        observation
+            .issues
+            .insert("selection_relationship_changed".into());
+        return Ok(None);
+    }
+    let actual_child = match budget
+        .read(parent_proxy.call("GetChildAtIndex", &(index,)))
+        .await
+    {
+        Ok(child) => child,
+        Err(error) => {
+            issue(observation, error)?;
+            return Ok(None);
+        }
+    };
+    if !selection_reference_matches(budget, conn, actual_child, child, uid, observation).await? {
+        observation
+            .issues
+            .insert("selection_relationship_changed".into());
+        return Ok(None);
+    }
+    Ok(Some(SelectionParent {
+        bus_owner: parent.owner.clone(),
+        object_path: parent.path.clone(),
+        index,
+    }))
+}
+
 async fn child_objects(
     budget: &Budget<'_>,
     proxy: &Proxy<'_>,
@@ -338,73 +505,109 @@ async fn child_objects(
     }
     Ok(children)
 }
+#[cfg(test)]
 async fn observe_on_connection(
     request: &ObserveRequest<'_>,
     conn: &Connection,
     uid: u32,
     observation: &mut Observation,
 ) -> Result<()> {
+    observe_selected_on_connection(request, conn, uid, observation, None).await
+}
+
+async fn observe_selected_on_connection(
+    request: &ObserveRequest<'_>,
+    conn: &Connection,
+    uid: u32,
+    observation: &mut Observation,
+    selected: Option<&WindowRoot>,
+) -> Result<()> {
+    observation.bus_guid = Some(conn.server_guid().as_str().to_owned());
     let budget = Budget { request };
-    let (registry_owner, _, registry_uid) =
-        match resolve_owner(&budget, conn, "org.a11y.atspi.Registry").await {
-            Ok(r) => r,
+    let mut roots = Vec::new();
+    let mut owners = HashSet::new();
+    if let Some(root) = selected {
+        match resolve_owner(&budget, conn, &root.owner).await {
+            Ok((owner, pid, owner_uid))
+                if owner == root.owner && pid == request.pid && owner_uid == uid =>
+            {
+                owners.insert(owner.clone());
+                roots.push(Object {
+                    owner,
+                    path: root.path.clone(),
+                });
+                observation.scope = "window";
+                observation.window_scoped = true;
+            }
+            Ok(_) => {
+                observation.issues.insert("window_owner_mismatch".into());
+                return Ok(());
+            }
+            Err(e) => {
+                issue(observation, e)?;
+                return Ok(());
+            }
+        }
+    } else {
+        let (registry_owner, _, registry_uid) =
+            match resolve_owner(&budget, conn, "org.a11y.atspi.Registry").await {
+                Ok(r) => r,
+                Err(e) => {
+                    issue(observation, e)?;
+                    return Ok(());
+                }
+            };
+        if registry_uid != uid {
+            observation.issues.insert("registry_owner_mismatch".into());
+            return Ok(());
+        }
+        let registry = Object {
+            owner: registry_owner,
+            path: "/org/a11y/atspi/accessible/root".into(),
+        };
+        let accessible = match budget
+            .proxy(conn, &registry, "org.a11y.atspi.Accessible")
+            .await
+        {
+            Ok(p) => p,
             Err(e) => {
                 issue(observation, e)?;
                 return Ok(());
             }
         };
-    if registry_uid != uid {
-        observation.issues.insert("registry_owner_mismatch".into());
-        return Ok(());
-    }
-    let registry = Object {
-        owner: registry_owner,
-        path: "/org/a11y/atspi/accessible/root".into(),
-    };
-    let accessible = match budget
-        .proxy(conn, &registry, "org.a11y.atspi.Accessible")
-        .await
-    {
-        Ok(p) => p,
-        Err(e) => {
-            issue(observation, e)?;
-            return Ok(());
-        }
-    };
-    let count: i32 = match budget.read(accessible.get_property("ChildCount")).await {
-        Ok(n) => n,
-        Err(e) => {
-            issue(observation, e)?;
-            return Ok(());
-        }
-    };
-    if count < 0 || count as usize > request.options.max_children {
-        observation.issues.insert("registry_child_budget".into());
-        return Ok(());
-    }
-    let apps = match child_objects(&budget, &accessible, count as usize).await {
-        Ok(a) => a,
-        Err(e) => {
-            issue(observation, e)?;
-            return Ok(());
-        }
-    };
-    let mut roots = Vec::new();
-    let mut owners = HashSet::new();
-    for (name, path) in apps {
-        match resolve_owner(&budget, conn, &name).await {
-            Ok((owner, pid, owner_uid)) if pid == request.pid && owner_uid == uid => {
-                let object = Object {
-                    owner,
-                    path: path.to_string(),
-                };
-                if !roots.contains(&object) {
-                    owners.insert(object.owner.clone());
-                    roots.push(object);
-                }
+        let count: i32 = match budget.read(accessible.get_property("ChildCount")).await {
+            Ok(n) => n,
+            Err(e) => {
+                issue(observation, e)?;
+                return Ok(());
             }
-            Ok(_) => {}
-            Err(e) => issue(observation, e)?,
+        };
+        if count < 0 || count as usize > request.options.max_children {
+            observation.issues.insert("registry_child_budget".into());
+            return Ok(());
+        }
+        let apps = match child_objects(&budget, &accessible, count as usize).await {
+            Ok(a) => a,
+            Err(e) => {
+                issue(observation, e)?;
+                return Ok(());
+            }
+        };
+        for (name, path) in apps {
+            match resolve_owner(&budget, conn, &name).await {
+                Ok((owner, pid, owner_uid)) if pid == request.pid && owner_uid == uid => {
+                    let object = Object {
+                        owner,
+                        path: path.to_string(),
+                    };
+                    if !roots.contains(&object) {
+                        owners.insert(object.owner.clone());
+                        roots.push(object);
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => issue(observation, e)?,
+            }
         }
     }
     if roots.is_empty() {
@@ -536,6 +739,9 @@ async fn observe_on_connection(
             selected: states.map(|s| s.contains(State::Selected)),
             states: states.map_or(Vec::new(), |s| s.iter().map(|v| v.to_string()).collect()),
             actions: Vec::new(),
+            interfaces: interfaces.clone(),
+            numeric_range: None,
+            selection_parent: None,
             reported_screen_bounds: None,
             bounds_authoritative: false,
         };
@@ -576,16 +782,34 @@ async fn observe_on_connection(
         }
         if !sensitive && has_value {
             match budget.proxy(conn, &object, "org.a11y.atspi.Value").await {
-                Ok(value_proxy) => match budget
-                    .read::<f64, _>(value_proxy.get_property("CurrentValue"))
-                    .await
-                {
-                    Ok(value) if value.is_finite() => node.value = Some(format!("{value:?}")),
-                    Ok(_) => {
-                        observation.issues.insert("invalid_numeric_value".into());
+                Ok(value_proxy) => {
+                    match budget
+                        .read::<f64, _>(value_proxy.get_property("CurrentValue"))
+                        .await
+                    {
+                        Ok(value) if value.is_finite() => node.value = Some(format!("{value:?}")),
+                        Ok(_) => {
+                            observation.issues.insert("invalid_numeric_value".into());
+                        }
+                        Err(e) => issue(observation, e)?,
                     }
-                    Err(e) => issue(observation, e)?,
-                },
+                    let minimum = budget
+                        .read::<f64, _>(value_proxy.get_property("MinimumValue"))
+                        .await;
+                    let maximum = budget
+                        .read::<f64, _>(value_proxy.get_property("MaximumValue"))
+                        .await;
+                    match (minimum, maximum) {
+                        (Ok(min), Ok(max)) if min.is_finite() && max.is_finite() && min <= max => {
+                            node.numeric_range = Some((min, max));
+                        }
+                        _ => {
+                            observation
+                                .issues
+                                .insert("numeric_range_unavailable".into());
+                        }
+                    }
+                }
                 Err(e) => issue(observation, e)?,
             }
         }
@@ -635,6 +859,41 @@ async fn observe_on_connection(
                     }
                 }
                 Err(e) => issue(observation, e)?,
+            }
+        }
+        if !sensitive && actions::is_direct_selection_role(&node.role) {
+            let candidate = parent
+                .and_then(|index| {
+                    observation
+                        .nodes
+                        .iter()
+                        .find(|parent| parent.index == index)
+                })
+                .filter(|parent| {
+                    !parent.redacted
+                        && parent.bus_owner == node.bus_owner
+                        && parent.enabled == Some(true)
+                        && !parent.states.iter().any(|state| state == "defunct")
+                        && parent
+                            .interfaces
+                            .iter()
+                            .any(|interface| interface == "org.a11y.atspi.Selection")
+                })
+                .map(|parent| Object {
+                    owner: parent.bus_owner.clone(),
+                    path: parent.object_path.clone(),
+                });
+            if let Some(parent) = candidate {
+                node.selection_parent = selection_parent_evidence(
+                    &budget,
+                    conn,
+                    &proxy,
+                    &object,
+                    &parent,
+                    uid,
+                    observation,
+                )
+                .await?;
             }
         }
         observation.nodes.push(node);
@@ -1061,6 +1320,14 @@ mod tests {
     #[zbus::interface(name = "org.a11y.atspi.Value")]
     impl Value {
         #[zbus(property)]
+        fn minimum_value(&self) -> f64 {
+            0.0
+        }
+        #[zbus(property)]
+        fn maximum_value(&self) -> f64 {
+            10.0
+        }
+        #[zbus(property)]
         fn current_value(&self) -> f64 {
             if self.secret {
                 self.secret_reads.fetch_add(1, Ordering::SeqCst);
@@ -1197,12 +1464,15 @@ mod tests {
             .unwrap();
         let (server, client) = tokio::join!(
             builder.build(),
-            zbus::connection::Builder::async_io_unix_stream(client).p2p().build()
+            zbus::connection::Builder::async_io_unix_stream(client)
+                .p2p()
+                .build()
         );
         (server.unwrap(), client.unwrap(), reads)
     }
     fn empty(request: &ObserveRequest<'_>) -> Observation {
         Observation {
+            bus_guid: None,
             pid: request.pid,
             process_start_time: request.process_start_time,
             scope: "application",
@@ -1215,6 +1485,128 @@ mod tests {
             nodes_visited: 0,
             nodes_pending: 0,
             nodes: Vec::new(),
+        }
+    }
+
+    struct SelectionAccessible {
+        container: bool,
+        index: i32,
+        parent_path: String,
+    }
+    #[zbus::interface(name = "org.a11y.atspi.Accessible")]
+    impl SelectionAccessible {
+        fn get_role(&self) -> u32 {
+            if self.container {
+                Role::List as u32
+            } else {
+                Role::ListItem as u32
+            }
+        }
+        fn get_state(&self) -> StateSet {
+            StateSet::new(State::Sensitive)
+        }
+        fn get_interfaces(&self) -> Vec<String> {
+            let mut interfaces = vec!["org.a11y.atspi.Accessible".into()];
+            if self.container {
+                interfaces.push("org.a11y.atspi.Selection".into());
+            }
+            interfaces
+        }
+        fn get_index_in_parent(&self) -> i32 {
+            self.index
+        }
+        fn get_child_at_index(&self, index: i32) -> zbus::fdo::Result<(String, OwnedObjectPath)> {
+            let path = match index {
+                0 => "/choice",
+                1 => "/sibling",
+                _ => return Err(zbus::fdo::Error::Failed("out of range".into())),
+            };
+            Ok((":1.5".into(), OwnedObjectPath::try_from(path).unwrap()))
+        }
+        #[zbus(property)]
+        fn parent(&self) -> (String, OwnedObjectPath) {
+            (
+                ":1.5".into(),
+                OwnedObjectPath::try_from(self.parent_path.as_str()).unwrap(),
+            )
+        }
+        #[zbus(property)]
+        fn name(&self) -> &str {
+            if self.container { "Choices" } else { "Choice" }
+        }
+        #[zbus(property)]
+        fn description(&self) -> &str {
+            ""
+        }
+        #[zbus(property)]
+        fn child_count(&self) -> i32 {
+            if self.container { 2 } else { 0 }
+        }
+    }
+
+    #[tokio::test]
+    async fn direct_selection_requires_live_bidirectional_parent_membership() {
+        for (index, parent_path, valid) in [
+            (0, "/list", true),
+            (1, "/list", false),
+            (-1, "/list", false),
+            (2048, "/list", false),
+            (0, "/other_parent", false),
+        ] {
+            let (server, conn, _) = fixture(None).await;
+            for (path, container, index) in [
+                ("/list", true, -1),
+                ("/choice", false, index),
+                ("/sibling", false, 1),
+            ] {
+                server
+                    .object_server()
+                    .at(
+                        path,
+                        SelectionAccessible {
+                            container,
+                            index,
+                            parent_path: parent_path.into(),
+                        },
+                    )
+                    .await
+                    .unwrap();
+            }
+            let cancelled = AtomicBool::new(false);
+            let request = req(&cancelled);
+            let root = WindowRoot::new(":1.5".into(), "/list".into()).unwrap();
+            let mut result = empty(&request);
+            observe_selected_on_connection(
+                &request,
+                &conn,
+                process_identity(request.pid).unwrap().1,
+                &mut result,
+                Some(&root),
+            )
+            .await
+            .unwrap();
+            let choice = result
+                .nodes
+                .iter()
+                .find(|node| node.object_path == "/choice")
+                .unwrap();
+            assert_eq!(
+                choice.enabled,
+                Some(true),
+                "sensitive-only toolkit state is enabled"
+            );
+            assert_eq!(
+                choice.selection_parent,
+                valid.then(|| SelectionParent {
+                    bus_owner: ":1.5".into(),
+                    object_path: "/list".into(),
+                    index: 0,
+                })
+            );
+            assert_eq!(
+                actions::select(choice, &actions::Action::Select).is_ok(),
+                valid
+            );
         }
     }
     #[tokio::test]
@@ -1259,6 +1651,61 @@ mod tests {
             result.nodes.iter().map(|n| n.index).collect::<Vec<_>>(),
             vec![0, 3]
         );
+    }
+    #[tokio::test]
+    async fn selected_native_root_does_not_walk_same_process_siblings() {
+        let (_server, conn, _) = fixture(None).await;
+        let cancelled = AtomicBool::new(false);
+        let request = req(&cancelled);
+        for path in ["/button1", "/button2"] {
+            let root = WindowRoot::new(":1.5".into(), path.into()).unwrap();
+            let mut result = empty(&request);
+            observe_selected_on_connection(
+                &request,
+                &conn,
+                process_identity(request.pid).unwrap().1,
+                &mut result,
+                Some(&root),
+            )
+            .await
+            .unwrap();
+            assert!(result.available && result.window_scoped);
+            assert!(!result.actionable);
+            assert_eq!(result.scope, "window");
+            assert_eq!(result.nodes.len(), 1);
+            assert_eq!(result.nodes[0].object_path, path);
+            assert_eq!(result.nodes[0].name.as_deref(), Some("Save"));
+        }
+    }
+    #[tokio::test]
+    async fn selected_root_with_different_process_is_not_an_application_fallback() {
+        let (_server, conn, _) = fixture_for_pid(None, std::process::id() + 1, false).await;
+        let cancelled = AtomicBool::new(false);
+        let request = req(&cancelled);
+        let root = WindowRoot::new(":1.5".into(), "/button1".into()).unwrap();
+        let mut result = empty(&request);
+        observe_selected_on_connection(
+            &request,
+            &conn,
+            process_identity(request.pid).unwrap().1,
+            &mut result,
+            Some(&root),
+        )
+        .await
+        .unwrap();
+        assert!(!result.available && !result.window_scoped);
+        assert!(result.nodes.is_empty());
+        assert!(result.issues.contains("window_owner_mismatch"));
+    }
+    #[test]
+    fn native_endpoints_require_unique_names_and_valid_non_null_paths() {
+        for (owner, path) in [
+            ("org.example.App", "/window"),
+            (":1.5", "bad path"),
+            (":1.5", "/org/a11y/atspi/null"),
+        ] {
+            assert!(WindowRoot::new(owner.into(), path.into()).is_err());
+        }
     }
     #[tokio::test]
     async fn huge_container_is_incomplete_without_enumerating_children() {

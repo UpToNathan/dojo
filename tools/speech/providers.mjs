@@ -1,75 +1,17 @@
-import { readFile, mkdir, writeFile, rename, chmod } from 'node:fs/promises';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
-import { createHash, randomUUID } from 'node:crypto';
+import { mkdir } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { DojoCredentials } from './credentials.mjs';
+export { DojoCredentials } from './credentials.mjs';
 import { createModels } from '@earendil-works/pi-ai/models';
 import { openaiCodexProvider } from '@earendil-works/pi-ai/providers/openai-codex';
 import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
 import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
+import { opencodeProvider } from '@earendil-works/pi-ai/providers/opencode';
+import { opencodeGoProvider } from '@earendil-works/pi-ai/providers/opencode-go';
 
-async function readJson(file, fallback) {
-  try { return JSON.parse(await readFile(file, 'utf8')); }
-  catch (error) { if (error.code === 'ENOENT') return fallback; throw error; }
-}
-
-export class DojoCredentials {
-  constructor(stateDir) { this.file = join(stateDir, 'credentials.json'); this.chain = Promise.resolve(); }
-  async read(provider) {
-    await this.chain;
-    const value = (await readJson(this.file, {}))[provider];
-    if (value?.borrowedSubscription) {
-      const fresh = await this.subscriptionSnapshot(provider);
-      if (fresh.expires <= Date.now() + 60_000) throw new Error('The shared subscription login needs renewal in its owning app, or a separate Dojo login. Dojo will not rotate another app\'s credentials.');
-      return fresh;
-    }
-    return value;
-  }
-  async list() { await this.chain; return Object.entries(await readJson(this.file, {})).map(([providerId, value]) => ({ providerId, type: value.type })); }
-  modify(provider, change, { signal } = {}) {
-    const work = this.chain.then(async () => {
-      signal?.throwIfAborted();
-      const all = await readJson(this.file, {});
-      const value = await change(all[provider]);
-      signal?.throwIfAborted();
-      if (value === undefined) return all[provider];
-      all[provider] = value;
-      const temporary = `${this.file}.${randomUUID()}.tmp`;
-      await writeFile(temporary, JSON.stringify(all), { mode: 0o600, flag: 'wx' });
-      await rename(temporary, this.file);
-      await chmod(this.file, 0o600);
-      return value;
-    });
-    this.chain = work.catch(() => {});
-    return work;
-  }
-  delete(provider) {
-    const work = this.chain.then(async () => {
-      const all = await readJson(this.file, {}); delete all[provider];
-      await writeFile(this.file, JSON.stringify(all), { mode: 0o600 });
-    });
-    this.chain = work.catch(() => {}); return work;
-  }
-  async importSubscription(provider) {
-    if (await this.read(provider)) return;
-    await this.modify(provider, async () => await this.subscriptionSnapshot(provider));
-  }
-  async subscriptionSnapshot(provider) {
-    if (provider === 'openai-codex') {
-      const auth = await readJson(join(homedir(), '.codex/auth.json'), null);
-      const tokens = auth?.tokens;
-      if (!tokens?.access_token) throw new Error('Sign in to Codex before enabling Dojo subscription execution.');
-      const claims = JSON.parse(Buffer.from(tokens.access_token.split('.')[1], 'base64url'));
-      if (!Number.isFinite(claims.exp)) throw new Error('Codex subscription credential has no expiry.');
-      return { type: 'oauth', access: tokens.access_token, refresh: '', borrowedSubscription: true,
-        expires: claims.exp * 1000, accountId: tokens.account_id };
-    } else {
-      const auth = await readJson(join(homedir(), '.pi/agent/auth.json'), {});
-      if (auth[provider]?.type !== 'oauth') throw new Error(`Dojo needs a ${provider} subscription login; API-key fallback is disabled.`);
-      if (typeof auth[provider].access !== 'string' || !auth[provider].access || !Number.isFinite(auth[provider].expires)) throw new Error('Invalid subscription access credential.');
-      return { ...auth[provider], refresh: '', borrowedSubscription: true };
-    }
-  }
-}
+export const SUBSCRIPTION_PROVIDERS = ['openai-codex', 'openai', 'anthropic', 'opencode', 'opencode-go'];
+// Ambient environment variables never authenticate a provider; only stored or explicitly imported credentials do.
+const NO_AMBIENT_AUTH = { env: async () => undefined, fileExists: async () => false };
 
 function cleanMarks(value) {
   if (Array.isArray(value)) return value.map(cleanMarks);
@@ -90,9 +32,22 @@ export function viewBlocks(text) {
   return blocks;
 }
 
-export function cachePayload(provider, original, { cacheId, openaiExplicit = false, claudeSubscription = true } = {}) {
+/**
+ * Chooses cache handling from the request's API, never from the provider id: OpenCode serves several protocols.
+ * Shapes Dojo has no cache strategy for pass through unmarked.
+ */
+export function cacheShape(kind) {
+  if (kind === 'anthropic' || kind === 'anthropic-messages') return 'anthropic';
+  if (['responses', 'openai-codex', 'openai', 'openai-responses', 'openai-codex-responses'].includes(kind)) return 'responses';
+  return 'passthrough';
+}
+
+export function cachePayload(kind, original, { cacheId, openaiExplicit = false, claudeSubscription = true } = {}) {
   const payload = cleanMarks(original);
-  const anthropic = provider === 'anthropic';
+  const shape = cacheShape(kind);
+  if (shape === 'passthrough') return payload;
+  const provider = shape === 'anthropic' ? 'anthropic' : 'responses';
+  const anthropic = shape === 'anthropic';
   if (!anthropic) {
     payload.prompt_cache_key = cacheId;
     if (openaiExplicit) payload.prompt_cache_options = { mode: 'implicit' };
@@ -130,6 +85,7 @@ export function cachePayload(provider, original, { cacheId, openaiExplicit = fal
 }
 
 function prefixKey(provider, model, payload) {
+  if (cacheShape(provider) === 'passthrough') return null;
   const messages = payload.messages || payload.input || [];
   const first = messages.find(message => message.role === 'user');
   const blocks = first?.content;
@@ -163,12 +119,14 @@ export function wrapCacheProvider(base, options) {
       release(); release = undefined;
       if (writes.get(key) === gate) writes.delete(key);
     };
-    const stream = base[method](model, context, { ...requestOptions, cacheRetention: base.id === 'anthropic' ? 'long' : 'short',
+    const shape = cacheShape(model.api ?? base.id);
+    const firstParty = base.id === 'anthropic';
+    const stream = base[method](model, context, { ...requestOptions, cacheRetention: firstParty ? 'long' : 'short',
       sessionId: options.cacheId,
       onPayload: async original => {
         const previous = await requestOptions.onPayload?.(original, model);
-        const payload = cachePayload(base.id, previous ?? original, options);
-        key = prefixKey(base.id, model, payload);
+        const payload = cachePayload(shape, previous ?? original, { ...options, claudeSubscription: firstParty && options.claudeSubscription !== false });
+        key = prefixKey(shape, model, payload);
         if (key) {
           const previous = writes.get(key);
           gate = new Promise(resolve => { release = resolve; });
@@ -200,20 +158,42 @@ export function wrapCacheProvider(base, options) {
 }
 
 export function subscriptionProvider(provider) {
-  if (!['openai-codex', 'openai', 'anthropic'].includes(provider)) throw new Error('Unsupported Dojo subscription provider.');
-  return provider === 'anthropic' ? anthropicProvider() : provider === 'openai' ? openaiProvider() : openaiCodexProvider();
+  if (!SUBSCRIPTION_PROVIDERS.includes(provider)) throw new Error('Unsupported Dojo account.');
+  return { anthropic: anthropicProvider, openai: openaiProvider, 'openai-codex': openaiCodexProvider,
+    opencode: opencodeProvider, 'opencode-go': opencodeGoProvider }[provider]();
 }
 
-export async function createDojoModels({ stateDir, provider = 'openai-codex', cacheId = 'dojo', onPayload,
-  openaiExplicit = false, credentials: supplied, importCredentials = true } = {}) {
-  if (!['openai-codex', 'openai', 'anthropic'].includes(provider)) throw new Error('Unsupported Dojo subscription provider.');
+/**
+ * Registers one provider per usable account in a single catalog. `providers` lists accounts in preference order;
+ * accounts without a credential are skipped, and it is an error only when none remain.
+ */
+export async function createDojoModels({ stateDir, provider = 'openai-codex', providers, cacheId = 'dojo', onPayload,
+  openaiExplicit = false, credentials: supplied, store, importCredentials = true, env } = {}) {
+  const wanted = providers ?? [provider];
+  for (const id of wanted) if (!SUBSCRIPTION_PROVIDERS.includes(id)) throw new Error('Unsupported Dojo account.');
   await mkdir(stateDir, { recursive: true, mode: 0o700 });
-  const credentials = supplied || new DojoCredentials(stateDir);
-  if (importCredentials && !supplied) await credentials.importSubscription(provider);
-  const credential = await credentials.read(provider);
-  if (!supplied && credential?.type !== 'oauth') throw new Error('Dojo requires subscription authentication.');
-  const base = subscriptionProvider(provider);
-  const models = createModels({ credentials });
-  models.setProvider(wrapCacheProvider(base, { cacheId, onPayload, openaiExplicit, claudeSubscription: true }));
+  // `credentials` is a caller-managed store that is used as given; `store` is a Dojo store that is still seeded.
+  const credentials = supplied || store || new DojoCredentials(stateDir);
+  const usable = [];
+  for (const id of wanted) {
+    if (importCredentials && !supplied) {
+      try { await credentials.importAccount(id, { env }); }
+      catch (error) { if (providers === undefined) throw error; continue; }
+    }
+    let credential;
+    try { credential = await credentials.read(id); } catch (error) { if (providers === undefined) throw error; continue; }
+    if (!supplied && !['oauth', 'api_key'].includes(credential?.type)) {
+      if (providers === undefined) throw new Error('Dojo requires subscription authentication.');
+      continue;
+    }
+    usable.push(id);
+  }
+  if (!supplied && wanted.length > 0 && !usable.length) throw new Error('Sign in to use Dojo: no account is available.');
+  const models = createModels({ credentials, authContext: NO_AMBIENT_AUTH });
+  for (const id of supplied ? wanted : usable) {
+    models.setProvider(wrapCacheProvider(subscriptionProvider(id), { cacheId, onPayload, openaiExplicit,
+      claudeSubscription: id === 'anthropic' }));
+  }
+  models.dojoAccounts = supplied ? wanted : usable;
   return models;
 }

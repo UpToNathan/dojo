@@ -1,0 +1,141 @@
+--- a/tools/accessibility/electron/nixpkgs-binary.nix
++++ b/tools/accessibility/electron/nixpkgs-binary.nix
+@@ -2,8 +2,6 @@
+   lib,
+   stdenv,
+   makeWrapper,
+-  fetchurl,
+-  fetchzip,
+   wrapGAppsHook3,
+   glib,
+   gtk3,
+@@ -42,7 +40,7 @@
+   speechd-minimal,
+ }:
+ 
+-version: hashes:
++version: distribution:
+ let
+   pname = "electron";
+ 
+@@ -52,47 +50,11 @@
+     license = lib.licenses.mit;
+     mainProgram = "electron";
+     teams = [ lib.teams.electron ];
+-    platforms = [
+-      "x86_64-linux"
+-      "armv7l-linux"
+-      "aarch64-linux"
+-      "aarch64-darwin"
+-    ];
++    platforms = [ "x86_64-linux" ];
+     sourceProvenance = with lib.sourceTypes; [ binaryNativeCode ];
+-    # https://www.electronjs.org/docs/latest/tutorial/electron-timelines
+     knownVulnerabilities = lib.optional (lib.versionOlder version "42.0.0") "Electron version ${version} is EOL";
+   };
+ 
+-  fetcher =
+-    vers: tag: hash:
+-    fetchurl {
+-      url = "https://github.com/electron/electron/releases/download/v${vers}/electron-v${vers}-${tag}.zip";
+-      sha256 = hash;
+-    };
+-
+-  headersFetcher =
+-    vers: hash:
+-    fetchzip {
+-      name = "electron-${vers}-headers";
+-      url = "https://artifacts.electronjs.org/headers/dist/v${vers}/node-v${vers}-headers.tar.gz";
+-      sha256 = hash;
+-    };
+-
+-  tags = {
+-    x86_64-linux = "linux-x64";
+-    armv7l-linux = "linux-armv7l";
+-    aarch64-linux = "linux-arm64";
+-    aarch64-darwin = "darwin-arm64";
+-  };
+-
+-  get = as: platform: as.${platform.system} or (throw "Unsupported system: ${platform.system}");
+-
+-  common = platform: {
+-    inherit pname version meta;
+-    src = fetcher version (get tags platform) (get hashes platform);
+-    passthru.headers = headersFetcher version hashes.headers;
+-  };
+-
+   electronLibPath = lib.makeLibraryPath [
+     alsa-lib
+     at-spi2-atk
+@@ -158,7 +120,8 @@
+ 
+     preFixup = ''
+       makeWrapper "$out/libexec/electron/electron" $out/bin/electron \
+-        "''${gappsWrapperArgs[@]}"
++        "''${gappsWrapperArgs[@]}" \
++        --unset LD_LIBRARY_PATH --unset LD_PRELOAD
+     '';
+ 
+     postFixup = ''
+@@ -168,16 +131,20 @@
+         $out/libexec/electron/electron \
+         $out/libexec/electron/chrome_crashpad_handler
+ 
+-      # patch libANGLE
+-      patchelf \
+-        --set-rpath "${
+-          lib.makeLibraryPath [
+-            libGL
+-            pciutils
+-            vulkan-loader
+-          ]
+-        }" \
+-        $out/libexec/electron/lib*GL*
++      # Electron 44 omits the unused ANGLE stub libraries.
++      angleLibraries=( "$out/libexec/electron"/lib*GL* )
++      if (( ''${#angleLibraries[@]} > 0 )) && [[ -e "''${angleLibraries[0]}" ]]; then
++        patchelf \
++          --set-rpath "${
++            lib.makeLibraryPath [
++              libGL
++              pciutils
++              vulkan-loader
++            ]
++          }" \
++          "''${angleLibraries[@]}"
++
++      fi
+ 
+       # replace bundled vulkan-loader
+       rm "$out/libexec/electron/libvulkan.so.1"
+@@ -190,26 +157,8 @@
+     strictDeps = true;
+   };
+ 
+-  darwin = finalAttrs: {
+-    nativeBuildInputs = [
+-      makeWrapper
+-      unzip
+-    ];
+-
+-    buildCommand = ''
+-      mkdir -p $out/Applications
+-      unzip $src
+-      mv Electron.app $out/Applications
+-      mkdir -p $out/bin
+-      makeWrapper $out/Applications/Electron.app/Contents/MacOS/Electron $out/bin/electron
+-    '';
+-
+-    passthru.dist = finalAttrs.finalPackage + "/Applications";
+-  };
+ in
+-stdenv.mkDerivation (
+-  finalAttrs:
+-  lib.recursiveUpdate (common stdenv.hostPlatform) (
+-    (if stdenv.hostPlatform.isDarwin then darwin else linux) finalAttrs
+-  )
+-)
++stdenv.mkDerivation (finalAttrs: (linux finalAttrs) // {
++  inherit pname version meta;
++  src = distribution;
++})

@@ -25,11 +25,11 @@ export async function installHumanRequests(runtime, registry, ai) {
           }
         }, context);
         runtime.onEvent({ type: 'human_request', request });
-        return { content: [{ type: 'text', text: JSON.stringify(request) }] };
+        return { output: [{ type: 'text', text: JSON.stringify(request) }] };
       },
     }),
     pi.defineTool({ name: 'human_requests', description: 'Read durable clarification requests and user responses. Completed clarification does not authorize desktop effects.', parameters: ai.Type.Object({}), replay: 'safe',
-      execute: async (_args, api, context) => ({ content: [{ type: 'text', text: JSON.stringify((await api.snapshot(runtime.HumanState, api.conversationId, context))?.requests ?? {}) }] }),
+      execute: async (_args, api, context) => ({ output: [{ type: 'text', text: JSON.stringify((await api.snapshot(runtime.HumanState, api.conversationId, context))?.requests ?? {}) }] }),
     }),
   ] }));
 }

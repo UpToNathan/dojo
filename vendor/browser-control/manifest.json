@@ -6,23 +6,23 @@
     },
     {
       "path": "vendor/niri/src/niri.rs",
-      "sha256": "e112f355c6d5f49cc8353d83815c8fc6460ba41cbc4bcb1b00ac00887cb6a6ae"
+      "sha256": "0f36098390902dad723168b757123442360d9c68f0461b16fb02c3121b96ed3c"
     },
     {
       "path": "vendor/niri/src/lib.rs",
-      "sha256": "76dfc3fd23f87568642fc8749dd5d03875b6ff25dee6d7e5d62c8d5a5c34a144"
+      "sha256": "17c91074bc55269d066e0c27da0f932495c58ad1d74b7be563bea46310908520"
     },
     {
       "path": "vendor/niri/src/agent_input/shared.rs",
-      "sha256": "e3a78a3639a3e7482788f956c73069d868e0cabd96d44a2ccaf2083f6c175fd7"
+      "sha256": "502aca3098aa0317c799d9dd53a9b31be888562216f288c7c9fae49563d1f5eb"
     },
     {
       "path": "vendor/niri/src/input/mod.rs",
-      "sha256": "ee2d34808df4f318ffdb734bde7b09fb52754b33dd832fd4406556a9e06dab23"
+      "sha256": "65714507cd61ac8ce1ed4b479c0c8ed51978eca34220ea44e4d28bf552b37a50"
     },
     {
       "path": "vendor/niri/src/ipc/client.rs",
-      "sha256": "0e4433f49728959ae7f90e9ded095c74b00cf4327f4a086640a0ec5886d7a523"
+      "sha256": "b8b75ee0f1dac413ff95a39757bf68caeb3e41835008eb76b8bb90916c211f8a"
     }
   ],
   "repository": "https://github.com/anomalyco/browser-control",
@@ -1407,12 +1407,12 @@
     },
     {
       "path": "src/lib.rs",
-      "sha256": "1a773d08f048ef7e67773d98c48a723375fce3774ce8b8a3bfff804d40d18864"
+      "sha256": "5425f4eff591ee06c01382f89b3c179df920b704e213c295814c0b0a90c00d74"
     },
     {
       "path": "src/main.rs",
       "sha256": "83e690edaa8c22ed20871a0b1e94262fa0d730ee6c45c313487553a502277a45"
     }
   ],
-  "sourceIdentity": "33ce082f4b3b75f6f8ddaf321d8ea904394f6004015eb3f4176ad445a396055b"
+  "sourceIdentity": "81420ac8cefc1e3df54e52c4bc3ffb57a0072a9e03749c9a36ace2d33f4b3f33"
 }

@@ -264,3 +264,52 @@ test('Pi discovers original Driver schemas and relays results without changing i
   await runtime.submit('click', { requestId: 'driver-click' }); await settled(runtime);
   assert.equal(calls.filter(call => call.name === 'desktop_driver_call').length, 1);
 });
+
+for (const outcome of ['unknown', 'acknowledged', 'rejected', 'refused', 'disconnect']) {
+  test(`semantic ${outcome} receipt preserves the external-effect barrier correctly`, async t => {
+    const semanticTools = [...tools, ...['desktop_accessibility_action', 'desktop_accessibility'].map(name => ({ name, inputSchema: schema }))];
+    const { runtime, calls } = await fixture(t, [
+      toolRound([['desktop_accessibility_action', { element_ref: 'fixture', action: { kind: 'invoke' } }]]),
+      toolRound([['desktop_action', { action: 'click' }]]),
+      fauxAssistantMessage('finished'),
+    ], async name => {
+      if (name === 'desktop_accessibility_action') {
+        const during = await runtime.harness.snapshot(runtime.DesktopState, runtime.id, runtime.context);
+        assert.equal(during.externalUnknown, true);
+        if (outcome === 'disconnect') throw new Error('transport lost after dispatch');
+        return { content: [{ type: 'text', text: JSON.stringify({ effect: outcome, operation_id: 'semantic-one' }) }] };
+      }
+      return { content: [{ type: 'text', text: '{"handled":true}' }] };
+    }, { desktopTools: semanticTools });
+    await runtime.submit('Act semantically', { requestId: `semantic-${outcome}` });
+    await settled(runtime);
+    const state = await runtime.harness.snapshot(runtime.DesktopState, runtime.id, runtime.context);
+    const uncertain = ['unknown', 'disconnect'].includes(outcome);
+    assert.equal(state.externalUnknown, uncertain);
+    assert.equal(calls.some(call => call.name === 'desktop_action' && call.args.action === 'click'), !uncertain);
+  });
+}
+
+test('fresh observation alone cannot clear a semantic unknown, but its matching late reply can', async t => {
+  const semanticTools = [...tools, ...['desktop_accessibility_action', 'desktop_accessibility'].map(name => ({ name, inputSchema: schema }))];
+  let reads = 0;
+  const { runtime, calls } = await fixture(t, [
+    toolRound([['desktop_accessibility_action', { element_ref: 'fixture', action: { kind: 'invoke' } }]]),
+    toolRound([['desktop_accessibility', { window_id: 1 }]]),
+    toolRound([['desktop_action', { action: 'click' }]]),
+    toolRound([['desktop_accessibility', { window_id: 1 }]]),
+    toolRound([['desktop_action', { action: 'click' }]]),
+    fauxAssistantMessage('finished'),
+  ], async name => {
+    const receipt = name === 'desktop_accessibility_action' ? { effect: 'unknown', operation_id: 'semantic-one' }
+      : name === 'desktop_accessibility' ? { semantic_receipts: ++reads === 1 ? [{ operation_id: 'another', effect: 'unknown', late_terminal: 'acknowledged' }] : [{ operation_id: 'semantic-one', effect: 'unknown', late_terminal: 'acknowledged' }] }
+      : { handled: true };
+    return { content: [{ type: 'text', text: JSON.stringify(receipt) }] };
+  }, { desktopTools: semanticTools });
+  await runtime.submit('Wait for the actual reply', { requestId: 'semantic-late' });
+  await settled(runtime);
+  assert.equal(calls.filter(call => call.name === 'desktop_action' && call.args.action === 'click').length, 1);
+  const state = await runtime.harness.snapshot(runtime.DesktopState, runtime.id, runtime.context);
+  assert.equal(state.externalUnknown, false);
+  assert.equal(state.semanticOperation, null);
+});

@@ -548,11 +548,13 @@ impl XdgShellHandler for State {
                     }
 
                     // We already sent the initial configure, so we need to reconfigure.
+                    crate::protocols::gtk_shell::configure(&toplevel);
                     toplevel.send_configure();
                 }
             }
         } else {
             error!("couldn't find the toplevel in maximize_request()");
+            crate::protocols::gtk_shell::configure(&toplevel);
             toplevel.send_configure();
         }
     }
@@ -667,11 +669,13 @@ impl XdgShellHandler for State {
                     }
 
                     // We already sent the initial configure, so we need to reconfigure.
+                    crate::protocols::gtk_shell::configure(&toplevel);
                     toplevel.send_configure();
                 }
             }
         } else {
             error!("couldn't find the toplevel in unmaximize_request()");
+            crate::protocols::gtk_shell::configure(&toplevel);
             toplevel.send_configure();
         }
     }
@@ -759,11 +763,13 @@ impl XdgShellHandler for State {
                     }
 
                     // We already sent the initial configure, so we need to reconfigure.
+                    crate::protocols::gtk_shell::configure(&toplevel);
                     toplevel.send_configure();
                 }
             }
         } else {
             error!("couldn't find the toplevel in fullscreen_request()");
+            crate::protocols::gtk_shell::configure(&toplevel);
             toplevel.send_configure();
         }
     }
@@ -877,11 +883,13 @@ impl XdgShellHandler for State {
                     }
 
                     // We already sent the initial configure, so we need to reconfigure.
+                    crate::protocols::gtk_shell::configure(&toplevel);
                     toplevel.send_configure();
                 }
             }
         } else {
             error!("couldn't find the toplevel in unfullscreen_request()");
+            crate::protocols::gtk_shell::configure(&toplevel);
             toplevel.send_configure();
         }
     }
@@ -1016,6 +1024,7 @@ impl XdgDecorationHandler for State {
             if let Some((mapped, _)) = self.niri.layout.find_window_and_output_mut(surface) {
                 mapped.set_needs_configure();
             } else {
+                crate::protocols::gtk_shell::configure(&toplevel);
                 toplevel.send_configure();
             }
         }
@@ -1035,6 +1044,7 @@ impl XdgDecorationHandler for State {
             if let Some((mapped, _)) = self.niri.layout.find_window_and_output_mut(surface) {
                 mapped.set_needs_configure();
             } else {
+                crate::protocols::gtk_shell::configure(&toplevel);
                 toplevel.send_configure();
             }
         }
@@ -1242,6 +1252,7 @@ impl State {
         };
 
         trace!(surface = %toplevel.wl_surface().id(), "sending initial configure");
+        crate::protocols::gtk_shell::configure(&toplevel);
         toplevel.send_configure();
     }
 

@@ -69,7 +69,7 @@ def screenshot(query, path, *, show_pointer=True):
 
 
 def changed_pixels(before, after, x, y, scale):
-    binary = str(Path(__file__).parent / "target/debug/pixel-diff")
+    binary = os.environ.get("DOJO_PIXEL_DIFF_BINARY", str(Path(__file__).parent / "target/debug/pixel-diff"))
     result = subprocess.check_output([binary, before, after, str(round(x * scale)),
                                       str(round(y * scale)), str(round(48 * scale))], text=True)
     return json.loads(result)["changed_pixels"]

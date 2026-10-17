@@ -48,7 +48,7 @@ impl State {
             .niri
             .layout
             .find_window_and_output(&root)
-            .is_some_and(|(window, _)| self.external_target_unresolved(window.id().get()))
+            .is_some_and(|(window, _)| self.external_target_unresolved(window.id().get()) || self.semantic_target_unresolved(window.id().get()))
         {
             return Err("paused: target has an unresolved external effect".into());
         }
@@ -106,6 +106,7 @@ impl State {
             .pressed_keys()
             .is_empty();
         let client = surface.and_then(|s| s.client()).map(|c| c.id());
+        self.semantic_input_activity();
         self.browser_human_activity(client.as_ref());
         if self
             .niri
@@ -119,6 +120,7 @@ impl State {
 
     pub(crate) fn human_pointer_focus_changed(&mut self, surface: Option<WlSurface>) {
         let client = surface.and_then(|s| s.client()).map(|c| c.id());
+        self.semantic_input_activity();
         self.browser_human_activity(client.as_ref());
         if self.niri.input_coordination.pointer_focus_changed(client) {
             self.publish_input_coordination();
@@ -154,6 +156,7 @@ impl State {
             .current_focus()
             .and_then(|s| s.client())
             .map(|c| c.id());
+        self.semantic_input_activity();
         self.browser_human_activity(client.as_ref());
         if self.niri.input_coordination.keyboard_activity(client) {
             self.publish_input_coordination();

@@ -51,6 +51,7 @@ readme = "README.md"
 keywords = ["wayland", "compositor", "tiling", "smithay", "wm"]
 
 [dependencies]
+dojo-external-admission = { path = "../../crates/dojo-external-admission", default-features = false }
 dojo-browser-control = { path = "../../crates/dojo-browser-control" }
 cua-cursor-motion = { path = "../cua/crates/cua-cursor-motion" }
 accesskit = { version = "0.25", optional = true }
@@ -119,7 +120,6 @@ features = [
 ]
 
 [dev-dependencies]
-dojo-external-admission = { path = "../../crates/dojo-external-admission" }
 tungstenite = "0.24"
 approx = "0.5.1"
 calloop-wayland-source = "0.4.1"

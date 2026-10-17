@@ -42,3 +42,37 @@ shows the exact directory replacement sequence.
 
 Rift is experimental. Dojo only installs and configures it; it does not run
 `rift init` or create workspaces automatically.
+
+## Working in Dojo
+
+`/home/nathan/Dojo` is a btrfs subvolume and is already registered, so agents
+only run `rift create`. Agents use Rift instead of git worktrees; see
+[AGENTS.md](../AGENTS.md#isolated-workspaces-and-build-disk).
+
+- `rift create --name <task>` from the main checkout took about 4 seconds
+  here and produced `~/.rifts/Dojo/<task>`. The copy carries the working tree,
+  including uncommitted changes, with `HEAD` detached at the source commit.
+- The default copy omits `target/` and other regenerable directories. The mbx
+  cargo shim, put first on `PATH` by `devenv shell`, restores compiled work from
+  its shared cache. A first `cargo check` of a small crate in a fresh workspace
+  was served from that cache (69 compilations, about 1m20s saved).
+- Rift documents no merge-back. Commit on a branch in the workspace
+  (`git switch -c <branch>`), then integrate from the main checkout with
+  `git fetch ~/.rifts/Dojo/<task> <branch>` and a merge or cherry-pick. Fetching
+  from the workspace path was verified.
+- `rift remove` run inside a workspace moves it to `~/.rifts/Dojo/.trash`;
+  `rift gc` deletes trashed workspaces. Disk is only reclaimed after `rift gc`.
+- `rift create` refuses repositories with an in-progress merge, rebase,
+  cherry-pick, revert, bisect or lock files. Stale entries from old worktrees
+  are removed with `git worktree prune`.
+
+## Build disk
+
+- `mbx` is the build cache. It keeps compiled work in `~/.cache/mbx` under a
+  45 GiB budget and prunes itself. Check it with `mbx stats` and `mbx doctor`.
+- `scripts/prune-installations.sh ROOT [KEEP] [--apply]` removes old revisions
+  under `~/.local/share/dojo/desktop` and `~/.local/share/dojo/niri`. The
+  installers run it and keep the four newest, `current`, `previous` and any
+  revision a running process executes from. Without `--apply` it only lists.
+  Run `nix-collect-garbage` afterwards to reclaim the store paths those
+  revisions rooted.

@@ -1,6 +1,8 @@
 clipvault-history.service
 darkman.service
+dojo-lock-session-bridge.service
 dojo-yazi-filemanager.service
+gnome-keyring-daemon.socket
 gnome-keyring.service
 p11-kit-server.socket
 pipewire-pulse.socket

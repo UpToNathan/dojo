@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "status": "investigation, producer not built or deployed",
+  "observed_runtime": {
+    "executable": "/home/nathan/.local/opt/t3code/t3code",
+    "executable_sha256": "88ac601406f5847fdda5aa86fceb2fa9ab31ce26bc64f777aca27c5c5421998f",
+    "electron": "44.4.2",
+    "chromium": "152.0.7977.130",
+    "node": "24.21.0",
+    "exact_binding_verified": false,
+    "note": "Runtime identity only. This probe does not establish accessibility or window binding."
+  },
+  "electron": {
+    "repository": "https://github.com/electron/electron",
+    "version": "44.4.2",
+    "revision": "34a45a290c7debc4907937cbb77509759247cebb",
+    "deps_sha256": "91b6731f84c5907e59c8ec1c94ed0f73d67b236fb4b261e9f2787e92504537db"
+  },
+  "chromium": {
+    "repository": "https://chromium.googlesource.com/chromium/src",
+    "version": "152.0.7977.130",
+    "revision": "2c592105bbcd9490a9894df48d0fe59b2c512651"
+  },
+  "atspi_bridge": {
+    "repository": "https://gitlab.gnome.org/GNOME/at-spi2-core",
+    "version": "2.62.1",
+    "revision": "3a214cddffbf345b8c0d0b17e458abbc5ed851b1",
+    "observed_library": "/usr/lib/libatk-bridge-2.0.so.0",
+    "observed_library_sha256": "502a1780ffced063b1eee39430798a927f160e4871e563dbfaabd976665787c9",
+    "private_api": "spi_object_append_reference",
+    "status": "export observed; endpoint serialization integration not yet verified"
+  },
+  "depot_tools": {
+    "repository": "https://chromium.googlesource.com/chromium/tools/depot_tools.git",
+    "revision": "97ed77526c27c08ad80437625ffde66dcbdd3b9c",
+    "automatic_updates": false
+  },
+  "producer_manifests": [
+    "tools/accessibility/atk-bridge/provenance.json",
+    "tools/accessibility/electron/chromium-producer-provenance.json",
+    "tools/accessibility/electron43/chromium-producer-provenance.json",
+    "tools/accessibility/electron/nix-packaging-provenance.json",
+    "tools/accessibility/electron-fuses/provenance.json"
+  ]
+}

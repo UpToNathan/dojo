@@ -1217,6 +1217,7 @@ impl Render for PickerView {
                     gpui::size(px(width), px(height * progress)),
                 ),
                 colors.background.rgb(),
+                colors.border.rgb(),
                 false,
             ))
             .child(

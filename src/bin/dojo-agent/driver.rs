@@ -131,13 +131,13 @@ pub(super) fn binary_path() -> std::path::PathBuf {
     std::env::var_os("DOJO_CUA_DRIVER_BINARY")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| {
-            std::env::var_os("XDG_CACHE_HOME")
+            std::env::var_os("XDG_DATA_HOME")
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|| {
                     std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
-                        .join(".cache")
+                        .join(".local/share")
                 })
-                .join("dojo/cua-niri-target/debug/cua-driver")
+                .join("dojo/bin/cua-driver")
         })
 }
 

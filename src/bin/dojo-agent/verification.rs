@@ -10,6 +10,8 @@ use dojo_computer_verification::{
 use niri_ipc::{Request, Response, socket::Socket};
 use serde_json::json;
 
+const POLL_INTERVAL: Duration = Duration::from_millis(100);
+
 pub(super) fn verify(
     socket_path: Option<&Path>,
     input: &VerifyStateInput,
@@ -19,9 +21,9 @@ pub(super) fn verify(
     let identity = process_identity(pid)?;
     let mut socket = super::desktop_socket(socket_path)?;
     verify_with(input, cancelled, |budget| {
-        let budget = budget.min(Duration::from_millis(500));
-        socket.set_read_timeout(Some(budget))?;
-        socket.set_write_timeout(Some(budget))?;
+        let socket_budget = budget.min(Duration::from_millis(500));
+        socket.set_read_timeout(Some(socket_budget))?;
+        socket.set_write_timeout(Some(socket_budget))?;
         observe(
             &mut socket,
             pid,
@@ -31,6 +33,9 @@ pub(super) fn verify(
                 .expect
                 .iter()
                 .any(|p| p.window.as_ref().is_some_and(|w| w.bounds.is_some())),
+            input.expect.iter().any(|p| p.element.is_some()),
+            Instant::now() + budget,
+            cancelled,
         )
     })
 }
@@ -68,7 +73,7 @@ pub(super) fn verify_with(
         if stability.sample(&outcomes) || timeout == 0 || Instant::now() >= deadline {
             break;
         }
-        let poll_until = (Instant::now() + Duration::from_millis(100)).min(deadline);
+        let poll_until = (Instant::now() + POLL_INTERVAL).min(deadline);
         while Instant::now() < poll_until {
             ensure!(!cancelled.load(Ordering::Acquire), "verification cancelled");
             std::thread::sleep(
@@ -76,6 +81,11 @@ pub(super) fn verify_with(
                     .saturating_duration_since(Instant::now())
                     .min(Duration::from_millis(10)),
             );
+        }
+        // Do not start a final acquisition with only a fraction of the polling
+        // interval left, replacing useful evidence with a deadline artifact.
+        if deadline.saturating_duration_since(Instant::now()) < POLL_INTERVAL {
+            break;
         }
     }
     ensure!(!cancelled.load(Ordering::Acquire), "verification cancelled");
@@ -102,6 +112,9 @@ fn observe(
     window_id: u64,
     identity: &str,
     need_bounds: bool,
+    need_elements: bool,
+    deadline: Instant,
+    cancelled: &AtomicBool,
 ) -> Result<ObservationSnapshot> {
     ensure!(
         process_identity(pid)? == identity,
@@ -161,14 +174,63 @@ fn observe(
         process_identity(pid)? == identity,
         "process generation changed during observation"
     );
+    let accessibility = if need_elements && window.is_some() {
+        super::accessibility::observe_bound(socket, window_id, deadline, cancelled)?
+    } else {
+        None
+    };
+    if let Some(accessibility) = &accessibility {
+        ensure!(
+            accessibility.tree.pid == pid,
+            "accessibility window process mismatch"
+        );
+    }
+    ensure!(
+        process_identity(pid)? == identity,
+        "process generation changed during accessibility observation"
+    );
+    let trusted = accessibility
+        .as_ref()
+        .is_some_and(|a| a.tree.available && a.tree.window_scoped);
     Ok(ObservationSnapshot {
         source: dojo_computer_verification::ObservationSource::Native,
         // Bounds are output-relative logical coordinates from the actual rendered scene.
         window: observed,
-        elements: None,
-        element_source_trusted: false,
-        elements_complete: false,
+        elements: accessibility
+            .as_ref()
+            .filter(|_| trusted)
+            .map(|a| semantic_elements(&a.tree)),
+        element_source_trusted: trusted,
+        elements_complete: accessibility.as_ref().is_some_and(|a| a.semantic_complete),
     })
+}
+
+fn semantic_elements(tree: &dojo_accessibility::Observation) -> Vec<serde_json::Value> {
+    let mut web_nodes = std::collections::HashSet::new();
+    tree.nodes
+        .iter()
+        .filter_map(|node| {
+            let normalized = node.role.to_ascii_lowercase().replace(['_', ' '], "");
+            let web = normalized.contains("document")
+                || normalized.contains("webarea")
+                || normalized == "embedded"
+                || node
+                    .parent
+                    .is_some_and(|parent| web_nodes.contains(&parent));
+            if web {
+                web_nodes.insert(node.index);
+            }
+            if node.redacted {
+                return None;
+            }
+            Some(
+                json!({"element_index": node.index, "parent_index": node.parent,
+            "role": node.role, "label": node.name.as_ref().or(node.text.as_ref()),
+            "value": node.value, "enabled": node.enabled, "selected": node.selected,
+            "in_web_content": web}),
+            )
+        })
+        .collect()
 }
 
 fn unavailable(input: &VerifyStateInput, reason: &str) -> Vec<PredicateOutcome> {
@@ -193,6 +255,115 @@ mod tests {
     use serde_json::{Value, json};
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixListener;
+
+    #[test]
+    fn timeout_preserves_the_last_observed_unsatisfied_predicate() {
+        let input: VerifyStateInput =
+            serde_json::from_value(json!({"pid":1,"window_id":7,"timeout_ms":20,
+            "expect":[{"window":{"title_equals":"expected"}}]}))
+            .unwrap();
+        let result = verify_with(&input, &AtomicBool::new(false), |_| {
+            Ok(ObservationSnapshot {
+                source: dojo_computer_verification::ObservationSource::Native,
+                window: Some(json!({"title":"different"})),
+                ..Default::default()
+            })
+        })
+        .unwrap();
+        assert_eq!(result.status, VerificationStatus::Unsatisfied);
+        assert_eq!(result.samples, 1);
+    }
+
+    #[test]
+    fn unbound_window_cannot_prove_a_missing_control() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("unbound.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let pid = std::process::id();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut writer = stream.try_clone().unwrap();
+            let mut requests = Vec::new();
+            for line in BufReader::new(stream).lines().take(2) {
+                let request: Value = serde_json::from_str(&line.unwrap()).unwrap();
+                requests.push(request.clone());
+                let reply = if request == "Windows" {
+                    json!({"Ok":{"Windows":[{"id":7,"pid":pid,"title":"Fixture","app_id":"fixture","workspace_id":1,
+                        "is_focused":false,"is_floating":false,"is_urgent":false,"focus_timestamp":null,
+                        "layout":{"pos_in_scrolling_layout":null,"tile_size":[100.0,80.0],"window_size":[100,80],
+                        "tile_pos_in_workspace_view":null,"window_offset_in_tile":[0.0,0.0]}}]}})
+                } else {
+                    json!({"Ok":{"AccessibilityTarget":{"window_id":7,"pid":pid,"generation":0,"endpoint":null}}})
+                };
+                writeln!(writer, "{reply}").unwrap();
+            }
+            requests
+        });
+        let input: VerifyStateInput = serde_json::from_value(json!({"pid":pid,"window_id":7,"timeout_ms":0,
+            "expect":[{"element":{"selector":{"role":"button","label_contains":"Save"},"exists":false}}]})).unwrap();
+        let result = verify(Some(&path), &input, &AtomicBool::new(false)).unwrap();
+        assert_eq!(result.status, VerificationStatus::Unknown);
+        assert_eq!(
+            server.join().unwrap(),
+            vec![
+                json!("Windows"),
+                json!({"AccessibilityTarget":{"window_id":7}})
+            ]
+        );
+    }
+
+    #[test]
+    fn semantic_projection_preserves_ancestry_and_omits_sensitive_values() {
+        let node = |index, parent, role: &str, redacted| dojo_accessibility::Node {
+            index,
+            parent,
+            depth: index,
+            bus_owner: ":1.1".into(),
+            object_path: format!("/node{index}"),
+            role: role.into(),
+            name: Some("Save".into()),
+            description: None,
+            text: None,
+            value: Some("private".into()),
+            redacted,
+            enabled: Some(true),
+            checked: None,
+            selected: Some(false),
+            states: vec![],
+            actions: vec![],
+            interfaces: vec![],
+            numeric_range: None,
+            selection_parent: None,
+            reported_screen_bounds: None,
+            bounds_authoritative: false,
+        };
+        let tree = dojo_accessibility::Observation {
+            bus_guid: None,
+            pid: 1,
+            process_start_time: 1,
+            scope: "window",
+            actionable: false,
+            window_scoped: true,
+            available: true,
+            complete: false,
+            query_filtered: false,
+            issues: Default::default(),
+            nodes_visited: 4,
+            nodes_pending: 0,
+            nodes: vec![
+                node(0, None, "frame", false),
+                node(1, Some(0), "document web", false),
+                node(2, Some(1), "button", false),
+                node(3, Some(0), "password text", true),
+            ],
+        };
+        let elements = semantic_elements(&tree);
+        assert_eq!(elements.len(), 3);
+        assert_eq!(elements[2]["parent_index"], 1);
+        assert_eq!(elements[2]["in_web_content"], true);
+        assert_eq!(elements[0]["in_web_content"], false);
+        assert!(!elements.iter().any(|element| element["element_index"] == 3));
+    }
 
     #[test]
     fn native_bounds_verification_does_not_request_pixels() {

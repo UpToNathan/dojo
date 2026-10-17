@@ -1,6 +1,6 @@
 # Dojo accessibility observation
 
-A read-only Rust AT-SPI extraction from CUA at
+A Rust AT-SPI observation and pure action-policy extraction from CUA at
 `88aff7e5424e9ed45b93ded85eb4111472ca5190`. Source evidence and patches are
 recorded in provenance.json. The inherited MIT notice is in LICENSE.md.
 
@@ -9,6 +9,14 @@ deadline, cancelled)`. `observe(&ObserveRequest)` additionally accepts budgets
 and an optional query. A Tokio runtime drives D-Bus. There is no internal agent
 scheduler, process-global observation cache, listener, snapshot authority,
 mutation method, or action token.
+
+`observe_window(request, root)` walks only a compositor-provided `WindowRoot`.
+The root must come from metadata attached to the exact native surface, not from
+model arguments or title/geometry matching. The constructor requires a unique
+bus name and a valid object path. The observer proves that owner's PID and UID
+against the request, then preserves the same traversal and privacy rules. An
+invalid selected root never falls back to application discovery. The service
+owns native binding acquisition and its before/after recheck.
 
 The service supplies PID and Linux `/proc/PID/stat` start time from native
 identity evidence. The observer checks that process before discovery, during
@@ -20,13 +28,18 @@ processes are omitted with an explicit incomplete-tree issue. Every observed
 owner is checked again after traversal. There is no process-name, title,
 first-window, or executable-name fallback.
 
-The result reports application scope and always has `actionable:false` and
-`window_scoped:false`. It walks all matching application roots. Returned bus
+The default result reports application scope and has `window_scoped:false`.
+An owner-verified selected root reports window scope and `window_scoped:true`.
+The observer itself returns `actionable:false`. The service can issue one-use
+refs for exact bound nodes after its native identity checks. Pure `actions::select`
+classifies invoke, direct-child selection, text replacement and numeric changes without sending them. The default route walks all matching
+application roots. Returned bus
 owners and object paths are observation evidence. Indices are local display
 indices and cannot authorize later effects. Application-reported screen bounds
 always have `bounds_authoritative:false`; native Wayland clients can report
 window-relative geometry despite requesting screen coordinates. No origin
-correction or exact Niri frame match is inferred.
+correction is inferred from those bounds. Exact window scope comes only from
+the compositor-selected endpoint.
 
 `available` means a proven application root was found. `complete` means the
 bounded traversal reported no omissions or read failures. It does not prove an
@@ -83,3 +96,22 @@ names, disabled controls, numeric values, credential labels, query ancestors,
 wrong process ownership, huge containers and depth/node
 budgets. Additional tests cover PID reuse, cancellation, deadlines, control
 characters and extent bounds. No installed application or desktop is driven.
+
+## Semantic action policy
+
+`actions::activation_index` is copied from the pinned CUA source. It selects an
+advertised activation verb and never defaults to arbitrary action zero.
+`actions::select` requires enabled, sensitive, nonprivate controls and the
+matching interface. Text and numeric writes refuse read-only state; numeric
+values require a finite advertised range. `require_same_element` compares live
+identity and capabilities after the service rewalks the original bound root.
+The service owns refs and sends prepared calls through Niri; this crate has no
+mutation transport or process-global action cache. AT-SPI has no conditional
+object-generation action API, so it cannot make child-object reuse atomic with
+application execution.
+
+A `selection_parent` is read evidence from the child's actual Parent and
+GetIndexInParent, checked against the traversed direct parent and its reverse
+GetChildAtIndex result. The parent must expose Selection and share the unique
+bus owner. `Select` performs one SelectChild request. It does not clear an old
+selection first, search ancestors, or choose the first similarly named option.

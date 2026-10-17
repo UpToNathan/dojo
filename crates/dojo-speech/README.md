@@ -20,6 +20,13 @@ devenv shell -- target/debug/dojo-speech serve
 devenv shell -- target/debug/dojo-speech record --seconds 5
 ```
 
+The voice service does not need `target/debug`. Build release binaries and run
+`devenv shell -- scripts/install-helpers.sh` to copy `dojo-speech` and the
+computer recording and verification helpers to `~/.local/share/dojo/bin`, with
+their Nix libraries GC-rooted. The service looks for `DOJO_SPEECH_EXE` (or
+`DOJO_COMPUTER_RECORDING_EXE`, `DOJO_COMPUTER_VERIFICATION_EXE`), then that
+directory, then `target/release` and `target/debug`.
+
 Only `install` downloads models. `--model` and `--language` select from Hex's
 pinned GGUF catalog; defaults are `parakeet_unified_en` and `en`. The model cache
 is `$XDG_DATA_HOME/dojo/speech/models`, normally

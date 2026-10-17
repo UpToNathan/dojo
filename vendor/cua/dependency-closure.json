@@ -7,8 +7,8 @@
   "units": {
     "dojo-root": {
       "manifest": "Cargo.toml",
-      "manifest_sha256": "bf795b13951d58fe0ee2122ff1a59269556aeba18edcceb4d191f7aeb903cb15",
-      "lockfile_sha256": "6a5009403ded37d2ea2f759f283826d56cad5299065df569de602316084cded1",
+      "manifest_sha256": "5d8c6393e8760e22539c14b1d7486375da0fbc7b60a870f7357ea7f07e054d0f",
+      "lockfile_sha256": "d2753adaf5f67760aef4be3ba82be0601ddd720150c081329b53f91c1da5108f",
       "packages": [
         {
           "id": "registry+https://github.com/rust-lang/crates.io-index#accesskit@0.24.1",
@@ -246,21 +246,32 @@
           ]
         },
         {
-          "id": "registry+https://github.com/rust-lang/crates.io-index#accesskit_unix@0.22.1",
+          "id": "path+repo:///vendor/accesskit-unix#accesskit_unix@0.22.1",
           "name": "accesskit_unix",
           "version": "0.22.1",
-          "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "local_manifest": null,
+          "source": null,
+          "local_manifest": "vendor/accesskit-unix/Cargo.toml",
           "manifest_sha256": "2f1bb12679396e02bed65a1e51bba2375f639cdbceb3773b5226f7dc8f3b9818",
           "license": "MIT OR Apache-2.0",
           "license_file": null,
           "rust_version": "1.85",
           "edition": "2024",
-          "license_evidence": [],
+          "license_evidence": [
+            {
+              "path": "LICENSE-APACHE",
+              "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+              "bytes": 9723
+            },
+            {
+              "path": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023
+            }
+          ],
           "source_copyright_evidence": [
             {
               "path": "src/lib.rs",
-              "sha256": "4416ce59366d321c3dbd29a1054c3ad6c426168c97f7b237ff3e818de6c3168c",
+              "sha256": "c879cc6156df7456de7ba20f42c521f3794551b1daa882bfe144940ddfccd870",
               "matches": [
                 {
                   "line": 1,
@@ -11925,7 +11936,7 @@
           "version": "0.1.0",
           "source": null,
           "local_manifest": "Cargo.toml",
-          "manifest_sha256": "bf795b13951d58fe0ee2122ff1a59269556aeba18edcceb4d191f7aeb903cb15",
+          "manifest_sha256": "5d8c6393e8760e22539c14b1d7486375da0fbc7b60a870f7357ea7f07e054d0f",
           "license": null,
           "license_file": null,
           "rust_version": null,
@@ -11986,6 +11997,16 @@
             },
             {
               "name": "dojo-agent-setup",
+              "req": "*",
+              "kind": null,
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "dojo-browser-control",
               "req": "*",
               "kind": null,
               "target": null,
@@ -12073,7 +12094,9 @@
               "target": null,
               "optional": false,
               "default_features": false,
-              "features": [],
+              "features": [
+                "atspi-transport"
+              ],
               "rename": null
             },
             {
@@ -12587,6 +12610,85 @@
               "name": "tempfile",
               "req": "^3",
               "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            }
+          ]
+        },
+        {
+          "id": "path+repo:///crates/dojo-browser-control#0.1.0",
+          "name": "dojo-browser-control",
+          "version": "0.1.0",
+          "source": null,
+          "local_manifest": "crates/dojo-browser-control/Cargo.toml",
+          "manifest_sha256": "87ac351491bf7d7b56a2e9ee48a1ee6891345ca43c6f415b560194cc81aa24f2",
+          "license": "MIT",
+          "license_file": null,
+          "rust_version": null,
+          "edition": "2024",
+          "license_evidence": [],
+          "source_copyright_evidence": [],
+          "normal_build_active": true,
+          "dependencies": [
+            {
+              "name": "anyhow",
+              "req": "=1.0.104",
+              "kind": null,
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "base64",
+              "req": "=0.22.1",
+              "kind": null,
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "libc",
+              "req": "=0.2.190",
+              "kind": null,
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "serde",
+              "req": "=1.0.229",
+              "kind": null,
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [
+                "derive"
+              ],
+              "rename": null
+            },
+            {
+              "name": "serde_json",
+              "req": "=1.0.151",
+              "kind": null,
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "sha1",
+              "req": "^0.10",
+              "kind": null,
               "target": null,
               "optional": false,
               "default_features": true,
@@ -13284,7 +13386,7 @@
           "version": "0.1.0",
           "source": null,
           "local_manifest": "crates/dojo-external-admission/Cargo.toml",
-          "manifest_sha256": "96cbaa6103edc2a648864dd263b813a2a4de4525f5a6d1cfa12ad64c63ec7833",
+          "manifest_sha256": "98e4f141b685e2120db112c387264c18b8c615dbd2aae1676f0fda432f641bc2",
           "license": "MIT",
           "license_file": null,
           "rust_version": null,
@@ -13305,6 +13407,36 @@
               "kind": null,
               "target": null,
               "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "async-io",
+              "req": "=2.6.0",
+              "kind": null,
+              "target": null,
+              "optional": true,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "async-trait",
+              "req": "=0.1.92",
+              "kind": null,
+              "target": null,
+              "optional": true,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "futures-lite",
+              "req": "=2.6.1",
+              "kind": null,
+              "target": null,
+              "optional": true,
               "default_features": true,
               "features": [],
               "rename": null
@@ -13373,7 +13505,7 @@
             },
             {
               "name": "tokio",
-              "req": "^1",
+              "req": "=1.53.2",
               "kind": null,
               "target": null,
               "optional": true,
@@ -13399,7 +13531,7 @@
             },
             {
               "name": "zbus",
-              "req": "^5.19",
+              "req": "=5.19.0",
               "kind": null,
               "target": null,
               "optional": true,
@@ -13407,6 +13539,16 @@
               "features": [
                 "p2p"
               ],
+              "rename": null
+            },
+            {
+              "name": "tempfile",
+              "req": "^3",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
               "rename": null
             }
           ]
@@ -20440,7 +20582,7 @@
           "version": "0.1.0",
           "source": null,
           "local_manifest": "vendor/zed/crates/gpui_linux/Cargo.toml",
-          "manifest_sha256": "d419e8b98de3a9f42a1b20e2e09c4e0cbf4f4a97f9d77c07a430c90cc0ba58f8",
+          "manifest_sha256": "8d51a73e6d0418f47dda69b98f3a7db4501bf1ff0762777dc884a7b7721b2921",
           "license": "Apache-2.0",
           "license_file": null,
           "rust_version": null,
@@ -20832,6 +20974,16 @@
               "features": [
                 "client"
               ],
+              "rename": null
+            },
+            {
+              "name": "wayland-scanner",
+              "req": "^0.31.11",
+              "kind": null,
+              "target": "cfg(any(target_os = \"linux\", target_os = \"freebsd\"))",
+              "optional": true,
+              "default_features": true,
+              "features": [],
               "rename": null
             },
             {
@@ -60501,7 +60653,7 @@
           ]
         },
         {
-          "id": "registry+https://github.com/rust-lang/crates.io-index#accesskit_unix@0.22.1",
+          "id": "path+repo:///vendor/accesskit-unix#accesskit_unix@0.22.1",
           "features": [
             "async-io",
             "default"
@@ -64896,6 +65048,16 @@
               ]
             },
             {
+              "name": "dojo_browser_control",
+              "pkg": "path+repo:///crates/dojo-browser-control#0.1.0",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": null
+                }
+              ]
+            },
+            {
               "name": "dojo_capture_wayland",
               "pkg": "path+repo:///crates/dojo-capture-wayland#0.1.0",
               "kinds": [
@@ -65354,6 +65516,72 @@
             {
               "name": "toml_edit",
               "pkg": "registry+https://github.com/rust-lang/crates.io-index#toml_edit@0.25.16+spec-1.1.0",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "path+repo:///crates/dojo-browser-control#0.1.0",
+          "features": [],
+          "dependencies": [
+            {
+              "name": "anyhow",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#anyhow@1.0.104",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": null
+                }
+              ]
+            },
+            {
+              "name": "base64",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#base64@0.22.1",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": null
+                }
+              ]
+            },
+            {
+              "name": "libc",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.190",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": null
+                }
+              ]
+            },
+            {
+              "name": "serde",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#serde@1.0.229",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": null
+                }
+              ]
+            },
+            {
+              "name": "serde_json",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": null
+                }
+              ]
+            },
+            {
+              "name": "sha1",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#sha1@0.10.7",
               "kinds": [
                 {
                   "kind": null,
@@ -65857,11 +66085,43 @@
         },
         {
           "id": "path+repo:///crates/dojo-external-admission#0.1.0",
-          "features": [],
+          "features": [
+            "atspi-transport"
+          ],
           "dependencies": [
             {
               "name": "anyhow",
               "pkg": "registry+https://github.com/rust-lang/crates.io-index#anyhow@1.0.104",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": null
+                }
+              ]
+            },
+            {
+              "name": "async_io",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#async-io@2.6.0",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": null
+                }
+              ]
+            },
+            {
+              "name": "async_trait",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#async-trait@0.1.92",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": null
+                }
+              ]
+            },
+            {
+              "name": "futures_lite",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#futures-lite@2.6.1",
               "kinds": [
                 {
                   "kind": null,
@@ -65930,8 +66190,28 @@
               ]
             },
             {
+              "name": "tokio",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#tokio@1.53.2",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": null
+                }
+              ]
+            },
+            {
               "name": "tungstenite",
               "pkg": "registry+https://github.com/rust-lang/crates.io-index#tungstenite@0.24.0",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": null
+                }
+              ]
+            },
+            {
+              "name": "zbus",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#zbus@5.19.0",
               "kinds": [
                 {
                   "kind": null,
@@ -68730,7 +69010,7 @@
             },
             {
               "name": "accesskit_unix",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#accesskit_unix@0.22.1",
+              "pkg": "path+repo:///vendor/accesskit-unix#accesskit_unix@0.22.1",
               "kinds": [
                 {
                   "kind": null,
@@ -69031,6 +69311,16 @@
             {
               "name": "wayland_protocols_wlr",
               "pkg": "registry+https://github.com/rust-lang/crates.io-index#wayland-protocols-wlr@0.3.12",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": "cfg(any(target_os = \"linux\", target_os = \"freebsd\"))"
+                }
+              ]
+            },
+            {
+              "name": "wayland_scanner",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#wayland-scanner@0.31.11",
               "kinds": [
                 {
                   "kind": null,
@@ -77669,7 +77959,7 @@
             },
             {
               "name": "getrandom",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#getrandom@0.4.3",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#getrandom@0.3.4",
               "kinds": [
                 {
                   "kind": null,
@@ -82030,7 +82320,8 @@
             "async-task",
             "blocking",
             "blocking-api",
-            "default"
+            "default",
+            "p2p"
           ],
           "dependencies": [
             {
@@ -83368,7 +83659,7 @@
         "registry+https://github.com/rust-lang/crates.io-index#accesskit@0.24.1",
         "registry+https://github.com/rust-lang/crates.io-index#accesskit_atspi_common@0.19.1",
         "registry+https://github.com/rust-lang/crates.io-index#accesskit_consumer@0.38.0",
-        "registry+https://github.com/rust-lang/crates.io-index#accesskit_unix@0.22.1",
+        "path+repo:///vendor/accesskit-unix#accesskit_unix@0.22.1",
         "registry+https://github.com/rust-lang/crates.io-index#addr2line@0.25.1",
         "registry+https://github.com/rust-lang/crates.io-index#adler2@2.0.1",
         "registry+https://github.com/rust-lang/crates.io-index#aead@0.6.1",
@@ -83480,6 +83771,7 @@
         "path+repo://#dojo@0.1.0",
         "path+repo:///crates/dojo-accessibility#0.1.0",
         "path+repo:///crates/dojo-agent-setup#0.1.0",
+        "path+repo:///crates/dojo-browser-control#0.1.0",
         "path+repo:///crates/dojo-capture-wayland#0.1.0",
         "path+repo:///crates/dojo-computer#0.1.0",
         "path+repo:///crates/dojo-computer-models#0.1.0",
@@ -83924,8 +84216,8 @@
     },
     "niri-compositor": {
       "manifest": "vendor/niri/Cargo.toml",
-      "manifest_sha256": "5b2ae24219434c1b60360ae475d297c056df11e3cd6f4578bba23d2020e48e11",
-      "lockfile_sha256": "83a62c2fec4e60de2714645140befaa4e79a014aaba45d2670f8a35fd76bca8a",
+      "manifest_sha256": "36328a815af8d0ea3a555b75534d36de6d4886515f60d581a7c4fec1fa64b0aa",
+      "lockfile_sha256": "a178e3934fe171ba24a67b640e461afb8f55465eb4b8bee90eb7ad6cd138898b",
       "packages": [
         {
           "id": "registry+https://github.com/rust-lang/crates.io-index#accesskit@0.25.0",
@@ -88872,7 +89164,7 @@
             }
           ],
           "source_copyright_evidence": [],
-          "normal_build_active": false,
+          "normal_build_active": true,
           "dependencies": [
             {
               "name": "quickcheck",
@@ -88915,7 +89207,7 @@
             }
           ],
           "source_copyright_evidence": [],
-          "normal_build_active": false,
+          "normal_build_active": true,
           "dependencies": [
             {
               "name": "portable-atomic",
@@ -91638,7 +91930,7 @@
             }
           ],
           "source_copyright_evidence": [],
-          "normal_build_active": false,
+          "normal_build_active": true,
           "dependencies": []
         },
         {
@@ -92207,7 +92499,7 @@
           "version": "0.1.0",
           "source": null,
           "local_manifest": "crates/dojo-external-admission/Cargo.toml",
-          "manifest_sha256": "96cbaa6103edc2a648864dd263b813a2a4de4525f5a6d1cfa12ad64c63ec7833",
+          "manifest_sha256": "98e4f141b685e2120db112c387264c18b8c615dbd2aae1676f0fda432f641bc2",
           "license": "MIT",
           "license_file": null,
           "rust_version": null,
@@ -92220,7 +92512,7 @@
             }
           ],
           "source_copyright_evidence": [],
-          "normal_build_active": false,
+          "normal_build_active": true,
           "dependencies": [
             {
               "name": "anyhow",
@@ -92228,6 +92520,36 @@
               "kind": null,
               "target": null,
               "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "async-io",
+              "req": "=2.6.0",
+              "kind": null,
+              "target": null,
+              "optional": true,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "async-trait",
+              "req": "=0.1.92",
+              "kind": null,
+              "target": null,
+              "optional": true,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "futures-lite",
+              "req": "=2.6.1",
+              "kind": null,
+              "target": null,
+              "optional": true,
               "default_features": true,
               "features": [],
               "rename": null
@@ -92296,7 +92618,7 @@
             },
             {
               "name": "tokio",
-              "req": "^1",
+              "req": "=1.53.2",
               "kind": null,
               "target": null,
               "optional": true,
@@ -92322,7 +92644,7 @@
             },
             {
               "name": "zbus",
-              "req": "^5.19",
+              "req": "=5.19.0",
               "kind": null,
               "target": null,
               "optional": true,
@@ -92330,6 +92652,16 @@
               "features": [
                 "p2p"
               ],
+              "rename": null
+            },
+            {
+              "name": "tempfile",
+              "req": "^3",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
               "rename": null
             }
           ]
@@ -95110,7 +95442,7 @@
             }
           ],
           "source_copyright_evidence": [],
-          "normal_build_active": false,
+          "normal_build_active": true,
           "dependencies": [
             {
               "name": "cfg-if",
@@ -98201,7 +98533,7 @@
             }
           ],
           "source_copyright_evidence": [],
-          "normal_build_active": false,
+          "normal_build_active": true,
           "dependencies": [
             {
               "name": "bytes",
@@ -98299,7 +98631,7 @@
             }
           ],
           "source_copyright_evidence": [],
-          "normal_build_active": false,
+          "normal_build_active": true,
           "dependencies": [
             {
               "name": "criterion",
@@ -103173,105 +103505,12 @@
           ]
         },
         {
-          "id": "registry+https://github.com/rust-lang/crates.io-index#mio@1.2.4",
-          "name": "mio",
-          "version": "1.2.4",
-          "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "local_manifest": null,
-          "manifest_sha256": "a8842f7fd53967d0f6b3faa359c4354c60ad6fd2927a5e0c4894933fdca55768",
-          "license": "MIT",
-          "license_file": null,
-          "rust_version": "1.71",
-          "edition": "2021",
-          "license_evidence": [
-            {
-              "path": "LICENSE",
-              "sha256": "07919255c7e04793d8ea760d6c2ce32d19f9ff02bdbdde3ce90b1e1880929a9b",
-              "bytes": 1082
-            }
-          ],
-          "source_copyright_evidence": [],
-          "normal_build_active": false,
-          "dependencies": [
-            {
-              "name": "log",
-              "req": "^0.4.8",
-              "kind": null,
-              "target": null,
-              "optional": true,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "env_logger",
-              "req": "^0.11",
-              "kind": "dev",
-              "target": null,
-              "optional": false,
-              "default_features": false,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "rand",
-              "req": "^0.9",
-              "kind": "dev",
-              "target": null,
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "libc",
-              "req": "^0.2.183",
-              "kind": null,
-              "target": "cfg(any(unix, target_os = \"hermit\", target_os = \"wasi\"))",
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "wasi",
-              "req": "^0.11.0",
-              "kind": null,
-              "target": "cfg(target_os = \"wasi\")",
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "windows-sys",
-              "req": "^0.61",
-              "kind": null,
-              "target": "cfg(windows)",
-              "optional": false,
-              "default_features": true,
-              "features": [
-                "Wdk_Foundation",
-                "Wdk_Storage_FileSystem",
-                "Wdk_System_IO",
-                "Win32_Foundation",
-                "Win32_Networking_WinSock",
-                "Win32_Storage_FileSystem",
-                "Win32_Security",
-                "Win32_System_IO",
-                "Win32_System_WindowsProgramming"
-              ],
-              "rename": null
-            }
-          ]
-        },
-        {
           "id": "path+repo:///vendor/niri#26.4.0",
           "name": "niri",
           "version": "26.4.0",
           "source": null,
           "local_manifest": "vendor/niri/Cargo.toml",
-          "manifest_sha256": "5b2ae24219434c1b60360ae475d297c056df11e3cd6f4578bba23d2020e48e11",
+          "manifest_sha256": "36328a815af8d0ea3a555b75534d36de6d4886515f60d581a7c4fec1fa64b0aa",
           "license": "GPL-3.0-or-later",
           "license_file": null,
           "rust_version": "1.87",
@@ -103462,6 +103701,16 @@
               "target": null,
               "optional": false,
               "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "dojo-external-admission",
+              "req": "*",
+              "kind": null,
+              "target": null,
+              "optional": false,
+              "default_features": false,
               "features": [],
               "rename": null
             },
@@ -103833,16 +104082,6 @@
             {
               "name": "calloop-wayland-source",
               "req": "^0.4.1",
-              "kind": "dev",
-              "target": null,
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "dojo-external-admission",
-              "req": "*",
               "kind": "dev",
               "target": null,
               "optional": false,
@@ -107480,7 +107719,7 @@
             }
           ],
           "source_copyright_evidence": [],
-          "normal_build_active": false,
+          "normal_build_active": true,
           "dependencies": [
             {
               "name": "zerocopy",
@@ -108614,7 +108853,7 @@
               ]
             }
           ],
-          "normal_build_active": false,
+          "normal_build_active": true,
           "dependencies": [
             {
               "name": "rand_chacha",
@@ -109034,7 +109273,7 @@
               ]
             }
           ],
-          "normal_build_active": false,
+          "normal_build_active": true,
           "dependencies": [
             {
               "name": "ppv-lite86",
@@ -109246,7 +109485,7 @@
               ]
             }
           ],
-          "normal_build_active": false,
+          "normal_build_active": true,
           "dependencies": [
             {
               "name": "getrandom",
@@ -111702,7 +111941,7 @@
             }
           ],
           "source_copyright_evidence": [],
-          "normal_build_active": false,
+          "normal_build_active": true,
           "dependencies": [
             {
               "name": "cfg-if",
@@ -113522,71 +113761,6 @@
           ]
         },
         {
-          "id": "registry+https://github.com/rust-lang/crates.io-index#socket2@0.6.5",
-          "name": "socket2",
-          "version": "0.6.5",
-          "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "local_manifest": null,
-          "manifest_sha256": "e66848b959431828ed8acf12d5232c586bb6fe044f55d6f14ab7705ea3fff7a4",
-          "license": "MIT OR Apache-2.0",
-          "license_file": null,
-          "rust_version": "1.70",
-          "edition": "2021",
-          "license_evidence": [
-            {
-              "path": "LICENSE-APACHE",
-              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
-              "bytes": 10847
-            },
-            {
-              "path": "LICENSE-MIT",
-              "sha256": "378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397",
-              "bytes": 1057
-            }
-          ],
-          "source_copyright_evidence": [
-            {
-              "path": "src/lib.rs",
-              "sha256": "f3782bc62e5a17e25e8868c55a14fa1da89f564bd0db9ad234dff429094386e1",
-              "matches": [
-                {
-                  "line": 1,
-                  "text": "// Copyright 2015 The Rust Project Developers."
-                }
-              ]
-            }
-          ],
-          "normal_build_active": false,
-          "dependencies": [
-            {
-              "name": "libc",
-              "req": "^0.2.172",
-              "kind": null,
-              "target": "cfg(any(unix, target_os = \"wasi\"))",
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "windows-sys",
-              "req": ">=0.60, <0.62",
-              "kind": null,
-              "target": "cfg(windows)",
-              "optional": false,
-              "default_features": true,
-              "features": [
-                "Win32_Foundation",
-                "Win32_Networking_WinSock",
-                "Win32_System_IO",
-                "Win32_System_Threading",
-                "Win32_System_WindowsProgramming"
-              ],
-              "rename": null
-            }
-          ]
-        },
-        {
           "id": "registry+https://github.com/rust-lang/crates.io-index#stable_deref_trait@1.2.1",
           "name": "stable_deref_trait",
           "version": "1.2.1",
@@ -115267,480 +115441,6 @@
           ]
         },
         {
-          "id": "registry+https://github.com/rust-lang/crates.io-index#tokio@1.53.2",
-          "name": "tokio",
-          "version": "1.53.2",
-          "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "local_manifest": null,
-          "manifest_sha256": "d5da534aec653dc20626a50578d87da105303bbcfd3adbc912054d9cf138dc57",
-          "license": "MIT",
-          "license_file": null,
-          "rust_version": "1.71",
-          "edition": "2021",
-          "license_evidence": [
-            {
-              "path": "LICENSE",
-              "sha256": "253cd04c6714889df2d32f3f64d669179a1c95c76ac43c40882c52eb06bc3552",
-              "bytes": 1070
-            }
-          ],
-          "source_copyright_evidence": [],
-          "normal_build_active": false,
-          "dependencies": [
-            {
-              "name": "bytes",
-              "req": "^1.2.1",
-              "kind": null,
-              "target": null,
-              "optional": true,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "mio",
-              "req": "^1.2.0",
-              "kind": null,
-              "target": null,
-              "optional": true,
-              "default_features": false,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "parking_lot",
-              "req": "^0.12.0",
-              "kind": null,
-              "target": null,
-              "optional": true,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "pin-project-lite",
-              "req": "^0.2.11",
-              "kind": null,
-              "target": null,
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "tokio-macros",
-              "req": "~2.7.0",
-              "kind": null,
-              "target": null,
-              "optional": true,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "async-stream",
-              "req": "^0.3",
-              "kind": "dev",
-              "target": null,
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "futures",
-              "req": "^0.3.0",
-              "kind": "dev",
-              "target": null,
-              "optional": false,
-              "default_features": true,
-              "features": [
-                "async-await"
-              ],
-              "rename": null
-            },
-            {
-              "name": "futures-concurrency",
-              "req": "^7.6.3",
-              "kind": "dev",
-              "target": null,
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "futures-test",
-              "req": "^0.3.31",
-              "kind": "dev",
-              "target": null,
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "mockall",
-              "req": "^0.13.0",
-              "kind": "dev",
-              "target": null,
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "tokio-stream",
-              "req": "^0.1",
-              "kind": "dev",
-              "target": null,
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "tokio-test",
-              "req": "^0.4.0",
-              "kind": "dev",
-              "target": null,
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "tokio-util",
-              "req": "^0.7",
-              "kind": "dev",
-              "target": null,
-              "optional": false,
-              "default_features": true,
-              "features": [
-                "rt"
-              ],
-              "rename": null
-            },
-            {
-              "name": "wasm-bindgen-test",
-              "req": "^0.3.0",
-              "kind": "dev",
-              "target": "cfg(all(target_family = \"wasm\", not(target_os = \"wasi\")))",
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "tracing-mock",
-              "req": "=0.1.0-beta.1",
-              "kind": "dev",
-              "target": "cfg(all(tokio_unstable, target_has_atomic = \"64\"))",
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "backtrace",
-              "req": "^0.3.58",
-              "kind": null,
-              "target": "cfg(all(tokio_unstable, target_os = \"linux\"))",
-              "optional": true,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "io-uring",
-              "req": "^0.7.11",
-              "kind": null,
-              "target": "cfg(all(tokio_unstable, target_os = \"linux\"))",
-              "optional": true,
-              "default_features": false,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "libc",
-              "req": "^0.2.168",
-              "kind": null,
-              "target": "cfg(all(tokio_unstable, target_os = \"linux\"))",
-              "optional": true,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "mio",
-              "req": "^1.2.0",
-              "kind": null,
-              "target": "cfg(all(tokio_unstable, target_os = \"linux\"))",
-              "optional": true,
-              "default_features": false,
-              "features": [
-                "os-poll",
-                "os-ext"
-              ],
-              "rename": null
-            },
-            {
-              "name": "slab",
-              "req": "^0.4.9",
-              "kind": null,
-              "target": "cfg(all(tokio_unstable, target_os = \"linux\"))",
-              "optional": true,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "backtrace",
-              "req": "^0.3.58",
-              "kind": "dev",
-              "target": "cfg(all(tokio_unstable, target_os = \"linux\"))",
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "socket2",
-              "req": "^0.6.3",
-              "kind": null,
-              "target": "cfg(any(not(target_family = \"wasm\"), all(target_os = \"wasi\", not(target_env = \"p1\"))))",
-              "optional": true,
-              "default_features": true,
-              "features": [
-                "all"
-              ],
-              "rename": null
-            },
-            {
-              "name": "loom",
-              "req": "^0.7",
-              "kind": "dev",
-              "target": "cfg(loom)",
-              "optional": false,
-              "default_features": true,
-              "features": [
-                "futures",
-                "checkpoint"
-              ],
-              "rename": null
-            },
-            {
-              "name": "rand",
-              "req": "^0.9",
-              "kind": "dev",
-              "target": "cfg(not(all(target_family = \"wasm\", target_os = \"unknown\")))",
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "proptest",
-              "req": "^1",
-              "kind": "dev",
-              "target": "cfg(not(target_family = \"wasm\"))",
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "socket2",
-              "req": "^0.6.0",
-              "kind": "dev",
-              "target": "cfg(not(target_family = \"wasm\"))",
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "tempfile",
-              "req": "^3.1.0",
-              "kind": "dev",
-              "target": "cfg(not(target_family = \"wasm\"))",
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "mio-aio",
-              "req": "^2",
-              "kind": "dev",
-              "target": "cfg(target_os = \"freebsd\")",
-              "optional": false,
-              "default_features": true,
-              "features": [
-                "tokio"
-              ],
-              "rename": null
-            },
-            {
-              "name": "libc",
-              "req": "^0.2.168",
-              "kind": null,
-              "target": "cfg(target_os = \"wasi\")",
-              "optional": true,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "tracing",
-              "req": "^0.1.29",
-              "kind": null,
-              "target": "cfg(tokio_unstable)",
-              "optional": true,
-              "default_features": false,
-              "features": [
-                "std"
-              ],
-              "rename": null
-            },
-            {
-              "name": "libc",
-              "req": "^0.2.168",
-              "kind": null,
-              "target": "cfg(unix)",
-              "optional": true,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "signal-hook-registry",
-              "req": "^1.1.1",
-              "kind": null,
-              "target": "cfg(unix)",
-              "optional": true,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "libc",
-              "req": "^0.2.168",
-              "kind": "dev",
-              "target": "cfg(unix)",
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "nix",
-              "req": "^0.31.0",
-              "kind": "dev",
-              "target": "cfg(unix)",
-              "optional": false,
-              "default_features": false,
-              "features": [
-                "aio",
-                "fs",
-                "socket"
-              ],
-              "rename": null
-            },
-            {
-              "name": "windows-sys",
-              "req": "^0.61",
-              "kind": null,
-              "target": "cfg(windows)",
-              "optional": true,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "windows-sys",
-              "req": "^0.61",
-              "kind": "dev",
-              "target": "cfg(windows)",
-              "optional": false,
-              "default_features": true,
-              "features": [
-                "Win32_Foundation",
-                "Win32_Security_Authorization"
-              ],
-              "rename": null
-            }
-          ]
-        },
-        {
-          "id": "registry+https://github.com/rust-lang/crates.io-index#tokio-macros@2.7.2",
-          "name": "tokio-macros",
-          "version": "2.7.2",
-          "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "local_manifest": null,
-          "manifest_sha256": "45090e160854dda1c61bc9d39f62a869be6ede2a9b3554e63917788349193d7c",
-          "license": "MIT",
-          "license_file": null,
-          "rust_version": "1.71",
-          "edition": "2021",
-          "license_evidence": [
-            {
-              "path": "LICENSE",
-              "sha256": "0b83dc40cba89b9922bb84b0a9c7d2768ce37c1d7e138b7424fd4549915778c9",
-              "bytes": 1102
-            }
-          ],
-          "source_copyright_evidence": [],
-          "normal_build_active": false,
-          "dependencies": [
-            {
-              "name": "proc-macro2",
-              "req": "^1.0.60",
-              "kind": null,
-              "target": null,
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "quote",
-              "req": "^1",
-              "kind": null,
-              "target": null,
-              "optional": false,
-              "default_features": true,
-              "features": [],
-              "rename": null
-            },
-            {
-              "name": "syn",
-              "req": "^3.0",
-              "kind": null,
-              "target": null,
-              "optional": false,
-              "default_features": true,
-              "features": [
-                "full"
-              ],
-              "rename": null
-            },
-            {
-              "name": "tokio",
-              "req": "^1.0.0",
-              "kind": "dev",
-              "target": null,
-              "optional": false,
-              "default_features": true,
-              "features": [
-                "full",
-                "test-util"
-              ],
-              "rename": null
-            }
-          ]
-        },
-        {
           "id": "registry+https://github.com/rust-lang/crates.io-index#toml@1.1.6+spec-1.1.0",
           "name": "toml",
           "version": "1.1.6+spec-1.1.0",
@@ -117171,7 +116871,7 @@
             }
           ],
           "source_copyright_evidence": [],
-          "normal_build_active": false,
+          "normal_build_active": true,
           "dependencies": [
             {
               "name": "byteorder",
@@ -118167,7 +117867,7 @@
             }
           ],
           "source_copyright_evidence": [],
-          "normal_build_active": false,
+          "normal_build_active": true,
           "dependencies": []
         },
         {
@@ -126809,10 +126509,7 @@
         },
         {
           "id": "path+repo:///crates/dojo-external-admission#0.1.0",
-          "features": [
-            "default",
-            "socket-fixtures"
-          ],
+          "features": [],
           "dependencies": [
             {
               "name": "anyhow",
@@ -126885,28 +126582,8 @@
               ]
             },
             {
-              "name": "tokio",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#tokio@1.53.2",
-              "kinds": [
-                {
-                  "kind": null,
-                  "target": null
-                }
-              ]
-            },
-            {
               "name": "tungstenite",
               "pkg": "registry+https://github.com/rust-lang/crates.io-index#tungstenite@0.24.0",
-              "kinds": [
-                {
-                  "kind": null,
-                  "target": null
-                }
-              ]
-            },
-            {
-              "name": "zbus",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#zbus@5.19.0",
               "kinds": [
                 {
                   "kind": null,
@@ -131137,26 +130814,6 @@
           ]
         },
         {
-          "id": "registry+https://github.com/rust-lang/crates.io-index#mio@1.2.4",
-          "features": [
-            "net",
-            "os-ext",
-            "os-poll"
-          ],
-          "dependencies": [
-            {
-              "name": "libc",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.190",
-              "kinds": [
-                {
-                  "kind": null,
-                  "target": "cfg(any(unix, target_os = \"hermit\", target_os = \"wasi\"))"
-                }
-              ]
-            }
-          ]
-        },
-        {
           "id": "path+repo:///vendor/niri#26.4.0",
           "features": [
             "dbus",
@@ -131361,7 +131018,7 @@
               "pkg": "path+repo:///crates/dojo-external-admission#0.1.0",
               "kinds": [
                 {
-                  "kind": "dev",
+                  "kind": null,
                   "target": null
                 }
               ]
@@ -135532,24 +135189,6 @@
           ]
         },
         {
-          "id": "registry+https://github.com/rust-lang/crates.io-index#socket2@0.6.5",
-          "features": [
-            "all"
-          ],
-          "dependencies": [
-            {
-              "name": "libc",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.190",
-              "kinds": [
-                {
-                  "kind": null,
-                  "target": "cfg(any(unix, target_os = \"wasi\"))"
-                }
-              ]
-            }
-          ]
-        },
-        {
           "id": "registry+https://github.com/rust-lang/crates.io-index#stable_deref_trait@1.2.1",
           "features": [],
           "dependencies": []
@@ -136114,122 +135753,6 @@
             {
               "name": "zerovec",
               "pkg": "registry+https://github.com/rust-lang/crates.io-index#zerovec@0.11.8",
-              "kinds": [
-                {
-                  "kind": null,
-                  "target": null
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "registry+https://github.com/rust-lang/crates.io-index#tokio@1.53.2",
-          "features": [
-            "default",
-            "libc",
-            "macros",
-            "mio",
-            "net",
-            "rt",
-            "socket2",
-            "sync",
-            "time",
-            "tokio-macros",
-            "windows-sys"
-          ],
-          "dependencies": [
-            {
-              "name": "libc",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.190",
-              "kinds": [
-                {
-                  "kind": null,
-                  "target": "cfg(all(tokio_unstable, target_os = \"linux\"))"
-                },
-                {
-                  "kind": null,
-                  "target": "cfg(unix)"
-                },
-                {
-                  "kind": null,
-                  "target": "cfg(target_os = \"wasi\")"
-                }
-              ]
-            },
-            {
-              "name": "mio",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#mio@1.2.4",
-              "kinds": [
-                {
-                  "kind": null,
-                  "target": null
-                },
-                {
-                  "kind": null,
-                  "target": "cfg(all(tokio_unstable, target_os = \"linux\"))"
-                }
-              ]
-            },
-            {
-              "name": "pin_project_lite",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#pin-project-lite@0.2.17",
-              "kinds": [
-                {
-                  "kind": null,
-                  "target": null
-                }
-              ]
-            },
-            {
-              "name": "socket2",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#socket2@0.6.5",
-              "kinds": [
-                {
-                  "kind": null,
-                  "target": "cfg(any(not(target_family = \"wasm\"), all(target_os = \"wasi\", not(target_env = \"p1\"))))"
-                }
-              ]
-            },
-            {
-              "name": "tokio_macros",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#tokio-macros@2.7.2",
-              "kinds": [
-                {
-                  "kind": null,
-                  "target": null
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "registry+https://github.com/rust-lang/crates.io-index#tokio-macros@2.7.2",
-          "features": [],
-          "dependencies": [
-            {
-              "name": "proc_macro2",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.107",
-              "kinds": [
-                {
-                  "kind": null,
-                  "target": null
-                }
-              ]
-            },
-            {
-              "name": "quote",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.47",
-              "kinds": [
-                {
-                  "kind": null,
-                  "target": null
-                }
-              ]
-            },
-            {
-              "name": "syn",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.5",
               "kinds": [
                 {
                   "kind": null,
@@ -137016,22 +136539,10 @@
           "id": "registry+https://github.com/rust-lang/crates.io-index#uuid@1.26.1",
           "features": [
             "default",
-            "rng",
             "serde",
-            "std",
-            "v4"
+            "std"
           ],
           "dependencies": [
-            {
-              "name": "getrandom",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#getrandom@0.4.3",
-              "kinds": [
-                {
-                  "kind": null,
-                  "target": "cfg(not(all(target_arch = \"wasm32\", any(target_os = \"unknown\", target_os = \"none\"))))"
-                }
-              ]
-            },
             {
               "name": "serde_core",
               "pkg": "registry+https://github.com/rust-lang/crates.io-index#serde_core@1.0.229",
@@ -138900,8 +138411,7 @@
             "async-task",
             "blocking",
             "blocking-api",
-            "default",
-            "p2p"
+            "default"
           ],
           "dependencies": [
             {
@@ -139856,6 +139366,8 @@
         "registry+https://github.com/rust-lang/crates.io-index#block-buffer@0.10.4",
         "registry+https://github.com/rust-lang/crates.io-index#bytemuck@1.25.2",
         "registry+https://github.com/rust-lang/crates.io-index#bytemuck_derive@1.12.0",
+        "registry+https://github.com/rust-lang/crates.io-index#byteorder@1.5.0",
+        "registry+https://github.com/rust-lang/crates.io-index#bytes@1.12.1",
         "registry+https://github.com/rust-lang/crates.io-index#cairo-rs@0.21.5",
         "registry+https://github.com/rust-lang/crates.io-index#cairo-sys-rs@0.21.5",
         "registry+https://github.com/rust-lang/crates.io-index#calloop@0.14.4",
@@ -139882,12 +139394,14 @@
         "registry+https://github.com/rust-lang/crates.io-index#csscolorparser@0.8.4",
         "path+repo:///vendor/cua/crates/cua-cursor-motion#0.34.0",
         "registry+https://github.com/rust-lang/crates.io-index#cursor-icon@1.2.0",
+        "registry+https://github.com/rust-lang/crates.io-index#data-encoding@2.11.1",
         "registry+https://github.com/rust-lang/crates.io-index#digest@0.10.7",
         "registry+https://github.com/rust-lang/crates.io-index#directories@6.0.0",
         "registry+https://github.com/rust-lang/crates.io-index#dirs-sys@0.5.0",
         "registry+https://github.com/rust-lang/crates.io-index#displaydoc@0.2.7",
         "registry+https://github.com/rust-lang/crates.io-index#dlib@0.5.3",
         "path+repo:///crates/dojo-browser-control#0.1.0",
+        "path+repo:///crates/dojo-external-admission#0.1.0",
         "registry+https://github.com/rust-lang/crates.io-index#downcast-rs@1.2.1",
         "registry+https://github.com/rust-lang/crates.io-index#dpi@0.1.2",
         "registry+https://github.com/rust-lang/crates.io-index#drm@0.14.1",
@@ -139917,6 +139431,7 @@
         "registry+https://github.com/rust-lang/crates.io-index#gbm-sys@0.4.0",
         "registry+https://github.com/rust-lang/crates.io-index#generic-array@0.14.7",
         "registry+https://github.com/rust-lang/crates.io-index#gethostname@1.1.0",
+        "registry+https://github.com/rust-lang/crates.io-index#getrandom@0.2.17",
         "registry+https://github.com/rust-lang/crates.io-index#getrandom@0.4.3",
         "registry+https://github.com/rust-lang/crates.io-index#gio@0.21.5",
         "registry+https://github.com/rust-lang/crates.io-index#gio-sys@0.21.5",
@@ -139932,6 +139447,8 @@
         "registry+https://github.com/rust-lang/crates.io-index#hashbrown@0.17.1",
         "registry+https://github.com/rust-lang/crates.io-index#heck@0.4.1",
         "registry+https://github.com/rust-lang/crates.io-index#heck@0.5.0",
+        "registry+https://github.com/rust-lang/crates.io-index#http@1.5.0",
+        "registry+https://github.com/rust-lang/crates.io-index#httparse@1.10.1",
         "registry+https://github.com/rust-lang/crates.io-index#icu_collections@2.2.0",
         "registry+https://github.com/rust-lang/crates.io-index#icu_locale_core@2.2.0",
         "registry+https://github.com/rust-lang/crates.io-index#icu_normalizer@2.2.0",
@@ -140006,6 +139523,7 @@
         "registry+https://github.com/rust-lang/crates.io-index#polling@3.11.0",
         "registry+https://github.com/rust-lang/crates.io-index#portable-atomic@1.15.0",
         "registry+https://github.com/rust-lang/crates.io-index#potential_utf@0.1.6",
+        "registry+https://github.com/rust-lang/crates.io-index#ppv-lite86@0.2.21",
         "registry+https://github.com/rust-lang/crates.io-index#proc-macro-crate@3.5.0",
         "registry+https://github.com/rust-lang/crates.io-index#proc-macro-error@1.0.4",
         "registry+https://github.com/rust-lang/crates.io-index#proc-macro-error-attr@1.0.4",
@@ -140014,7 +139532,10 @@
         "registry+https://github.com/rust-lang/crates.io-index#profiling-procmacros@1.0.18",
         "registry+https://github.com/rust-lang/crates.io-index#quick-xml@0.41.0",
         "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.47",
+        "registry+https://github.com/rust-lang/crates.io-index#rand@0.8.8",
         "registry+https://github.com/rust-lang/crates.io-index#rand@0.10.2",
+        "registry+https://github.com/rust-lang/crates.io-index#rand_chacha@0.3.1",
+        "registry+https://github.com/rust-lang/crates.io-index#rand_core@0.6.4",
         "registry+https://github.com/rust-lang/crates.io-index#rand_core@0.10.1",
         "registry+https://github.com/rust-lang/crates.io-index#raw-window-handle@0.6.2",
         "registry+https://github.com/rust-lang/crates.io-index#regex@1.13.1",
@@ -140032,6 +139553,7 @@
         "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
         "registry+https://github.com/rust-lang/crates.io-index#serde_spanned@1.1.1",
         "registry+https://github.com/rust-lang/crates.io-index#sha1@0.10.7",
+        "registry+https://github.com/rust-lang/crates.io-index#sha2@0.10.9",
         "registry+https://github.com/rust-lang/crates.io-index#sharded-slab@0.1.7",
         "registry+https://github.com/rust-lang/crates.io-index#shlex@2.0.1",
         "registry+https://github.com/rust-lang/crates.io-index#simd-adler32@0.3.10",
@@ -140074,6 +139596,7 @@
         "registry+https://github.com/rust-lang/crates.io-index#tracing-subscriber@0.3.23",
         "registry+https://github.com/rust-lang/crates.io-index#tracy-client@0.18.5",
         "registry+https://github.com/rust-lang/crates.io-index#tracy-client-sys@0.29.0",
+        "registry+https://github.com/rust-lang/crates.io-index#tungstenite@0.24.0",
         "registry+https://github.com/rust-lang/crates.io-index#typenum@1.20.1",
         "registry+https://github.com/rust-lang/crates.io-index#udev@0.9.3",
         "registry+https://github.com/rust-lang/crates.io-index#uncased@0.9.10",
@@ -140082,6 +139605,7 @@
         "registry+https://github.com/rust-lang/crates.io-index#unicode-segmentation@1.13.3",
         "registry+https://github.com/rust-lang/crates.io-index#unicode-width@0.1.14",
         "registry+https://github.com/rust-lang/crates.io-index#url@2.5.8",
+        "registry+https://github.com/rust-lang/crates.io-index#utf-8@0.7.6",
         "registry+https://github.com/rust-lang/crates.io-index#utf8_iter@1.0.4",
         "registry+https://github.com/rust-lang/crates.io-index#utf8parse@0.2.2",
         "registry+https://github.com/rust-lang/crates.io-index#version-compare@0.2.1",
@@ -389654,8 +389178,8 @@
     },
     "dojo-external-admission": {
       "manifest": "crates/dojo-external-admission/Cargo.toml",
-      "manifest_sha256": "96cbaa6103edc2a648864dd263b813a2a4de4525f5a6d1cfa12ad64c63ec7833",
-      "lockfile_sha256": "72e4b479b7f6de516d6e3bc35f2bdf68c13eafdbd0d5a04c9d9b482ccf47ab62",
+      "manifest_sha256": "98e4f141b685e2120db112c387264c18b8c615dbd2aae1676f0fda432f641bc2",
+      "lockfile_sha256": "2f31c1e572be31881e0ac8440d7a2bbd96fe7acff8f0e2ef05af7a12805bcd66",
       "packages": [
         {
           "id": "registry+https://github.com/rust-lang/crates.io-index#anyhow@1.0.104",
@@ -389734,6 +389258,167 @@
               "default_features": true,
               "features": [
                 "diff"
+              ],
+              "rename": null
+            }
+          ]
+        },
+        {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#bitflags@2.13.2",
+          "name": "bitflags",
+          "version": "2.13.2",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "local_manifest": null,
+          "manifest_sha256": "562e660adbb084de042fc9ecc5ac7ba32b5f565d53188823bab9159a027b2b44",
+          "license": "MIT OR Apache-2.0",
+          "license_file": null,
+          "rust_version": "1.56.0",
+          "edition": "2021",
+          "license_evidence": [
+            {
+              "path": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847
+            },
+            {
+              "path": "LICENSE-MIT",
+              "sha256": "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb",
+              "bytes": 1071
+            }
+          ],
+          "source_copyright_evidence": [
+            {
+              "path": "src/lib.rs",
+              "sha256": "f8d141a1ba6b1996b33eb34669786ef389d4d5226edad46cec22a561588c324b",
+              "matches": [
+                {
+                  "line": 1,
+                  "text": "// Copyright 2014 The Rust Project Developers. See the COPYRIGHT"
+                },
+                {
+                  "line": 3,
+                  "text": "// http://rust-lang.org/COPYRIGHT."
+                }
+              ]
+            }
+          ],
+          "normal_build_active": false,
+          "dependencies": [
+            {
+              "name": "arbitrary",
+              "req": "^1.0",
+              "kind": null,
+              "target": null,
+              "optional": true,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "bytemuck",
+              "req": "^1.12",
+              "kind": null,
+              "target": null,
+              "optional": true,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "serde_core",
+              "req": "^1.0.228",
+              "kind": null,
+              "target": null,
+              "optional": true,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "arbitrary",
+              "req": "^1.0",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [
+                "derive"
+              ],
+              "rename": null
+            },
+            {
+              "name": "bytemuck",
+              "req": "^1.12.2",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [
+                "derive"
+              ],
+              "rename": null
+            },
+            {
+              "name": "rustversion",
+              "req": "^1.0",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "serde_json",
+              "req": "^1.0",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "serde",
+              "req": "^1.0.103",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [
+                "derive"
+              ],
+              "rename": "serde_lib"
+            },
+            {
+              "name": "serde_test",
+              "req": "^1.0.19",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "trybuild",
+              "req": "^1.0.18",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "zerocopy",
+              "req": "^0.8",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [
+                "derive"
               ],
               "rename": null
             }
@@ -390164,7 +389849,7 @@
           "version": "0.1.0",
           "source": null,
           "local_manifest": "crates/dojo-external-admission/Cargo.toml",
-          "manifest_sha256": "96cbaa6103edc2a648864dd263b813a2a4de4525f5a6d1cfa12ad64c63ec7833",
+          "manifest_sha256": "98e4f141b685e2120db112c387264c18b8c615dbd2aae1676f0fda432f641bc2",
           "license": "MIT",
           "license_file": null,
           "rust_version": null,
@@ -390185,6 +389870,36 @@
               "kind": null,
               "target": null,
               "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "async-io",
+              "req": "=2.6.0",
+              "kind": null,
+              "target": null,
+              "optional": true,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "async-trait",
+              "req": "=0.1.92",
+              "kind": null,
+              "target": null,
+              "optional": true,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "futures-lite",
+              "req": "=2.6.1",
+              "kind": null,
+              "target": null,
+              "optional": true,
               "default_features": true,
               "features": [],
               "rename": null
@@ -390253,7 +389968,7 @@
             },
             {
               "name": "tokio",
-              "req": "^1",
+              "req": "=1.53.2",
               "kind": null,
               "target": null,
               "optional": true,
@@ -390279,7 +389994,7 @@
             },
             {
               "name": "zbus",
-              "req": "^5.19",
+              "req": "=5.19.0",
               "kind": null,
               "target": null,
               "optional": true,
@@ -390287,6 +390002,179 @@
               "features": [
                 "p2p"
               ],
+              "rename": null
+            },
+            {
+              "name": "tempfile",
+              "req": "^3",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            }
+          ]
+        },
+        {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#errno@0.3.14",
+          "name": "errno",
+          "version": "0.3.14",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "local_manifest": null,
+          "manifest_sha256": "a25f16ccaa127602fc0cc9d1c80186619a0b8f42331a27b6f04b6bfa4aa29de2",
+          "license": "MIT OR Apache-2.0",
+          "license_file": null,
+          "rust_version": "1.56",
+          "edition": "2018",
+          "license_evidence": [
+            {
+              "path": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847
+            },
+            {
+              "path": "LICENSE-MIT",
+              "sha256": "8764a597675778ddfd4e25f81b08a05dbcf089ac05662df7613fe67f150e3aa2",
+              "bytes": 1054
+            }
+          ],
+          "source_copyright_evidence": [],
+          "normal_build_active": false,
+          "dependencies": [
+            {
+              "name": "libc",
+              "req": "^0.2",
+              "kind": null,
+              "target": "cfg(target_os = \"hermit\")",
+              "optional": false,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "libc",
+              "req": "^0.2",
+              "kind": null,
+              "target": "cfg(target_os = \"wasi\")",
+              "optional": false,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "libc",
+              "req": "^0.2",
+              "kind": null,
+              "target": "cfg(unix)",
+              "optional": false,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "windows-sys",
+              "req": ">=0.52, <0.62",
+              "kind": null,
+              "target": "cfg(windows)",
+              "optional": false,
+              "default_features": true,
+              "features": [
+                "Win32_Foundation",
+                "Win32_System_Diagnostics_Debug"
+              ],
+              "rename": null
+            }
+          ]
+        },
+        {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#fastrand@2.5.0",
+          "name": "fastrand",
+          "version": "2.5.0",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "local_manifest": null,
+          "manifest_sha256": "3f01725ad91d1a1705762821e9231ea15ddfa62648143516e68d64021ae31e08",
+          "license": "Apache-2.0 OR MIT",
+          "license_file": null,
+          "rust_version": "1.63",
+          "edition": "2018",
+          "license_evidence": [
+            {
+              "path": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847
+            },
+            {
+              "path": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023
+            }
+          ],
+          "source_copyright_evidence": [],
+          "normal_build_active": false,
+          "dependencies": [
+            {
+              "name": "getrandom",
+              "req": "^0.4",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "rand",
+              "req": "^0.10",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "wyhash",
+              "req": "^0.6",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "getrandom",
+              "req": "^0.4",
+              "kind": null,
+              "target": "cfg(all(any(target_arch = \"wasm32\", target_arch = \"wasm64\"), target_os = \"unknown\"))",
+              "optional": true,
+              "default_features": true,
+              "features": [
+                "wasm_js"
+              ],
+              "rename": null
+            },
+            {
+              "name": "getrandom",
+              "req": "^0.4",
+              "kind": "dev",
+              "target": "cfg(all(any(target_arch = \"wasm32\", target_arch = \"wasm64\"), target_os = \"unknown\"))",
+              "optional": false,
+              "default_features": true,
+              "features": [
+                "wasm_js"
+              ],
+              "rename": null
+            },
+            {
+              "name": "wasm-bindgen-test",
+              "req": "^0.3",
+              "kind": "dev",
+              "target": "cfg(all(any(target_arch = \"wasm32\", target_arch = \"wasm64\"), target_os = \"unknown\"))",
+              "optional": false,
+              "default_features": true,
+              "features": [],
               "rename": null
             }
           ]
@@ -390475,6 +390363,174 @@
               "req": "^0.2.154",
               "kind": null,
               "target": "cfg(unix)",
+              "optional": false,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            }
+          ]
+        },
+        {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#getrandom@0.4.3",
+          "name": "getrandom",
+          "version": "0.4.3",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "local_manifest": null,
+          "manifest_sha256": "4f107fe4ceacee71d0068cfbbc69554b3d8523a1fcbb99b17e9fa0d008961ff9",
+          "license": "MIT OR Apache-2.0",
+          "license_file": null,
+          "rust_version": "1.85",
+          "edition": "2024",
+          "license_evidence": [
+            {
+              "path": "LICENSE-APACHE",
+              "sha256": "aaff376532ea30a0cd5330b9502ad4a4c8bf769c539c87ffe78819d188a18ebf",
+              "bytes": 10849
+            },
+            {
+              "path": "LICENSE-MIT",
+              "sha256": "523a42c25d245dde9c015f882cec7f4555aad883382a6cf19b4b7d9b2cd5419b",
+              "bytes": 1130
+            }
+          ],
+          "source_copyright_evidence": [],
+          "normal_build_active": false,
+          "dependencies": [
+            {
+              "name": "cfg-if",
+              "req": "^1",
+              "kind": null,
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "rand_core",
+              "req": "^0.10.0",
+              "kind": null,
+              "target": null,
+              "optional": true,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "libc",
+              "req": "^0.2.154",
+              "kind": null,
+              "target": "cfg(all(any(target_os = \"linux\", target_os = \"android\"), not(any(all(target_os = \"linux\", target_env = \"\"), getrandom_backend = \"custom\", getrandom_backend = \"linux_raw\", getrandom_backend = \"rdrand\", getrandom_backend = \"rndr\"))))",
+              "optional": false,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "wasm-bindgen",
+              "req": "^0.2.98",
+              "kind": null,
+              "target": "cfg(all(target_family = \"wasm\", any(target_os = \"unknown\", target_os = \"none\")))",
+              "optional": true,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "wasm-bindgen-test",
+              "req": "^0.3",
+              "kind": "dev",
+              "target": "cfg(all(target_family = \"wasm\", any(target_os = \"unknown\", target_os = \"none\")))",
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "js-sys",
+              "req": "^0.3.77",
+              "kind": null,
+              "target": "cfg(all(target_family = \"wasm\", any(target_os = \"unknown\", target_os = \"none\"), target_feature = \"atomics\"))",
+              "optional": true,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "r-efi",
+              "req": "^6",
+              "kind": null,
+              "target": "cfg(all(target_os = \"uefi\", getrandom_backend = \"efi_rng\"))",
+              "optional": false,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "libc",
+              "req": "^0.2.154",
+              "kind": null,
+              "target": "cfg(any(target_os = \"dragonfly\", target_os = \"freebsd\", target_os = \"hurd\", target_os = \"illumos\", target_os = \"cygwin\", all(target_os = \"horizon\", target_arch = \"arm\")))",
+              "optional": false,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "libc",
+              "req": "^0.2.154",
+              "kind": null,
+              "target": "cfg(any(target_os = \"haiku\", target_os = \"redox\", target_os = \"nto\", target_os = \"aix\"))",
+              "optional": false,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "libc",
+              "req": "^0.2.154",
+              "kind": null,
+              "target": "cfg(any(target_os = \"ios\", target_os = \"visionos\", target_os = \"watchos\", target_os = \"tvos\"))",
+              "optional": false,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "libc",
+              "req": "^0.2.154",
+              "kind": null,
+              "target": "cfg(any(target_os = \"macos\", target_os = \"openbsd\", target_os = \"vita\", target_os = \"emscripten\"))",
+              "optional": false,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "libc",
+              "req": "^0.2.154",
+              "kind": null,
+              "target": "cfg(target_os = \"netbsd\")",
+              "optional": false,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "libc",
+              "req": "^0.2.154",
+              "kind": null,
+              "target": "cfg(target_os = \"solaris\")",
+              "optional": false,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "libc",
+              "req": "^0.2.154",
+              "kind": null,
+              "target": "cfg(target_os = \"vxworks\")",
               "optional": false,
               "default_features": false,
               "features": [],
@@ -390708,6 +390764,74 @@
               "kind": null,
               "target": null,
               "optional": true,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            }
+          ]
+        },
+        {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#linux-raw-sys@0.12.1",
+          "name": "linux-raw-sys",
+          "version": "0.12.1",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "local_manifest": null,
+          "manifest_sha256": "1d24fe227d87b23fc5220ddf2ca4708e5e0d794a3f77961b71cd8140bf33faa5",
+          "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+          "license_file": null,
+          "rust_version": "1.63",
+          "edition": "2021",
+          "license_evidence": [
+            {
+              "path": "COPYRIGHT",
+              "sha256": "3290ae0fbc9ddb77d2239121d710f0bb9d31b3b4744e6d97fe01e652b4c1870b",
+              "bytes": 881
+            },
+            {
+              "path": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847
+            },
+            {
+              "path": "LICENSE-Apache-2.0_WITH_LLVM-exception",
+              "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5",
+              "bytes": 12243
+            },
+            {
+              "path": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023
+            }
+          ],
+          "source_copyright_evidence": [],
+          "normal_build_active": false,
+          "dependencies": [
+            {
+              "name": "rustc-std-workspace-core",
+              "req": "^1.0.0",
+              "kind": null,
+              "target": null,
+              "optional": true,
+              "default_features": true,
+              "features": [],
+              "rename": "core"
+            },
+            {
+              "name": "libc",
+              "req": "^0.2.100",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "static_assertions",
+              "req": "^1.1.0",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
               "default_features": true,
               "features": [],
               "rename": null
@@ -391003,6 +391127,86 @@
               "req": "^0.2",
               "kind": null,
               "target": "cfg(target_os = \"linux\")",
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            }
+          ]
+        },
+        {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#once_cell@1.21.4",
+          "name": "once_cell",
+          "version": "1.21.4",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "local_manifest": null,
+          "manifest_sha256": "87e5b7ee438abdef12e46386e86370f54ad70cabdcf949556b9ef012a9da9587",
+          "license": "MIT OR Apache-2.0",
+          "license_file": null,
+          "rust_version": "1.65",
+          "edition": "2021",
+          "license_evidence": [
+            {
+              "path": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847
+            },
+            {
+              "path": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023
+            }
+          ],
+          "source_copyright_evidence": [],
+          "normal_build_active": false,
+          "dependencies": [
+            {
+              "name": "critical-section",
+              "req": "^1.1.3",
+              "kind": null,
+              "target": null,
+              "optional": true,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "parking_lot_core",
+              "req": "^0.9.10",
+              "kind": null,
+              "target": null,
+              "optional": true,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "portable-atomic",
+              "req": "^1.8",
+              "kind": null,
+              "target": null,
+              "optional": true,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "critical-section",
+              "req": "^1.1.3",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [
+                "std"
+              ],
+              "rename": null
+            },
+            {
+              "name": "regex",
+              "req": "^1.10.6",
+              "kind": "dev",
+              "target": null,
               "optional": false,
               "default_features": true,
               "features": [],
@@ -391512,6 +391716,269 @@
               "features": [
                 "derive"
               ],
+              "rename": null
+            }
+          ]
+        },
+        {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#rustix@1.1.5",
+          "name": "rustix",
+          "version": "1.1.5",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "local_manifest": null,
+          "manifest_sha256": "f57824af546c008210d8d6d63bc0fe866a3887d06100469448de3432ffa108ec",
+          "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+          "license_file": null,
+          "rust_version": "1.65",
+          "edition": "2021",
+          "license_evidence": [
+            {
+              "path": "COPYRIGHT",
+              "sha256": "377c2e7c53250cc5905c0b0532d35973392af16ffb9596a41d99d202cf3617c9",
+              "bytes": 853
+            },
+            {
+              "path": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847
+            },
+            {
+              "path": "LICENSE-Apache-2.0_WITH_LLVM-exception",
+              "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5",
+              "bytes": 12243
+            },
+            {
+              "path": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023
+            }
+          ],
+          "source_copyright_evidence": [
+            {
+              "path": "Cargo.toml.orig",
+              "sha256": "1e162d556c992b8bd5c4d4d7256f6783d95be1e75143edeaa43c92055a57bc8a",
+              "matches": [
+                {
+                  "line": 15,
+                  "text": "include = [\"src\", \"build.rs\", \"Cargo.toml\", \"COPYRIGHT\", \"LICENSE*\", \"/*.md\", \"benches\"]"
+                }
+              ]
+            }
+          ],
+          "normal_build_active": false,
+          "dependencies": [
+            {
+              "name": "bitflags",
+              "req": "^2.4.0",
+              "kind": null,
+              "target": null,
+              "optional": false,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "rustc-std-workspace-core",
+              "req": "^1.0.0",
+              "kind": null,
+              "target": null,
+              "optional": true,
+              "default_features": true,
+              "features": [],
+              "rename": "core"
+            },
+            {
+              "name": "rustc-std-workspace-alloc",
+              "req": "^1.0.0",
+              "kind": null,
+              "target": null,
+              "optional": true,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "flate2",
+              "req": "^1.0",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "libc",
+              "req": "^0.2.171",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "errno",
+              "req": "^0.3.10",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": false,
+              "features": [],
+              "rename": "libc_errno"
+            },
+            {
+              "name": "memoffset",
+              "req": "^0.9.0",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "serial_test",
+              "req": "^2.0.0",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "static_assertions",
+              "req": "^1.1.0",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "tempfile",
+              "req": "^3.5.0",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "linux-raw-sys",
+              "req": "^0.12",
+              "kind": null,
+              "target": "cfg(all(any(target_os = \"linux\", target_os = \"android\"), any(rustix_use_libc, miri, not(all(target_os = \"linux\", any(target_endian = \"little\", any(target_arch = \"s390x\", target_arch = \"powerpc\")), any(target_arch = \"arm\", all(target_arch = \"aarch64\", target_pointer_width = \"64\"), target_arch = \"riscv64\", all(rustix_use_experimental_asm, target_arch = \"powerpc\"), all(rustix_use_experimental_asm, target_arch = \"powerpc64\"), all(rustix_use_experimental_asm, target_arch = \"s390x\"), all(rustix_use_experimental_asm, target_arch = \"mips\"), all(rustix_use_experimental_asm, target_arch = \"mips32r6\"), all(rustix_use_experimental_asm, target_arch = \"mips64\"), all(rustix_use_experimental_asm, target_arch = \"mips64r6\"), target_arch = \"x86\", all(target_arch = \"x86_64\", target_pointer_width = \"64\")))))))",
+              "optional": false,
+              "default_features": false,
+              "features": [
+                "general",
+                "ioctl",
+                "no_std"
+              ],
+              "rename": null
+            },
+            {
+              "name": "criterion",
+              "req": "^0.4",
+              "kind": "dev",
+              "target": "cfg(all(criterion, not(any(target_os = \"emscripten\", target_os = \"wasi\"))))",
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "libc",
+              "req": "^0.2.182",
+              "kind": null,
+              "target": "cfg(all(not(rustix_use_libc), not(miri), target_os = \"linux\", any(target_endian = \"little\", any(target_arch = \"s390x\", target_arch = \"powerpc\")), any(target_arch = \"arm\", all(target_arch = \"aarch64\", target_pointer_width = \"64\"), target_arch = \"riscv64\", all(rustix_use_experimental_asm, target_arch = \"powerpc\"), all(rustix_use_experimental_asm, target_arch = \"powerpc64\"), all(rustix_use_experimental_asm, target_arch = \"s390x\"), all(rustix_use_experimental_asm, target_arch = \"mips\"), all(rustix_use_experimental_asm, target_arch = \"mips32r6\"), all(rustix_use_experimental_asm, target_arch = \"mips64\"), all(rustix_use_experimental_asm, target_arch = \"mips64r6\"), target_arch = \"x86\", all(target_arch = \"x86_64\", target_pointer_width = \"64\"))))",
+              "optional": true,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "errno",
+              "req": "^0.3.10",
+              "kind": null,
+              "target": "cfg(all(not(rustix_use_libc), not(miri), target_os = \"linux\", any(target_endian = \"little\", any(target_arch = \"s390x\", target_arch = \"powerpc\")), any(target_arch = \"arm\", all(target_arch = \"aarch64\", target_pointer_width = \"64\"), target_arch = \"riscv64\", all(rustix_use_experimental_asm, target_arch = \"powerpc\"), all(rustix_use_experimental_asm, target_arch = \"powerpc64\"), all(rustix_use_experimental_asm, target_arch = \"s390x\"), all(rustix_use_experimental_asm, target_arch = \"mips\"), all(rustix_use_experimental_asm, target_arch = \"mips32r6\"), all(rustix_use_experimental_asm, target_arch = \"mips64\"), all(rustix_use_experimental_asm, target_arch = \"mips64r6\"), target_arch = \"x86\", all(target_arch = \"x86_64\", target_pointer_width = \"64\"))))",
+              "optional": true,
+              "default_features": false,
+              "features": [],
+              "rename": "libc_errno"
+            },
+            {
+              "name": "linux-raw-sys",
+              "req": "^0.12",
+              "kind": null,
+              "target": "cfg(all(not(rustix_use_libc), not(miri), target_os = \"linux\", any(target_endian = \"little\", any(target_arch = \"s390x\", target_arch = \"powerpc\")), any(target_arch = \"arm\", all(target_arch = \"aarch64\", target_pointer_width = \"64\"), target_arch = \"riscv64\", all(rustix_use_experimental_asm, target_arch = \"powerpc\"), all(rustix_use_experimental_asm, target_arch = \"powerpc64\"), all(rustix_use_experimental_asm, target_arch = \"s390x\"), all(rustix_use_experimental_asm, target_arch = \"mips\"), all(rustix_use_experimental_asm, target_arch = \"mips32r6\"), all(rustix_use_experimental_asm, target_arch = \"mips64\"), all(rustix_use_experimental_asm, target_arch = \"mips64r6\"), target_arch = \"x86\", all(target_arch = \"x86_64\", target_pointer_width = \"64\"))))",
+              "optional": false,
+              "default_features": false,
+              "features": [
+                "auxvec",
+                "general",
+                "errno",
+                "ioctl",
+                "no_std",
+                "elf"
+              ],
+              "rename": null
+            },
+            {
+              "name": "libc",
+              "req": "^0.2.182",
+              "kind": null,
+              "target": "cfg(all(not(windows), any(rustix_use_libc, miri, not(all(target_os = \"linux\", any(target_endian = \"little\", any(target_arch = \"s390x\", target_arch = \"powerpc\")), any(target_arch = \"arm\", all(target_arch = \"aarch64\", target_pointer_width = \"64\"), target_arch = \"riscv64\", all(rustix_use_experimental_asm, target_arch = \"powerpc\"), all(rustix_use_experimental_asm, target_arch = \"powerpc64\"), all(rustix_use_experimental_asm, target_arch = \"s390x\"), all(rustix_use_experimental_asm, target_arch = \"mips\"), all(rustix_use_experimental_asm, target_arch = \"mips32r6\"), all(rustix_use_experimental_asm, target_arch = \"mips64\"), all(rustix_use_experimental_asm, target_arch = \"mips64r6\"), target_arch = \"x86\", all(target_arch = \"x86_64\", target_pointer_width = \"64\")))))))",
+              "optional": false,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "errno",
+              "req": "^0.3.10",
+              "kind": null,
+              "target": "cfg(all(not(windows), any(rustix_use_libc, miri, not(all(target_os = \"linux\", any(target_endian = \"little\", any(target_arch = \"s390x\", target_arch = \"powerpc\")), any(target_arch = \"arm\", all(target_arch = \"aarch64\", target_pointer_width = \"64\"), target_arch = \"riscv64\", all(rustix_use_experimental_asm, target_arch = \"powerpc\"), all(rustix_use_experimental_asm, target_arch = \"powerpc64\"), all(rustix_use_experimental_asm, target_arch = \"s390x\"), all(rustix_use_experimental_asm, target_arch = \"mips\"), all(rustix_use_experimental_asm, target_arch = \"mips32r6\"), all(rustix_use_experimental_asm, target_arch = \"mips64\"), all(rustix_use_experimental_asm, target_arch = \"mips64r6\"), target_arch = \"x86\", all(target_arch = \"x86_64\", target_pointer_width = \"64\")))))))",
+              "optional": false,
+              "default_features": false,
+              "features": [],
+              "rename": "libc_errno"
+            },
+            {
+              "name": "errno",
+              "req": "^0.3.10",
+              "kind": null,
+              "target": "cfg(windows)",
+              "optional": false,
+              "default_features": false,
+              "features": [],
+              "rename": "libc_errno"
+            },
+            {
+              "name": "windows-sys",
+              "req": ">=0.52, <0.62",
+              "kind": null,
+              "target": "cfg(windows)",
+              "optional": false,
+              "default_features": true,
+              "features": [
+                "Win32_Foundation",
+                "Win32_Networking_WinSock"
+              ],
+              "rename": null
+            },
+            {
+              "name": "once_cell",
+              "req": "^1.20.3",
+              "kind": "dev",
+              "target": "cfg(windows)",
+              "optional": false,
+              "default_features": true,
+              "features": [],
               "rename": null
             }
           ]
@@ -392425,6 +392892,101 @@
           ]
         },
         {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#tempfile@3.27.0",
+          "name": "tempfile",
+          "version": "3.27.0",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "local_manifest": null,
+          "manifest_sha256": "4ffd8ce684ce8f34075633101c8e627761387b5e66e5efe95010b0aa1414bf1b",
+          "license": "MIT OR Apache-2.0",
+          "license_file": null,
+          "rust_version": "1.63",
+          "edition": "2021",
+          "license_evidence": [
+            {
+              "path": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847
+            },
+            {
+              "path": "LICENSE-MIT",
+              "sha256": "8b427f5bc501764575e52ba4f9d95673cf8f6d80a86d0d06599852e1a9a20a36",
+              "bytes": 1056
+            }
+          ],
+          "source_copyright_evidence": [],
+          "normal_build_active": false,
+          "dependencies": [
+            {
+              "name": "fastrand",
+              "req": "^2.1.1",
+              "kind": null,
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "once_cell",
+              "req": "^1.19.0",
+              "kind": null,
+              "target": null,
+              "optional": false,
+              "default_features": false,
+              "features": [
+                "std"
+              ],
+              "rename": null
+            },
+            {
+              "name": "doc-comment",
+              "req": "^0.3",
+              "kind": "dev",
+              "target": null,
+              "optional": false,
+              "default_features": true,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "rustix",
+              "req": "^1.1.4",
+              "kind": null,
+              "target": "cfg(any(unix, target_os = \"wasi\"))",
+              "optional": false,
+              "default_features": true,
+              "features": [
+                "fs"
+              ],
+              "rename": null
+            },
+            {
+              "name": "getrandom",
+              "req": ">=0.3.0, <0.5",
+              "kind": null,
+              "target": "cfg(any(unix, windows, target_os = \"wasi\"))",
+              "optional": true,
+              "default_features": false,
+              "features": [],
+              "rename": null
+            },
+            {
+              "name": "windows-sys",
+              "req": ">=0.52, <0.62",
+              "kind": null,
+              "target": "cfg(windows)",
+              "optional": false,
+              "default_features": true,
+              "features": [
+                "Win32_Storage_FileSystem",
+                "Win32_Foundation"
+              ],
+              "rename": null
+            }
+          ]
+        },
+        {
           "id": "registry+https://github.com/rust-lang/crates.io-index#thiserror@1.0.69",
           "name": "thiserror",
           "version": "1.0.69",
@@ -393266,6 +393828,13 @@
           "dependencies": []
         },
         {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#bitflags@2.13.2",
+          "features": [
+            "std"
+          ],
+          "dependencies": []
+        },
+        {
           "id": "registry+https://github.com/rust-lang/crates.io-index#block-buffer@0.10.4",
           "features": [],
           "dependencies": [
@@ -393451,6 +394020,16 @@
               ]
             },
             {
+              "name": "tempfile",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#tempfile@3.27.0",
+              "kinds": [
+                {
+                  "kind": "dev",
+                  "target": null
+                }
+              ]
+            },
+            {
               "name": "tungstenite",
               "pkg": "registry+https://github.com/rust-lang/crates.io-index#tungstenite@0.24.0",
               "kinds": [
@@ -393461,6 +394040,41 @@
               ]
             }
           ]
+        },
+        {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#errno@0.3.14",
+          "features": [
+            "std"
+          ],
+          "dependencies": [
+            {
+              "name": "libc",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.190",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": "cfg(unix)"
+                },
+                {
+                  "kind": null,
+                  "target": "cfg(target_os = \"hermit\")"
+                },
+                {
+                  "kind": null,
+                  "target": "cfg(target_os = \"wasi\")"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#fastrand@2.5.0",
+          "features": [
+            "alloc",
+            "default",
+            "std"
+          ],
+          "dependencies": []
         },
         {
           "id": "registry+https://github.com/rust-lang/crates.io-index#generic-array@0.14.7",
@@ -393519,6 +394133,60 @@
           ]
         },
         {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#getrandom@0.4.3",
+          "features": [],
+          "dependencies": [
+            {
+              "name": "cfg_if",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.5",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": null
+                }
+              ]
+            },
+            {
+              "name": "libc",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.190",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": "cfg(all(any(target_os = \"linux\", target_os = \"android\"), not(any(all(target_os = \"linux\", target_env = \"\"), getrandom_backend = \"custom\", getrandom_backend = \"linux_raw\", getrandom_backend = \"rdrand\", getrandom_backend = \"rndr\"))))"
+                },
+                {
+                  "kind": null,
+                  "target": "cfg(any(target_os = \"dragonfly\", target_os = \"freebsd\", target_os = \"hurd\", target_os = \"illumos\", target_os = \"cygwin\", all(target_os = \"horizon\", target_arch = \"arm\")))"
+                },
+                {
+                  "kind": null,
+                  "target": "cfg(any(target_os = \"haiku\", target_os = \"redox\", target_os = \"nto\", target_os = \"aix\"))"
+                },
+                {
+                  "kind": null,
+                  "target": "cfg(any(target_os = \"ios\", target_os = \"visionos\", target_os = \"watchos\", target_os = \"tvos\"))"
+                },
+                {
+                  "kind": null,
+                  "target": "cfg(any(target_os = \"macos\", target_os = \"openbsd\", target_os = \"vita\", target_os = \"emscripten\"))"
+                },
+                {
+                  "kind": null,
+                  "target": "cfg(target_os = \"netbsd\")"
+                },
+                {
+                  "kind": null,
+                  "target": "cfg(target_os = \"solaris\")"
+                },
+                {
+                  "kind": null,
+                  "target": "cfg(target_os = \"vxworks\")"
+                }
+              ]
+            }
+          ]
+        },
+        {
           "id": "registry+https://github.com/rust-lang/crates.io-index#http@1.5.0",
           "features": [
             "default",
@@ -393565,6 +394233,18 @@
           "features": [
             "default",
             "std"
+          ],
+          "dependencies": []
+        },
+        {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#linux-raw-sys@0.12.1",
+          "features": [
+            "auxvec",
+            "elf",
+            "errno",
+            "general",
+            "ioctl",
+            "no_std"
           ],
           "dependencies": []
         },
@@ -393616,6 +394296,15 @@
               ]
             }
           ]
+        },
+        {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#once_cell@1.21.4",
+          "features": [
+            "alloc",
+            "race",
+            "std"
+          ],
+          "dependencies": []
         },
         {
           "id": "registry+https://github.com/rust-lang/crates.io-index#ppv-lite86@0.2.21",
@@ -393761,6 +394450,73 @@
                 {
                   "kind": null,
                   "target": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#rustix@1.1.5",
+          "features": [
+            "alloc",
+            "default",
+            "fs",
+            "std"
+          ],
+          "dependencies": [
+            {
+              "name": "bitflags",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#bitflags@2.13.2",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": null
+                }
+              ]
+            },
+            {
+              "name": "libc_errno",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#errno@0.3.14",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": "cfg(all(not(rustix_use_libc), not(miri), target_os = \"linux\", any(target_endian = \"little\", any(target_arch = \"s390x\", target_arch = \"powerpc\")), any(target_arch = \"arm\", all(target_arch = \"aarch64\", target_pointer_width = \"64\"), target_arch = \"riscv64\", all(rustix_use_experimental_asm, target_arch = \"powerpc\"), all(rustix_use_experimental_asm, target_arch = \"powerpc64\"), all(rustix_use_experimental_asm, target_arch = \"s390x\"), all(rustix_use_experimental_asm, target_arch = \"mips\"), all(rustix_use_experimental_asm, target_arch = \"mips32r6\"), all(rustix_use_experimental_asm, target_arch = \"mips64\"), all(rustix_use_experimental_asm, target_arch = \"mips64r6\"), target_arch = \"x86\", all(target_arch = \"x86_64\", target_pointer_width = \"64\"))))"
+                },
+                {
+                  "kind": null,
+                  "target": "cfg(all(not(windows), any(rustix_use_libc, miri, not(all(target_os = \"linux\", any(target_endian = \"little\", any(target_arch = \"s390x\", target_arch = \"powerpc\")), any(target_arch = \"arm\", all(target_arch = \"aarch64\", target_pointer_width = \"64\"), target_arch = \"riscv64\", all(rustix_use_experimental_asm, target_arch = \"powerpc\"), all(rustix_use_experimental_asm, target_arch = \"powerpc64\"), all(rustix_use_experimental_asm, target_arch = \"s390x\"), all(rustix_use_experimental_asm, target_arch = \"mips\"), all(rustix_use_experimental_asm, target_arch = \"mips32r6\"), all(rustix_use_experimental_asm, target_arch = \"mips64\"), all(rustix_use_experimental_asm, target_arch = \"mips64r6\"), target_arch = \"x86\", all(target_arch = \"x86_64\", target_pointer_width = \"64\")))))))"
+                },
+                {
+                  "kind": null,
+                  "target": "cfg(windows)"
+                }
+              ]
+            },
+            {
+              "name": "libc",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.190",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": "cfg(all(not(rustix_use_libc), not(miri), target_os = \"linux\", any(target_endian = \"little\", any(target_arch = \"s390x\", target_arch = \"powerpc\")), any(target_arch = \"arm\", all(target_arch = \"aarch64\", target_pointer_width = \"64\"), target_arch = \"riscv64\", all(rustix_use_experimental_asm, target_arch = \"powerpc\"), all(rustix_use_experimental_asm, target_arch = \"powerpc64\"), all(rustix_use_experimental_asm, target_arch = \"s390x\"), all(rustix_use_experimental_asm, target_arch = \"mips\"), all(rustix_use_experimental_asm, target_arch = \"mips32r6\"), all(rustix_use_experimental_asm, target_arch = \"mips64\"), all(rustix_use_experimental_asm, target_arch = \"mips64r6\"), target_arch = \"x86\", all(target_arch = \"x86_64\", target_pointer_width = \"64\"))))"
+                },
+                {
+                  "kind": null,
+                  "target": "cfg(all(not(windows), any(rustix_use_libc, miri, not(all(target_os = \"linux\", any(target_endian = \"little\", any(target_arch = \"s390x\", target_arch = \"powerpc\")), any(target_arch = \"arm\", all(target_arch = \"aarch64\", target_pointer_width = \"64\"), target_arch = \"riscv64\", all(rustix_use_experimental_asm, target_arch = \"powerpc\"), all(rustix_use_experimental_asm, target_arch = \"powerpc64\"), all(rustix_use_experimental_asm, target_arch = \"s390x\"), all(rustix_use_experimental_asm, target_arch = \"mips\"), all(rustix_use_experimental_asm, target_arch = \"mips32r6\"), all(rustix_use_experimental_asm, target_arch = \"mips64\"), all(rustix_use_experimental_asm, target_arch = \"mips64r6\"), target_arch = \"x86\", all(target_arch = \"x86_64\", target_pointer_width = \"64\")))))))"
+                }
+              ]
+            },
+            {
+              "name": "linux_raw_sys",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#linux-raw-sys@0.12.1",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": "cfg(all(not(rustix_use_libc), not(miri), target_os = \"linux\", any(target_endian = \"little\", any(target_arch = \"s390x\", target_arch = \"powerpc\")), any(target_arch = \"arm\", all(target_arch = \"aarch64\", target_pointer_width = \"64\"), target_arch = \"riscv64\", all(rustix_use_experimental_asm, target_arch = \"powerpc\"), all(rustix_use_experimental_asm, target_arch = \"powerpc64\"), all(rustix_use_experimental_asm, target_arch = \"s390x\"), all(rustix_use_experimental_asm, target_arch = \"mips\"), all(rustix_use_experimental_asm, target_arch = \"mips32r6\"), all(rustix_use_experimental_asm, target_arch = \"mips64\"), all(rustix_use_experimental_asm, target_arch = \"mips64r6\"), target_arch = \"x86\", all(target_arch = \"x86_64\", target_pointer_width = \"64\"))))"
+                },
+                {
+                  "kind": null,
+                  "target": "cfg(all(any(target_os = \"linux\", target_os = \"android\"), any(rustix_use_libc, miri, not(all(target_os = \"linux\", any(target_endian = \"little\", any(target_arch = \"s390x\", target_arch = \"powerpc\")), any(target_arch = \"arm\", all(target_arch = \"aarch64\", target_pointer_width = \"64\"), target_arch = \"riscv64\", all(rustix_use_experimental_asm, target_arch = \"powerpc\"), all(rustix_use_experimental_asm, target_arch = \"powerpc64\"), all(rustix_use_experimental_asm, target_arch = \"s390x\"), all(rustix_use_experimental_asm, target_arch = \"mips\"), all(rustix_use_experimental_asm, target_arch = \"mips32r6\"), all(rustix_use_experimental_asm, target_arch = \"mips64\"), all(rustix_use_experimental_asm, target_arch = \"mips64r6\"), target_arch = \"x86\", all(target_arch = \"x86_64\", target_pointer_width = \"64\")))))))"
                 }
               ]
             }
@@ -394052,6 +394808,55 @@
                 {
                   "kind": null,
                   "target": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#tempfile@3.27.0",
+          "features": [
+            "default",
+            "getrandom"
+          ],
+          "dependencies": [
+            {
+              "name": "fastrand",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#fastrand@2.5.0",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": null
+                }
+              ]
+            },
+            {
+              "name": "getrandom",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#getrandom@0.4.3",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": "cfg(any(unix, windows, target_os = \"wasi\"))"
+                }
+              ]
+            },
+            {
+              "name": "once_cell",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#once_cell@1.21.4",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": null
+                }
+              ]
+            },
+            {
+              "name": "rustix",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#rustix@1.1.5",
+              "kinds": [
+                {
+                  "kind": null,
+                  "target": "cfg(any(unix, target_os = \"wasi\"))"
                 }
               ]
             }
@@ -402325,7 +403130,7 @@
   },
   "third_party_audit": {
     "audited_packages": 1288,
-    "registry_or_git_packages": 1209,
+    "registry_or_git_packages": 1208,
     "unknown_declared_licenses": [
       {
         "name": "dojo",
@@ -402492,30 +403297,6 @@
       },
       {
         "name": "accesskit_unix",
-        "version": "0.22.1",
-        "source": "registry+https://github.com/rust-lang/crates.io-index",
-        "license": "MIT OR Apache-2.0",
-        "units": [
-          "dojo-root"
-        ],
-        "normal_build_units": [
-          "dojo-root"
-        ],
-        "source_copyright_evidence": [
-          {
-            "path": "src/lib.rs",
-            "sha256": "4416ce59366d321c3dbd29a1054c3ad6c426168c97f7b237ff3e818de6c3168c",
-            "matches": [
-              {
-                "line": 1,
-                "text": "// Copyright 2022 The AccessKit Authors. All rights reserved."
-              }
-            ]
-          }
-        ]
-      },
-      {
-        "name": "accesskit_unix",
         "version": "0.23.0",
         "source": "registry+https://github.com/rust-lang/crates.io-index",
         "license": "MIT OR Apache-2.0",
@@ -402621,10 +403402,12 @@
         "source": null,
         "license": "MIT",
         "units": [
+          "dojo-root",
           "niri-compositor",
           "dojo-browser-control"
         ],
         "normal_build_units": [
+          "dojo-root",
           "niri-compositor",
           "dojo-browser-control"
         ],
@@ -403705,28 +404488,21 @@
         ]
       },
       {
-        "name": "accesskit_unix",
-        "version": "0.22.1",
-        "source": "registry+https://github.com/rust-lang/crates.io-index",
-        "license": "MIT OR Apache-2.0",
+        "name": "dojo-browser-control",
+        "version": "0.1.0",
+        "source": null,
+        "license": "MIT",
         "units": [
-          "dojo-root"
+          "dojo-root",
+          "niri-compositor",
+          "dojo-browser-control"
         ],
         "normal_build_units": [
-          "dojo-root"
+          "dojo-root",
+          "niri-compositor",
+          "dojo-browser-control"
         ],
-        "source_copyright_evidence": [
-          {
-            "path": "src/lib.rs",
-            "sha256": "4416ce59366d321c3dbd29a1054c3ad6c426168c97f7b237ff3e818de6c3168c",
-            "matches": [
-              {
-                "line": 1,
-                "text": "// Copyright 2022 The AccessKit Authors. All rights reserved."
-              }
-            ]
-          }
-        ]
+        "source_copyright_evidence": []
       },
       {
         "name": "dojo-computer",
@@ -404426,6 +405202,7 @@
         ],
         "normal_build_units": [
           "dojo-root",
+          "niri-compositor",
           "dojo-cua-primitives",
           "cua-driver-private",
           "cua-driver-whole",
@@ -405191,21 +405968,32 @@
         "normal_build_units": []
       },
       {
-        "id": "registry+https://github.com/rust-lang/crates.io-index#accesskit_unix@0.22.1",
+        "id": "path+repo:///vendor/accesskit-unix#accesskit_unix@0.22.1",
         "name": "accesskit_unix",
         "version": "0.22.1",
-        "source": "registry+https://github.com/rust-lang/crates.io-index",
-        "local_manifest": null,
+        "source": null,
+        "local_manifest": "vendor/accesskit-unix/Cargo.toml",
         "manifest_sha256": "2f1bb12679396e02bed65a1e51bba2375f639cdbceb3773b5226f7dc8f3b9818",
         "license": "MIT OR Apache-2.0",
         "license_file": null,
         "rust_version": "1.85",
         "edition": "2024",
-        "license_evidence": [],
+        "license_evidence": [
+          {
+            "path": "LICENSE-APACHE",
+            "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+            "bytes": 9723
+          },
+          {
+            "path": "LICENSE-MIT",
+            "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+            "bytes": 1023
+          }
+        ],
         "source_copyright_evidence": [
           {
             "path": "src/lib.rs",
-            "sha256": "4416ce59366d321c3dbd29a1054c3ad6c426168c97f7b237ff3e818de6c3168c",
+            "sha256": "c879cc6156df7456de7ba20f42c521f3794551b1daa882bfe144940ddfccd870",
             "matches": [
               {
                 "line": 1,
@@ -409269,6 +410057,7 @@
           "dojo-agent-setup",
           "dojo-icon-cache",
           "dojo-computer-recording",
+          "dojo-external-admission",
           "dojo-cua-worker"
         ],
         "normal_build_units": [
@@ -410160,6 +410949,7 @@
         ],
         "normal_build_units": [
           "dojo-root",
+          "niri-compositor",
           "dojo-cua-primitives",
           "cua-driver-private",
           "cua-driver-whole",
@@ -410258,6 +411048,7 @@
         ],
         "normal_build_units": [
           "dojo-root",
+          "niri-compositor",
           "dojo-cua-primitives",
           "cua-sdk-whole",
           "dojo-computer",
@@ -415173,6 +415964,7 @@
         ],
         "normal_build_units": [
           "dojo-root",
+          "niri-compositor",
           "dojo-cua-primitives",
           "cua-sdk-whole",
           "dojo-computer",
@@ -416106,10 +416898,12 @@
         "source_copyright_evidence": [],
         "normal_build_active": true,
         "units": [
+          "dojo-root",
           "niri-compositor",
           "dojo-browser-control"
         ],
         "normal_build_units": [
+          "dojo-root",
           "niri-compositor",
           "dojo-browser-control"
         ]
@@ -416345,7 +417139,7 @@
         "version": "0.1.0",
         "source": null,
         "local_manifest": "crates/dojo-external-admission/Cargo.toml",
-        "manifest_sha256": "96cbaa6103edc2a648864dd263b813a2a4de4525f5a6d1cfa12ad64c63ec7833",
+        "manifest_sha256": "98e4f141b685e2120db112c387264c18b8c615dbd2aae1676f0fda432f641bc2",
         "license": "MIT",
         "license_file": null,
         "rust_version": null,
@@ -416366,6 +417160,7 @@
         ],
         "normal_build_units": [
           "dojo-root",
+          "niri-compositor",
           "dojo-external-admission"
         ]
       },
@@ -416429,7 +417224,7 @@
         "version": "0.1.0",
         "source": null,
         "local_manifest": "Cargo.toml",
-        "manifest_sha256": "bf795b13951d58fe0ee2122ff1a59269556aeba18edcceb4d191f7aeb903cb15",
+        "manifest_sha256": "5d8c6393e8760e22539c14b1d7486375da0fbc7b60a870f7357ea7f07e054d0f",
         "license": null,
         "license_file": null,
         "rust_version": null,
@@ -417313,6 +418108,7 @@
           "dojo-accessibility",
           "dojo-agent-setup",
           "dojo-icon-cache",
+          "dojo-external-admission",
           "dojo-cua-worker"
         ],
         "normal_build_units": [
@@ -417733,6 +418529,7 @@
           "dojo-agent-setup",
           "dojo-icon-cache",
           "dojo-computer-recording",
+          "dojo-external-admission",
           "dojo-cua-worker"
         ],
         "normal_build_units": [
@@ -420132,6 +420929,7 @@
         ],
         "normal_build_units": [
           "dojo-root",
+          "niri-compositor",
           "dojo-cua-primitives",
           "cua-driver-private",
           "cua-driver-whole",
@@ -420249,6 +421047,7 @@
           "dojo-accessibility",
           "dojo-agent-setup",
           "dojo-icon-cache",
+          "dojo-external-admission",
           "dojo-cua-worker"
         ],
         "normal_build_units": [
@@ -421006,7 +421805,7 @@
         "version": "0.1.0",
         "source": null,
         "local_manifest": "vendor/zed/crates/gpui_linux/Cargo.toml",
-        "manifest_sha256": "d419e8b98de3a9f42a1b20e2e09c4e0cbf4f4a97f9d77c07a430c90cc0ba58f8",
+        "manifest_sha256": "8d51a73e6d0418f47dda69b98f3a7db4501bf1ff0762777dc884a7b7721b2921",
         "license": "Apache-2.0",
         "license_file": null,
         "rust_version": null,
@@ -422283,6 +423082,7 @@
         ],
         "normal_build_units": [
           "dojo-root",
+          "niri-compositor",
           "dojo-cua-primitives",
           "cua-sdk-whole",
           "dojo-computer",
@@ -422360,6 +423160,7 @@
         ],
         "normal_build_units": [
           "dojo-root",
+          "niri-compositor",
           "dojo-cua-primitives",
           "cua-driver-private",
           "cua-driver-whole",
@@ -425813,6 +426614,7 @@
           "dojo-accessibility",
           "dojo-agent-setup",
           "dojo-icon-cache",
+          "dojo-external-admission",
           "dojo-cua-worker"
         ],
         "normal_build_units": [
@@ -427360,7 +428162,6 @@
         "normal_build_active": true,
         "units": [
           "dojo-root",
-          "niri-compositor",
           "dojo-cua-primitives",
           "dojo-computer",
           "dojo-accessibility"
@@ -427750,7 +428551,7 @@
         "version": "26.4.0",
         "source": null,
         "local_manifest": "vendor/niri/Cargo.toml",
-        "manifest_sha256": "5b2ae24219434c1b60360ae475d297c056df11e3cd6f4578bba23d2020e48e11",
+        "manifest_sha256": "36328a815af8d0ea3a555b75534d36de6d4886515f60d581a7c4fec1fa64b0aa",
         "license": "GPL-3.0-or-later",
         "license_file": null,
         "rust_version": "1.87",
@@ -429028,6 +429829,7 @@
           "dojo-accessibility",
           "dojo-agent-setup",
           "dojo-icon-cache",
+          "dojo-external-admission",
           "dojo-cua-worker"
         ],
         "normal_build_units": [
@@ -431699,6 +432501,7 @@
         ],
         "normal_build_units": [
           "dojo-root",
+          "niri-compositor",
           "dojo-cua-primitives",
           "cua-driver-private",
           "cua-driver-whole",
@@ -433356,6 +434159,7 @@
         ],
         "normal_build_units": [
           "dojo-root",
+          "niri-compositor",
           "dojo-cua-primitives",
           "cua-sdk-whole",
           "dojo-computer",
@@ -433504,6 +434308,7 @@
         ],
         "normal_build_units": [
           "dojo-root",
+          "niri-compositor",
           "dojo-cua-primitives",
           "cua-driver-private",
           "cua-driver-whole",
@@ -433688,6 +434493,7 @@
         ],
         "normal_build_units": [
           "dojo-root",
+          "niri-compositor",
           "dojo-cua-primitives",
           "cua-driver-private",
           "cua-driver-whole",
@@ -435752,6 +436558,7 @@
           "dojo-accessibility",
           "dojo-agent-setup",
           "dojo-icon-cache",
+          "dojo-external-admission",
           "dojo-cua-worker"
         ],
         "normal_build_units": [
@@ -437787,6 +438594,7 @@
         ],
         "normal_build_units": [
           "dojo-root",
+          "niri-compositor",
           "dojo-cua-primitives",
           "cua-driver-private",
           "cua-driver-whole",
@@ -438957,7 +439765,6 @@
         "normal_build_active": true,
         "units": [
           "dojo-root",
-          "niri-compositor",
           "dojo-cua-primitives",
           "cua-sdk-whole",
           "dojo-computer",
@@ -440345,6 +441152,7 @@
           "dojo-capture-wayland",
           "dojo-accessibility",
           "dojo-icon-cache",
+          "dojo-external-admission",
           "dojo-cua-worker"
         ],
         "normal_build_units": [
@@ -441393,7 +442201,6 @@
         "normal_build_active": true,
         "units": [
           "dojo-root",
-          "niri-compositor",
           "dojo-cua-primitives",
           "cua-sdk-whole",
           "dojo-computer",
@@ -441689,7 +442496,6 @@
         "normal_build_active": true,
         "units": [
           "dojo-root",
-          "niri-compositor",
           "dojo-cua-primitives",
           "dojo-computer",
           "dojo-accessibility",
@@ -443049,6 +443855,7 @@
         ],
         "normal_build_units": [
           "dojo-root",
+          "niri-compositor",
           "dojo-cua-primitives",
           "cua-driver-private",
           "cua-driver-whole",
@@ -444752,6 +445559,7 @@
         ],
         "normal_build_units": [
           "dojo-root",
+          "niri-compositor",
           "dojo-cua-primitives",
           "cua-driver-private",
           "cua-driver-whole",

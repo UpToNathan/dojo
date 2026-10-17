@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 project_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+installation="${XDG_DATA_HOME:-$HOME/.local/share}/dojo/niri/current"
+if [[ -f "$installation/environment.sh" ]]; then
+    source "$installation/environment.sh"
+fi
 exec "${DOJO_NODE:-node}" "$project_root/tools/speech/voice.mjs" "$@"

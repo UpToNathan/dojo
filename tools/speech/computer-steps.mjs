@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
-import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { helperBinary } from './helper-binary.mjs';
 
 const text = value => ({ type: 'text', text: JSON.stringify(value) });
 const metadata = result => {
@@ -15,7 +15,7 @@ const MAX_BYTES = 65536;
 export function computerStepPolicy(runtime, input) {
   const bytes = JSON.stringify(input);
   if (Buffer.byteLength(bytes) > MAX_BYTES) return Promise.reject(new Error('Step state exceeds64KiB'));
-  const binary = runtime.config.computerPolicyBinary ?? join(runtime.root, 'target/debug/dojo-computer-verification');
+  const binary = runtime.config.computerPolicyBinary ?? helperBinary(runtime.root, 'dojo-computer-verification');
   return new Promise((resolve, reject) => {
     const child = spawn(binary, [], { stdio: ['pipe', 'pipe', 'pipe'] });
     let size = 0, settled = false; const output = [];
@@ -120,7 +120,7 @@ export async function installComputerSteps(runtime, registry, _ai, { now = () =>
           doc.run = state;
         }, context);
         await runtime.invalidateDesktop?.();
-        return { content: [text({ step_state: state, task_verified: false })] };
+        return { output: [text({ step_state: state, task_verified: false })] };
       },
     }),
     runtime.pi.defineTool({ name: 'computer_steps_observe', description: 'Acquire a fresh server observation for the next bounded step. Select the target using the desktop observation schema. Existing post-action captures cannot substitute for this call.', replay: 'unsafe', executionMode: 'sequential',
@@ -128,17 +128,17 @@ export async function installComputerSteps(runtime, registry, _ai, { now = () =>
       execute: async ({ run_id, observation }, api, context) => {
         // Invalidates a persisted ready capture after restart, and freezes an interrupted effect as unknown.
         let state = await persist(api, context, { kind: 'restart' }, run_id);
-        if (state.phase.kind !== 'observe') { runtime.releaseDesktop?.('Computer step run stopped'); await runtime.invalidateDesktop?.(); return { content: [text({ step_state: state, task_verified: false })], isError: true }; }
+        if (state.phase.kind !== 'observe') { runtime.releaseDesktop?.('Computer step run stopped'); await runtime.invalidateDesktop?.(); return { output: [text({ step_state: state, task_verified: false })], isError: true }; }
         try {
           const result = await desktopCall(runtime, 'desktop_observe', observation, api, context, state, now);
           const value = metadata(result);
           if (result.isError || typeof value.capture_id !== 'string' || !value.capture_id) {
             state = await persist(api, context, { kind: 'cancel' }, run_id);
-            return { content: [...(result.content ?? []), text({ step_state: state, task_verified: false })], isError: true };
+            return { output: [...(result.content ?? []), text({ step_state: state, task_verified: false })], isError: true };
           }
           state = await persist(api, context, { kind: 'observed', capture_id: value.capture_id, observation_id: value.capture_id }, run_id);
           if (state.phase.kind !== 'ready') { runtime.releaseDesktop?.('Computer observation expired'); await runtime.invalidateDesktop?.(); }
-          return { content: [...result.content, text({ step_state: state, task_verified: false })], isError: state.phase.kind !== 'ready' };
+          return { output: [...result.content, text({ step_state: state, task_verified: false })], isError: state.phase.kind !== 'ready' };
         } catch (error) {
           await persist(api, context, { kind: 'cancel' }, run_id).catch(() => {});
           throw error;
@@ -155,7 +155,7 @@ export async function installComputerSteps(runtime, registry, _ai, { now = () =>
         const intent_id = randomUUID();
         let state = await persist(api, context, { kind: 'begin_effect', capture_id: args.capture_id, intent_id,
           action_digest: createHash('sha256').update(encoded).digest('hex') }, run_id);
-        if (state.phase.kind !== 'in_flight') { runtime.releaseDesktop?.('Computer step run stopped'); await runtime.invalidateDesktop?.(); return { content: [text({ step_state: state, task_verified: false })], isError: true }; }
+        if (state.phase.kind !== 'in_flight') { runtime.releaseDesktop?.('Computer step run stopped'); await runtime.invalidateDesktop?.(); return { output: [text({ step_state: state, task_verified: false })], isError: true }; }
         let result;
         try {
           result = await desktopCall(runtime, 'desktop_capture_action', args, api, context, state, now);
@@ -170,7 +170,7 @@ export async function installComputerSteps(runtime, registry, _ai, { now = () =>
           throw error;
         }
         if (state.phase.kind === 'stopped') { runtime.releaseDesktop?.('Computer step run stopped'); await runtime.invalidateDesktop?.(); }
-        return { content: [...(result.content ?? []), text({ step_state: state, task_verified: false })], isError: result.isError || state.phase.kind === 'stopped' };
+        return { output: [...(result.content ?? []), text({ step_state: state, task_verified: false })], isError: result.isError || state.phase.kind === 'stopped' };
       },
     }),
     runtime.pi.defineTool({ name: 'computer_steps_status', description: 'Inspect the completed prefix and any ambiguous effect. Restart recovery retires ready captures and blocks pending effects; this tool sends no desktop input.', replay: 'safe', executionMode: 'sequential', parameters: object({ run_id: runId }),
@@ -178,14 +178,14 @@ export async function installComputerSteps(runtime, registry, _ai, { now = () =>
         await snapshot(api, context, run_id);
         const state = await persist(api, context, { kind: 'restart' }, run_id);
         if (state.phase.kind === 'stopped') { runtime.releaseDesktop?.('Computer step recovery required'); await runtime.invalidateDesktop?.(); }
-        return { content: [text({ step_state: state, task_verified: false })] };
+        return { output: [text({ step_state: state, task_verified: false })] };
       },
     }),
     runtime.pi.defineTool({ name: 'computer_steps_cancel', description: 'Stop the bounded run and release desktop ownership. Any pending effect remains ambiguous; cancellation grants no retry permission.', replay: 'safe', executionMode: 'sequential', parameters: object({ run_id: runId }),
       execute: async ({ run_id }, api, context) => {
         const state = await persist(api, context, { kind: 'cancel' }, run_id);
         runtime.releaseDesktop?.('Computer step run cancelled'); await runtime.invalidateDesktop?.();
-        return { content: [text({ step_state: state, task_verified: false })] };
+        return { output: [text({ step_state: state, task_verified: false })] };
       },
     }),
   ] }));

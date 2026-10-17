@@ -724,6 +724,7 @@ impl Render for Dock {
                     gpui::size(px(width), px(max_height * progress)),
                 ),
                 colors.background.rgb(),
+                colors.border.rgb(),
                 true,
             ))
             .child(

@@ -1,36 +1,36 @@
 # yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
 inputs:
   devenv:
-    url: github:cachix/devenv/c69190c2702bad99474200b6b7a80be86146ae71?dir=src/modules
+    url: github:cachix/devenv/a60ff7da8843686d06b4c6646846024d97138da8?dir=src/modules
   nixpkgs:
-    url: github:cachix/devenv-nixpkgs/c2f38fe7f9e04d9aadd354d380f2bd40531d9737
+    url: github:cachix/devenv-nixpkgs/642a665ccf1535fec825bfb31261dac3af42e7d8
   home-manager:
-    url: github:nix-community/home-manager/dfadbe5162d5e86bc0808badec8f346f81b4b3f0
+    url: github:nix-community/home-manager/c58f54c733a7894d84fa2fdff26cc12088c4b78c
     inputs:
       nixpkgs:
         follows: nixpkgs
   bend:
-    url: github:bendlang/bend/60fa05dc28f847382554dae6ee76cd1b2911bcc3
+    url: github:bendlang/bend/d71f42ee287bd7b9f86b44df44b210ac5eb651bd
     inputs:
       nixpkgs:
         follows: nixpkgs
   zen-browser:
-    url: github:youwen5/zen-browser-flake/0ae74880377f493555038d52edd9c90178e05186
+    url: github:youwen5/zen-browser-flake/458cd16116c362a5e92d5db6bdc3599e4e8b1f4a
     inputs:
       nixpkgs:
         follows: nixpkgs
   rush:
-    url: github:rockorager/rush/7698fd561e5823a7cd30768734f5450aafbd0433
+    url: github:rockorager/rush/4c35a0819d0749a0e4c17928d4fe7983f6ba0d18
     inputs:
       nixpkgs:
         follows: nixpkgs
   clipvault:
-    url: github:Rolv-Apneseth/clipvault/3332dd0287fc10727b2b081cdc2d3dd785ae999b
+    url: github:Rolv-Apneseth/clipvault/dc6726899d0355327e93571f178c7338f9d65b40
     inputs:
       nixpkgs:
         follows: nixpkgs
   stasis:
-    url: github:saltnpepper97/stasis/99b9e9676e464ac03e224bcdfde34aa1a41cb547
+    url: github:saltnpepper97/stasis/698d9c802e54b8cd7de3dce67f33e4a2d91814bc
     inputs:
       nixpkgs:
         follows: nixpkgs
@@ -45,12 +45,12 @@ inputs:
       nixpkgs:
         follows: nixpkgs
   opencode:
-    url: github:anomalyco/opencode/9b4ec5714d481559990db0a816d5dec19541a814
+    url: github:anomalyco/opencode/ae8d59f8b56c8034623d36ec514f9d9d4dc7cd5a
     inputs:
       nixpkgs:
         follows: nixpkgs
   pi:
-    url: github:earendil-works/pi/abe508e1b89912adde45528136c3221eb69acdd7
+    url: github:earendil-works/pi/9a3ca68bda4db67efc506ec114bffe64635e8569
     inputs:
       nixpkgs:
         follows: nixpkgs

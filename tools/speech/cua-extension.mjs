@@ -72,7 +72,7 @@ export async function openCuaExtension(runtime) {
     execute: async (args, _api, context) => {
       const client = await clientFor(context.abortSignal);
       const result = await client.call('tools/call', {name: tool.name, arguments: args}, {signal: context.abortSignal});
-      return {content: result.content, isError: result.isError ?? false};
+      return {output: result.content, isError: result.isError ?? false};
     },
   }))});
 }

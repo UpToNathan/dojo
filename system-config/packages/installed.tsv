@@ -63,6 +63,8 @@ fuse-common	3.18.3-1
 fuse3	3.18.3-1
 gawk	5.4.1-1
 gcc-libs	16.2.1+r23+gd564253eb6c8-1
+gcr	3.41.2-2
+gcr-4	4.4.1-1
 gdbm	1.26-2
 gdk-pixbuf2	2.44.8-1
 gettext	1.0-2
@@ -72,6 +74,7 @@ glib2	2.90.1-1
 glibc	2.44+r50+g1848099f063e-1
 glycin	2.2.2-1
 gmp	6.3.0-3
+gnome-keyring	1:51.1-1
 gnulib-l10n	20241231-1
 gnupg	2.4.9-3
 gnutls	3.8.13-3
@@ -287,6 +290,7 @@ nspr	4.40-1
 nss	3.131-1
 numactl	2.0.19-1
 openjpeg2	2.5.4-1
+openssh	10.6p1-1
 openssl	3.6.5-1
 opus	1.6.1-1
 p11-kit	0.26.5-1
@@ -348,6 +352,7 @@ tree-sitter-vimdoc	4.1.0-2
 tzdata	2026e-1
 unibilium	2.1.4-1
 upower	1.91.5-1
+usbmuxd	1.1.1-4
 util-linux	2.42.4-1
 util-linux-libs	2.42.4-1
 uwsm	0.27.0-1

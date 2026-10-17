@@ -1,0 +1,35 @@
+--- a/src/client/qwaylandintegration.cpp
++++ b/src/client/qwaylandintegration.cpp
+@@ -68,6 +68,8 @@
+ #include <QtGui/QSurfaceFormat>
+ #include <QtGui/QOpenGLContext>
+ #include <QSocketNotifier>
++#include <QThread>
++#include <QGuiApplication>
+ 
+ #include <qpa/qplatforminputcontextfactory_p.h>
+ #include <qpa/qplatformaccessibility.h>
+@@ -250,6 +252,23 @@
+     }
+     return mAccessibility.data();
+ }
++
++#if QT_CONFIG(accessibility_atspi_bridge)
++extern "C" Q_WAYLAND_CLIENT_EXPORT bool dojo_qt51519_accessibility_connection(QDBusConnection *result)
++{
++    if (!result || QThread::currentThread() != qGuiApp->thread())
++        return false;
++    auto *integration = dynamic_cast<QWaylandIntegration *>(QGuiApplicationPrivate::platformIntegration());
++    if (!integration)
++        return false;
++    auto *bridge = static_cast<QSpiAccessibleBridge *>(integration->accessibility());
++    if (!bridge || !bridge->isActive())
++        return false;
++    *result = bridge->dBusConnection();
++    return result->isConnected() && result->baseService().startsWith(QLatin1Char(':'));
++}
++#endif
++
+ #endif
+ 
+ QPlatformServices *QWaylandIntegration::services() const

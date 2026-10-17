@@ -17,7 +17,8 @@ const metadata = result => {
 
 export class DesktopMcp {
   static async open(root, options = {}) {
-    const child = (options.spawn ?? spawn)(options.command ?? join(root, 'target/debug/dojo-agent'), options.args ?? ['--name', 'dojo-voice'], { cwd: root, env: options.env ?? process.env, stdio: ['pipe', 'pipe', 'inherit'] });
+    const environment = options.env ?? process.env;
+    const child = (options.spawn ?? spawn)(options.command ?? environment.DOJO_SEMANTIC_AGENT_EXE ?? join(root, 'target/debug/dojo-agent'), options.args ?? ['--name', 'dojo-voice'], { cwd: root, env: environment, stdio: ['pipe', 'pipe', 'inherit'] });
     const client = new DesktopMcp(child, options);
     try {
       const initialized = await client.call('initialize', { protocolVersion: DESKTOP_MCP_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'dojo-pi', version: '1' } });
@@ -85,16 +86,48 @@ export class DesktopMcp {
   }
 }
 
+// Some models emit object or array arguments as JSON strings ("{\"kind\":\"invoke\"}"). The tool catalog is strict,
+// so those calls fail validation and the model falls back to unverified low-level input. Repair only top-level
+// properties whose schema permits an object or array but not a string, and only when the text parses to that type.
+const schemaTypes = (schema, root, seen = new Set()) => {
+  if (!schema || typeof schema !== 'object' || seen.has(schema)) return new Set();
+  seen.add(schema);
+  if (typeof schema.$ref === 'string' && schema.$ref.startsWith('#/')) {
+    const target = schema.$ref.slice(2).split('/').reduce((node, key) => node?.[key], root);
+    return schemaTypes(target, root, seen);
+  }
+  const types = new Set(Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : []);
+  if (schema.properties) types.add('object');
+  if (schema.items) types.add('array');
+  for (const branch of [...(schema.oneOf ?? []), ...(schema.anyOf ?? []), ...(schema.allOf ?? [])]) for (const type of schemaTypes(branch, root, seen)) types.add(type);
+  return types;
+};
+export function repairStructuredArguments(schema, args) {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return args;
+  let repaired;
+  for (const [key, value] of Object.entries(args)) {
+    if (typeof value !== 'string') continue;
+    const types = schemaTypes(schema?.properties?.[key], schema);
+    if (types.has('string') || types.size === 0) continue;
+    const text = value.trim();
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { continue; }
+    const kind = Array.isArray(parsed) ? 'array' : parsed !== null && typeof parsed === 'object' ? 'object' : undefined;
+    if (kind && types.has(kind)) (repaired ??= { ...args })[key] = parsed;
+  }
+  return repaired ?? args;
+}
+
 export async function openDesktopExtension(runtime) {
   const { pi, config } = runtime;
-  runtime.DesktopState = pi.defineDoc({ kind: 'dojo.desktop', version: 1, scope: 'conversation', history: 'latest', fork: 'initial', initial: () => ({ recoveryRequired: true, captureId: null, catalog: null, toolAttempts: 0, externalUnknown: false }) });
+  runtime.DesktopState = pi.defineDoc({ kind: 'dojo.desktop', version: 1, scope: 'conversation', history: 'latest', fork: 'initial', initial: () => ({ recoveryRequired: true, captureId: null, catalog: null, toolAttempts: 0, externalUnknown: false, semanticOperation: null }) });
   const open = config.desktopClientFactory ?? (() => DesktopMcp.open(runtime.root, { timeoutMs: config.desktopTimeoutMs ?? 30000 }));
   runtime.desktop = await open();
   const expandCatalog = async mcp => {
     const tools = mcp.tools;
     if (!tools.some(tool => tool.name === 'desktop_driver_tools')) return tools;
     const result = await mcp.call('tools/call', { name: 'desktop_driver_tools', arguments: {} });
-    if (result.isError) throw new Error('Dojo Driver catalog unavailable');
+    if (result.isError) throw new Error(`Dojo Driver catalog unavailable: ${(result.content ?? []).map(block => block.text).filter(Boolean).join(' ').slice(0, 400)}`);
     const value = metadata(result);
     const driverTools = Array.isArray(value) ? value : value.tools;
     if (!Array.isArray(driverTools)) throw new Error('Invalid Dojo Driver catalog');
@@ -181,7 +214,33 @@ export async function openDesktopExtension(runtime) {
             const state = await tx.doc(runtime.DesktopState, api.conversationId); state.recoveryRequired = true; state.captureId = null;
           }, context);
         }
+        if (name === 'desktop_accessibility_action') await api.commit(async tx => {
+          const state = await tx.doc(runtime.DesktopState, api.conversationId);
+          state.externalUnknown = true; state.semanticOperation = 'in_flight';
+        }, context);
         const result = await mcp.call('tools/call', { name: driverNames.has(name) ? 'desktop_driver_call' : name, arguments: driverNames.has(name) ? { name: driverNames.get(name), arguments: args } : args }, { signal });
+        if (name === 'desktop_accessibility_action' && !result.isError) {
+          const receipt = metadata(result);
+          await api.commit(async tx => {
+            const state = await tx.doc(runtime.DesktopState, api.conversationId);
+            if (['acknowledged', 'rejected', 'refused'].includes(receipt.effect)
+                || (receipt.effect === 'unknown' && ['acknowledged', 'rejected'].includes(receipt.late_terminal))) {
+              state.externalUnknown = false; state.semanticOperation = null;
+            } else if (receipt.effect === 'unknown' && typeof receipt.operation_id === 'string') {
+              state.semanticOperation = receipt.operation_id;
+            }
+          }, context);
+        }
+        if (name === 'desktop_accessibility' && !result.isError) {
+          const receipts = metadata(result).semantic_receipts;
+          if (Array.isArray(receipts)) await api.commit(async tx => {
+            const state = await tx.doc(runtime.DesktopState, api.conversationId);
+            if (receipts.some(receipt => receipt.operation_id === state.semanticOperation
+                && ['acknowledged', 'rejected'].includes(receipt.late_terminal))) {
+              state.externalUnknown = false; state.semanticOperation = null;
+            }
+          }, context);
+        }
         if ((name === 'desktop_observe' || name === 'desktop_capture_action') && !result.isError) {
           const value = metadata(result);
           const captureId = name === 'desktop_observe' ? value.capture_id : value.post_observation?.capture_id;
@@ -209,6 +268,10 @@ export async function openDesktopExtension(runtime) {
   return pi.defineExtension({ name: 'dojo-desktop', tools: catalog.map(tool => pi.defineTool({
     name: tool.name, description: tool.description ?? tool.name, parameters: tool.inputSchema,
     replay: desktopReplay(tool.name), executionMode: 'sequential',
-    execute: (args, api, context) => runtime.executeDesktopTool(tool.name, args, api, context),
+    prepareArguments: args => repairStructuredArguments(tool.inputSchema, args),
+    execute: async (args, api, context) => {
+      const result = await runtime.executeDesktopTool(tool.name, args, api, context);
+      return { output: result.content, isError: result.isError };
+    },
   })) });
 }

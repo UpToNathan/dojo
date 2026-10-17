@@ -79,6 +79,11 @@ pub enum Request {
     Workspaces,
     /// Request information about open windows.
     Windows,
+    /// Inspect the accessibility endpoint announced by this exact native surface.
+    AccessibilityTarget {
+        /// Exact mapped window identity.
+        window_id: u64,
+    },
     /// Capture one named output and its rendered window placements in one operation.
     CaptureScene {
         /// Exact output connector name.
@@ -185,6 +190,8 @@ pub enum Response {
     Workspaces(Vec<Workspace>),
     /// Information about open windows.
     Windows(Vec<Window>),
+    /// Native surface identity and its optional toolkit accessibility endpoint.
+    AccessibilityTarget(AccessibilityTarget),
     /// Information about layer-shell surfaces.
     Layers(Vec<LayerSurface>),
     /// Information about the keyboard layout.
@@ -2401,5 +2408,66 @@ mod tests {
         );
         assert!("-".parse::<PositionChange>().is_err());
         assert!("10% ".parse::<PositionChange>().is_err());
+    }
+}
+
+/// Application-provided AT-SPI endpoint attached to one exact native surface.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct AccessibilityEndpoint {
+    /// Unique name on the accessibility bus. Readers must verify owner credentials.
+    pub bus_name: String,
+    /// AT-SPI object representing this top-level surface.
+    pub object_path: String,
+}
+
+/// Read-only evidence. This structure never authorizes semantic effects.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct AccessibilityTarget {
+    /// Current mapped window identity.
+    pub window_id: u64,
+    /// PID of the native Wayland connection, when introspectable.
+    pub pid: Option<i32>,
+    /// Changes when the toolkit replaces or retires this surface's annotation.
+    pub generation: u64,
+    /// Generation of the generic surface annotation.
+    #[serde(default)]
+    pub annotation_generation: u64,
+    /// Native admission snapshot; does not grant ownership.
+    #[serde(default)]
+    pub coordination_revision: u64,
+    /// Advances on native human activity and attempted agent input or semantic dispatch.
+    #[serde(default)]
+    pub input_generation: u64,
+    /// Absent when the client has not announced an accessibility endpoint.
+    pub endpoint: Option<AccessibilityEndpoint>,
+}
+
+#[cfg(test)]
+mod accessibility_tests {
+    use super::*;
+
+    #[test]
+    fn target_wire_keeps_exact_window_and_explicit_absent_endpoint() {
+        let request: Request =
+            serde_json::from_str(r#"{"AccessibilityTarget":{"window_id":42}}"#).unwrap();
+        assert!(matches!(
+            request,
+            Request::AccessibilityTarget { window_id: 42 }
+        ));
+        let target = AccessibilityTarget {
+            window_id: 42,
+            pid: Some(123),
+            generation: 8,
+            annotation_generation: 0,
+            coordination_revision: 0,
+            input_generation: 0,
+            endpoint: None,
+        };
+        assert_eq!(
+            serde_json::to_value(Response::AccessibilityTarget(target)).unwrap(),
+            serde_json::json!({"AccessibilityTarget": {"window_id": 42, "pid": 123, "generation": 8, "annotation_generation": 0, "coordination_revision": 0, "input_generation": 0, "endpoint": null}})
+        );
     }
 }

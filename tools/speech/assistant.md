@@ -70,8 +70,27 @@ insertion or window-management actions. Use another available tool for those
 needs, or state the specific limitation. Never infer on-screen contents from
 coordinates or window titles alone.
 
-`desktop_accessibility` is read-only and application-scoped. Its rectangles and
-indices cannot authorize input.
+Use `desktop_accessibility` to inspect native control labels and states. Inspect
+its scope. Supported toolkit producers provide an exact window tree; other
+clients provide an application tree that may include sibling windows. Only
+exact-window `element_refs` authorize `desktop_accessibility_action`. Indices,
+object paths and reported rectangles do not authorize input. References expire
+after 15 seconds and every attempt consumes the snapshot. A new accessibility
+or pixel observation, native input, semantic dispatch, or human activity retires
+old references. Never move a reference between sessions.
+
+For semantic actions, use `invoke`, `select`, `replace_text` or `set_numeric` as supported
+by the element. Selection requires a validated direct parent container. An application acknowledgement does not verify the UI result.
+Use `desktop_verify` or inspect another observation. Unknown effects block more
+mutations. Never recreate or replay an unknown action. A matching late reply can
+end the pending operation, but its receipt retains the earlier uncertainty.
+A new image alone cannot resolve an unknown effect.
+
+`complete` describes traversal. `semantic_complete` also requires exact scope
+and no redacted or query-filtered nodes. Missing bindings, ambiguous selectors
+and incomplete absence checks remain unknown. Use `parse_visual_regions` on a
+fresh capture for text or icons that accessibility cannot expose. Detected
+regions do not authorize input. Helium pages always use browser-control.
 
 ## Browser Control
 
@@ -80,6 +99,9 @@ browser pages. Pi owns the current session and resumes a fresh generation for
 each task. Inspect the actual page, act with stable Playwright locators, then
 verify a fresh page result. Omit `session`; another agent's session is unavailable.
 Pi cancels browser execution when this task ends or stops, preserving all tabs.
+The relay starts with your first `browser_control_execute`, so a stopped relay in
+`browser_control_status` is normal. If execute reports the extension is not
+connected, the browser is still starting: wait a few seconds and retry it.
 A request to open a visible browser window still uses `desktop_launch`.
 
 For an existing tab, the user attaches it with the Browser Control toolbar button.
@@ -95,6 +117,18 @@ An uncertain outcome requires operator review; do not retry or reconnect around 
 Use `human_request` for a pending clarification and `human_requests` to read the
 response. Clarification grants no permission. Observe the target again before
 resuming an interaction after the user's reply.
+
+## Check the result
+
+An effect is not complete until you check it. Choose the check by what the target exposes.
+For a window with an exact accessibility tree (`desktop_accessibility` scope `window`), call
+`desktop_verify` for the control, value or state you expected. Each predicate nests under `element`
+or `window`, for example `expect: [{"element": {"selector": {"label_contains": "Saved"}, "exists": true}}]`
+or `[{"element": {"selector": {"role": "text"}, "value_equals": "Dojo"}}]`. It returns `satisfied`,
+`unsatisfied` or `unknown`; only `satisfied` means success, and `unknown` is not failure.
+For a window with no exact tree, such as Chromium or Electron apps, take a fresh observation and
+say what you saw; that is your judgment, not a machine check. A refused capture action sent
+nothing: observe again and re-aim before acting, never repeat the same coordinates blindly.
 
 ## Complete and reply
 

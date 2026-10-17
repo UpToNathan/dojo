@@ -18,8 +18,10 @@ test('desktop connection pins MCP protocol and refuses a negotiated downgrade', 
     return { child, requests };
   };
   const accepted = make(DESKTOP_MCP_PROTOCOL_VERSION);
-  const client = await DesktopMcp.open('/fixture', { spawn: () => accepted.child, timeoutMs: 100, killGraceMs: 1 });
+  let executable;
+  const client = await DesktopMcp.open('/fixture', { env: { DOJO_SEMANTIC_AGENT_EXE: '/nix/store/pinned-dojo-agent' }, spawn: command => { executable = command; return accepted.child; }, timeoutMs: 100, killGraceMs: 1 });
   t.after(() => client.close());
+  assert.equal(executable, '/nix/store/pinned-dojo-agent');
   assert.equal(accepted.requests[0].params.protocolVersion, '2025-06-18');
   const downgraded = make('2024-11-05');
   await assert.rejects(DesktopMcp.open('/fixture', { spawn: () => downgraded.child, timeoutMs: 100, killGraceMs: 1 }), /protocol version mismatch/);
@@ -37,7 +39,7 @@ function transport(t, options = {}) {
 
 test('explicit replay allowlist ignores mutations and unknown future tools', () => {
   for (const name of ['list_windows', 'get_screen_size', 'list_apps', 'parse_visual_regions', 'desktop_context', 'desktop_screenshot', 'desktop_observe', 'desktop_verify', 'desktop_decode_model', 'desktop_accessibility']) assert.equal(desktopReplay(name), 'safe');
-  for (const name of ['desktop_action', 'desktop_capture_action', 'desktop_launch', 'desktop_release', 'desktop_feedback', 'future_read']) assert.equal(desktopReplay(name), 'unsafe');
+  for (const name of ['desktop_action', 'desktop_accessibility_action', 'desktop_capture_action', 'desktop_launch', 'desktop_release', 'desktop_feedback', 'future_read']) assert.equal(desktopReplay(name), 'unsafe');
 });
 
 test('MCP timeout rejects every pending promise, ignores late replies and escalates termination', async t => {
@@ -94,4 +96,28 @@ test('browser request abort cancels one RPC after retirement without closing oth
   assert.deepEqual(await next, { content: [] });
   child.stdout.write('{"id":1,"result":{"content":[]}}\n');
   assert.equal(client.closed, false);
+});
+
+test('stringified object and array arguments are repaired only where the schema allows them', async () => {
+  const { repairStructuredArguments } = await import('./desktop-extension.mjs');
+  const schema = {
+    type: 'object',
+    properties: {
+      element_ref: { type: 'string' },
+      note: { type: 'string' },
+      action: { $ref: '#/$defs/Action' },
+      expect: { type: 'array', items: { type: 'object' } },
+      region: { anyOf: [{ type: 'object', properties: { x: { type: 'number' } } }, { type: 'null' }] },
+    },
+    $defs: { Action: { oneOf: [{ type: 'object', properties: { kind: { const: 'invoke' } } }, { type: 'object', properties: { kind: { const: 'select' } } }] } },
+  };
+  const repaired = repairStructuredArguments(schema, { element_ref: 'a:1', action: '{"kind":"invoke"}', expect: ' [{"window":{"exists":true}}] ', region: '{"x":1}' });
+  assert.deepEqual(repaired, { element_ref: 'a:1', action: { kind: 'invoke' }, expect: [{ window: { exists: true } }], region: { x: 1 } });
+  // A string-typed property keeps JSON-looking text; wrong shapes, invalid JSON, scalars and unknown keys are untouched.
+  const untouched = { note: '{"kind":"invoke"}', action: '[1]', expect: '{"a":1}', region: 'not json', element_ref: '7', extra: '{"a":1}' };
+  assert.equal(repairStructuredArguments(schema, untouched), untouched);
+  const valid = { action: { kind: 'invoke' } };
+  assert.equal(repairStructuredArguments(schema, valid), valid);
+  assert.equal(repairStructuredArguments(schema, null), null);
+  assert.deepEqual(repairStructuredArguments(schema, ['x']), ['x']);
 });

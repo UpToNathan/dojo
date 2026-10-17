@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {existsSync} from 'node:fs';
 import {mkdtemp, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -8,6 +9,9 @@ import {fauxProvider, fauxAssistantMessage, fauxToolCall} from '@earendil-works/
 import {MemoryStorage} from '@earendil-works/pi-durable';
 import {PiRuntime} from './pi-runtime.mjs';
 import {openCuaExtension, cuaResourceTool} from './cua-extension.mjs';
+
+const builtCua = join(process.cwd(), 'vendor/cua/upstream/libs/cua/target/debug/cua');
+const realCua = process.env.DOJO_TEST_CUA_BINARY ?? (existsSync(builtCua) ? builtCua : undefined);
 
 const schema = {type:'object',additionalProperties:false,properties:{image:{type:'string'}},required:['image']};
 test('Pi calls the copied server contract with original arguments and retains multimodal results', async t => {
@@ -62,7 +66,7 @@ test('original schemas stay intact and every guest operation is protected agains
   assert.deepEqual(extension.tools.map(tool=>tool.name),['cua_sandbox_list','cua_computer_screenshot','cua_skills_list','cua_list_spaces']);
  });
 
-test('Pi executes list_spaces through the real copied CUA CLI', {skip: !process.env.DOJO_TEST_CUA_BINARY}, async t => {
+test('Pi executes list_spaces through the real copied CUA CLI', {skip: !realCua}, async t => {
   const stateDir=await mkdtemp(join(tmpdir(),'dojo-cua-real-pi-'));
   const faux=fauxProvider({models:[{id:'test',contextWindow:200000}]});
   const models=createModels(); models.setProvider(faux.provider);
@@ -75,7 +79,7 @@ test('Pi executes list_spaces through the real copied CUA CLI', {skip: !process.
     async append(record){records.push(record);},async readyView(){return '<chat>\n</chat>';},
     async zoom(){return 'original';},async date(){return '2026-01-01';},
   },config:{storage:new MemoryStorage(),models,provider:'faux',model:'test',instructions:'fixed',browserTools:false,
-    desktopTools:false,cuaTools:true,cuaBinary:process.env.DOJO_TEST_CUA_BINARY}});
+    desktopTools:false,cuaTools:true,cuaBinary:realCua}});
   t.after(async()=>{await runtime.close();await rm(stateDir,{recursive:true,force:true});});
   assert.ok(runtime.cua.tools.some(tool=>tool.name==='list_spaces'));
   await runtime.submit('List spaces');

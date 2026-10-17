@@ -80,12 +80,12 @@ export async function openBrowserExtension(runtime) {
       if (signal?.aborted) throw new Error('Browser task is stopped');
       if (tool.name === 'execute_cancel') {
         const receipt = await runtime.finishBrowserInput() ?? { nativeRetired: true, unknownCommandIds: [], active: false };
-        return { content: [{ type: 'text', text: JSON.stringify(receipt) }], isError: receipt.isError ?? false };
+        return { output: [{ type: 'text', text: JSON.stringify(receipt) }], isError: receipt.isError ?? false };
       }
       // A task gets one generation. Models cannot resume a retired task or select another client's session.
       if (args.session !== undefined || tool.name === 'session_new') throw new Error('Pi owns one browser session per agent; use its current session');
       if (!safe.has(tool.name)) await ensureActive(api, context);
-      if (tool.name === 'session_resume') return { content: [{ type: 'text', text: 'Current task browser generation is active.' }] };
+      if (tool.name === 'session_resume') return { output: [{ type: 'text', text: 'Current task browser generation is active.' }] };
       await api.commit(async tx => {
         const state = await tx.doc(runtime.BrowserState, api.conversationId);
         if (!Number.isSafeInteger(state.toolAttempts) || state.toolAttempts < 0) throw new Error('Invalid browser tool budget state');
@@ -100,7 +100,12 @@ export async function openBrowserExtension(runtime) {
         const result = await call(tool.name, args, { signal: requestAbort.signal, closeOnAbort: false });
         const receipt = metadata(result);
         if (receipt.effect === 'unknown' || (receipt.unknownCommandIds?.length ?? 0) > 0) await saveUncertainty();
-        return { content: result.content, isError: result.isError ?? false };
+        // Status only reads the relay, which starts on the first session_resume. A stopped relay is the normal
+        // idle state, not a failure; reported as an error it sent the model to desktop input instead.
+        if (tool.name === 'status' && result.isError && /relay is not reachable/i.test(JSON.stringify(result.content))) {
+          return { output: [{ type: 'text', text: 'The Browser Control relay is not running yet. It starts with the first browser_control_execute; if that reports the extension is not connected, the browser is still starting, so wait a few seconds and try again.' }], isError: false };
+        }
+        return { output: result.content, isError: result.isError ?? false };
       } catch (error) {
         if (!signal?.aborted && !safe.has(tool.name)) await saveUncertainty();
         throw error;

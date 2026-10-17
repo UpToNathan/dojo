@@ -703,6 +703,7 @@ impl Render for Dock {
             .child(crate::design::shell_extension(
                 bounds,
                 colors.background.rgb(),
+                colors.border.rgb(),
                 true,
             ))
             .child(

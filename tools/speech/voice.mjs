@@ -7,8 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { dataDir, readJson, saveJson } from './voice-state.mjs';
+import { helperBinary } from './helper-binary.mjs';
 import { MemoryStore } from './memory.mjs';
 import { PiRuntime } from './pi-runtime.mjs';
+import { validateOpenCodeKey } from './sign-in.mjs';
+import { subscriptionProvider } from './providers.mjs';
 
 const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const runtimeDir = process.env.XDG_RUNTIME_DIR;
@@ -56,6 +59,10 @@ export class VoiceService {
   sentTimer;
   closing = false;
   memory;
+  loginFlows = new Map();
+  loginStatus = null;
+  validateOpenCodeKey = validateOpenCodeKey;
+  oauthProvider = subscriptionProvider;
   idleSeconds = Number(process.env.DOJO_VOICE_IDLE_SECONDS || 0);
   onIdle = async () => {};
 
@@ -102,12 +109,18 @@ export class VoiceService {
   }
 
   async start() {
+    const started = performance.now(), marks = [];
+    const mark = name => marks.push(`${name} ${Math.round(performance.now() - started)}`);
     this.state = await readJson(statePath, { version: 1, activeThreadId: null, chats: [], seenMessages: [] });
     this.config = await readJson(join(dataDir, 'config.json'), {});
+    // The model takes a few seconds to load, so it loads while the agent runtime starts.
+    this.ensureSpeechWorker();
     this.memory = await MemoryStore.open(join(dataDir, 'memory-v2'));
+    mark('memory');
     this.runtime = await PiRuntime.open({ stateDir: join(dataDir, 'pi'), root, memory: this.memory,
-      config: { model: this.config.pi?.provider === 'anthropic' ? 'claude-haiku-5-5' : this.config.modelSelection?.model || this.state.memoryModelSelection?.model || 'gpt-6-luna', ...this.config.pi },
+      config: { legacyModel: this.config.model, ...this.config.pi, modelSelection: this.config.modelSelection },
       onEvent: event => { if (!this.closing) this.enqueue(() => this.runtimeEvent(event)).catch(error => this.failure(error)); } });
+    mark('runtime');
     this.state.piConversationId = String(this.runtime.id);
     let chat = this.state.chats.find(item => item.threadId === this.state.piConversationId);
     if (!chat) { chat = { threadId: this.state.piConversationId, runtime: 'pi', createdAt: new Date().toISOString() }; this.state.chats.push(chat); }
@@ -115,7 +128,7 @@ export class VoiceService {
     this.state.activeThreadId = this.runtime.busy() ? this.state.piConversationId : null;
     this.runtime.resume();
     this.runtime.scheduleCompaction();
-    this.ensureSpeechWorker();
+    console.error(`Voice service start (ms since begin): ${marks.join(', ')}`);
   }
   active() { return this.state.chats.find(chat => chat.threadId === this.state.activeThreadId); }
   save() {
@@ -242,9 +255,11 @@ export class VoiceService {
     if (this.speechWorker) return this.speechWorker;
     const nativeArgs = ['--model', this.config.transcriptionModel || 'parakeet_unified_en', 'serve',
       ...(this.config.microphone ? ['--device', this.config.microphone] : [])];
-    const prepared = process.env.DOJO_VOICE_DEVENV === '1';
-    const child = this.spawnWorker(prepared ? `${root}/target/debug/dojo-speech` : 'devenv',
-      prepared ? nativeArgs : ['shell', '--', `${root}/target/debug/dojo-speech`, ...nativeArgs], {
+    const executable = helperBinary(root, 'dojo-speech');
+    // An installed or pinned worker needs no devenv; only a checkout build does.
+    const prepared = process.env.DOJO_VOICE_DEVENV === '1' || !executable.startsWith(`${root}/target/`);
+    const child = this.spawnWorker(prepared ? executable : 'devenv',
+      prepared ? nativeArgs : ['shell', '--', executable, ...nativeArgs], {
       cwd: root, detached: true, stdio: ['pipe', 'pipe', 'pipe'],
     });
     this.speechWorker = child;
@@ -317,9 +332,137 @@ export class VoiceService {
     await this.settle(true);
     await this.phase('settled');
   }
+  async modelCatalog() {
+    await this.runtime?.reloadAccountCatalog?.();
+    const accounts = this.runtime?.accounts ?? [];
+    const models = this.runtime?.modelRows ?? [];
+    const selected = this.runtime?.selection;
+    const selectedRow = selected && models.find(row => row.account === selected.account && row.model === selected.model);
+    const selectedAccount = selected && accounts.find(account => account.id === selected.account);
+    const selection = selected ? { account: selected.account, model: selected.model,
+      name: selected.name ?? selectedRow?.name ?? selected.model, available: !!selectedRow && !!this.runtime?.selectionAvailable,
+      ...(this.runtime?.selectionReason || selectedAccount?.reason ? { reason: this.runtime.selectionReason ?? selectedAccount.reason } : {}) } : null;
+    return { accounts: accounts.map(({ id, label, state, reason, source, backend }) => ({ id, label, state,
+      ...(reason ? { reason } : {}), ...(source ? { source } : {}), ...(backend ? { backend } : {}) })), models, selection };
+  }
+  async selectModel(command) {
+    await this.runtime?.reloadAccountCatalog?.();
+    const row = this.runtime?.modelRows?.find(row => row.account === command.account && row.model === command.model);
+    if (!row) throw new Error('That model is not currently available.');
+    const selection = { account: row.account, model: row.model, name: row.name };
+    const { summaryModel } = await import('./accounts.mjs');
+    this.config.modelSelection = { account: selection.account, model: selection.model, name: selection.name };
+    await saveJson(join(dataDir, 'config.json'), this.config);
+    await this.runtime.setModelSelection(selection, { available: true, summaryModelId: summaryModel(this.runtime.modelRows, selection) });
+    return this.modelCatalog();
+  }
+  async loginEvent(loginId, event) {
+    // Informational events must not erase the device code the panel is still showing.
+    if (!['info', 'progress'].includes(event.type)) this.loginStatus = { loginId, status: event.type, ...event };
+    let text;
+    if (event.type === 'auth_url') text = `${event.instructions || 'Open this sign-in link:'}\n${event.url}`;
+    else if (event.type === 'device_code') text = `Open ${event.verificationUri} and enter ${event.userCode}.`;
+    else if (event.type === 'prompt') text = event.message || 'Login needs input.';
+    else if (event.type === 'complete') text = `${event.account} sign-in complete.`;
+    else if (event.type === 'signed_out') text = `${event.account} signed out.`;
+    else text = event.message || (event.type === 'failure' ? 'Sign-in failed.' : '');
+    if (text) await this.ui('response', preview(text));
+  }
+  async beginChatGPTLogin(command) {
+    if (!this.runtime?.credentialStore) throw new Error('Dojo agent runtime is not ready.');
+    if ([...this.loginFlows.values()].some(flow => flow.account === 'openai-codex')) throw new Error('A ChatGPT login is already in progress.');
+    const loginId = randomUUID(), controller = new AbortController();
+    const flow = { loginId, account: 'openai-codex', controller, prompt: undefined, method: command.method === 'browser' ? 'browser' : 'device_code' };
+    this.loginFlows.set(loginId, flow);
+    this.loginStatus = { loginId, status: 'starting' };
+    flow.run = (async () => {
+      try {
+        const stateDir = join(dataDir, 'pi');
+        await mkdir(stateDir, { recursive: true, mode: 0o700 });
+        const deviceFile = join(stateDir, 'device-id');
+        let deviceId;
+        try { deviceId = (await readFile(deviceFile, 'utf8')).trim(); }
+        catch (error) { if (error.code !== 'ENOENT') throw error; deviceId = randomUUID(); await writeFile(deviceFile, deviceId, { mode: 0o600 }); }
+        const credential = await this.oauthProvider('openai-codex').auth.oauth.login({
+          signal: controller.signal,
+          notify: event => { void this.loginEvent(loginId, event); },
+          prompt: prompt => {
+            if (prompt.type === 'select') return Promise.resolve(flow.method);
+            return new Promise((resolve, reject) => {
+              const abort = () => { flow.prompt = undefined; reject(new Error('Login cancelled')); };
+              if (controller.signal.aborted) return abort();
+              const onAbort = () => { controller.signal.removeEventListener('abort', onAbort); abort(); };
+              flow.prompt = { resolve: value => { controller.signal.removeEventListener('abort', onAbort); flow.prompt = undefined; resolve(value); }, reject };
+              controller.signal.addEventListener('abort', onAbort, { once: true });
+              void this.loginEvent(loginId, { type: 'prompt', promptType: prompt.type, message: prompt.message, placeholder: prompt.placeholder });
+            });
+          },
+        }, { getDeviceId: () => deviceId, agentName: 'Dojo' });
+        await this.runtime.credentialStore.modify('openai-codex', async () => credential, { signal: controller.signal });
+        await this.runtime.reloadAccountCatalog();
+        await this.loginEvent(loginId, { type: 'complete', account: 'openai-codex' });
+      } catch (error) {
+        const message = controller.signal.aborted ? 'Login cancelled.' : error.message;
+        await this.loginEvent(loginId, { type: 'failure', message });
+      } finally { this.loginFlows.delete(loginId); }
+    })();
+    return { loginId };
+  }
+  /** Public progress of the latest sign-in. Carries the device code and addresses the user must see, never a token or key. */
+  loginProgress() {
+    const { loginId, type, account, userCode, verificationUri, url, instructions, promptType, message } = this.loginStatus ?? {};
+    const active = [...this.loginFlows.values()].some(flow => flow.loginId === loginId);
+    return { status: type ?? this.loginStatus?.status ?? 'idle', active, ...(loginId ? { loginId } : {}), ...(account ? { account } : {}),
+      ...(userCode ? { userCode } : {}), ...(verificationUri ? { verificationUri } : {}), ...(url ? { url } : {}),
+      ...(instructions ? { instructions } : {}), ...(promptType ? { promptType } : {}), ...(message ? { message } : {}) };
+  }
+  async cancelLogin(command) {
+    const flow = this.loginFlows.get(command.loginId);
+    if (!flow) return { cancelled: false };
+    flow.controller.abort();
+    flow.prompt?.reject(new Error('Login cancelled'));
+    return { cancelled: true };
+  }
+  async submitLoginInput(command) {
+    const flow = this.loginFlows.get(command.loginId);
+    if (!flow?.prompt) throw new Error('No login prompt is waiting for input.');
+    if (typeof command.value !== 'string' || !command.value.trim() || command.value.length > 8192) throw new Error('Invalid login input.');
+    flow.prompt.resolve(command.value);
+    return { accepted: true };
+  }
+  async submitOpenCodeKey(command) {
+    if (!this.runtime?.credentialStore) throw new Error('Dojo agent runtime is not ready.');
+    const account = command.account;
+    if (!['opencode-go', 'opencode'].includes(account)) throw new Error('Choose OpenCode Go or OpenCode Zen.');
+    const key = typeof command.key === 'string' ? command.key.trim() : '';
+    if (!key || key.length > 4096) throw new Error('Enter a valid OpenCode API key.');
+    try {
+      await this.validateOpenCodeKey(account, key);
+      await this.runtime.credentialStore.modify(account, async () => ({ type: 'api_key', key }));
+      await this.runtime.reloadAccountCatalog();
+      await this.loginEvent(null, { type: 'complete', account });
+      return { saved: true, account };
+    } catch (error) {
+      const message = error.message.replaceAll(key, '[redacted]');
+      await this.loginEvent(null, { type: 'failure', account, message });
+      throw new Error(message);
+    }
+  }
+  async signOut(command) {
+    if (!['openai-codex', 'openai', 'opencode-go', 'opencode'].includes(command.account)) throw new Error('Unsupported Dojo account.');
+    if (!this.runtime?.credentialStore) throw new Error('Dojo agent runtime is not ready.');
+    const pending = [...this.loginFlows.values()].filter(flow => flow.account === command.account);
+    for (const flow of pending) flow.controller.abort();
+    await Promise.all(pending.map(flow => flow.run));
+    await this.runtime.credentialStore.delete(command.account);
+    await this.runtime.reloadAccountCatalog();
+    await this.loginEvent(null, { type: 'signed_out', account: command.account });
+    return this.modelCatalog();
+  }
+
   async handle(command) {
     console.error(`${new Date().toISOString()} voice command: ${command.action}`);
-    if (!['status', 'history', 'memory-zoom', 'memory-date', 'memory-status'].includes(command.action)) this.touch();
+    if (!['status', 'history', 'memory-zoom', 'memory-date', 'memory-status', 'trace', 'models', 'login-status'].includes(command.action)) this.touch();
     switch (command.action) {
       case 'memory-zoom': if (!this.memory) throw new Error('Dojo memory is disabled.'); return this.memory.zoom(command.id, command.count ?? 1, command.offset ?? 0);
       case 'memory-date': if (!this.memory) throw new Error('Dojo memory is disabled.'); return { date: await this.memory.date(command.id) };
@@ -335,6 +478,17 @@ export class VoiceService {
       case 'send': await this.submit(command.text); return { threadId: this.state.activeThreadId };
       case 'new': await this.newChat(); return {};
       case 'history': return { activeThreadId: this.state.activeThreadId, chats: this.state.chats.map(({threadId,title,status}) => ({threadId,title,status})) };
+      case 'models': return this.modelCatalog();
+      case 'select-model': return this.selectModel(command);
+      case 'begin-chatgpt-login': return this.beginChatGPTLogin(command);
+      case 'login-status': return this.loginProgress();
+      case 'cancel-login': return this.cancelLogin(command);
+      case 'login-input': return this.submitLoginInput(command);
+      case 'submit-opencode-key': return this.submitOpenCodeKey(command);
+      case 'sign-out': return this.signOut(command);
+      case 'trace':
+        if (!this.runtime) throw new Error('Dojo agent runtime is not ready.');
+        return this.runtime.exportDesktopTrace();
       case 'resume': {
         if (String(command.threadId) !== String(this.runtime.id)) throw new Error('Earlier T3 conversations remain available in T3; Dojo now uses its continuous Pi conversation.');
         this.state.activeThreadId = String(this.runtime.id);
@@ -407,11 +561,11 @@ export async function serve(service = new VoiceService()) {
         let command;
         try { command = JSON.parse(buffer.slice(0, buffer.indexOf('\n'))); }
         catch { socket.end('{"error":"Invalid command"}\n'); return; }
-        const operation = ['begin', 'finish', 'toggle', 'cancel', 'controller-begin', 'controller-finish', 'controller-cancel', 'status', 'history'].includes(command.action)
+        const operation = ['begin', 'finish', 'toggle', 'cancel', 'controller-begin', 'controller-finish', 'controller-cancel', 'status', 'history', 'models'].includes(command.action)
           ? service.handle(command)
           : service.enqueue(() => service.handle(command));
         operation.then(result => socket.end(`${JSON.stringify(result)}\n`), async error => {
-          await service.failure(error);
+          if (command.action !== 'trace') await service.failure(error);
           socket.end(`${JSON.stringify({ error: error.message })}\n`);
         });
       });
@@ -431,6 +585,7 @@ async function request(command) {
   try { return JSON.parse(await socketRequest(socketPath, command)); }
   catch (error) {
     if (!['ENOENT', 'ECONNREFUSED'].includes(error.code)) throw error;
+    if (command.action === 'trace') return { error: 'Dojo voice service is not running. No trace was exported.' };
     if (['cancel', 'finish'].includes(command.action)) return {};
     await mkdir(dataDir, { recursive: true, mode: 0o700 });
     const log = await open(join(dataDir, 'voice.log'), 'a', 0o600);
@@ -452,7 +607,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   else {
     const action = process.argv[2] || 'begin';
     const command = { action, ...(action === 'send' ? { text: process.argv.slice(3).join(' ') } : {}),
-      ...(action === 'resume' ? { threadId: process.argv[3] } : {}) };
+      ...(action === 'resume' ? { threadId: process.argv[3] } : {}),
+      ...(action === 'select-model' ? { account: process.argv[3], model: process.argv[4] } : {}),
+      ...(action === 'sign-out' ? { account: process.argv[3] } : {}) };
     if (action === 'begin') await writeFile(heldPath, '', { mode: 0o600 });
     if (['finish', 'cancel'].includes(action)) await unlink(heldPath).catch(error => { if (error.code !== 'ENOENT') throw error; });
     const result = await request(command);

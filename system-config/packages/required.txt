@@ -1,4 +1,6 @@
-# Required by maintained system setup, including the firewalld setup helper.
+# Required by maintained system setup, including the firewalld setup helper and
+# the PAM module that unlocks the keyring at login.
 firewalld
 libimobiledevice
 usbmuxd
+gnome-keyring

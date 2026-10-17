@@ -28,7 +28,8 @@ def main():
     agent = None
     shell_binary = os.environ.get("DOJO_BINARY", str(root / "target/debug/dojo"))
     with open(args.log, "w") as log, open(directory / "shell.log", "w") as shell_log:
-        recorder = subprocess.Popen([str(root / "tools/agent-input/target/debug/dojo-agent-input-fixture")], stdout=log)
+        fixture_binary = os.environ.get("DOJO_FIXTURE_BINARY", str(root / "tools/agent-input/target/debug/dojo-agent-input-fixture"))
+        recorder = subprocess.Popen([fixture_binary], stdout=log)
         try:
             def windows():
                 found = [w for w in query.request("Windows")["Windows"] if w.get("app_id") == "dojo-agent-input-fixture"]

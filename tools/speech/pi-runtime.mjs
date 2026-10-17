@@ -42,17 +42,22 @@ export class PiRuntime {
     const registry = pi.createRegistry(); registry.install(coding.CodingTools);
     await installHumanRequests(runtime, registry, ai);
     const memoryTools = [
-      pi.defineTool({ name: 'zoom', description: 'Open line id+n into its two children; n=1 gives the original message. n must be a power of two and id a multiple of n. Long messages come in pages.', parameters: ai.Type.Object({ id: ai.Type.Integer({ minimum: 0 }), n: ai.Type.Integer({ minimum: 1 }), offset: ai.Type.Optional(ai.Type.Integer({ minimum: 0 })) }), replay: 'safe', execute: args => runtime.zoom(args) }),
-      pi.defineTool({ name: 'date', description: 'The date and time of message id.', parameters: ai.Type.Object({ id: ai.Type.Integer({ minimum: 0 }) }), replay: 'safe', execute: async args => ({ content: [{ type: 'text', text: resultText(await memory.date(args.id)) }] }) }),
+      pi.defineTool({ name: 'zoom', description: 'Open line id+n into its two children; n=1 gives the original message. n must be a power of two and id a multiple of n. Long messages come in pages.', parameters: ai.Type.Object({ id: ai.Type.Integer({ minimum: 0 }), n: ai.Type.Integer({ minimum: 1 }), offset: ai.Type.Optional(ai.Type.Integer({ minimum: 0 })) }), replay: 'safe', execute: async args => ({ output: (await runtime.zoom(args)).content }) }),
+      pi.defineTool({ name: 'date', description: 'The date and time of message id.', parameters: ai.Type.Object({ id: ai.Type.Integer({ minimum: 0 }) }), replay: 'safe', execute: async args => ({ output: [{ type: 'text', text: resultText(await memory.date(args.id)) }] }) }),
     ];
+    // The browser and desktop helpers start independently, so their startup overlaps.
+    const browserOpening = config.browserTools !== false && (config.desktopTools !== false || config.browserClientFactory)
+      ? openBrowserExtension(runtime) : undefined;
+    browserOpening?.catch(() => {});
     try {
       if (config.desktopTools !== false) {
         registry.install(await openDesktopExtension(runtime));
         await installComputerSteps(runtime, registry, ai);
       }
-      if (config.browserTools !== false && (config.desktopTools !== false || config.browserClientFactory)) registry.install(await openBrowserExtension(runtime));
+      if (browserOpening) registry.install(await browserOpening);
       if (config.cuaTools || config.cuaClientFactory) registry.install(await openCuaExtension(runtime));
     } catch (error) {
+      await browserOpening?.catch(() => {});
       await runtime.closeBrowser?.();
       runtime.releaseCua?.('Dojo runtime initialization failed');
       runtime.releaseDesktop?.('Dojo runtime initialization failed');
@@ -74,7 +79,16 @@ export class PiRuntime {
       pi.hook(pi.CompactionTask, { beforeCompact: () => ({ decline: true }) }),
     ] }));
     await mkdir(stateDir, { recursive: true });
-    let models = config.models ?? await (await import('./providers.mjs')).createDojoModels({ stateDir, provider: config.provider ?? 'openai-codex', cacheId: `dojo:${stateDir}`, onPayload: config.onPayload });
+    const prepared = config.models ? undefined
+      : await (await import('./accounts.mjs')).prepareAgentModels({ stateDir, config, cacheId: `dojo:${stateDir}`, credentials: config.credentials });
+    let models = config.models ?? prepared.models;
+    runtime.accounts = prepared?.accounts ?? []; runtime.modelRows = prepared?.rows ?? [];
+    runtime.credentialStore = prepared?.credentials;
+    runtime.selection = prepared ? prepared.selection : { account: config.provider ?? 'openai-codex', model: config.model ?? 'gpt-6.1-sol' };
+    runtime.selectionAvailable = prepared?.selectionAvailable ?? true;
+    runtime.selectionReason = prepared?.selectionReason;
+    runtime.summaryModelId = prepared?.summaryModel;
+    runtime.models = models;
     if (config.desktopModelProfile) models = computerModelBridge(models, runtime, config.desktopModelProfile, foregroundRequestMessages);
     const database = join(stateDir, 'pi.sqlite');
     if (!config.storage) {
@@ -82,7 +96,12 @@ export class PiRuntime {
       await chmod(database, 0o600);
     }
     const storage = config.storage ?? await (await import('@earendil-works/pi-durable/storage/sqlite/node')).openNodeSqliteStorage(database);
-    runtime.agent = { model: { provider: config.provider ?? 'openai-codex', modelId: config.model ?? (config.provider === 'anthropic' ? 'claude-haiku-5-5' : 'gpt-6.1-sol') }, thinkingLevel: config.thinkingLevel ?? (config.provider === 'anthropic' ? 'xhigh' : 'low'), cwd: workspace };
+    const firstAvailable = prepared?.rows?.[0];
+    const runtimeSelection = runtime.selectionAvailable ? runtime.selection : firstAvailable
+      ? { account: firstAvailable.account, model: firstAvailable.model }
+      : { account: config.provider ?? 'openai-codex', model: config.model ?? 'gpt-6.1-sol' };
+    const agentProvider = runtimeSelection.account;
+    runtime.agent = { model: { provider: agentProvider, modelId: runtimeSelection.model }, thinkingLevel: config.thinkingLevel ?? (agentProvider === 'anthropic' ? 'xhigh' : 'low'), cwd: workspace };
     runtime.harness = await pi.Harness.open(storage, { models, registry, env: () => new envModule.NodeExecutionEnv({ cwd: workspace }), settings: { compaction: { enabled: false, backgroundTokens: 0 }, retry: { maxRetries: 0 }, steeringMode: 'all' } }, runtime.context);
     runtime.conversation = await runtime.harness.root(runtime.context, { agent: runtime.agent });
     runtime.id = runtime.conversation.id;
@@ -146,6 +165,8 @@ export class PiRuntime {
           const message = entry.model?.[0];
           const text = textContent(message?.content);
           if (text) { await this.memory.append({ key: `pi:${this.id}:${entry.id}:text`, kind: 'unii', text, date, threadId }); this.onEvent({ type: 'response', text }); }
+          // A failed model call ends the run with an empty reply; say so instead of leaving the user waiting.
+          else if (message?.stopReason === 'error') this.onEvent({ type: 'run', status: 'error', error: message.errorMessage || 'The model request failed.', conversationId: this.id });
           for (const call of message?.content ?? []) if (call.type === 'toolCall') await this.memory.append({ key: `pi:${this.id}:${entry.id}:call:${call.id}`, kind: 'tool', text: `${call.name} ${JSON.stringify(call.arguments)}`, date, threadId });
         } else if (entry.kind === 'pi.tool-result') { appended = true; await this.memory.append({ key: `pi:${this.id}:${entry.id}:result`, kind: 'echo', text: archiveResult(entry.model?.[0]?.content), date, threadId }); }
         await this.conversation.commit(async tx => { (await tx.doc(this.State, this.id)).archiveCursor = entry.id; }, this.context);
@@ -159,6 +180,36 @@ export class PiRuntime {
     this.compaction = this.memory.compact(this.summarize, { shouldStop: () => this.closed }).then(result => {
       if (result?.errors?.length) this.onEvent({ type: 'memory', status: 'error', error: result.errors.map(error => error.message ?? String(error)).join('; ') });
     }).catch(error => this.onEvent({ type: 'memory', status: 'error', error: error.message }));
+  }
+  async reloadAccountCatalog() {
+    if (!this.credentialStore || !this.models?.setProvider) return;
+    const { prepareAgentModels } = await import('./accounts.mjs');
+    const prepared = await prepareAgentModels({ stateDir: this.stateDir, config: { ...this.config, modelSelection: this.selection },
+      cacheId: `dojo:${this.stateDir}`, credentials: this.credentialStore });
+    for (const id of prepared.models.dojoAccounts) {
+      const provider = prepared.models.getProvider(id);
+      if (provider) this.models.setProvider(provider);
+    }
+    this.accounts = prepared.accounts;
+    this.modelRows = prepared.rows;
+    if (!this.selection && prepared.selection) this.selection = prepared.selection;
+    this.selectionAvailable = prepared.selectionAvailable;
+    this.selectionReason = prepared.selectionReason;
+    this.summaryModelId = prepared.summaryModel;
+    if (!this.busy() && this.selectionAvailable) await this.applyModelSelection();
+  }
+  async setModelSelection(selection, { available, reason, summaryModelId } = {}) {
+    this.selection = { account: selection.account, model: selection.model, ...(selection.name ? { name: selection.name } : {}) };
+    this.selectionAvailable = !!available;
+    this.selectionReason = reason;
+    this.summaryModelId = summaryModelId;
+    if (!this.busy() && this.selectionAvailable) await this.applyModelSelection();
+  }
+  async applyModelSelection() {
+    if (!this.selectionAvailable || !this.selection) throw new Error(this.selectionReason || 'Sign in to use Dojo.');
+    if (this.agent?.model?.provider === this.selection.account && this.agent.model.modelId === this.selection.model) return;
+    this.agent = { ...this.agent, model: { provider: this.selection.account, modelId: this.selection.model } };
+    await this.conversation.configure({ model: this.agent.model }, this.context);
   }
   async submit(text, { requestId = randomUUID() } = {}) {
     if (typeof text !== 'string' || !text.trim()) throw new Error('Dojo input must be nonempty text');
@@ -185,6 +236,15 @@ export class PiRuntime {
       return;
     }
     try {
+      if ((!this.selectionAvailable || !this.selection) && await this.credentialStore?.unlock?.()) await this.reloadAccountCatalog();
+      if (!this.selectionAvailable || !this.selection) {
+        const error = new Error(this.selectionReason || 'Sign in to use Dojo.');
+        await this.conversation.commit(async tx => {
+          const item = (await tx.doc(this.State, this.id)).admissions[requestId];
+          if (item?.status === 'pending') { item.status = 'failed'; item.error = error.message; }
+        }, this.context);
+        throw error;
+      }
       await this.mirror();
       const live = await this.harness.snapshot(this.pi.LiveDoc, this.id, this.context);
       if (!admission.steer || !live?.run) {
@@ -197,6 +257,7 @@ export class PiRuntime {
         await this.conversation.reset(undefined, this.context);
       }
       if (this.closed) return;
+      if (!live?.run) await this.applyModelSelection();
       await this.memory.append({ key: `user:${requestId}`, kind: 'user', text: admission.text, date: admission.date, threadId: String(this.id) });
       this.scheduleCompaction();
       const submission = await this.conversation.submit({ type: 'input', content: admission.text, requestId, whenBusy: 'steer' }, this.context);
@@ -221,7 +282,7 @@ export class PiRuntime {
     finally { clearTimeout(timer); this.summaryJobs.delete(job); }
   }
   async runSummary(text, context, job) {
-    const conversation = await this.harness.createConversation({ ownership: { kind: 'ownerless' }, agent: { ...this.agent, model: { provider: this.agent.model.provider, modelId: this.config.summaryModel ?? (this.config.models ? this.agent.model.modelId : this.agent.model.provider === 'anthropic' ? 'claude-haiku-5-5' : 'gpt-6-luna') }, thinkingLevel: this.agent.model.provider === 'anthropic' ? 'xhigh' : 'low' }, init: async (tx, id) => { const state = await tx.doc(this.State, id); state.mode = 'summary'; state.view = context.view ?? '<chat>\n</chat>'; } }, this.context);
+    const conversation = await this.harness.createConversation({ ownership: { kind: 'ownerless' }, agent: { ...this.agent, model: { provider: this.agent.model.provider, modelId: this.config.summaryModel ?? this.summaryModelId ?? this.agent.model.modelId }, thinkingLevel: this.agent.model.provider === 'anthropic' ? 'xhigh' : 'low' }, init: async (tx, id) => { const state = await tx.doc(this.State, id); state.mode = 'summary'; state.view = context.view ?? '<chat>\n</chat>'; } }, this.context);
     job.conversation = conversation;
     if (this.closed || job.cancelled) { await conversation.abort(this.context); throw new Error('Dojo summary cancelled'); }
     let prompt = summaryTask(text, context), shortest;

@@ -1101,6 +1101,7 @@ impl LayoutElement for Mapped {
                 });
             }
 
+            crate::protocols::gtk_shell::configure(toplevel);
             let serial = toplevel.send_configure();
             trace!(?serial, "sending configure");
 

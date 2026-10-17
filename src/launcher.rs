@@ -876,6 +876,7 @@ impl Render for LauncherView {
                     gpui::size(px(width), px(reveal_height * progress)),
                 ),
                 colors.background.rgb(),
+                colors.border.rgb(),
                 false,
             ))
             .child(

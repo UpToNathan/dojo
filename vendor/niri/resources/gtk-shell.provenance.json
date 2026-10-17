@@ -1,0 +1,11 @@
+{
+  "source": "https://github.com/GNOME/gtk",
+  "revision": "7f99ab1a26408b6499a18f353f081e3c0598ea5c",
+  "tag": "4.22.4",
+  "path": "gdk/wayland/protocol/gtk-shell.xml",
+  "sha256": "cc2717ba21182f637843e593f7aa2e543c1d6554a886053f400d81906967659d",
+  "local_changes": [],
+  "license_source": "GTK repository COPYING, same revision; XML has no per-file license notice",
+  "scope": "GTK-specific shell protocol version 7; exact-surface read-only AT-SPI association",
+  "license_sha256": "b7993225104d90ddd8024fd838faf300bea5e83d91203eab98e29512acebd69c"
+}

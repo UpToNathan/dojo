@@ -171,19 +171,28 @@ Build the desktop MCP server:
 devenv shell -- cargo build --bin dojo-agent
 ```
 
-Add a stdio server to your AI client's MCP configuration. Use the absolute path
-to the built executable:
+Add a stdio server to your AI client's MCP configuration. Use the stable launcher
+linked by `scripts/install-niri-fork.sh`:
 
 ```json
 {
   "mcpServers": {
     "dojo-desktop": {
-      "command": "/home/nathan/Dojo/target/debug/dojo-agent",
+      "command": "/home/nathan/.local/bin/dojo-agent",
       "args": ["--name", "assistant"]
     }
   }
 }
 ```
+
+The launcher sources the current Dojo Niri installation's `environment.sh` and
+executes its validated `DOJO_SEMANTIC_AGENT_EXE` pin. An invalid configured pin
+refuses startup. With no pin configured, it uses the checkout's development
+binary; native semantic mutation still requires the compositor's pinned agent.
+Run `scripts/install-voice-config.py` explicitly to create the Codex entry or
+migrate this checkout's old `target/debug/dojo-agent` entry. It preserves other
+settings and existing tool membership while adding launch, screenshot,
+accessibility observation and accessibility action tools. It does not run during installation.
 
 The client must inherit `NIRI_SOCKET` and `XDG_RUNTIME_DIR` from a session
 running the experimental compositor. For a nested session, pass `--socket /path/to/its/niri.sock` in
@@ -261,10 +270,10 @@ A future Pi or voice client can use the same service without MCP. Obtain the
 socket path without starting the service:
 
 ```sh
-target/debug/dojo-agent --print-service-socket
+dojo-agent --print-service-socket
 ```
 
-To launch the service explicitly, run `target/debug/dojo-agent --service`.
+To launch the service explicitly, run `dojo-agent --service`.
 Connect within its startup grace period. The MCP adapter handles launching,
 readiness and reconnecting automatically. Explicit `--socket` selects a Niri
 socket for either command.
@@ -435,9 +444,15 @@ native provider transport and subscription endpoint support remain separate gate
 
 ## CUA-derived capabilities
 
-`desktop_accessibility` returns a bounded application-scoped AT-SPI tree for the
-process owning a Niri window. Password and credential fields are filtered before
-secret getters. Trees contain no actionable refs or exact native-window mapping.
+`desktop_accessibility` returns a bounded AT-SPI tree. GTK7 clients can announce
+their accessibility root on the exact Wayland surface; Niri exposes that binding
+and its generation. The reader proves bus ownership and process generation,
+walks only that root, and rechecks the native target before returning. Other
+clients retain application scope, which may include sibling windows. Check
+`scope` and `window_scoped`. Password and credential fields are filtered before
+secret getters. Neither route returns actionable refs or authoritative bounds.
+`complete` describes traversal. `semantic_complete` additionally requires exact
+window scope, an unfiltered query, and no redacted controls.
 Browser automation uses the pinned anomalyco Browser Control package rather than
 CUA's browser adapters. The `desktop_browser_*` routes were removed. Native
 capture, independent desktop input, AT-SPI and verification remain available.
@@ -445,6 +460,10 @@ See [Browser Control](browser-control.md) for packaging, agent configuration,
 cancellation and the operator's ownership handoff.
 
 `desktop_verify` checks bounded window existence and rendered bounds predicates.
+It also checks native element predicates against available, exactly bound GTK7
+trees. Application trees cannot satisfy window element predicates. Embedded web
+content stays outside native semantic verification. Incomplete walks cannot
+establish absence, and duplicate matching controls remain ambiguous.
 Missing or untrusted element evidence returns unknown. `observe_after=true` on
 `desktop_capture_action` returns a fresh observation with the effect receipt.
 Failure to obtain that image preserves the receipt and never retries input.
@@ -462,7 +481,14 @@ performs backed-up configuration edits and removal preserves edited user content
 Build `dojo-computer-recording` for bounded redacted traces, ATIF export, terminal
 observations, offline processors, and isolated grounding evaluation. Pi's
 `exportDesktopTrace()` projects canonical entries through that Rust codec and
-omits screenshots by default. Export analysis never replays desktop effects.
+omits screenshots by default. It includes Driver, browser-control, perception
+and bounded-step calls, preserves originating Pi intent IDs and textual errors,
+and records verification separately from delivery. A tool error alone does not
+establish refusal or absence of an effect. Export analysis never replays effects.
+
+Run `tools/speech/dojo-voice trace` to export that JSON from the running voice
+agent. This read does not start a daemon, submit a task, reset the conversation,
+or change input ownership. A stopped service reports that no export is available.
 
 [The adoption record](../.scratch/cua-adoption/result.md) identifies pinned sources,
 validation commands, deliberate differences, and remaining deployment and artifact

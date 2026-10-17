@@ -410,10 +410,12 @@ impl State {
             .into_iter()
             .find(|(window, _, _)| window.id().get() == geometry.window_id)
             .ok_or("capture window disappeared")?;
-        if window.credentials().and_then(|c| u32::try_from(c.pid).ok()) != Some(geometry.pid)
-            || (rect.loc.x, rect.loc.y, rect.size.w, rect.size.h) != geometry.rect
+        let actual_pid = window.credentials().and_then(|c| u32::try_from(c.pid).ok());
+        let actual_rect = (rect.loc.x, rect.loc.y, rect.size.w, rect.size.h);
+        if let Some(reason) =
+            capture_window_mismatch(geometry.pid, actual_pid, geometry.rect, actual_rect)
         {
-            return Err("capture window identity or rendered geometry changed".into());
+            return Err(reason);
         }
         Ok(())
     }
@@ -448,6 +450,7 @@ impl State {
     }
 
     fn dispatch_agent(&mut self, agent: &mut AgentSeat, command: AgentInput) -> Result<(), String> {
+        self.semantic_input_activity();
         self.dispatch_agent_targeted(agent, command, None)
     }
 
@@ -1158,6 +1161,26 @@ fn font_pointer_buffer(color: niri_config::Color) -> anyhow::Result<MemoryRender
     ))
 }
 
+/// Explains why a captured window no longer matches the window that is rendered now.
+///
+/// The message keeps the stable `capture window identity or rendered geometry changed` prefix and
+/// appends the compared numbers, so a refusal can be told apart as a real move or resize, a
+/// different client process, or a sub-pixel difference at a fractional output scale.
+fn capture_window_mismatch(
+    expected_pid: u32,
+    actual_pid: Option<u32>,
+    expected_rect: (f64, f64, f64, f64),
+    actual_rect: (f64, f64, f64, f64),
+) -> Option<String> {
+    if actual_pid == Some(expected_pid) && actual_rect == expected_rect {
+        return None;
+    }
+    Some(format!(
+        "capture window identity or rendered geometry changed (pid expected {expected_pid}, \
+         actual {actual_pid:?}; rect expected {expected_rect:?}, actual {actual_rect:?})"
+    ))
+}
+
 #[cfg(test)]
 mod cursor_tests {
     use super::*;
@@ -1210,5 +1233,27 @@ mod cursor_tests {
             .chunks_exact(4)
             .all(|pixel| pixel[..3].iter().all(|channel| *channel <= pixel[3])));
         font_pointer_buffer(color).unwrap();
+    }
+    #[test]
+    fn capture_window_match_has_no_mismatch() {
+        let rect = (80.0, 40.0, 762.0, 962.0);
+        assert_eq!(capture_window_mismatch(7, Some(7), rect, rect), None);
+    }
+
+    #[test]
+    fn capture_window_mismatch_reports_pid_and_rect_numbers() {
+        let expected = (80.0, 40.0, 762.0, 962.0);
+        let moved = (80.0, 41.5, 762.0, 962.0);
+        let message = capture_window_mismatch(7, Some(7), expected, moved).unwrap();
+        assert!(message.starts_with("capture window identity or rendered geometry changed"));
+        assert!(message.contains("41.5"), "{message}");
+        assert!(message.contains("pid expected 7, actual Some(7)"), "{message}");
+        let other = capture_window_mismatch(7, Some(8), expected, expected).unwrap();
+        assert!(other.contains("actual Some(8)"), "{other}");
+        let gone = capture_window_mismatch(7, None, expected, expected).unwrap();
+        assert!(gone.contains("actual None"), "{gone}");
+        // Sub-pixel drift at a fractional output scale is still a refusal, and is now visible.
+        let drift = capture_window_mismatch(7, Some(7), expected, (80.0, 40.0, 762.0 + 1e-9, 962.0)).unwrap();
+        assert!(drift.contains("762.000000001"), "{drift}");
     }
 }

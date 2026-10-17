@@ -1,7 +1,7 @@
 # Dojo agent memory
 
 Dojo runs its desktop agent locally through pinned `pi-durable` and `pi-ai`
-1.1.0 packages. T3 remains available for other work. The speech socket, warm
+1.3.0 packages. T3 remains available for other work. The speech socket, warm
 transcription worker, floating bubbles and desktop input ownership remain the
 entry points. Dependencies are local to `tools/speech`; no global agent settings
 or provider defaults are changed.

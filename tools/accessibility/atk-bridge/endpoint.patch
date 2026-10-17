@@ -1,0 +1,111 @@
+--- a/atk-adaptor/bridge.c
++++ b/atk-adaptor/bridge.c
+@@ -57,6 +57,7 @@
+ SpiBridge *spi_global_app_data = NULL;
+ 
+ static gboolean inited = FALSE;
++static GThread *dojo_bridge_thread = NULL;
+ static gboolean atexit_added = FALSE;
+ 
+ /*---------------------------------------------------------------------------*/
+@@ -1238,6 +1239,7 @@
+     return -1;
+ 
+   inited = TRUE;
++  dojo_bridge_thread = g_thread_self ();
+ 
+   root = atk_get_root ();
+   g_warn_if_fail (root);
+@@ -1405,6 +1407,64 @@
+   inited = FALSE;
+ }
+ 
++
++gboolean
++dojo_atk_bridge_dup_accessible_reference (AtkObject *obj, gchar **owner, gchar **path)
++{
++  DBusMessage *message;
++  DBusMessageIter iter, fields;
++  AtkStateSet *states;
++  const char *bus_name = NULL, *object_path = NULL;
++  gboolean result = FALSE;
++
++  if (!owner || !path)
++    return FALSE;
++  *owner = NULL;
++  *path = NULL;
++  if (!inited || dojo_bridge_thread != g_thread_self () || !ATK_IS_OBJECT (obj) ||
++      !spi_global_app_data || !spi_global_app_data->bus ||
++      !spi_global_register || !spi_global_leasing ||
++      !dbus_connection_get_is_connected (spi_global_app_data->bus))
++    return FALSE;
++
++  states = atk_object_ref_state_set (obj);
++  if (!states)
++    return FALSE;
++  gboolean defunct = atk_state_set_contains_state (states, ATK_STATE_DEFUNCT);
++  g_object_unref (states);
++  if (defunct)
++    return FALSE;
++
++  message = dbus_message_new (DBUS_MESSAGE_TYPE_METHOD_RETURN);
++  if (!message)
++    return FALSE;
++  dbus_message_iter_init_append (message, &iter);
++  spi_object_append_reference (&iter, obj);
++  if (!dbus_message_iter_init (message, &iter) ||
++      dbus_message_iter_get_arg_type (&iter) != DBUS_TYPE_STRUCT)
++    goto out;
++  dbus_message_iter_recurse (&iter, &fields);
++  if (dbus_message_iter_get_arg_type (&fields) != DBUS_TYPE_STRING)
++    goto out;
++  dbus_message_iter_get_basic (&fields, &bus_name);
++  if (!dbus_message_iter_next (&fields) ||
++      dbus_message_iter_get_arg_type (&fields) != DBUS_TYPE_OBJECT_PATH)
++    goto out;
++  dbus_message_iter_get_basic (&fields, &object_path);
++  if (dbus_message_iter_next (&fields) || dbus_message_iter_next (&iter) ||
++      !bus_name || bus_name[0] != ':' || !dbus_validate_bus_name (bus_name, NULL) ||
++      !object_path || !dbus_validate_path (object_path, NULL) ||
++      !g_str_has_prefix (object_path, "/org/a11y/atspi/accessible/") ||
++      !strcmp (object_path, "/org/a11y/atspi/null"))
++    goto out;
++  *owner = g_strdup (bus_name);
++  *path = g_strdup (object_path);
++  result = TRUE;
++out:
++  dbus_message_unref (message);
++  return result;
++}
++
+ /*---------------------------------------------------------------------------*/
+ 
+ static gchar *name_match_tmpl =
+--- a/atk-adaptor/atk-bridge.h
++++ b/atk-adaptor/atk-bridge.h
+@@ -25,6 +25,7 @@
+ #pragma once
+ 
+ #include <glib.h>
++#include <atk/atk.h>
+ 
+ G_BEGIN_DECLS
+ 
+@@ -32,4 +33,6 @@
+ void atk_bridge_adaptor_cleanup (void);
+ void atk_bridge_set_event_context (GMainContext *cnx);
+ 
++gboolean dojo_atk_bridge_dup_accessible_reference (AtkObject *obj, gchar **owner, gchar **path);
++
+ G_END_DECLS
+--- a/atk-adaptor/accessible-register.c
++++ b/atk-adaptor/accessible-register.c
+@@ -290,7 +290,7 @@
+     return g_strdup (spi_register_root_path);
+ 
+   ref = object_to_ref (gobj);
+-  if (!ref)
++  if (!ref || g_hash_table_lookup (reg->ref2ptr, GINT_TO_POINTER (ref)) != gobj)
+     {
+       register_object (reg, gobj);
+       ref = object_to_ref (gobj);

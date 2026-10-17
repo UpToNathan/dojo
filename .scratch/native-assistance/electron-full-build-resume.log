@@ -1,0 +1,4 @@
+✖ Evaluating shell in 186ms (failed)
+  [31m×[0m Failed to create GC root
+[31m   ─▶ [0m[31;1merror:[0m cannot [35;1mconnect[0m to socket at '[35;1m/nix/var/nix/daemon-socket/socket[0m': [35;1mOperation not permitted[0m
+

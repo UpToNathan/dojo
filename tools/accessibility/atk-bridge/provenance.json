@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "source": {
+    "repository": "https://github.com/GNOME/at-spi2-core",
+    "revision": "3a214cddffbf345b8c0d0b17e458abbc5ed851b1",
+    "version": "2.62.1",
+    "archive_sha256": "2a445e4980f3a5cc0c6c2b351d579857e2d904fdf6d655f1f40d1a0a1d568de7"
+  },
+  "license": "LGPL-2.1-or-later",
+  "accessor": "dojo_atk_bridge_dup_accessible_reference",
+  "changes": [
+    "Guard bridge-owned exact ATK reference export by initialization, owning thread, live connection and object state.",
+    "Validate cached object ID against the current registry after bridge reinitialization."
+  ],
+  "files": [
+    {
+      "path": "tools/accessibility/atk-bridge/endpoint.patch",
+      "sha256": "13d1948bbaee9ca4fdd5f150c481630855f91db1acc5fa356ea392b2a5a29797"
+    },
+    {
+      "path": "tools/accessibility/atk-bridge/default.nix",
+      "sha256": "5ce06bc4dc7124a1a2c795afe72810a5bb46a714bfe5a530a48d1643f4c9d428"
+    },
+    {
+      "path": "tools/accessibility/atk-bridge/fixture.c",
+      "sha256": "7a8077c5c02355ef7419f7c607a5404c238084c9d46c147e91af18ba0a5850f3"
+    },
+    {
+      "path": "tools/accessibility/atk-bridge/fixture.nix",
+      "sha256": "a405f281c7025b8d128fc55a60b8dd67fca8e508896aedb152edb6e96da979c4"
+    },
+    {
+      "path": "tools/accessibility/check-atk-endpoint-live.mjs",
+      "sha256": "10dc9988d22267f91e1ca02c1a6d54fe9546415eb9ecad427bd0d6a4081869b6"
+    },
+    {
+      "path": "tools/accessibility/atk-bridge/build.nix",
+      "sha256": "0e1e386fa812fdf4173a5981ce671411de15840180dd5cad8b77e918307b6bd7"
+    },
+    {
+      "path": "tools/accessibility/atk-bridge/fixture-addon.c",
+      "sha256": "94322b8fdbe8e647edc91deefe79de41c7eb901e388cf1eca8c9fd404e49860f"
+    },
+    {
+      "path": "tools/accessibility/atk-bridge/fixture-addon.nix",
+      "sha256": "46e101d88558f1f889fbcf9d397074ee349d2cda42128532fd1cc4d2b5ecd137"
+    }
+  ]
+}

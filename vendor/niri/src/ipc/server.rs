@@ -438,6 +438,17 @@ async fn process(ctx: &ClientCtx, request: Request) -> Reply {
             let windows = state.windows.windows.values().cloned().collect();
             Response::Windows(windows)
         }
+        Request::AccessibilityTarget { window_id } => {
+            let (tx, rx) = async_channel::bounded(1);
+            ctx.event_loop.insert_idle(move |state| {
+                let result = state.accessibility_target(window_id).map(Response::AccessibilityTarget);
+                let _ = tx.try_send(result);
+            });
+            return rx
+                .recv()
+                .await
+                .map_err(|_| "accessibility dispatcher stopped".to_string())?;
+        }
         Request::Layers => {
             let (tx, rx) = async_channel::bounded(1);
             ctx.event_loop.insert_idle(move |state| {

@@ -522,7 +522,7 @@ fn navigate_frame(r: &Navigate) -> anyhow::Result<Vec<u8>> {
     frame.extend(payload.iter().enumerate().map(|(i, b)| b ^ mask[i % 4]));
     Ok(frame)
 }
-pub fn process_start(pid: u32) -> anyhow::Result<u64> {
+pub(crate) fn process_start(pid: u32) -> anyhow::Result<u64> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat"))?;
     let (_, fields) = stat.rsplit_once(')').context("invalid process stat")?;
     let start = fields

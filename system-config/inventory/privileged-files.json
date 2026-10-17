@@ -129,6 +129,10 @@
       "reason": "local-backups-review-on-host"
     },
     {
+      "path": "/etc/xdg/autostart",
+      "reason": "private-requires-separate-provisioning"
+    },
+    {
       "path": "/usr/local/bin",
       "reason": "local-backups-review-on-host"
     }
@@ -495,6 +499,49 @@
       "uid": 0
     },
     {
+      "classification": "repo-managed",
+      "expected_mode": "0644",
+      "gid": 0,
+      "installation": "copy",
+      "mode": "0644",
+      "path": "/etc/pam.d/dojo-lock-fingerprint",
+      "source": "system-config/pam.d/dojo-lock-fingerprint",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "classification": "repo-managed",
+      "expected_mode": "0644",
+      "gid": 0,
+      "installation": "copy",
+      "mode": "0644",
+      "path": "/etc/pam.d/dojo-lock-password",
+      "source": "system-config/pam.d/dojo-lock-password",
+      "type": "file",
+      "uid": 0
+    },
+    {
+      "backup_status": "modified",
+      "classification": "repo-managed",
+      "gid": 0,
+      "installation": "symlink",
+      "mode": "0777",
+      "package": "ly",
+      "path": "/etc/pam.d/ly",
+      "source": "system-config/pam.d/ly",
+      "source_link_matches": true,
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0644",
+      "path": "/etc/pam.d/ly.orig",
+      "type": "file",
+      "uid": 0
+    },
+    {
       "backup_status": "modified",
       "classification": "repo-managed",
       "gid": 0,
@@ -722,6 +769,14 @@
       "gid": 0,
       "mode": "0777",
       "path": "/etc/systemd/user/pipewire.service.wants/wireplumber.service",
+      "type": "symlink",
+      "uid": 0
+    },
+    {
+      "classification": "unowned-local",
+      "gid": 0,
+      "mode": "0777",
+      "path": "/etc/systemd/user/sockets.target.wants/gnome-keyring-daemon.socket",
       "type": "symlink",
       "uid": 0
     },

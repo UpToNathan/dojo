@@ -3,7 +3,7 @@
   "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
   "license": "MIT",
   "license_file": "LICENSE.md",
-  "method": "Rust behavioral adaptation of coherent read-only AT-SPI traversal and query/budget behavior; no Python runtime",
+  "method": "Rust behavioral adaptation of AT-SPI traversal and pure policy; activation selection copied literally from pinned native.rs; no Python runtime",
   "upstream_files": [
     {
       "path": "libs/cua-driver/rust/crates/platform-linux/src/atspi/native.rs",
@@ -27,5 +27,8 @@
     }
   ],
   "patches": "README.md#adaptations",
-  "validation": "Rust p2p D-Bus fixtures plus logic tests through devenv; native window correlation unavailable"
+  "validation": "Rust p2p D-Bus fixtures plus logic tests through devenv; GTK7 exact-surface live evidence is recorded in .scratch/native-assistance/result.md",
+  "adaptations": {
+    "actions.rs": "Copied ACTIVATION_VERBS through activation_index plus is_selectable_item_role/is_option_role; exported selector; typed capability policy and validated direct Selection parent, without transport"
+  }
 }

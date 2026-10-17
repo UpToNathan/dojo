@@ -1,9 +1,13 @@
 //! Deterministic ticket-16 feasibility model. This does not admit production effects.
 //! The enforceable point is one nonblocking transport commit on the coordination
 //! actor's thread. Preliminary checks never create a transferable permit.
-pub mod broker;
 #[cfg(target_os = "linux")]
 pub mod activation;
+#[cfg(all(target_os = "linux", feature = "atspi-transport"))]
+pub mod atspi_transport;
+#[cfg(target_os = "linux")]
+pub mod semantic_preparer;
+pub mod broker;
 #[cfg(feature = "socket-fixtures")]
 pub mod sockets;
 
@@ -1261,3 +1265,5 @@ mod tests {
         );
     }
 }
+
+pub mod semantic;

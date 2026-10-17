@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "source": {
+    "repository": "https://github.com/electron/fuses",
+    "revision": "67d4eed3a8da0563c9afeac3229c09498d326435",
+    "version": "2.1.2",
+    "archive_integrity": "sha512-x083OSf4xO9CKUKmJFYW+Egua9y/v2XOCcCIuWnM4RlpMj8xHwKICezlVN6vZyI2cZTr/ysZXRU5AKtYPJivBQ=="
+  },
+  "license": "MIT",
+  "changes": [
+    "Read-only fuse wire validation before executing a runtime identity probe."
+  ],
+  "files": [
+    {
+      "path": "tools/accessibility/electron-fuses/upstream-LICENSE",
+      "sha256": "24e49a190cf97a2127e0588981e82ff6e4357632278c9ab510f328a2689eca53"
+    },
+    {
+      "path": "tools/accessibility/electron-fuses/upstream-dist-config.js",
+      "sha256": "04540491f3e5389e53d5193a2ad31ff96358d325c1f1d0956634c5f4aebfc2a0"
+    },
+    {
+      "path": "tools/accessibility/electron-fuses/upstream-dist-constants.js",
+      "sha256": "eea1e4cf2698bf0e02b7734953b047b22193aa6c97405e14c6a3328a66b1d860"
+    },
+    {
+      "path": "tools/accessibility/electron-fuses/upstream-dist-index.js",
+      "sha256": "de0dd70a6403d9050a3d3b1f2982583acfb93fbbaa062cf678a30491013c0d91"
+    },
+    {
+      "path": "tools/accessibility/probe-electron-runtime.mjs",
+      "sha256": "3f7c45e5f67f07a97296fb32cf2ab0d7dc86baa8099c6e98918442d426b7bee4"
+    },
+    {
+      "path": "tools/accessibility/check-electron-probe-safety.mjs",
+      "sha256": "775189ed202f5308028016845f90d7c8583f44e9f73914d94291c5b6de1ae8a1"
+    }
+  ]
+}

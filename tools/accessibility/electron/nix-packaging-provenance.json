@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "status": "Recipe evaluates to a derivation with matching bridge; wrong archive hash refuses. Actual compiled runtime packaging pending.",
+  "source": {
+    "repository": "https://github.com/NixOS/nixpkgs",
+    "revision": "c7def046b9a883d46974757852106483d741586f",
+    "path": "pkgs/development/tools/electron/binary/generic.nix",
+    "sha256": "ecbd8901ed13765ed71be75476fe9eedc9328922f3effe5735d4543d3f1230ad"
+  },
+  "patch": {
+    "file": "nixpkgs-binary.patch",
+    "sha256": "2248c9aa708fbae03b41a823619fd6d823c21253b06870c0e1059df76e273bd7"
+  },
+  "license": {
+    "file": "NIXPKGS-COPYING",
+    "sha256": "c9cf0650a6820b589f96a92060e0eb937102b808f48cd5e3f35dcba449ea0a41",
+    "name": "MIT"
+  },
+  "changes": [
+    "Accept the locally built immutable distribution instead of fetching a prebuilt release.",
+    "Keep the pinned Linux runtime closure and GApps wrapper; use the matching patched ATK bridge.",
+    "Handle omitted Electron44 ANGLE stub libraries and clear inherited loader overrides for ABI consistency.",
+    "Restrict the package to the tested build architecture and omit unrelated header/Darwin fetches."
+  ],
+  "files": [
+    {
+      "path": "tools/accessibility/electron/nixpkgs-binary.upstream.nix",
+      "sha256": "ecbd8901ed13765ed71be75476fe9eedc9328922f3effe5735d4543d3f1230ad"
+    },
+    {
+      "path": "tools/accessibility/electron/nixpkgs-binary.nix",
+      "sha256": "b987579fdd4b911a216379fe328337edd062edf96ccda1e05f91ec27655fc76d"
+    },
+    {
+      "path": "tools/accessibility/electron/nixpkgs-binary.patch",
+      "sha256": "2248c9aa708fbae03b41a823619fd6d823c21253b06870c0e1059df76e273bd7"
+    },
+    {
+      "path": "tools/accessibility/electron/NIXPKGS-COPYING",
+      "sha256": "c9cf0650a6820b589f96a92060e0eb937102b808f48cd5e3f35dcba449ea0a41"
+    },
+    {
+      "path": "tools/accessibility/electron/runtime-package.nix",
+      "sha256": "d614ceae67bd998ba4d3479a2698cc8c598383340a31738f6a59d3e82bb32446"
+    },
+    {
+      "path": "tools/accessibility/electron/runtime-build.nix",
+      "sha256": "31878ce716828dff51e5a2514ae6bea53b7bb45ffb1e61a998b2b35fe320ea6f"
+    }
+  ]
+}

@@ -258,12 +258,16 @@ name = "dojo-external-admission"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-io",
+ "async-trait",
+ "futures-lite",
  "getrandom 0.2.17",
  "libc",
  "niri-ipc",
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "tokio",
  "tungstenite",
  "zbus",

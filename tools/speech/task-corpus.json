@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "note": "Goals and oracle checks for repeatable local assistant tasks. The runner resolves pid and window id and calls desktop_verify itself after the agent stops; a task succeeds only when that oracle is satisfied. The agent's own verification is scored separately. GTK controls come from tools/agent-input/gtk-accessibility-fixture.c: two same-titled windows, one announcing Alpha controls and one Beta.",
+  "tasks": [
+    { "id": "gtk-press-save", "tier": "native_semantic", "fixture": "gtk",
+      "goal": "The window with the Alpha Save button shows a pending state. Press Alpha Save.",
+      "success": [
+        { "window": "Alpha", "expect": [{ "element": { "selector": { "label_contains": "Saved" }, "exists": true } }] },
+        { "window": "Beta", "expect": [{ "element": { "selector": { "label_contains": "Beta pending" }, "exists": true } }] }],
+      "max_actions": 4 },
+    { "id": "gtk-replace-text", "tier": "native_semantic", "fixture": "gtk",
+      "goal": "Set the Alpha Input field to Dojo. Leave the other window alone.",
+      "success": [
+        { "window": "Alpha", "expect": [{ "element": { "selector": { "label_contains": "Alpha text: Dojo" }, "exists": true } }] },
+        { "window": "Beta", "expect": [{ "element": { "selector": { "label_contains": "Beta text: initial" }, "exists": true } }] }],
+      "max_actions": 4 },
+    { "id": "gtk-set-number", "tier": "native_semantic", "fixture": "gtk",
+      "goal": "Set the Alpha numeric field to 40.",
+      "success": [
+        { "window": "Alpha", "expect": [{ "element": { "selector": { "label_contains": "Alpha value: 40" }, "exists": true } }] },
+        { "window": "Beta", "expect": [{ "element": { "selector": { "label_contains": "Beta value: 1" }, "exists": true } }] }],
+      "max_actions": 4 },
+    { "id": "gtk-select-row", "tier": "native_semantic", "fixture": "gtk",
+      "goal": "Select Alpha Choice Two in the list.",
+      "success": [
+        { "window": "Alpha", "expect": [{ "element": { "selector": { "label_contains": "Alpha selection: 2" }, "exists": true } }] },
+        { "window": "Beta", "expect": [{ "element": { "selector": { "label_contains": "Beta selection: 1" }, "exists": true } }] }],
+      "max_actions": 4 },
+    { "id": "gtk-press-beta-save", "tier": "native_semantic", "fixture": "gtk",
+      "goal": "Press Beta Save only. Alpha must stay pending.",
+      "success": [
+        { "window": "Beta", "expect": [{ "element": { "selector": { "label_contains": "Saved" }, "exists": true } }] },
+        { "window": "Alpha", "expect": [{ "element": { "selector": { "label_contains": "Alpha pending" }, "exists": true } }] }],
+      "max_actions": 4 },
+    { "id": "launch-browser", "tier": "shell", "fixture": "host-desktop",
+      "goal": "Open the browser.",
+      "success": [{ "window": null, "expect": [{ "window": { "exists": true, "title_equals": "New Tab - Helium" } }] }],
+      "max_actions": 2 },
+    { "id": "browser-new-tab", "tier": "browser", "fixture": "helium",
+      "goal": "Open a new browser tab.",
+      "success": [{ "window": null, "expect": [{ "window": { "exists": true, "title_equals": "New Tab - Helium" } }] }],
+      "max_actions": 3 },
+    { "id": "electron-click-button", "tier": "vision_only", "fixture": "electron-seat",
+      "goal": "Click the button in the Dojo Electron seat fixture window using screenshot and OCR only.",
+      "success": [{ "fixture_log_contains": "AGENT_MOUSE_DOWN 0" }],
+      "max_actions": 6 }
+  ]
+}

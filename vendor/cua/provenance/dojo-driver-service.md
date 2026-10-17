@@ -12,11 +12,16 @@ devenv shell -- scripts/build-cua-driver.sh
 devenv shell -- cargo build --offline --locked --bin dojo-agent
 ```
 
-The build script verifies the source copy, builds offline with its lock, and
-writes the binary digest plus source digests beside the cached worker. The
-service checks these pins before starting the worker. `DOJO_CUA_DRIVER_BINARY`
-selects another built binary with the same adjacent `.dojo.json` manifest.
-Generated binaries and manifests remain in the machine cache.
+The build script verifies the source copy, builds a release binary offline with
+its lock, installs it as `$XDG_DATA_HOME/dojo/bin/cua-driver` (default
+`~/.local/share/dojo/bin`), and writes the binary digest plus source digests
+beside it. The service checks these pins before starting the worker.
+`DOJO_CUA_DRIVER_BINARY` selects another built binary with the same adjacent
+`.dojo.json` manifest. The Cargo target directory is managed by mbx like any
+other; only the installed binary and manifest are used at run time. The `dojo-agent`
+that Niri's `environment.sh` pins through `DOJO_SEMANTIC_AGENT_EXE` is a separate
+immutable copy, so it only reads this installed driver after it is re-pinned from a
+build that has this path; see [the Niri session notes](../../../docs/niri-session.md#re-pin-the-semantic-agent).
 
 The existing MCP adapter connects to the existing on-demand Unix service.
 Each client connection owns a private inherited-stdio Driver worker and one

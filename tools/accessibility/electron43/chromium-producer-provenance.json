@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "status": "source patch; C++ build and runtime verification pending",
+  "electron": {
+    "version": "43.6.0",
+    "commit": "3333109a2998815e64ffc0a0a54d9a82899fe512",
+    "deps_sha256": "6bec093dd52ef7ae02e7684291c6e60129ec866cd3e4ccd6c2ae45d5ba4bb2f4",
+    "patch_series_sha256": "23c03d38a904f9fa9192868c7382b6dff646f4ffd54a6860731f68f58e6ca6b5",
+    "patch_count": 234
+  },
+  "chromium": {
+    "version": "150.0.7871.250",
+    "commit": "f916f1b7136907af19d96b95b891533d091d932a"
+  },
+  "patch": {
+    "file": "chromium-wayland-atspi-annotation.patch",
+    "sha256": "4669b7180e426555bc5e9261f459f695d50da055a3cc8a69b7c3a2b7e0a5baf1"
+  },
+  "upstream_inputs": [
+    {
+      "path": "third_party/wayland-protocols/BUILD.gn",
+      "sha256": "d2752f2d6c2264cfad055a4f2bf96c1f7306a6d071fdf3824a51fade00d9d85f"
+    },
+    {
+      "path": "ui/ozone/platform/wayland/BUILD.gn",
+      "sha256": "6ff232d17e4f07adc6b14120a67363a962fa9b176bb98f1f07671cbff16ee5aa"
+    },
+    {
+      "path": "ui/ozone/platform/wayland/common/wayland_object.cc",
+      "sha256": "b129f2eb5dbf47d3e0d82ec6c133e5ba3b6750aab849537cb7086a3473aa2882"
+    },
+    {
+      "path": "ui/ozone/platform/wayland/common/wayland_object.h",
+      "sha256": "aa21af4f8bfc8107264db5349aa07efc1b313d3d876d098364330b41a0838584"
+    },
+    {
+      "path": "ui/ozone/platform/wayland/host/wayland_connection.cc",
+      "sha256": "25b819dd9f2c469fc76a26a65dc8df29dde49c3942cfd755521ff8a9d792dd13"
+    },
+    {
+      "path": "ui/ozone/platform/wayland/host/wayland_connection.h",
+      "sha256": "5c42068beabea3fdc0844acd56cdeef8f89cd1ba45d1d529109e78d00443c513"
+    },
+    {
+      "path": "ui/ozone/platform/wayland/host/wayland_window.cc",
+      "sha256": "25d77fb93db5557e237a4f2d293a237c92aa74f7e4ab731075d7155743cf0f6c"
+    },
+    {
+      "path": "ui/ozone/platform/wayland/host/wayland_window.h",
+      "sha256": "c844f1955986577a9aa2bdeebc09de6a8fc6911042c4b640486a4edeba10849e"
+    },
+    {
+      "path": "ui/platform_window/platform_window.cc",
+      "sha256": "04e5738809c66df9e237935a287aa3e69c5d1bff72e64b77bec86e2db9d8cd12"
+    },
+    {
+      "path": "ui/platform_window/platform_window.h",
+      "sha256": "843d386e2d5ef4a0cf1fc313b2788be7124241cbb2564606d9f2e3705c480003"
+    },
+    {
+      "path": "ui/views/widget/desktop_aura/desktop_window_tree_host_linux.cc",
+      "sha256": "ddb3f3877c8fcd8b80e39e7d2bd56fef69503f3d7ba47653d2fcd651a92698ce"
+    },
+    {
+      "path": "ui/views/widget/desktop_aura/desktop_window_tree_host_linux.h",
+      "sha256": "a4a45fc9bd39d87ae35c8cc7040c5e2281c18d1d472ec37864dcd3bed19be1d8"
+    }
+  ],
+  "electron_overlapping_patches": [
+    {
+      "file": "fix_wayland_test_crash_on_teardown.patch",
+      "sha256": "05fa763e0f9f5fe4087b5750f7413a927df5c4820f44d7413fdc04ed4cf28de8",
+      "paths": [
+        "ui/ozone/platform/wayland/host/wayland_connection.cc"
+      ]
+    }
+  ],
+  "literal_reuse": {
+    "producer": "tools/accessibility/electron/chromium-wayland-atspi-annotation.patch",
+    "producer_sha256": "818027dbfbf370e8b70fe498b3793749120eef421126f5abfb9aaa9c0afbc8c3",
+    "method": "Applied Electron44 producer unchanged, regenerated diff against exact Chromium150 preimages; no C++ API or policy changes",
+    "identical_new_files": [
+      {
+        "path": "ui/ozone/platform/wayland/host/xdg_dbus_annotation.cc",
+        "sha256": "068b89713384452f23119628b84109e7dece28e6bcb3eed8cace0bec077212fe"
+      },
+      {
+        "path": "ui/ozone/platform/wayland/host/xdg_dbus_annotation.h",
+        "sha256": "47cce757f51527cdb0a5e8cb78b2ceacf98c25818bf5d09d6e98f7c9c4955884"
+      },
+      {
+        "path": "third_party/wayland-protocols/dojo/xdg-dbus-annotation-v1.xml",
+        "sha256": "e5ee1c96ccd28423c7ffd4429e24db132552770f9d15a831c46560b3636ee0bb"
+      }
+    ],
+    "canonical_protocol_commit": "2c4da1cf132e7084e0de8a4a7db4d3af7644b91d"
+  },
+  "license": {
+    "file": "CHROMIUM-LICENSE",
+    "source": "https://chromium.googlesource.com/chromium/src/+/f916f1b7136907af19d96b95b891533d091d932a/LICENSE",
+    "sha256": "368cca1106be99d39ecd32a38d8305585d802a475effb66380b91ffc9bcf709b"
+  },
+  "required_bridge_export": "gboolean dojo_atk_bridge_dup_accessible_reference(AtkObject *obj, gchar **owner, gchar **path)",
+  "validation": {
+    "diff_check": "passed",
+    "clean_apply_after_electron_overlaps": "passed using exact Electron43 patch bytes",
+    "source_drift_refusal": "passed",
+    "full_cpp_build": "not run",
+    "runtime_fixture": "not run",
+    "already_applied_refusal": "passed",
+    "fixture_command": "node tools/accessibility/electron43/test-producer-patch.mjs <Chromium150 exact preimage git checkout>",
+    "literal_added_lines": "byte-identical to Electron44 producer"
+  },
+  "files": [
+    {
+      "path": "tools/accessibility/electron43/CHROMIUM-LICENSE",
+      "sha256": "368cca1106be99d39ecd32a38d8305585d802a475effb66380b91ffc9bcf709b"
+    },
+    {
+      "path": "tools/accessibility/electron43/check-producer-patch.mjs",
+      "sha256": "ca95710d3fcca29ac6910ea3eb89937c31615a725bebfa71211648d07aec9a75"
+    },
+    {
+      "path": "tools/accessibility/electron43/test-producer-patch.mjs",
+      "sha256": "525c3b7d9cb76eb8a3226aaf002cc8058f23eae07a2f70a5e54f08d9f8ad4d50"
+    }
+  ]
+}

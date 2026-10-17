@@ -31,3 +31,5 @@ pub mod window;
 
 #[cfg(test)]
 mod tests;
+
+pub mod semantic_admission;

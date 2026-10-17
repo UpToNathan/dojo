@@ -67,7 +67,7 @@ test('real Anthropic OAuth adapter passes the transformed four-line blocks to it
 test('Dojo credential updates are private and serialized without rewriting another store', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'dojo-auth-test-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const credentials = new DojoCredentials(directory);
+  const credentials = new DojoCredentials(directory, { command: async () => { throw Object.assign(new Error('org.freedesktop.DBus.Error.ServiceUnknown'), { code: 1 }); } });
   await Promise.all([credentials.modify('a', async () => ({ type: 'oauth', access: 'a' })), credentials.modify('b', async () => ({ type: 'oauth', access: 'b' }))]);
   assert.equal((await credentials.read('a')).access, 'a');
   assert.equal((await credentials.read('b')).access, 'b');

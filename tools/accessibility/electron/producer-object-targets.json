@@ -1,0 +1,8 @@
+[
+  "obj/ui/ozone/platform/wayland/wayland/wayland_object.o",
+  "obj/ui/ozone/platform/wayland/wayland/xdg_dbus_annotation.o",
+  "obj/ui/ozone/platform/wayland/wayland/wayland_connection.o",
+  "obj/ui/ozone/platform/wayland/wayland/wayland_window.o",
+  "obj/ui/platform_window/platform_window/platform_window.o",
+  "obj/ui/views/views/desktop_window_tree_host_linux.o"
+]

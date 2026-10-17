@@ -1,0 +1,7 @@
+import("//electron/build/args/testing.gn")
+use_remoteexec = false
+use_siso = false
+symbol_level = 0
+blink_symbol_level = 0
+v8_symbol_level = 0
+use_thin_lto = false

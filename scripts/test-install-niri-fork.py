@@ -18,6 +18,7 @@ class NiriInstallationTests(unittest.TestCase):
             scripts = fixture / "repo/scripts"
             scripts.mkdir(parents=True)
             shutil.copy2(installer, scripts / installer.name)
+            shutil.copy2(Path(__file__).with_name("dojo-agent"), scripts / "dojo-agent")
             (scripts / "dojo-niri-session").write_text("fixture session wrapper\n")
             session_config = fixture / "repo/session-config"
             session_config.mkdir()
@@ -64,8 +65,14 @@ class NiriInstallationTests(unittest.TestCase):
                 environment["DOJO_BROWSER_CONTROL_MCP_EXE"] = mcp
             else:
                 environment.pop("DOJO_BROWSER_CONTROL_MCP_EXE")
+            environment["DOJO_PERCEPTION_INSTALLATION"] = str(binary)
+            invalid_perception = subprocess.run(command, env=environment, capture_output=True, text=True)
+            self.assertNotEqual(invalid_perception.returncode, 0)
+            self.assertIn("DOJO_PERCEPTION_INSTALLATION must pin", invalid_perception.stderr)
+            environment.pop("DOJO_PERCEPTION_INSTALLATION")
             success = subprocess.run(command, env=environment, capture_output=True, text=True)
             self.assertEqual(success.returncode, 0, success.stderr)
+            self.assertEqual((fixture_home / ".local/bin/dojo-agent").resolve(), scripts / "dojo-agent")
             installed = (fixture / "data/dojo/niri/current").resolve()
             self.assertIn("export DOJO_BROWSER_CONTROL_BROKER_EXE=" + broker, (installed / "environment.sh").read_text())
             self.assertTrue((installed / "roots" / Path(broker).parts[3]).is_symlink())
@@ -77,6 +84,15 @@ class NiriInstallationTests(unittest.TestCase):
             self.assertEqual(updated.returncode, 0, updated.stderr)
             self.assertNotEqual((fixture / "data/dojo/niri/current").resolve(), installed)
             self.assertEqual((fixture / "data/dojo/niri/previous").resolve(), installed)
+            self.assertNotIn("DOJO_PERCEPTION_INSTALLATION", (fixture / "data/dojo/niri/current/environment.sh").read_text())
+            perception = os.environ.get("DOJO_PERCEPTION_INSTALLATION")
+            if perception:
+                environment["DOJO_PERCEPTION_INSTALLATION"] = perception
+                staged = subprocess.run(command, env=environment, capture_output=True, text=True)
+                self.assertEqual(staged.returncode, 0, staged.stderr)
+                current = (fixture / "data/dojo/niri/current").resolve()
+                self.assertIn("export DOJO_PERCEPTION_INSTALLATION=" + perception, (current / "environment.sh").read_text())
+                self.assertTrue((current / "roots" / Path(perception).parts[3]).is_symlink())
 
 
 if __name__ == "__main__":

@@ -343,6 +343,7 @@ pub struct Niri {
     pub seat: Seat<State>,
     pub agent_input_enabled: bool,
     pub(crate) input_coordination: crate::agent_input::Coordination,
+    pub(crate) semantic_admission: crate::semantic_admission::Channel,
     pub(crate) external_admission_unknown: HashSet<crate::external_admission::TargetKey>,
     pub(crate) browser_control: Option<Rc<RefCell<crate::browser_control::Channel>>>,
     pub agent_seats: HashMap<u64, crate::agent_input::AgentSeat>,
@@ -2498,6 +2499,8 @@ impl Niri {
             VirtualPointerManagerState::new::<State, _>(&display_handle, client_is_unrestricted);
         let foreign_toplevel_state =
             ForeignToplevelManagerState::new::<State, _>(&display_handle, client_is_unrestricted);
+        crate::protocols::gtk_shell::register(&display_handle);
+        crate::protocols::dbus_annotation::register(&display_handle);
         let ext_workspace_state =
             ExtWorkspaceManagerState::new::<State, _>(&display_handle, client_is_unrestricted);
         let mut output_management_state =
@@ -2631,6 +2634,15 @@ impl Niri {
                 None
             }
         };
+
+        if crate::agent_input::enabled() {
+            if let Some(path) = ipc_server.as_ref().and_then(|server|server.socket_path.as_ref()) {
+                if let Err(error) = crate::semantic_admission::start(&event_loop,
+                    dojo_external_admission::semantic::socket_path(path)) {
+                    warn!("semantic admission disabled: {error:#}");
+                }
+            }
+        }
 
         if let Some(broker) = std::env::var_os("DOJO_BROWSER_CONTROL_BROKER_EXE") {
             let path = std::env::var_os("DOJO_BROWSER_CONTROL_SOCKET")
@@ -2797,6 +2809,7 @@ impl Niri {
             seat,
             agent_input_enabled,
             input_coordination: Default::default(),
+            semantic_admission: Default::default(),
             external_admission_unknown: Default::default(),
             browser_control: None,
             agent_seats: HashMap::new(),
@@ -4288,9 +4301,9 @@ impl Niri {
 
         for win in windows {
             self.layout.update_window(&win, None);
-            win.toplevel()
-                .expect("no X11 support")
-                .send_pending_configure();
+            let toplevel = win.toplevel().expect("no X11 support");
+            crate::protocols::gtk_shell::configure(toplevel);
+            toplevel.send_pending_configure();
         }
         for output in outputs {
             self.queue_redraw(&output);

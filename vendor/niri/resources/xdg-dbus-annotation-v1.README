@@ -1,0 +1,8 @@
+Pinned protocol input: wayland-protocols staging/xdg-dbus-annotation/xdg-dbus-annotation-v1.xml
+Upstream: https://gitlab.freedesktop.org/wayland/wayland-protocols/-/merge_requests/493
+Commit: 2c4da1cf132e7084e0de8a4a7db4d3af7644b91d
+Source file was copied literally from the MR diff. Draft protocol; locally pinned, not a claim of upstream stability.
+SHA-256: e5ee1c96ccd28423c7ffd4429e24db132552770f9d15a831c46560b3636ee0bb
+
+The XML includes its upstream MIT copyright and permission notice. Niri consumes only
+org.a11y.atspi.Accessible annotations on the AT-SPI bus for accessibility binding.

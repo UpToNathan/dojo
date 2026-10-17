@@ -1,0 +1,41 @@
+{
+  "protocol": {
+    "repository": "https://gitlab.freedesktop.org/wayland/wayland-protocols",
+    "revision": "2c4da1cf132e7084e0de8a4a7db4d3af7644b91d",
+    "draft": true
+  },
+  "accesskit": {
+    "repository": "https://github.com/AccessKit/accesskit",
+    "revision": "c88605b96d04431f9c3c792464a0f2f253480e94",
+    "version": "0.22.1",
+    "archive_sha256": "03e156ed3802e35eefe894ef2671bc6c889303d8a7e110b5e1b48f504b91362f",
+    "local_manifest": "vendor/accesskit-unix/SHA256SUMS"
+  },
+  "gpui": {
+    "repository": "https://github.com/zed-industries/zed",
+    "revision": "9ab0715969e9854f2efe61a9d782e7698e5fe6d2",
+    "changes": "Local Wayland annotation publication; existing vendored modifications retained"
+  },
+  "files": [
+    {
+      "path": "vendor/niri/resources/xdg-dbus-annotation-v1.xml",
+      "sha256": "e5ee1c96ccd28423c7ffd4429e24db132552770f9d15a831c46560b3636ee0bb"
+    },
+    {
+      "path": "tools/accessibility/qt6-annotation/xdg-dbus-annotation-v1.xml",
+      "sha256": "e5ee1c96ccd28423c7ffd4429e24db132552770f9d15a831c46560b3636ee0bb"
+    },
+    {
+      "path": "vendor/zed/crates/gpui_linux/resources/xdg-dbus-annotation-v1.xml",
+      "sha256": "e5ee1c96ccd28423c7ffd4429e24db132552770f9d15a831c46560b3636ee0bb"
+    },
+    {
+      "path": "tools/accessibility/qt5-annotation/qtwayland-atspi-connection.patch",
+      "sha256": "b8343b4bc11f524e295208259e9ceaf19daa0cb13ea722ffa4327df60b1b9179"
+    }
+  ],
+  "qt_manifests": [
+    "tools/accessibility/qt5-annotation/provenance.json",
+    "tools/accessibility/qt6-annotation/provenance.json"
+  ]
+}

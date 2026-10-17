@@ -32,6 +32,11 @@
   "scope": "Pure Rust predicates, exact browser binding/coverage, bounded serializable phases and CLI. Pi document/tool scheduler and existing guarded Dojo executor own effects.",
   "divergences": [
     {
+      "behavior": "Native as well as browser property predicates require complete semantic coverage",
+      "reason": "An omitted or redacted control could be another selector match; a partial tree cannot prove a unique state/value target",
+      "reconsideration": "A stronger selector identity can prove uniqueness independently of traversal coverage"
+    },
+    {
       "behavior": "Fresh server observation before each single current action; no precomputed future coordinates or reusable batch capture",
       "reason": "Dojo one-use capture and human-priority admission; uncertain effects never replay",
       "reconsideration": "Only an independently proved snapshot-safe declarative sequence could broaden this"
@@ -55,7 +60,7 @@
   "evidence": [
     {
       "command": "devenv shell -- cargo test --manifest-path crates/dojo-computer-verification/Cargo.toml",
-      "result": "24 passed"
+      "result": "25 passed, including incomplete native property coverage"
     },
     {
       "command": "node --test tools/speech/computer-steps.test.mjs",
@@ -63,7 +68,7 @@
     }
   ],
   "remaining_gates": [
-    "Production complete DOM coverage, real browser route, native top-level AT-SPI correlation and installed runtime acceptance remain separate.",
+    "Native exact binding is available for GTK7 clients that announce their root; other applications remain application-scoped. See .scratch/native-assistance/result.md for live evidence. Browser Control owns the separate browser route.",
     "No general UI effect or task-success claim from handled receipts."
   ]
 }

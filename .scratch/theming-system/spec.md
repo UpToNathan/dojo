@@ -44,6 +44,7 @@ The desktop frame surrounds the workspace without competing with its contents. P
 - Separate readable muted text from disabled content. Use text or symbols as well as color to communicate status.
 - Keep syntax and terminal palettes independent from UI feedback. A string can be green without depending on the UI success role.
 - Render decorative borders and separators at 20% opacity. This is alpha applied to the border color, not a 20% lighter hex or reduced opacity for the whole component. Use surface color and spacing for hierarchy rather than dense outlines. Native constants live in `src/design.rs`.
+- Outline the workspace opening and shell menus' free edges with a 1 px theme-border stroke at 10% opacity. Follow the attachment curves and leave their shell joins open.
 - Use restrained soft shadows on the workspace opening and the free edges of shell-attached menus. Tint them from the active background and reduce opacity in light themes. Keep attachment edges clear so menus still join the shell.
 - Use pill-shaped rounding for action buttons, mode controls, compact toggles, and short selection controls. Panels and content containers have generous rounded corners; their shapes still suit multiline content.
 - Keep the overall aesthetic fluid and calming: quiet surfaces, generous spacing, restrained accents, and soft changes between interaction states. Avoid sharp boxes, competing outlines, and abrupt ornamental motion. Motion respects reduced-motion preferences.

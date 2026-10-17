@@ -99,6 +99,11 @@
 
   enterShell = ''
     hello # Run scripts directly
+    # mbx's cargo shim shares compiled work across checkouts and Rift workspaces
+    # and prunes its own storage. Without this the nix-profile cargo is used.
+    if [ -x "$HOME/.local/share/mbx/bin/cargo" ]; then
+      export PATH="$HOME/.local/share/mbx/bin:$PATH"
+    fi
   '';
 
   # https://devenv.sh/tasks/

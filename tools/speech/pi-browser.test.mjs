@@ -81,6 +81,16 @@ test('browser status reads never resume or retire a browser generation', async t
   assert.deepEqual(calls.map(call => call.name), ['status']);
 });
 
+test('a stopped relay is reported by status as a normal state, not an error', async t => {
+  const status = fauxAssistantMessage([fauxToolCall('browser_control_status', {})], { stopReason: 'toolUse' });
+  const { runtime } = await fixture(t, [status, fauxAssistantMessage('ready')], () => ({ isError: true, content: [{ type: 'text', text: 'Browser Control relay is not reachable at http://127.0.0.1:19989.' }] }));
+  await runtime.submit('Check status'); await settled(runtime);
+  const page = await runtime.conversation.entries({ order: 'ascending' }, 50, undefined, runtime.context);
+  const outcome = page.items.find(entry => entry.kind === 'pi.tool-result')?.model?.[0];
+  assert.equal(outcome.isError, false);
+  assert.match(JSON.stringify(outcome.content), /relay is not running yet/);
+});
+
 test('Pi stop retires then cancels its RPC without waiting for a remote script to finish', async t => {
   let begin;
   const started = new Promise(resolve => { begin = resolve; });

@@ -58,6 +58,7 @@ impl CompositorHandler for State {
         let _span = trace_span!("commit", surface = %surface.id()).entered();
         trace!("commit");
 
+        crate::protocols::dbus_annotation::commit(surface);
         on_commit_buffer_handler::<Self>(surface);
         self.backend.early_import(surface);
 
@@ -309,6 +310,8 @@ impl CompositorHandler for State {
 
                     // Newly-unmapped toplevels must perform the initial commit-configure sequence
                     // afresh.
+                    crate::protocols::gtk_shell::retire(surface);
+                    crate::protocols::dbus_annotation::retire(surface);
                     let unmapped = Unmapped::new(window);
                     self.niri.unmapped_windows.insert(surface.clone(), unmapped);
 
