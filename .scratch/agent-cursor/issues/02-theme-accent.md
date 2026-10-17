@@ -19,7 +19,7 @@ Niri release, Dojo and dojo-theme builds succeeded through devenv. The updated
 Niri configuration validates, including the generated agent-color #7aa2f7.
 The theme publisher retained the selected generation, appearance and target
 list, checked ownership of the existing generated file, and saved a backup.
-Installed compositor: /home/nathan/.local/share/dojo/niri/7936a75870756c69.
+Installed compositor: ~/.local/share/dojo/niri/7936a75870756c69.
 
 The existing cursor color assertion and Niri export expectations were updated.
 The nested Electron fixture now checks its explicit #7aa2f7 cursor color.

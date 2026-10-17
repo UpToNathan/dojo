@@ -40,5 +40,5 @@ The existing protocol-global check passed. The release MCP/GPUI scenario passed
 with agent pointer binding, input delivery and seat cleanup; evidence is
 /tmp/dojo-agent-nested.YofGrC. The release build and installed configuration
 validation passed. scripts/install-niri-fork.sh installed
-/home/nathan/.local/share/dojo/niri/1ba936470bd31e9d for the next login.
+~/.local/share/dojo/niri/1ba936470bd31e9d for the next login.
 The current desktop still uses the prior compositor until logout and login.

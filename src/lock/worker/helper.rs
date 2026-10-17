@@ -256,7 +256,7 @@ mod tests {
         );
         assert_eq!(invocation(&[]), None);
         assert_eq!(invocation(&["sudo"]), None);
-        assert_eq!(invocation(&["dojo-lock-password", "nathan"]), None);
+        assert_eq!(invocation(&["dojo-lock-password", "alyssa"]), None);
     }
 
     #[test]

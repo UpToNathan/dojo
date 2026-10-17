@@ -7,16 +7,16 @@ The public 0.2.1 release archive supplies model/runtime bytes. It was built from
 Reproduce acquisition outside tracked source:
 
 ```sh
-mkdir -p /home/nathan/.cache/dojo/artifacts/cua-perception/0.2.1/verified
-curl --fail --location https://github.com/trycua/cua/releases/download/cua-perception-v0.2.1/cua-perception-0.2.1-x86_64-unknown-linux-gnu.tar.gz -o /home/nathan/.cache/dojo/artifacts/cua-perception/0.2.1/linux-x64.tar.gz.part
-sha256sum /home/nathan/.cache/dojo/artifacts/cua-perception/0.2.1/linux-x64.tar.gz.part
+mkdir -p ~/.cache/dojo/artifacts/cua-perception/0.2.1/verified
+curl --fail --location https://github.com/trycua/cua/releases/download/cua-perception-v0.2.1/cua-perception-0.2.1-x86_64-unknown-linux-gnu.tar.gz -o ~/.cache/dojo/artifacts/cua-perception/0.2.1/linux-x64.tar.gz.part
+sha256sum ~/.cache/dojo/artifacts/cua-perception/0.2.1/linux-x64.tar.gz.part
 ```
 
 Require the archive digest to equal the lock before extraction. Extract models, runtime, manifest and notices. Then independently verify both archive and extracted files:
 
 ```sh
-tar -xzf /home/nathan/.cache/dojo/artifacts/cua-perception/0.2.1/linux-x64.tar.gz.part -C /home/nathan/.cache/dojo/artifacts/cua-perception/0.2.1/verified model-manifest.json models runtime notices metadata/provenance.redacted.json
-node scripts/check-perception-artifacts.mjs /home/nathan/.cache/dojo/artifacts/cua-perception/0.2.1/linux-x64.tar.gz.part /home/nathan/.cache/dojo/artifacts/cua-perception/0.2.1/verified
+tar -xzf ~/.cache/dojo/artifacts/cua-perception/0.2.1/linux-x64.tar.gz.part -C ~/.cache/dojo/artifacts/cua-perception/0.2.1/verified model-manifest.json models runtime notices metadata/provenance.redacted.json
+node scripts/check-perception-artifacts.mjs ~/.cache/dojo/artifacts/cua-perception/0.2.1/linux-x64.tar.gz.part ~/.cache/dojo/artifacts/cua-perception/0.2.1/verified
 devenv shell -- cargo build --locked --manifest-path vendor/cua/driver/Cargo.toml -p cua-perception
 devenv shell -- cargo test --locked --manifest-path vendor/cua/driver/Cargo.toml -p cua-perception
 ```

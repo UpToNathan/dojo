@@ -119,7 +119,7 @@
     },
     {
       "path": "tools/accessibility/electron/build.mjs",
-      "sha256": "2f27c85bc51104e29dbfce7be981b45d21fb9503fc1c6dbef382d933fb55bd73"
+      "sha256": "eb639f3b9527bfc731704bbac4c0ee309e3b54fa3bf015a0f68badf249048813"
     },
     {
       "path": "tools/accessibility/electron/args.gn",

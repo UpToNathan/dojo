@@ -1,5 +1,5 @@
 # Prefer Mr Boxington's Cargo shim so Cargo builds share its cache.
-export PATH="/home/nathan/.local/bin:/home/nathan/.local/share/mbx/bin:/home/nathan/.cargo/bin:$PATH"
+export PATH="$HOME/.local/bin:$HOME/.local/share/mbx/bin:$HOME/.cargo/bin:$PATH"
 
 # Yazi wrapper: change Rush's working directory to the directory Yazi exits in.
 y() {

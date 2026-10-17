@@ -19,14 +19,14 @@ def slow_fp(secs, marker, name="fp"):
 PW = f"auth requisite pam_exec.so quiet expose_authtok {H}/check_fake_pw.sh\n"
 DENY = "auth required pam_deny.so\n"
 CRASH = f"auth optional pam_echo.so file={DATA}/finger-msg.txt\nauth required pam_exec.so quiet {H}/crash_parent.sh\n"
-SUCCEED = "auth requisite pam_succeed_if.so user = nathan\n"
+SUCCEED = "auth requisite pam_succeed_if.so user = alyssa\n"
 FAILIF = "auth requisite pam_succeed_if.so user = nobody\n"
 
 def run(name, fp, pw, args=(), env=None, expect_rc=None, expect=(), absent=(), post=None):
     conf = f"{DATA}/{name}"; marker = f"{conf}/markers"; os.makedirs(marker, exist_ok=True)
     stack(conf, "svc-fp", fp(marker) if callable(fp) else fp)
     stack(conf, "svc-pw", pw)
-    cmd = [sys.executable, "-I", HARNESS, "--confdir", conf, "--user", "nathan",
+    cmd = [sys.executable, "-I", HARNESS, "--confdir", conf, "--user", "alyssa",
            "--worker", "fp=svc-fp", "--worker", "pw=svc-pw", *args]
     e = dict(os.environ, **(env or {}))
     print(f"\n=== {name}")

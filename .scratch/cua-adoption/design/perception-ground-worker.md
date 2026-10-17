@@ -1,6 +1,6 @@
 # Pinned perception worker ground findings
 
-Source revision is `88aff7e5424e9ed45b93ded85eb4111472ca5190`. All upstream paths below are relative to `/home/nathan/.cache/dojo/upstream/cua/88aff7e5424e9ed45b93ded85eb4111472ca5190/libs/cua-driver/rust/`. These are source observations. No model download, executable launch, or inference verification was performed in this exploration. The how explorer instructions and unslop skill informed this report.
+Source revision is `88aff7e5424e9ed45b93ded85eb4111472ca5190`. All upstream paths below are relative to `~/.cache/dojo/upstream/cua/88aff7e5424e9ed45b93ded85eb4111472ca5190/libs/cua-driver/rust/`. These are source observations. No model download, executable launch, or inference verification was performed in this exploration. The how explorer instructions and unslop skill informed this report.
 
 ## Components found
 

@@ -154,7 +154,7 @@ hide and native window destruction have direct revocation paths.
 ## Build and verification route
 
 The exact Electron source is cached at
-`/home/nathan/.cache/dojo/upstream/electron/34a45a290c7debc4907937cbb77509759247cebb`.
+`~/.cache/dojo/upstream/electron/34a45a290c7debc4907937cbb77509759247cebb`.
 Use that revision's DEPS with Electron's documented gclient checkout, sync, and
 patch application process. Put Chromium edits in Electron's Chromium patch
 series rather than modifying an unrelated Chromium main checkout. Pin every

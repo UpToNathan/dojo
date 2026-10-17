@@ -2,7 +2,7 @@
 """Throwaway spike: race N independent PAM conversations, first success wins.
 
 Usage (parent):
-  python3 -I dojo_pam_race.py --confdir DIR --user nathan \
+  python3 -I dojo_pam_race.py --confdir DIR --user alyssa \
       --worker fp=dojo-lock-fingerprint --worker pw=dojo-lock-password \
       [--window SECS] [--reply-env VAR --reply-delay SECS --reply-worker NAME]
       [--reply-tty]
@@ -173,7 +173,7 @@ def kill_tree(w):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--confdir", required=True)
-    ap.add_argument("--user", default=os.environ.get("USER", "nathan"))
+    ap.add_argument("--user", default=os.environ.get("USER", "alyssa"))
     ap.add_argument("--worker", action="append", default=[], help="NAME=SERVICE")
     ap.add_argument("--window", type=float, default=0, help="overall seconds before giving up (0 = none)")
     ap.add_argument("--reply-env", help="env var holding the answer for password prompts (never printed)")

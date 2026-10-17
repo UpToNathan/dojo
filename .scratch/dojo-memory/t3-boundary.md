@@ -1,6 +1,6 @@
 # Dojo memory T3 boundary findings
 
-Inspected Dojo `tools/speech/voice.mjs`, `t3-client.mjs`, and `voice.test.mjs`. Inspected the actual installed T3 bundle in `/home/nathan/.local/opt/t3code/resources/app.asar`, extracted read-only to `/tmp/dojo-t3-installed.mjs`. No threads/projects/config were mutated; no credentials or private logs were printed.
+Inspected Dojo `tools/speech/voice.mjs`, `t3-client.mjs`, and `voice.test.mjs`. Inspected the actual installed T3 bundle in `~/.local/opt/t3code/resources/app.asar`, extracted read-only to `/tmp/dojo-t3-installed.mjs`. No threads/projects/config were mutated; no credentials or private logs were printed.
 
 ## Workspace isolation
 

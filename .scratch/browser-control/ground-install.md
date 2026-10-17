@@ -10,9 +10,9 @@ Dojo sources reviewed include `GLOSSARY.md`, `docs/agents/domain.md`, `system-co
 
 ## Current ownership and runtime flow
 
-`devenv.nix` receives `pkgs` and `inputs`, provides development packages, and imports `home-manager.nix` under `machines.venus.home-manager`. `devenv.yaml` pins external flakes, and `devenv.lock` resolves them. Home Manager installs the graphical apps and command line programs. The documented deployment command is `devenv machines deploy venus`.
+`devenv.nix` receives `pkgs` and `inputs`, provides development packages, and imports `home-manager.nix` under `machines.<hostname>.home-manager`. `devenv.yaml` pins external flakes, and `devenv.lock` resolves them. Home Manager installs the graphical apps and command line programs. The documented deployment command is `devenv machines deploy "$(cat /etc/hostname)"`.
 
-Home Manager installs OpenCode and Pi from separate pinned flake inputs. The `t3` command is a wrapper around `/home/nathan/.local/opt/t3code`, an installed Electron bundle outside Nix. `t3-home-manager.nix` installs this wrapper only. T3 Desktop owns its backend and its existing `~/.t3/userdata`; starting another backend or altering the local environment is outside browser setup.
+Home Manager installs OpenCode and Pi from separate pinned flake inputs. The `t3` command is a wrapper around `~/.local/opt/t3code`, an installed Electron bundle outside Nix. `t3-home-manager.nix` installs this wrapper only. T3 Desktop owns its backend and its existing `~/.t3/userdata`; starting another backend or altering the local environment is outside browser setup.
 
 OpenCode's maintained config is `rift-home-manager.nix`, which declares `xdg.configFile."opencode/opencode.json".text`. The installed `~/.config/opencode/opencode.json` is a symlink into the Home Manager generation. It currently defines a pinned Rift V2 plugin. Browser setup must extend this maintained declaration or factor the declaration into a common module. A runtime merge writer must not replace the symlink or try writing its Nix store target. The registry permits `opencode.jsonc` as an alternate file, but that is not the installed file here.
 

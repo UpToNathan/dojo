@@ -11,6 +11,11 @@ as_root() {
     fi
 }
 
+# Sources that name the account carry @USER@; the installed copy names whoever runs this script.
+target_user=${SUDO_USER:-$(id -un)}
+rendered_dir=$(mktemp -d)
+trap 'rm -rf -- "$rendered_dir"' EXIT
+
 theme_only=false
 if [[ ${1:-} == --chromium-theme-only ]]; then theme_only=true; shift; fi
 [[ $# -eq 0 ]] || { echo "Usage: $0 [--chromium-theme-only]" >&2; exit 2; }
@@ -59,6 +64,10 @@ for config_copy in "${config_copies[@]}"; do
     target_file=${remainder%%|*}
     mode=${remainder##*|}
     source_file="$repo_root/system-config/$source_relative"
+    if grep -q '@USER@' -- "$source_file"; then
+        sed "s/@USER@/$target_user/g" -- "$source_file" > "$rendered_dir/$(basename "$source_file")"
+        source_file="$rendered_dir/$(basename "$source_file")"
+    fi
 
     if [[ $target_file == /etc/sudoers.d/* ]]; then
         as_root visudo -cf "$source_file"

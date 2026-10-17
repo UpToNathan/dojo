@@ -1,5 +1,4 @@
 -- NINJAVIM
--- Author: Nathan Duarte
 vim = vim
 require('core.options')
 
@@ -113,7 +112,7 @@ require('lazy').setup({
             { section = 'startup' },
             {
               section = 'terminal',
-              cmd = '/home/nathan/.cargo/bin/rbonsai -p -i -l -L 25',
+              cmd = 'rbonsai -p -i -l -L 25',
               height = 25,
               indent = 0,
               gap = 0,

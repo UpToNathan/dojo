@@ -1,6 +1,5 @@
-{ pkgs, lib, config, inputs }:
+{ pkgs, lib, config, inputs, homeDirectory, username, root }:
 let
-  homeDirectory = "/home/nathan";
   heliumVersion = "0.19.2.1";
   heliumAppImage = pkgs.fetchurl {
     url = "https://github.com/imputnet/helium-linux/releases/download/${heliumVersion}/helium-${heliumVersion}-x86_64.AppImage";
@@ -28,7 +27,7 @@ let
   };
   dojoAutostart = pkgs.writeShellScript "dojo-autostart" ''
     export LD_LIBRARY_PATH=${lib.escapeShellArg config.env.LD_LIBRARY_PATH}
-    exec ${homeDirectory}/Dojo/scripts/dojo-desktop --enable
+    exec ${root}/scripts/dojo-desktop --enable
   '';
   onepasswordAutostart = pkgs.writeShellScript "dojo-1password-autostart" ''
     onepassword=${pkgs._1password-gui}/bin/1password
@@ -62,6 +61,7 @@ in
 {
       imports = [
         inputs.stasis.homeModules.default
+        ./paths-home-manager.nix
         ./theme-home-manager.nix
         ./t3-home-manager.nix
         ./browser-control-home-manager.nix
@@ -73,7 +73,8 @@ in
         ./yazi-home-manager.nix
         ./update-home-manager.nix
       ];
-      home.username = "nathan";
+      home.username = username;
+      dojo.root = root;
       home.homeDirectory = homeDirectory;
       home.stateVersion = "26.05";
       targets.genericLinux.enable = true;
@@ -251,7 +252,7 @@ in
           patches = (old.patches or []) ++ [ ./system-config/patches/wluma-no-reply.patch ];
         });
         systemd.target = "graphical-session.target";
-        # No IIO/ALS hardware on venus; without this wluma panics trying to
+        # No IIO/ALS hardware on this machine; without this wluma panics trying to
         # enumerate IIO devices. It still learns from screen contents + your
         # manual brightness adjustments. Also no intel/dell paths exist here,
         # so auto-discovery is overridden with the actual devices.
@@ -486,7 +487,7 @@ in
           detect_urls = true;
           focus_follows_mouse = true;
           strip_trailing_spaces = "always";
-          shell = "/home/nathan/.nix-profile/bin/rush";
+          shell = "${homeDirectory}/.nix-profile/bin/rush";
           hide_window_decorations = true;
           tab_bar_style = "hidden";
           confirm_os_window_close = 0;
@@ -534,7 +535,7 @@ in
         focus-follows-mouse = true
         clipboard-trim-trailing-spaces = true
         shell-integration-features = true
-        command = /home/nathan/.nix-profile/bin/rush
+        command = ${homeDirectory}/.nix-profile/bin/rush
         font-family = Victor Mono
         font-size = 10
         font-feature = "ss01 1"
@@ -569,8 +570,8 @@ in
         keybind = all:page_down=jump_to_prompt:1
         keybind = all:page_up=jump_to_prompt:-1
       '';
-      home.sessionVariables.NPM_CONFIG_PREFIX = "/home/nathan/.local/npm";
-      home.sessionVariables.SSH_AUTH_SOCK = "/home/nathan/.1password/agent.sock";
+      home.sessionVariables.NPM_CONFIG_PREFIX = "${homeDirectory}/.local/npm";
+      home.sessionVariables.SSH_AUTH_SOCK = "${homeDirectory}/.1password/agent.sock";
       home.sessionVariables.BROWSER = "helium";
       home.sessionVariables.EDITOR = "nvim";
       home.sessionVariables.VISUAL = "nvim";
@@ -581,11 +582,11 @@ in
         VISUAL = "nvim";
         TERMINAL = "kitty";
       };
-      home.sessionPath = [ "/home/nathan/.local/share/mbx/bin" "/home/nathan/.nix-profile/bin" "/home/nathan/.local/npm/bin" "/home/nathan/.cargo/bin" "/home/nathan/.local/bin" ];
+      home.sessionPath = map (path: "${homeDirectory}/${path}") [ ".local/share/mbx/bin" ".nix-profile/bin" ".local/npm/bin" ".cargo/bin" ".local/bin" ];
       home.file.".local/bin/codelldb".source = "${pkgs.vscode-extensions.vadimcn.vscode-lldb}/share/vscode/extensions/vadimcn.vscode-lldb/adapter/codelldb";
       home.file.".local/bin/dojo-niri-session".source = ./scripts/dojo-niri-session;
       home.file.".local/bin/dojo-voice".source = pkgs.writeShellScript "dojo-voice" ''
-        exec /home/nathan/Dojo/tools/speech/dojo-voice "$@"
+        exec ${root}/tools/speech/dojo-voice "$@"
       '';
       xdg.configFile."systemd/user/wayland-wm@niri\\x2dsession.service.d/90-dojo-niri.conf".source = ./session-config/90-dojo-niri.conf;
       wayland.windowManager.niri = {
@@ -603,23 +604,23 @@ in
 	};
 	settings.binds."Mod+Shift+Space" = {
 	  _props.hotkey-overlay-title = "Toggle Dojo launcher";
-	  spawn = [ "/home/nathan/Dojo/scripts/dojo-desktop" "--launcher" ];
+	  spawn = [ "${root}/scripts/dojo-desktop" "--launcher" ];
 	};
 	settings.binds."Mod+Shift+P" = {
 	  _props.hotkey-overlay-title = "Hold to talk to Dojo";
           _props.repeat = false;
-          _props.spawn-on-release = "/home/nathan/Dojo/tools/speech/dojo-voice finish";
-	  spawn = [ "/home/nathan/Dojo/tools/speech/dojo-voice" "begin" ];
+          _props.spawn-on-release = "${root}/tools/speech/dojo-voice finish";
+	  spawn = [ "${root}/tools/speech/dojo-voice" "begin" ];
 	};
 	settings.binds."Mod+Shift+F23" = {
 	  _props.hotkey-overlay-title = "Hold to talk to Dojo";
           _props.repeat = false;
-          _props.spawn-on-release = "/home/nathan/Dojo/tools/speech/dojo-voice finish";
-	  spawn = [ "/home/nathan/Dojo/tools/speech/dojo-voice" "begin" ];
+          _props.spawn-on-release = "${root}/tools/speech/dojo-voice finish";
+	  spawn = [ "${root}/tools/speech/dojo-voice" "begin" ];
 	};
 	settings.binds."Mod+Shift+Escape" = {
 	  _props.hotkey-overlay-title = "Cancel Dojo recording";
-	  spawn = [ "/home/nathan/Dojo/tools/speech/dojo-voice" "cancel" ];
+	  spawn = [ "${root}/tools/speech/dojo-voice" "cancel" ];
 	};
 	settings.binds."Ctrl+F11" = {
 	  _props.hotkey-overlay-title = "Toggle quick-access terminal";

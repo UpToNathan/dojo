@@ -45,7 +45,7 @@ Rift is experimental. Dojo only installs and configures it; it does not run
 
 ## Working in Dojo
 
-`/home/nathan/Dojo` is a btrfs subvolume and is already registered, so agents
+The main Dojo checkout is a btrfs subvolume and is already registered, so agents
 only run `rift create`. Agents use Rift instead of git worktrees; see
 [AGENTS.md](../AGENTS.md#isolated-workspaces-and-build-disk).
 

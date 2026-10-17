@@ -127,14 +127,14 @@ mod tests {
     #[test]
     fn the_user_chip_prefers_the_gecos_full_name() {
         let account = |gecos: Option<&str>| Account {
-            login: "nathan".into(),
+            login: "alyssa".into(),
             gecos: gecos.map(Into::into),
         };
         assert_eq!(
-            account(Some("Nathan Duarte,,,")).full_name(),
-            "Nathan Duarte"
+            account(Some("Alyssa Park,,,")).full_name(),
+            "Alyssa Park"
         );
-        assert_eq!(account(Some(",,,")).full_name(), "nathan");
-        assert_eq!(account(None).full_name(), "nathan");
+        assert_eq!(account(Some(",,,")).full_name(), "alyssa");
+        assert_eq!(account(None).full_name(), "alyssa");
     }
 }

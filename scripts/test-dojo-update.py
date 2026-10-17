@@ -6,6 +6,7 @@ import importlib.util
 import io
 import os
 from pathlib import Path
+import socket
 import subprocess
 import tempfile
 import unittest
@@ -57,7 +58,7 @@ class UpdateTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("nix-home: ok", output)
             self.assertEqual([call.args[0] for call in run.call_args_list], [
-                ["devenv", "update"], ["devenv", "machines", "deploy", "venus"]])
+                ["devenv", "update"], ["devenv", "machines", "deploy", socket.gethostname()]])
 
     def test_optional_groups_and_zero_buffer(self):
         code, output, _ = self.run_cli(["--dry-run", "--only", "nvim,dojo", "--buffer-days", "0"])

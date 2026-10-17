@@ -25,8 +25,8 @@ outside that environment.
 4. Save the current tiled-column widths before starting Dojo:
 
    ```sh
-   cd /home/nathan/Dojo
-   devenv shell -- /home/nathan/Dojo/.agents/skills/verify-dojo/scripts/layout-widths.sh \
+   cd ~/Dojo
+   devenv shell -- ~/Dojo/.agents/skills/verify-dojo/scripts/layout-widths.sh \
      snapshot "$EVIDENCE/window-widths.json"
    ```
 
@@ -45,7 +45,7 @@ outside that environment.
 The command records the process-group ID and log under `$EVIDENCE`. The
 `dojo-frame-*` top-layer frame and four `dojo-reservation-*` surfaces in
 `niri msg layers` indicate that the layer-shell surfaces have mapped. Dojo's
-CLI toggle is `cargo run --manifest-path /home/nathan/Dojo/Cargo.toml --
+CLI toggle is `cargo run --manifest-path ~/Dojo/Cargo.toml --
 --toggle` inside devenv; no Niri keybinding is configured yet.
 
 ## Doctor
@@ -89,8 +89,8 @@ running, capture the result:
 grim -o HDMI-A-1 "$EVIDENCE/frame.png"
 niri msg layers > "$EVIDENCE/layers.txt"
 niri msg --json windows > "$EVIDENCE/windows.json"
-cd /home/nathan/Dojo
-devenv shell -- /home/nathan/Dojo/.agents/skills/verify-dojo/scripts/layout-widths.sh \
+cd ~/Dojo
+devenv shell -- ~/Dojo/.agents/skills/verify-dojo/scripts/layout-widths.sh \
   check "$EVIDENCE/window-widths.json" > "$EVIDENCE/width-check.txt"
 ```
 

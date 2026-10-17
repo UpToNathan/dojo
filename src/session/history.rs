@@ -58,7 +58,7 @@ mod tests {
 
     #[test]
     fn parse_takes_the_first_non_empty_line_trimmed() {
-        assert_eq!(parse("Hajime, Nathan\n"), Some("Hajime, Nathan".into()));
+        assert_eq!(parse("Hajime, Alyssa\n"), Some("Hajime, Alyssa".into()));
         assert_eq!(parse("  Onwards \nignored"), Some("Onwards".into()));
         assert_eq!(parse(""), None);
         assert_eq!(parse("\n\n"), None);
@@ -67,7 +67,7 @@ mod tests {
 
     #[test]
     fn format_writes_one_flat_line() {
-        assert_eq!(format("Hajime, Nathan"), "Hajime, Nathan\n");
+        assert_eq!(format("Hajime, Alyssa"), "Hajime, Alyssa\n");
         assert_eq!(format("a\nb\t c"), "a b c\n");
     }
 
@@ -98,11 +98,11 @@ mod tests {
         let directory = root.path().join("nested/dojo/session");
         assert_eq!(load(&directory, Occasion::Unlock), None);
 
-        store(&directory, Occasion::Unlock, "Welcome back, Nathan").unwrap();
+        store(&directory, Occasion::Unlock, "Welcome back, Alyssa").unwrap();
         store(&directory, Occasion::Lock, "Perimeter secure").unwrap();
         assert_eq!(
             load(&directory, Occasion::Unlock),
-            Some("Welcome back, Nathan".into())
+            Some("Welcome back, Alyssa".into())
         );
         assert_eq!(
             load(&directory, Occasion::Lock),
@@ -110,10 +110,10 @@ mod tests {
         );
         assert_eq!(load(&directory, Occasion::Login), None);
 
-        store(&directory, Occasion::Unlock, "Hajime, Nathan").unwrap();
+        store(&directory, Occasion::Unlock, "Hajime, Alyssa").unwrap();
         assert_eq!(
             load(&directory, Occasion::Unlock),
-            Some("Hajime, Nathan".into())
+            Some("Hajime, Alyssa".into())
         );
         let mut names: Vec<_> = std::fs::read_dir(&directory)
             .unwrap()

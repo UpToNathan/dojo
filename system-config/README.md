@@ -1,12 +1,13 @@
 # Machine system configuration
 
 These files are the maintained sources for custom files installed under `/etc`
-and `/usr/local` on venus. Run `scripts/install-system-config.sh` from the
+and `/usr/local` on the host. Run `scripts/install-system-config.sh` from the
 repository root to make the system paths symlink to these files; existing files
 are preserved as timestamped backups before replacement.
 
 That installer also copies `bin/dojo-chromium-theme-policy` and its narrowly
-scoped sudoers rule into place. Dojo uses the helper to update only Chromium's
+scoped sudoers rule into place; the installer fills the rule's `@USER@` with the
+account that runs it. Dojo uses the helper to update only Chromium's
 managed browser-color policy, which Helium watches at runtime. The helper and
 policy file are not symlinked into the user-writable checkout. The installer
 creates the root-owned Chromium policy directory so Helium's FHS wrapper can
@@ -53,7 +54,7 @@ Install the locker with the desktop release:
 ```sh
 devenv shell -- cargo build --release --bin dojo --bin dojo-lock --bin dojo-lock-pam
 devenv shell -- scripts/install-dojo-release.sh
-devenv machines deploy venus
+devenv machines deploy "$(cat /etc/hostname)"
 ```
 
 The release installer puts `dojo-lock` and `dojo-lock-pam` beside `dojo`, links

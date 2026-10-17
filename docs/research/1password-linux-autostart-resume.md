@@ -27,7 +27,7 @@ Dojo's autostart drop-in (`home-manager.nix`) sets `Restart=on-failure` with a 3
 
 ## CLI integration on Niri
 
-On venus (Arch Linux with Niri), `op account list` returned `connection reset`
+On the author's machine (Arch Linux with Niri), `op account list` returned `connection reset`
 even though the 1Password app was running, its CLI socket existed, and restarting
 the app did not help. PolKit was installed and active, but there was no user
 authentication-agent process. The 1Password Linux CLI integration requires both
@@ -55,7 +55,7 @@ sudo install --owner=root --group=onepassword-cli --mode=2755 \
   "$(readlink -f "$HOME/.nix-profile/bin/op")" /usr/local/bin/op
 ```
 
-Then activate Home Manager with `devenv machines deploy venus`, open a new
+Then activate Home Manager with `devenv machines deploy "$(cat /etc/hostname)"`, open a new
 terminal, and verify `command -v op` reports `/usr/local/bin/op` before retrying
 `op account list`. The PolKit agent itself is user-managed; the `sudo` commands
 are only for creating the CLI group and installing its setgid executable. The

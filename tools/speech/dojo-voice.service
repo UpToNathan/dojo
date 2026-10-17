@@ -5,8 +5,8 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/nathan/Dojo
-ExecStart=/home/nathan/.nix-profile/bin/devenv shell -- env DOJO_VOICE_DEVENV=1 /home/nathan/Dojo/tools/speech/dojo-voice --serve
+WorkingDirectory=@DOJO_ROOT@
+ExecStart=@HOME@/.nix-profile/bin/devenv shell -- env DOJO_VOICE_DEVENV=1 @DOJO_ROOT@/tools/speech/dojo-voice --serve
 Restart=on-failure
 RestartSec=3
 

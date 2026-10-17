@@ -2,7 +2,7 @@
   "schema_version": 1,
   "status": "investigation, producer not built or deployed",
   "observed_runtime": {
-    "executable": "/home/nathan/.local/opt/t3code/t3code",
+    "executable": "~/.local/opt/t3code/t3code",
     "executable_sha256": "88ac601406f5847fdda5aa86fceb2fa9ab31ce26bc64f777aca27c5c5421998f",
     "electron": "44.4.2",
     "chromium": "152.0.7977.130",

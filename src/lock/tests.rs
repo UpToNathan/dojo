@@ -15,11 +15,11 @@ const UNIX0: i64 = 1_791_983_100;
 fn settings() -> Settings {
     Settings {
         reduced_motion: false,
-        user: "nathan".into(),
+        user: "alyssa".into(),
         greeting: Some(GreetingSet {
-            short: "That was quick, Nathan".into(),
-            normal: "Welcome back, Nathan".into(),
-            long: "A new day, Nathan".into(),
+            short: "That was quick, Alyssa".into(),
+            normal: "Welcome back, Alyssa".into(),
+            long: "A new day, Alyssa".into(),
         }),
         controls_width: 300.,
         lock_age_origin: None,
@@ -581,7 +581,7 @@ fn unlock_runs_ring_fill_greeting_then_opening_then_unlocks() {
     assert_eq!(
         rig.panel(1_500).line,
         Some(Line::Greeting {
-            text: "That was quick, Nathan".into(),
+            text: "That was quick, Alyssa".into(),
             alpha: 1.
         })
     );
@@ -874,15 +874,15 @@ fn greeting_after(settings: Settings, ms: u64) -> String {
 
 #[test]
 fn the_greeting_matches_how_long_the_session_was_locked() {
-    assert_eq!(greeting_after(settings(), 90_000), "That was quick, Nathan");
-    assert_eq!(greeting_after(settings(), 120_000), "Welcome back, Nathan");
+    assert_eq!(greeting_after(settings(), 90_000), "That was quick, Alyssa");
+    assert_eq!(greeting_after(settings(), 120_000), "Welcome back, Alyssa");
     assert_eq!(
         greeting_after(settings(), 3 * 3_600_000),
-        "Welcome back, Nathan"
+        "Welcome back, Alyssa"
     );
     assert_eq!(
         greeting_after(settings(), 8 * 3_600_000),
-        "A new day, Nathan"
+        "A new day, Alyssa"
     );
 }
 
@@ -892,7 +892,7 @@ fn a_takeover_counts_the_lock_length_from_the_first_lock() {
         lock_age_origin: Some(UNIX0 - 9 * 3_600),
         ..settings()
     };
-    assert_eq!(greeting_after(settings, 1_000), "A new day, Nathan");
+    assert_eq!(greeting_after(settings, 1_000), "A new day, Alyssa");
 }
 
 #[test]
@@ -922,7 +922,7 @@ fn chosen_greetings_come_from_their_own_bucket() {
         };
         message::eligible(Occasion::Unlock, &context)
             .into_iter()
-            .map(|entry| (entry.template.replace("{name}", "Nathan"), entry.when))
+            .map(|entry| (entry.template.replace("{name}", "Alyssa"), entry.when))
             .collect()
     };
     let short = lines(Some(Duration::from_secs(60)));
@@ -935,7 +935,7 @@ fn chosen_greetings_come_from_their_own_bucket() {
             seed,
             ..message::Context::default()
         };
-        let set = GreetingSet::choose(&base, "Nathan");
+        let set = GreetingSet::choose(&base, "Alyssa");
         let condition = |pool: &[(String, Condition)], text: &str| {
             pool.iter()
                 .find(|(line, _)| line == text)
@@ -1050,7 +1050,7 @@ fn the_opening_machine_keeps_the_unlock_sequence_timeline() {
 
     let opening_deadlines = |greeting: bool, key_at: Option<u64>| {
         let t0 = Instant::now();
-        let line = greeting.then(|| "Welcome back, Nathan".to_owned());
+        let line = greeting.then(|| "Welcome back, Alyssa".to_owned());
         let (mut opening, _) =
             Opening::begin(Occasion::Unlock, &SessionSettings::default(), line, t0);
         opening.update(OpeningEvent {

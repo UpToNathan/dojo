@@ -1,6 +1,3 @@
-> [!IMPORTANT]
-> Remove this line to confirm you've reviewed this PR before submitting.
-
 # Dojo
 
 ## Desktop configuration
@@ -19,7 +16,10 @@ freed buffers to the system; an explicitly supplied mmap threshold takes precede
 `devenv shell -- scripts/check-dojo-autostart.sh` after login to check the actual
 autostart service, its process and the mapped desktop frame.
 
-Run `devenv shell` or `devenv eval ...` from this directory. Run
+Run `devenv shell` or `devenv eval ...` from this directory. The account, home
+directory, hostname and checkout path are read from the host when devenv
+evaluates (`$USER`, `$HOME`, `/etc/hostname` and the checkout's own location),
+so the tracked files name no machine and the checkout can live anywhere. Run
 `scripts/install-system-config.sh` to link the maintained system files into
 place; it preserves replaced files as timestamped backups. See
 `system-config/README.md` for tracked inputs versus generated runtime state.
@@ -279,3 +279,13 @@ p50/p95/p99 for fixed queries. Use an optimized build for performance evaluation
 these measurements exclude GPUI presentation, input delivery, and IPC, and do
 not establish parity with Fuzzel. The detached launch fixture test can be run with
 `cargo test -- --include-ignored`; it only launches a temporary test script.
+
+## License
+
+Dojo is licensed under the GNU General Public License, version 3 or (at your
+option) any later version; see [LICENSE](LICENSE). The shell links `niri-ipc`
+from the vendored Niri fork, which is GPL-3.0-or-later, and the fork itself is
+distributed under that license. The other vendored subtrees keep their own
+licenses (`vendor/*/LICENSE*`, `licenses/` and the per-crate `LICENSE` files):
+MIT or Apache-2.0 code such as GPUI, Cua, Hex and Keywork, which is compatible
+with GPL-3.0-or-later. Crates that carry their own `license` field keep it.

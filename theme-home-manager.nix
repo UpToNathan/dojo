@@ -1,7 +1,7 @@
 { config, lib, pkgs, ... }:
 let
   theme = "${config.xdg.stateHome}/dojo/themes/current";
-  root = "/home/nathan/Dojo";
+  root = config.dojo.root;
   qtSettings = version: {
     Appearance = {
       style = "Fusion";

@@ -8,12 +8,13 @@ import { DESKTOP_MCP_PROTOCOL_VERSION } from '../tools/speech/desktop-extension.
 
 const root = path.resolve(import.meta.dirname, '..');
 const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
-function files(directory = root) {
-  return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
-    if (entry.isSymbolicLink() || (entry.isDirectory() && generatedReferenceDirectory(entry.name))) return [];
-    const absolute = path.join(directory, entry.name);
-    return entry.isDirectory() ? files(absolute) : [path.relative(root, absolute)];
-  }).sort();
+// Only files the repository owns: ignored toolchains, caches and build output would make the
+// inventory differ between checkouts.
+function files() {
+  const listed = execFileSync('git', ['ls-files', '-co', '--exclude-standard', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28 });
+  return listed.split('\0').filter(name => name
+    && !name.split('/').slice(0, -1).some(generatedReferenceDirectory)
+    && fs.lstatSync(path.join(root, name), { throwIfNoEntry: false })?.isFile()).sort();
 }
 const all = files();
 const read = name => fs.readFileSync(path.join(root, name));
@@ -99,7 +100,11 @@ for (const [name, key] of Object.entries(lockedInputs.nodes.root.inputs)) {
 const history = execFileSync('git', ['log', '--all', '--format=%H%n%B', '--grep=git-subtree-dir'], { cwd: root, encoding: 'utf8' });
 const subtrees = [...history.matchAll(/git-subtree-dir: ([^\n]+)\ngit-subtree-split: ([a-f0-9]{40})/g)]
   .map(([, directory, commit]) => ({ directory, commit }));
-const sources = subtrees.filter((item, index) => subtrees.findIndex(other => other.directory === item.directory) === index);
+const fromHistory = subtrees.filter((item, index) => subtrees.findIndex(other => other.directory === item.directory) === index);
+// A published checkout may carry squashed history, so keep recorded bases that history no longer proves.
+const recorded = fs.existsSync(path.join(root, 'provenance/reference-inventory.json'))
+  ? JSON.parse(read('provenance/reference-inventory.json')).vendored_source_bases ?? [] : [];
+const sources = [...fromHistory, ...recorded.filter(base => !fromHistory.some(item => item.directory === base.directory))];
 const references = [];
 for (const name of all) {
   if (name.startsWith('provenance/') || name === 'scripts/check-reference-pins.mjs') continue;

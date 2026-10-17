@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -83,7 +84,7 @@ def update_group(group, runner, args, now):
             ready = runner.command("nix-inputs", [sys.executable, str(runner.repo / "scripts/refresh-update-inputs.py"),
                                                   "--repo", str(runner.repo), "--buffer-days", str(days)])
         ready = runner.command("nix-lock", ["devenv", "update"], ready)
-        runner.command("nix-home", ["devenv", "machines", "deploy", "venus"], ready)
+        runner.command("nix-home", ["devenv", "machines", "deploy", socket.gethostname()], ready)
     elif group == "npm":
         runner.command("npm", ["npm", "update", "--global", f"--before={cutoff}"])
     elif group == "cargo":

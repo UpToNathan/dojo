@@ -1,7 +1,7 @@
-{ pkgs, ... }:
+{ config, pkgs, ... }:
 let
-  t3AppDir = "/home/nathan/.local/opt/t3code";
-  t3Home = "/home/nathan/.t3";
+  t3AppDir = "${config.home.homeDirectory}/.local/opt/t3code";
+  t3Home = "${config.home.homeDirectory}/.t3";
   t3 = pkgs.writeShellScriptBin "t3" ''
     app_dir=${t3AppDir}
     if [ ! -x "$app_dir/t3code" ]; then

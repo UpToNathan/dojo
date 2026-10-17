@@ -1,6 +1,6 @@
 [
   {
-    "wallpaper": "/home/nathan/Pictures/astro.jpg",
+    "wallpaper": "~/Pictures/astro.jpg",
     "themes": [
       {
         "revision": "dojo-semantic-wallpaper-2",
@@ -3547,7 +3547,7 @@
     ]
   },
   {
-    "wallpaper": "/home/nathan/Pictures/osaka-jade.jpg",
+    "wallpaper": "~/Pictures/osaka-jade.jpg",
     "themes": [
       {
         "revision": "dojo-semantic-wallpaper-2",

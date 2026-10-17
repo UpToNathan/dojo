@@ -6,7 +6,7 @@ integration. Read the relevant feature recipe before driving Dojo.
 ## Baseline preconditions
 
 - Run inside the user's Niri session; layer-shell verification is compositor-specific.
-- Use `/home/nathan/Dojo` as the devenv root for builds and runs.
+- Use `~/Dojo` as the devenv root for builds and runs.
 - Capture tiled widths before launch with `scripts/layout-widths.sh snapshot` inside devenv.
 - Run a single Dojo instance. Multiple instances each resize all tiled columns.
 - `cargo run -- --toggle` toggles the frame while Dojo is running; no Niri keybinding is configured yet.

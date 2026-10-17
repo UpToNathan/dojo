@@ -172,13 +172,13 @@ devenv shell -- cargo build --bin dojo-agent
 ```
 
 Add a stdio server to your AI client's MCP configuration. Use the stable launcher
-linked by `scripts/install-niri-fork.sh`:
+linked by `scripts/install-niri-fork.sh` (replace `USER` with your account name):
 
 ```json
 {
   "mcpServers": {
     "dojo-desktop": {
-      "command": "/home/nathan/.local/bin/dojo-agent",
+      "command": "/home/USER/.local/bin/dojo-agent",
       "args": ["--name", "assistant"]
     }
   }

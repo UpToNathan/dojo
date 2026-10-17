@@ -4,6 +4,7 @@ import importlib.machinery
 import importlib.util
 import io
 from pathlib import Path
+import socket
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -31,7 +32,7 @@ class RestoreTests(unittest.TestCase):
         self.assertEqual(commands, [
             ["sudo", "pacman", "--config", "/snapshot.conf", "-Syyu", "--needed", "base", "bluez", "firewalld"],
             ["bash", str(repo / "scripts/install-system-config.sh")],
-            ["devenv", "machines", "deploy", "venus"],
+            ["devenv", "machines", "deploy", socket.gethostname()],
             ["sudo", "systemctl", "enable", "bluetooth.service"],
         ])
 

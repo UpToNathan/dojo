@@ -1,7 +1,7 @@
 # T3 Code backend
 
 `t3-home-manager.nix` exposes the installed T3 Code Electron bundle's CLI as
-`t3`. The wrapper uses `/home/nathan/.local/opt/t3code` and runs the bundled
+`t3`. The wrapper uses `~/.local/opt/t3code` and runs the bundled
 `apps/server/dist/bin.mjs` entrypoint in Electron Node mode.
 
 T3 Desktop owns the local backend. Keep **Settings → Connections → Local

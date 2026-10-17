@@ -7,7 +7,7 @@ devenv shell -- dojo-update --dry-run
 ```
 
 Run it with `devenv shell -- dojo-update`. Home Manager also installs `dojo-update`
-on PATH after the next `devenv machines deploy venus`.
+on PATH after the next `devenv machines deploy "$(cat /etc/hostname)"`.
 The runner keeps package-manager prompts attached to the terminal and requests
 sudo only through the system package manager.
 
@@ -54,7 +54,7 @@ restart. The updater does not pull this checkout or replace the vendored Niri fo
   revision strings in `devenv.yaml` and preserves its formatting. Backups live in
   `$XDG_STATE_HOME/dojo-update`, normally `~/.local/state/dojo-update`.
   `devenv update` then refreshes `devenv.lock`, and
-  `devenv machines deploy venus` builds and reviews the Home Manager activation.
+  `devenv machines deploy "$(cat /etc/hostname)"` builds and reviews the Home Manager activation.
   A failed input or lock refresh blocks activation. `--keep-pins` retains the
   currently declared revisions rather than selecting new ones.
 - Global npm packages use npm's [before setting](https://docs.npmjs.com/cli/v11/using-npm/config/#before).

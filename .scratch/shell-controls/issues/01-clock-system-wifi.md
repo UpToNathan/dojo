@@ -10,7 +10,7 @@ top-center date/time, bottom-right system menu, and Wi-Fi left of Bluetooth.
 
 The existing frame has independent right-hand controls, explicit click-through
 input regions, and native full-output overlays for Bluetooth and display settings.
-NetworkManager is active on venus. The similarly named system-menu thread handled
+NetworkManager is active on the dev machine. The similarly named system-menu thread handled
 gamepad bindings and has no competing menu source changes.
 
 Implemented the centered clock, native NetworkManager Wi-Fi menu, and compact
@@ -33,12 +33,12 @@ the shared RIGHT_INSET for the panel so both edges meet.
 Power menu follow-up: replaced the top-attached outline with a bottom-right
 outline that merges into both reserved edges. The free top-left corner is
 rounded, and the two attachment corners curve into the frame. Deployed and
-visually inspected on venus; power-menu tests and autostart doctor passed.
+visually inspected on the dev machine; power-menu tests and autostart doctor passed.
 
 Wi-Fi follow-up: removed the extra bordered background, aligned its attachment
 with RIGHT_INSET, and animated the painted shape along with the clipped content.
 The header stays above a separate scrollable network list and a scroll hint.
-Deployed and visually inspected on venus; Wi-Fi UI tests and doctor passed.
+Deployed and visually inspected on the dev machine; Wi-Fi UI tests and doctor passed.
 
 Icon follow-up: use 18 px centered cells and normalize shell glyphs to a 12 px
 maximum visible outline dimension, measured from the bundled VictorMono font.

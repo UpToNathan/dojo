@@ -382,7 +382,7 @@ mod tests {
     }
 
     fn line() -> Option<String> {
-        Some("Welcome back, Nathan".into())
+        Some("Welcome back, Alyssa".into())
     }
 
     fn on() -> SessionSettings {
@@ -645,7 +645,7 @@ mod tests {
     fn the_greeting_fades_in_holds_and_fades_out() {
         let t0 = Instant::now();
         let (opening, _) = Opening::begin(Occasion::Login, &on(), line(), t0);
-        assert_eq!(opening.greeting(), Some("Welcome back, Nathan"));
+        assert_eq!(opening.greeting(), Some("Welcome back, Alyssa"));
         let alpha = |at| opening.greeting_alpha(t0 + ms(at));
         assert_eq!(alpha(0), 0.);
         assert!((alpha(75) - 0.5).abs() < 1e-6);

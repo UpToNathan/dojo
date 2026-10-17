@@ -47,7 +47,7 @@ before applying any runtime patch:
 ```sh
 node tools/accessibility/probe-electron-runtime.mjs \
   --pins provenance/native-electron-investigation.json \
-  /home/nathan/.local/opt/t3code/t3code
+  ~/.local/opt/t3code/t3code
 ```
 
 The real pin passed; a deliberately changed hash was rejected. The probe starts

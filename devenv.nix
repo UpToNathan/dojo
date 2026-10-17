@@ -6,6 +6,13 @@
   ...
 }:
 
+let
+  # Evaluation is impure, so the account and machine come from the host that deploys.
+  homeDirectory = builtins.getEnv "HOME";
+  username = builtins.getEnv "USER";
+  machine = lib.strings.trim (builtins.readFile /etc/hostname);
+  root = config.devenv.root;
+in
 {
   # https://devenv.sh/basics/
   env.GREET = "devenv";
@@ -80,10 +87,10 @@
     echo hello from $GREET
   '';
   scripts.dojo-update.exec = ''
-    exec ${pkgs.python3}/bin/python3 /home/nathan/Dojo/scripts/dojo-update "$@"
+    exec ${pkgs.python3}/bin/python3 ${root}/scripts/dojo-update "$@"
   '';
   scripts.dojo-voice.exec = ''
-    exec /home/nathan/Dojo/tools/speech/dojo-voice "$@"
+    exec ${root}/tools/speech/dojo-voice "$@"
   '';
   scripts.install-rbonsai.exec = ''
     cargo install rbonsai --version '=0.1.5' --locked
@@ -92,7 +99,7 @@
     cargo install mbx --version '=1.22.0' --locked
   '';
   scripts.install-nvim-lsps.exec = ''
-    npm install --global --prefix /home/nathan/.local/npm \
+    npm install --global --prefix "$HOME/.local/npm" \
       cssmodules-language-server@1.5.2 \
       gh-actions-language-server@0.0.3
   '';
@@ -126,9 +133,9 @@
     package = pkgs.nodejs;
   };
 
-  machines.venus = {
+  machines.${machine} = {
     home-manager = import ./home-manager.nix {
-      inherit pkgs lib config inputs;
+      inherit pkgs lib config inputs homeDirectory username root;
     };
   };
 }

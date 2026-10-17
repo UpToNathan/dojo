@@ -9,7 +9,7 @@ desktop and maintained application integrations.
 ## Comments
 
 Removed both Home Manager packages and Delta's input/lock references. Activated
-venus; neither executable nor desktop entry remains in the active profile.
+the dev machine; neither executable nor desktop entry remains in the active profile.
 Removed Zed exports, settings publication, tests for the deleted integration,
 and Browser Control provisioning. Removed Delta's unsupported theme target.
 Stored selections discard both retired targets on deserialization so old

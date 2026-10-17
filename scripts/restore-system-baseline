@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import socket
 import subprocess
 import sys
 import tempfile
@@ -41,7 +42,7 @@ def restore_plan(repo, pacman_config=None):
     commands = [
         [*pacman, "-Syyu", "--needed", *sorted(packages)],
         ["bash", str(repo / "scripts/install-system-config.sh")],
-        ["devenv", "machines", "deploy", "venus"],
+        ["devenv", "machines", "deploy", socket.gethostname()],
     ]
     if system_units:
         commands.append(["sudo", "systemctl", "enable", *system_units])
@@ -72,7 +73,7 @@ def main(argv=None):
     except (OSError, ValueError) as error:
         print(str(error), file=sys.stderr)
         return 1
-    print("Existing Arch host required, with Nix/devenv installed and this checkout at /home/nathan/Dojo.", flush=True)
+    print("Existing Arch host required, with Nix/devenv installed.", flush=True)
     print(f"Package version buffer: {args.buffer_days} days, using signed official Arch repositories.", flush=True)
     print("Installer applies maintained privileged files and the firewalld setup. Services are enabled for next boot.", flush=True)
     print("Review docs/system-inventory.md for unmanaged configuration and separate secret provisioning.", flush=True)

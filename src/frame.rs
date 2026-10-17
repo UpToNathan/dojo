@@ -2336,7 +2336,7 @@ mod tests {
 
         assert_eq!(tray_menu_height(&entries), 16. + 30. + 9. + 30.);
         let mut multiline = entries;
-        multiline[0].label = "venus.example.ts.net\naccount@example.com".into();
+        multiline[0].label = "host.example.ts.net\naccount@example.com".into();
         assert_eq!(tray_menu_row_height(&multiline[0]), 48.);
         assert_eq!(tray_menu_height(&multiline), 16. + 48. + 9. + 30.);
     }

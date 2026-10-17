@@ -28,11 +28,11 @@ The shell watches `locked-at` (and logind's `LockedHint` as a second source). Wh
 
 ## Greeting
 
-After a successful unlock, the dial's hint line gives way to one short greeting for about a second ("Welcome back, Nathan", "Onwards, Nathan"), then the session transition opens the desktop frame. Lines vary with time of day and how long the session was locked, never repeat the previous one, and are listed in [greetings.md](greetings.md). Any key press or touch skips to the transition and never cancels the unlock. It plays inside the unlock transition, so it costs nothing while locked, and it can be switched off.
+After a successful unlock, the dial's hint line gives way to one short greeting for about a second ("Welcome back, Alyssa", "Onwards, Alyssa"), then the session transition opens the desktop frame. Lines vary with time of day and how long the session was locked, never repeat the previous one, and are listed in [greetings.md](greetings.md). Any key press or touch skips to the transition and never cancels the unlock. It plays inside the unlock transition, so it costs nothing while locked, and it can be switched off.
 
 ## Farewell
 
-When the session locks, a short farewell ("Securing the perimeter", "Goodbye, Nathan") plays over the resting dial: the shell chooses the line and leaves it in `$XDG_RUNTIME_DIR/dojo/lock-handoff` before starting the locker, and the locker fades it in over 150 ms, holds 600 ms and fades it out over 150 ms from the moment it is locked. It never delays the lock, adds no frames afterwards, and any key skips it. Other closings keep their farewell in the shell. Lines and rules are in [greetings.md](greetings.md). It can be switched off separately from the greeting.
+When the session locks, a short farewell ("Securing the perimeter", "Goodbye, Alyssa") plays over the resting dial: the shell chooses the line and leaves it in `$XDG_RUNTIME_DIR/dojo/lock-handoff` before starting the locker, and the locker fades it in over 150 ms, holds 600 ms and fades it out over 150 ms from the moment it is locked. It never delays the lock, adds no frames afterwards, and any key skips it. Other closings keep their farewell in the shell. Lines and rules are in [greetings.md](greetings.md). It can be switched off separately from the greeting.
 
 ## Process and authentication
 

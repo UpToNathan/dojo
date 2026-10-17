@@ -3,6 +3,7 @@ name = "dojo"
 version = "0.1.0"
 edition = "2024"
 default-run = "dojo"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 dojo-native-seat = { path = "crates/dojo-native-seat" }

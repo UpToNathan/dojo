@@ -1,5 +1,5 @@
 [mcp_servers.dojo-desktop]
-command = "/home/nathan/Dojo/target/debug/dojo-agent"
+command = "dojo-agent"
 args = ["--name", "t3code"]
 env_vars = ["NIRI_SOCKET", "XDG_RUNTIME_DIR", "WAYLAND_DISPLAY"]
 enabled_tools = ["desktop_context", "desktop_action", "desktop_release", "desktop_feedback", "desktop_launch", "desktop_screenshot"]
@@ -7,7 +7,7 @@ startup_timeout_sec = 10
 tool_timeout_sec = 15
 
 [mcp_servers.browser_control]
-command = "/home/nathan/.nix-profile/bin/browser-control-mcp"
+command = "browser-control-mcp"
 args = []
 startup_timeout_sec = 15
 tool_timeout_sec = 120

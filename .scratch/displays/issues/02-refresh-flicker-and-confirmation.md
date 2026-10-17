@@ -41,7 +41,7 @@ output state both contained scale 1.25. Forty further frames showed identical
 heading and control pixels through background polls. The isolated shell and
 compositor were stopped after verification.
 
-Installed `e4e9b31fbccce11a-mmap128k` on venus and restarted the shell. The service
+Installed `e4e9b31fbccce11a-mmap128k` on the dev machine and restarted the shell. The service
 doctor confirms a mapped frame; Niri's configuration validates. Final evidence
 is in `final-gui-roundtrip.log`, `final-idle.log`, `final-regressions.log`, and
 `deployed-doctor.log` under `/tmp/dojo-display-bugs/`.

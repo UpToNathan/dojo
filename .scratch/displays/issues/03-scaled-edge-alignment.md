@@ -29,7 +29,7 @@ to its edge, previews, reverts, previews again, Keeps, verifies reload/readback,
 and restores the original runtime layout and saved file bytes. That full
 roundtrip passed on the active laptop and HDMI outputs.
 
-Installed release `177cfde7d16002ed-mmap128k` and restarted Dojo on venus.
+Installed release `177cfde7d16002ed-mmap128k` and restarted Dojo on the dev machine.
 The service doctor confirms one process and a mapped frame. Evidence under
 `/tmp/dojo-display-bugs/` includes `red-scaled-drag.log`,
 `scaled-alignment-live.log`, `scaled-alignment-release.log`, and

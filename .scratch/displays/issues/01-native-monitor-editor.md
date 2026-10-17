@@ -20,7 +20,7 @@ keyboard positioning. The frame monitor button and `dojo-desktop --displays`
 open it. Apply previews for 15 seconds; Keep persists and reloads Niri, while
 Revert, close, timeout, or failed application restores the previous layout.
 Home Manager owns the optional saved-output include. Nirimon's package and
-input pin are removed, and the Home Manager configuration is deployed on venus.
+input pin are removed, and the Home Manager configuration is deployed on the dev machine.
 
 Validation passed: 63 library and 105 shell tests in the initial full run,
 13 final display backend tests, five final UI tests, and the control command

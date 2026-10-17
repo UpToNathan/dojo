@@ -10,8 +10,12 @@ import { MemoryStorage } from '@earendil-works/pi-durable';
 import { PiRuntime } from './pi-runtime.mjs';
 import { computerStepPolicy, nestDesktopSchema } from './computer-steps.mjs';
 import { DesktopMcp } from './desktop-extension.mjs';
+import { helperBinary } from './helper-binary.mjs';
 
-const policyBinary = join(process.cwd(), 'crates/dojo-computer-verification/target/debug/dojo-computer-verification');
+// The installed or release helper is the one Dojo runs; the crate's own debug build is the fallback.
+const crateBinary = join(process.cwd(), 'crates/dojo-computer-verification/target/debug/dojo-computer-verification');
+const installed = helperBinary(process.cwd(), 'dojo-computer-verification');
+const policyBinary = existsSync(installed) ? installed : crateBinary;
 const schema = { type: 'object', additionalProperties: true };
 const tools = ['desktop_observe', 'desktop_capture_action', 'desktop_release'].map(name => ({ name, inputSchema: schema }));
 const image = { type: 'image', data: 'step-fixture-png', mimeType: 'image/png' };

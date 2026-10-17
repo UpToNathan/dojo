@@ -18,7 +18,7 @@ The CLI reads one JSON command from stdin and writes JSON to stdout. Invalid inp
 The 25 general metric fixtures run through the actual CLI in `tests/general_metrics.rs`. An optional development reference check requires CPython 3.14.8, the exact upstream checkout and the RapidFuzz source archive in `provenance/artifacts/rapidfuzz-reference.lock.json`. It extracts reviewed functions from pinned Git objects and substitutes supplied evidence for host getters:
 
 ```sh
-devenv shell -- python3 scripts/check-cua-metrics-reference.py /home/nathan/.cache/dojo/upstream/cua/88aff7e5424e9ed45b93ded85eb4111472ca5190 --rapidfuzz-archive /home/nathan/.cache/dojo/artifacts/rapidfuzz/3.14.6/source.tar.gz
+devenv shell -- python3 scripts/check-cua-metrics-reference.py ~/.cache/dojo/upstream/cua/88aff7e5424e9ed45b93ded85eb4111472ca5190 --rapidfuzz-archive ~/.cache/dojo/artifacts/rapidfuzz/3.14.6/source.tar.gz
 ```
 
 This check compares 25 fixtures, with 24 matches and the explicit missing-key divergence. Python is not part of the production evaluator.

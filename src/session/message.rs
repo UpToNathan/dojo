@@ -330,7 +330,7 @@ mod tests {
                     "{occasion:?} at {hour}"
                 );
                 for seed in 0..50 {
-                    let line = select(occasion, &context(hour, seed), "Nathan");
+                    let line = select(occasion, &context(hour, seed), "Alyssa");
                     assert!(!line.is_empty(), "{occasion:?} at {hour} seed {seed}");
                 }
             }
@@ -341,10 +341,10 @@ mod tests {
     fn every_template_renders_with_the_name_and_no_braces() {
         for occasion in Occasion::ALL {
             for entry in pools(occasion).iter().flat_map(|pool| pool.iter()) {
-                let line = render(entry, "Nathan");
+                let line = render(entry, "Alyssa");
                 assert!(!line.contains('{') && !line.contains('}'), "{line}");
                 assert_eq!(
-                    line.contains("Nathan"),
+                    line.contains("Alyssa"),
                     entry.template.contains("{name}"),
                     "{line}"
                 );
@@ -363,7 +363,7 @@ mod tests {
                         previous: previous.clone(),
                         ..context(hour, seed)
                     };
-                    let line = select(occasion, &ctx, "Nathan");
+                    let line = select(occasion, &ctx, "Alyssa");
                     assert_ne!(Some(&line), previous.as_ref(), "{occasion:?} seed {seed}");
                     previous = Some(line);
                 }
@@ -378,10 +378,10 @@ mod tests {
             when: Condition::Any,
         };
         let ctx = Context {
-            previous: Some("Hajime, Nathan".into()),
+            previous: Some("Hajime, Alyssa".into()),
             ..context(10, 1)
         };
-        assert_eq!(choose(vec![&only], &ctx, "Nathan"), "Hajime, Nathan");
+        assert_eq!(choose(vec![&only], &ctx, "Alyssa"), "Hajime, Alyssa");
     }
 
     #[test]
@@ -505,39 +505,39 @@ mod tests {
     #[test]
     fn selection_is_pinned_for_fixed_seeds() {
         let lines: Vec<String> = (0..4)
-            .map(|seed| select(Occasion::Unlock, &context(23, seed), "Nathan"))
+            .map(|seed| select(Occasion::Unlock, &context(23, seed), "Alyssa"))
             .collect();
         assert_eq!(lines, PINNED_UNLOCK_NIGHT);
         let farewells: Vec<String> = (0..4)
-            .map(|seed| select(Occasion::Lock, &context(10, seed), "Nathan"))
+            .map(|seed| select(Occasion::Lock, &context(10, seed), "Alyssa"))
             .collect();
         assert_eq!(farewells, PINNED_LOCK_MORNING);
     }
 
     const PINNED_UNLOCK_NIGHT: [&str; 4] = [
-        "Still going, Nathan?",
-        "Ready when you are, Nathan",
-        "Easy does it, Nathan",
-        "Still going, Nathan?",
+        "Still going, Alyssa?",
+        "Ready when you are, Alyssa",
+        "Easy does it, Alyssa",
+        "Still going, Alyssa?",
     ];
     const PINNED_LOCK_MORNING: [&str; 4] = [
         "Locking the dojo",
         "Locking the dojo",
-        "Until next time, Nathan",
+        "Until next time, Alyssa",
         "Locking the dojo",
     ];
 
     #[test]
     fn display_name_prefers_the_full_name_first_word() {
-        assert_eq!(display_name(Some("Nathan Duarte,,,"), "nduarte"), "Nathan");
+        assert_eq!(display_name(Some("Alyssa Park,,,"), "apark"), "Alyssa");
         assert_eq!(display_name(Some("Ada"), "ada"), "Ada");
         assert_eq!(
             display_name(Some("  Grace Hopper , Room 4"), "ghopper"),
             "Grace"
         );
-        assert_eq!(display_name(None, "nathan"), "Nathan");
-        assert_eq!(display_name(Some(""), "nathan"), "Nathan");
-        assert_eq!(display_name(Some(",,,"), "nathan"), "Nathan");
+        assert_eq!(display_name(None, "alyssa"), "Alyssa");
+        assert_eq!(display_name(Some(""), "alyssa"), "Alyssa");
+        assert_eq!(display_name(Some(",,,"), "alyssa"), "Alyssa");
         assert_eq!(display_name(Some("   "), "élodie"), "Élodie");
         assert_eq!(display_name(None, ""), "");
     }

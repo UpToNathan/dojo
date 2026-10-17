@@ -34,8 +34,8 @@ Scope: source exploration for read-only `parse_visual_regions` against immutable
 - `crates/dojo-computer/src/lib.rs`; `crates/dojo-computer/src/model.rs`; `crates/dojo-cua-primitives/src/capture_registry.rs`; `crates/dojo-computer-models/src/lib.rs`.
 - `src/bin/dojo-agent.rs`; `src/bin/dojo-agent/service.rs`; `src/bin/dojo-agent/screenshot.rs`; `src/bin/dojo-agent/policy.rs`.
 - `tools/speech/desktop-extension.mjs`; `tools/speech/computer-model-bridge.mjs`; `tools/speech/computer-steps.mjs`; `tools/speech/image-retention.mjs`; relevant lifecycle and provider request projection call sites in `tools/speech/pi-runtime.mjs`.
-- `/home/nathan/.cache/dojo/upstream/cua/88aff7e5424e9ed45b93ded85eb4111472ca5190/libs/cua-driver/contract/manifest.json`, the `parse_visual_regions` declaration beginning at line 3012.
-- Explorer instructions and `/home/nathan/.agents/skills/unslop/SKILL.md`.
+- `~/.cache/dojo/upstream/cua/88aff7e5424e9ed45b93ded85eb4111472ca5190/libs/cua-driver/contract/manifest.json`, the `parse_visual_regions` declaration beginning at line 3012.
+- Explorer instructions and `~/.agents/skills/unslop/SKILL.md`.
 
 ## Boundaries
 

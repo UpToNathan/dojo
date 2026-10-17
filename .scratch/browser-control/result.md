@@ -43,7 +43,7 @@ adapter hashes are preserved in `vendor/cua/provenance/retired-browser-adapters.
 - Root Rust agent: 35 tests; native policy/catalog test passed.
 - Pi/speech: 110 tests passed, one optional CUA SDK live test skipped.
 - Config merger: three fixtures; immutable Niri installer fixture passed.
-- Exact package and Home Manager generation built; Home Manager deployed to venus.
+- Exact package and Home Manager generation built; Home Manager deployed to the dev machine.
 - CUA ledger: 514 verified files, 1,716 whole-import files and 29 reproduced patches.
 
 Real Helium acceptance: `/tmp/dojo-browser-live.SgAaEh/acceptance.json`.
