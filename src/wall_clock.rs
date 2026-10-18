@@ -22,11 +22,11 @@ fn local_tm(unix: i64) -> Option<libc::tm> {
 }
 
 fn top_bar_text(tm: &libc::tm) -> String {
-    format_tm(tm, c"%a, %b %d  %H:%M")
+    format_tm(tm, c"%a, %b %d  %-I:%M %p")
 }
 
 fn dial_text(tm: &libc::tm) -> String {
-    format_tm(tm, c"%H:%M")
+    format_tm(tm, c"%-I:%M %p")
 }
 
 fn date_text(tm: &libc::tm) -> String {
@@ -62,13 +62,14 @@ mod tests {
     }
 
     #[test]
-    fn top_bar_shows_weekday_date_and_24_hour_time() {
-        assert_eq!(top_bar_text(&utc(FIXED_UNIX)), "Wed, Oct 14  13:05");
+    fn top_bar_shows_weekday_date_and_12_hour_time() {
+        assert_eq!(top_bar_text(&utc(FIXED_UNIX)), "Wed, Oct 14  1:05 PM");
     }
 
     #[test]
-    fn dial_shows_24_hour_time() {
-        assert_eq!(dial_text(&utc(FIXED_UNIX)), "13:05");
+    fn dial_shows_12_hour_time_with_am_pm() {
+        assert_eq!(dial_text(&utc(FIXED_UNIX)), "1:05 PM");
+        assert_eq!(dial_text(&utc(FIXED_UNIX - 12 * 3_600)), "1:05 AM");
     }
 
     #[test]
