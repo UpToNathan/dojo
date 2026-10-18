@@ -185,6 +185,9 @@ in
             find . -name '*.ttf' -exec cp {} $out/share/fonts \;
           '';
         })
+        # Colour emoji: GPUI falls back to a system "NotoColorEmoji" face for them, and without
+        # one every emoji in the shell's speech bubbles draws as an empty box.
+        pkgs.noto-fonts-color-emoji
         # btrbg: tiny Wayland wallpaper setter (not in nixpkgs)
         (pkgs.stdenv.mkDerivation {
           pname = "btrbg";

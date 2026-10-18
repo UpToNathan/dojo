@@ -21,6 +21,19 @@ if not (vim.uv or vim.loop).fs_stat(lazypath) then
 end
 vim.opt.rtp:prepend(lazypath)
 
+-- The dashboard's animation. A terminal started from the desktop session has no ~/.cargo/bin on
+-- PATH, where `cargo install` puts it, so look there too and leave the panel out if it is absent.
+local function rbonsai_command()
+  local found = vim.fn.exepath('rbonsai')
+  if found == '' then
+    local installed = vim.fn.expand('~/.cargo/bin/rbonsai')
+    if vim.fn.executable(installed) == 1 then found = installed end
+  end
+  if found == '' then return nil end
+  return vim.fn.shellescape(found) .. ' -p -i -l -L 25'
+end
+local rbonsai = rbonsai_command()
+
 require('lazy').setup({
   {
     'folke/which-key.nvim',
@@ -73,8 +86,8 @@ require('lazy').setup({
       animate = { enabled = true },
       bigfile = { enabled = true },
       dashboard = {
-        width = 60,
-        pane_gap = 10,
+        width = require('dojo.dashboard').pane_width,
+        pane_gap = require('dojo.dashboard').pane_gap,
         preset = {
           header = [[
 ██████╗  ██████╗      ██╗ ██████╗ 
@@ -93,35 +106,7 @@ require('lazy').setup({
             { key = 'q', desc = 'Quit', action = ':qa', hidden = true },
           },
         },
-        sections = {
-          {
-            pane = 1,
-            { section = 'header', padding = 0, gap = 0, indent = 0, align = 'center' },
-            {
-              footer = [[]],
-              padding = 0,
-              align = 'center',
-              hl = 'comment',
-              indent = 0,
-              gap = 0,
-            },
-          },
-          {
-            pane = 3,
-            { section = 'keys', gap = 0, indent = 0, padding = 0, align = 'left' },
-            { section = 'startup' },
-            {
-              section = 'terminal',
-              cmd = 'rbonsai -p -i -l -L 25',
-              height = 25,
-              indent = 0,
-              gap = 0,
-              padding = 0,
-              align = 'center',
-              pane = 2,
-            },
-          },
-        },
+        sections = require('dojo.dashboard').sections(rbonsai),
       },
       explorer = { enabled = true },
       indent = { enabled = true },
