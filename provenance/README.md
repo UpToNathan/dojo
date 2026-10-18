@@ -56,6 +56,23 @@ Create the initial parity index with `node scripts/check-cua-parity.mjs --write`
 Later contract changes require an explicit baseline migration; the checker
 refuses to silently replace tool identities or existing evidence.
 
+## Zed (GPUI) upstream picks
+
+`vendor/zed` is based on zed-industries/zed `9ab0715969` (the squashed subtree commit). The
+`cc94985f` revision in `vendor/zed/ACCESSKIT-ANNOTATION-PROVENANCE.md` was a local checkout
+commit that does not exist upstream; `9ab0715969` is the real base. Selected upstream
+commits to `crates/gpui`, `gpui_wgpu` and `gpui_platform` are applied on top as patches, not
+by merging the whole repository (checked against upstream `56934ec056`, 2026-10-17):
+
+- `679ad7c304` uniform_list layout far down long lists
+- `e18de65b75` source-over alpha for translucent layers (the `gpui_wgpu` part)
+- `402675e805` wgpu 30 from git `3b3506ea`, fixing Vulkan surface teardown (monitor unplug)
+- `e463c5ab74` focus cleanup stalls (the `gpui` and `gpui_platform` parts)
+- `7699cb8bb8` touch fling axis
+
+Skipped: hot reload, the Apple, iOS and web backends, and `4f6d97b9de` (frame pacing, which is
+profiler and telemetry churn across crates Dojo does not use).
+
 ## Follow-up discussion
 
 After the parity and pinning pass, discuss durable execution approvals and

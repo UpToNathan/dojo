@@ -10,8 +10,8 @@
     {
       "name": "bend",
       "repository": "https://github.com/bendlang/bend",
-      "commit": "d71f42ee287bd7b9f86b44df44b210ac5eb651bd",
-      "narHash": "sha256-JJ1U1MDFTohS+smdGCJx0gVq8P5/cKKy3ygPUYWOOsA="
+      "commit": "d2aeefc1902d617340e26f7fab5c1ef50fe28efa",
+      "narHash": "sha256-U3S3lKhofGEsVsAP48u27B9gl4iTgyB9f+R4U7IhSc8="
     },
     {
       "name": "clipvault",
@@ -22,32 +22,32 @@
     {
       "name": "devenv",
       "repository": "https://github.com/cachix/devenv",
-      "commit": "a60ff7da8843686d06b4c6646846024d97138da8",
-      "narHash": "sha256-8hOkttkgaVPCKwLHK5T2XbfBIj1k4G6xO1r4UVYm5aA="
+      "commit": "1566050ec14ce238983376e118af9fb220454d39",
+      "narHash": "sha256-DUCfod12b6e/r9FCjE3+x7mJlVEmIpC10BZKGz+Nrsw="
     },
     {
       "name": "home-manager",
       "repository": "https://github.com/nix-community/home-manager",
-      "commit": "c58f54c733a7894d84fa2fdff26cc12088c4b78c",
-      "narHash": "sha256-0bK0A59rVUn1SRZzo4cNi4VSqAe7vR1gL2/MZl53Frw="
+      "commit": "54ad640b81c5e9a32db1a29e7561fda628601117",
+      "narHash": "sha256-X9iN67cdW9KqLuvbyyr9rdF4Zssk1uFHh1UC/GZH08s="
     },
     {
       "name": "nixpkgs",
       "repository": "https://github.com/cachix/devenv-nixpkgs",
-      "commit": "642a665ccf1535fec825bfb31261dac3af42e7d8",
-      "narHash": "sha256-6PwI90UIzw1kS3hzKTksAKqn+1QZzo1rCMZV0FJeS9c="
+      "commit": "02918c1b9bd4fdeffc582c5f26a3945efd3df5d3",
+      "narHash": "sha256-nqMMvHs5aQq2pDOd0X7QDSQnRg90ni1aUdppP+YOJVM="
     },
     {
       "name": "opencode",
       "repository": "https://github.com/anomalyco/opencode",
-      "commit": "ae8d59f8b56c8034623d36ec514f9d9d4dc7cd5a",
-      "narHash": "sha256-qJJ52Eb2t0GFRqwUKn8DwkAvEvGccWW1FgRN+32uiZc="
+      "commit": "501b15af26915ba52682e20e220e7e137e89e92f",
+      "narHash": "sha256-EYrAD/vrX2SsxSFLP7RmuC8o7pNqSiYefIy4JtyRpEg="
     },
     {
       "name": "pi",
       "repository": "https://github.com/earendil-works/pi",
-      "commit": "9a3ca68bda4db67efc506ec114bffe64635e8569",
-      "narHash": "sha256-c69sKTvW0G5E7bPUW3zV33IyNqv1L8nVjcZK2Aj8RdA="
+      "commit": "482c1381a00d8d00bc81697e4a980c593db6803e",
+      "narHash": "sha256-ckXJ6hLOhPpJcJ+FJKxMvZXDmLrPAXkl5yqiZGLoM1g="
     },
     {
       "name": "rush",
@@ -105,7 +105,7 @@
   "dependency_locks": [
     {
       "file": "Cargo.lock",
-      "sha256": "bef8d27003208a6d0e03e8a8d8aad684b341dd1aeb2bc522c2b7c66eb52577de"
+      "sha256": "ff2853df809184af78c6826f8db30f1143bbd7d266ac47953956b06d8a60782c"
     },
     {
       "file": "crates/dojo-accessibility/Cargo.lock",
@@ -164,8 +164,12 @@
       "sha256": "791ce44160672a6b8f48899dcec53f0a1636219a3e580984539319f2ab398a46"
     },
     {
+      "file": "crates/dojo-voice-ctl/Cargo.lock",
+      "sha256": "829fc362e79f51fcce1ccf8ca5266e276ddf1c9c7be938389d7f6163290a0e42"
+    },
+    {
       "file": "devenv.lock",
-      "sha256": "ab5bd551d36f03a97d23c12ff3c29357a2e83303f308edd1cb84253631823c92"
+      "sha256": "f6e8fd427fd54a7e873c3a15d4189f08db69636093085e60553a217ec5c149f3"
     },
     {
       "file": "nvim-config/lazy-lock.json",
@@ -315,7 +319,7 @@
     },
     {
       "file": "Cargo.toml",
-      "sha256": "6a90875bbaf1d986543bf5c37209c59e701bcf93945df5429cf9831d63897bfc"
+      "sha256": "1197a1408277fa3c2d90461b0079b31574a270bef91c22741fc3b1e730c511ed"
     },
     {
       "file": "crates/dojo-accessibility/Cargo.toml",
@@ -378,16 +382,20 @@
       "sha256": "9c2bdf0f031e08c6956660359a19da171dca592afddeb0b82926a1d217116ca1"
     },
     {
+      "file": "crates/dojo-voice-ctl/Cargo.toml",
+      "sha256": "b75ec7bcdd531b1c1a8c394e4eb725bcf317de07adc7b8b7bda144828cc9534a"
+    },
+    {
       "file": "devenv.nix",
       "sha256": "f5a110a6f059e32341d72a60db9f96f6ee92bcc4bb0bcb6ec48cd2299ec29372"
     },
     {
       "file": "devenv.yaml",
-      "sha256": "1a030f7140944f8844038933cfb370752ccc74f43186fb8d78a035f90884e9a1"
+      "sha256": "74681fe7975fcf32d82254324ff403d3ab64bc210d675512b1561bf013562afe"
     },
     {
       "file": "home-manager.nix",
-      "sha256": "bcfece183447c27badf1f11449c3aee414fabccb9e2c13ee39581282eaa5e7e3"
+      "sha256": "1013046e0177e245b90aea7a26ebcb162cd4f6204b5ddb94b8e881b3a3b590e6"
     },
     {
       "file": "tools/agent-input/Cargo.toml",
@@ -691,7 +699,7 @@
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "sha256": "277602193ede246cb42aca44ec309984ab8e8a3bc5650856f38f3a9a3990d5ed"
+      "sha256": "72a30233cca08df8873f861541056883ea1e18faa2a4853f8838aad992e7b20f"
     },
     {
       "file": "vendor/zed/crates/acp_thread/Cargo.toml",
@@ -1063,7 +1071,7 @@
     },
     {
       "file": "vendor/zed/crates/gpui/Cargo.toml",
-      "sha256": "fa467d74fbbc24d0de54458fdc8786045823da663e036f81ab54b68858ccc3ad"
+      "sha256": "674c3fd513aa156e4bf85ec679d9ad7bc7cfb503bd871b290b828a37a0b8eaaf"
     },
     {
       "file": "vendor/zed/crates/gpui_apple/Cargo.toml",
@@ -1083,7 +1091,7 @@
     },
     {
       "file": "vendor/zed/crates/gpui_platform/Cargo.toml",
-      "sha256": "231e89c58137df7fd2d625cbaf058a3c2a23c69d137af4dffa5840dc403365df"
+      "sha256": "86272d782584f1741ef1ab005ad763339f8598b67c83211babe04ef02778c3ce"
     },
     {
       "file": "vendor/zed/crates/gpui_shared_string/Cargo.toml",
@@ -1107,7 +1115,7 @@
     },
     {
       "file": "vendor/zed/crates/gpui_wgpu/Cargo.toml",
-      "sha256": "6c30407efb2f42903624b88ee8dbfd7bc0ab28302e0099bc83e82a8c6cc02768"
+      "sha256": "22c88d0f89e4a303a443c4f93a5ffd69c729738f69c1648559ee4f3c8474e66d"
     },
     {
       "file": "vendor/zed/crates/gpui_windows/Cargo.toml",
@@ -6167,36 +6175,36 @@
     {
       "file": "devenv.yaml",
       "line": 4,
-      "url": "github:cachix/devenv/a60ff7da8843686d06b4c6646846024d97138da8?dir=src/modules",
+      "url": "github:cachix/devenv/1566050ec14ce238983376e118af9fb220454d39?dir=src/modules",
       "identity": {
-        "git_commit": "a60ff7da8843686d06b4c6646846024d97138da8"
+        "git_commit": "1566050ec14ce238983376e118af9fb220454d39"
       },
       "status": "commit-pinned"
     },
     {
       "file": "devenv.yaml",
       "line": 6,
-      "url": "github:cachix/devenv-nixpkgs/642a665ccf1535fec825bfb31261dac3af42e7d8",
+      "url": "github:cachix/devenv-nixpkgs/02918c1b9bd4fdeffc582c5f26a3945efd3df5d3",
       "identity": {
-        "git_commit": "642a665ccf1535fec825bfb31261dac3af42e7d8"
+        "git_commit": "02918c1b9bd4fdeffc582c5f26a3945efd3df5d3"
       },
       "status": "commit-pinned"
     },
     {
       "file": "devenv.yaml",
       "line": 8,
-      "url": "github:nix-community/home-manager/c58f54c733a7894d84fa2fdff26cc12088c4b78c",
+      "url": "github:nix-community/home-manager/54ad640b81c5e9a32db1a29e7561fda628601117",
       "identity": {
-        "git_commit": "c58f54c733a7894d84fa2fdff26cc12088c4b78c"
+        "git_commit": "54ad640b81c5e9a32db1a29e7561fda628601117"
       },
       "status": "commit-pinned"
     },
     {
       "file": "devenv.yaml",
       "line": 13,
-      "url": "github:bendlang/bend/d71f42ee287bd7b9f86b44df44b210ac5eb651bd",
+      "url": "github:bendlang/bend/d2aeefc1902d617340e26f7fab5c1ef50fe28efa",
       "identity": {
-        "git_commit": "d71f42ee287bd7b9f86b44df44b210ac5eb651bd"
+        "git_commit": "d2aeefc1902d617340e26f7fab5c1ef50fe28efa"
       },
       "status": "commit-pinned"
     },
@@ -6257,18 +6265,18 @@
     {
       "file": "devenv.yaml",
       "line": 48,
-      "url": "github:anomalyco/opencode/ae8d59f8b56c8034623d36ec514f9d9d4dc7cd5a",
+      "url": "github:anomalyco/opencode/501b15af26915ba52682e20e220e7e137e89e92f",
       "identity": {
-        "git_commit": "ae8d59f8b56c8034623d36ec514f9d9d4dc7cd5a"
+        "git_commit": "501b15af26915ba52682e20e220e7e137e89e92f"
       },
       "status": "commit-pinned"
     },
     {
       "file": "devenv.yaml",
       "line": 53,
-      "url": "github:earendil-works/pi/9a3ca68bda4db67efc506ec114bffe64635e8569",
+      "url": "github:earendil-works/pi/482c1381a00d8d00bc81697e4a980c593db6803e",
       "identity": {
-        "git_commit": "9a3ca68bda4db67efc506ec114bffe64635e8569"
+        "git_commit": "482c1381a00d8d00bc81697e4a980c593db6803e"
       },
       "status": "commit-pinned"
     },
@@ -9088,28 +9096,28 @@
     },
     {
       "file": "home-manager.nix",
-      "line": 5,
+      "line": 15,
       "url": "https://github.com/imputnet/helium-linux/releases/download/${heliumVersion",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "home-manager.nix",
-      "line": 178,
+      "line": 202,
       "url": "https://rubjo.github.io/victor-mono/VictorMonoAll.zip",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "home-manager.nix",
-      "line": 193,
-      "url": "https://codeberg.org/julmajustus/btrbg/archive/main.tar.gz",
+      "line": 220,
+      "url": "https://codeberg.org/julmajustus/btrbg/archive/2d36d378f7779fb91e29440bca1f701d9b6bfcf8.tar.gz",
       "identity": null,
-      "status": "moving-reference"
+      "status": "requires-classification"
     },
     {
       "file": "home-manager.nix",
-      "line": 212,
+      "line": 239,
       "url": "https://addons.mozilla.org/en-US/firefox/downloads/latest/1password-x-password-manager/latest.xpi",
       "identity": null,
       "status": "moving-reference"
@@ -9237,6 +9245,13 @@
       "file": "scripts/check-chromium-theme-policy.sh",
       "line": 24,
       "url": "https://example.invalid",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "scripts/install-nvidia-gl.sh",
+      "line": 30,
+      "url": "https://download.nvidia.com/XFree86/Linux-x86_64/$version/NVIDIA-Linux-x86_64-$version.run",
       "identity": null,
       "status": "requires-classification"
     },
@@ -39534,50 +39549,57 @@
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "line": 985,
+      "line": 953,
+      "url": "https://github.com/gfx-rs/wgpu/pull/10230.",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/zed/Cargo.toml",
+      "line": 954,
+      "url": "https://github.com/gfx-rs/wgpu",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/zed/Cargo.toml",
+      "line": 986,
       "url": "https://github.com/RustAudio/cpal",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "line": 989,
+      "line": 990,
       "url": "https://github.com/tree-sitter/tree-sitter",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "line": 990,
+      "line": 991,
       "url": "https://github.com/zed-industries/async-process.git",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "line": 991,
+      "line": 992,
       "url": "https://github.com/zed-industries/async-task.git",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "line": 992,
+      "line": 993,
       "url": "https://github.com/zed-industries/windows-capture.git",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "line": 993,
-      "url": "https://github.com/zed-industries/calloop",
-      "identity": null,
-      "status": "requires-classification"
-    },
-    {
-      "file": "vendor/zed/Cargo.toml",
       "line": 994,
-      "url": "https://github.com/zed-industries/livekit-rust-sdks",
+      "url": "https://github.com/zed-industries/calloop",
       "identity": null,
       "status": "requires-classification"
     },
@@ -39591,7 +39613,7 @@
     {
       "file": "vendor/zed/Cargo.toml",
       "line": 996,
-      "url": "https://github.com/zed-industries/notify",
+      "url": "https://github.com/zed-industries/livekit-rust-sdks",
       "identity": null,
       "status": "requires-classification"
     },
@@ -39605,27 +39627,34 @@
     {
       "file": "vendor/zed/Cargo.toml",
       "line": 998,
+      "url": "https://github.com/zed-industries/notify",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "vendor/zed/Cargo.toml",
+      "line": 999,
       "url": "https://github.com/zed-industries/livekit-rust-sdks",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "line": 1000,
+      "line": 1001,
       "url": "https://github.com/timothee-haudebourg/khronos-egl/pull/37",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "line": 1001,
+      "line": 1002,
       "url": "https://github.com/zed-industries/khronos-egl",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/Cargo.toml",
-      "line": 1012,
+      "line": 1013,
       "url": "https://github.com/dtolnay/cxx/issues/1752",
       "identity": null,
       "status": "requires-classification"
@@ -49446,8 +49475,15 @@
       "status": "requires-classification"
     },
     {
+      "file": "vendor/zed/crates/gpui_wgpu/Cargo.toml",
+      "line": 59,
+      "url": "https://github.com/gfx-rs/wgpu",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
       "file": "vendor/zed/crates/gpui_wgpu/src/wgpu_renderer.rs",
-      "line": 682,
+      "line": 689,
       "url": "https://github.com/zed-industries/zed/issues",
       "identity": null,
       "status": "requires-classification"
