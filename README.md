@@ -24,6 +24,12 @@ so the tracked files name no machine and the checkout can live anywhere. Run
 place; it preserves replaced files as timestamped backups. See
 `system-config/README.md` for tracked inputs versus generated runtime state.
 
+To bring a new host up from a checkout, run `scripts/bootstrap-host` (`system`, `user`, `finish`,
+or `all`). It chains the installers, builds, speech packages, Home Manager deployment and
+session setup, and detects the NVIDIA driver (`/etc/dojo/nvidia-driver.json`, written by
+`scripts/install-nvidia-gl.sh`; rerun it after the NVIDIA package updates). It expects the Arch
+packages, Nix and devenv to be installed already.
+
 Home Manager also installs T3's bundled CLI. The desktop app owns its local
 backend; Dojo does not autostart a separate T3 server. See
 [T3 backend setup](docs/t3-server.md). [Rift workspaces](docs/rift.md) describes the pinned

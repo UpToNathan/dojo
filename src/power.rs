@@ -31,6 +31,13 @@ pub struct PowerStatus {
     pub battery_status: Option<String>,
 }
 
+impl PowerStatus {
+    /// False on machines with no battery, such as desktops.
+    pub fn has_battery(&self) -> bool {
+        self.capacity.is_some() || self.battery_status.is_some()
+    }
+}
+
 pub fn read_status() -> PowerStatus {
     let (capacity, battery_status) = read_battery(Path::new("/sys/class/power_supply"));
 
@@ -178,6 +185,18 @@ mod tests {
             (Some(84), Some("Charging".to_string()))
         );
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn only_machines_with_a_battery_report_one() {
+        assert!(!PowerStatus::default().has_battery());
+        let battery = PowerStatus {
+            capacity: Some(80),
+            battery_status: Some("Discharging".into()),
+        };
+        assert!(battery.has_battery());
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(read_battery(root.path()), (None, None));
     }
 
     #[test]

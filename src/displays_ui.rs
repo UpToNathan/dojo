@@ -1,9 +1,11 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use dojo::displays::{Controller, OutputSettings, Snapshot, logical_size, snapped_position};
+use dojo::displays::{
+    Controller, OutputSettings, Snapshot, logical_size, rotated, rotation_label, snapped_position,
+};
 use gpui::{
-    App, AppContext, Bounds, Context, DisplayId, FocusHandle, IntoElement, KeyDownEvent,
+    App, AppContext, Bounds, Context, DisplayId, Entity, FocusHandle, IntoElement, KeyDownEvent,
     MouseButton, Render, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle,
     WindowKind, WindowOptions, div, layer_shell, point, prelude::*, px,
 };
@@ -74,6 +76,8 @@ pub fn toggle(display_id: DisplayId, cx: &mut App) -> anyhow::Result<()> {
         .into_iter()
         .find(|d| d.id() == display_id)
         .ok_or_else(|| anyhow::anyhow!("Monitor disappeared"))?;
+    let selected_output = cx.new(|_| SelectedOutput(None));
+    let editor_selection = selected_output.clone();
     let panel = cx.open_window(
         WindowOptions {
             display_id: Some(display_id),
@@ -153,8 +157,11 @@ pub fn toggle(display_id: DisplayId, cx: &mut App) -> anyhow::Result<()> {
                     }
                 });
                 let release = controller.clone();
-                cx.on_release(move |_, _| {
+                cx.on_release(move |editor: &mut Editor, cx| {
                     let _ = release.close();
+                    for badge in editor.badges.drain(..) {
+                        let _ = badge.update(cx, |_, window, _| window.remove_window());
+                    }
                 })
                 .detach();
                 Editor {
@@ -170,6 +177,8 @@ pub fn toggle(display_id: DisplayId, cx: &mut App) -> anyhow::Result<()> {
                     error: snapshot.error.clone(),
                     menu: None,
                     drag: None,
+                    badges: Vec::new(),
+                    selected_output: editor_selection,
                     focus,
                     reveal: dojo::design::MenuReveal::opening_for(
                         Instant::now(),
@@ -181,8 +190,124 @@ pub fn toggle(display_id: DisplayId, cx: &mut App) -> anyhow::Result<()> {
             })
         },
     )?;
+    let badges = open_badges(&selected_output, cx);
+    let _ = panel.update(cx, |editor, _, _| editor.badges = badges);
     cx.update_global::<DisplaysUi, _>(|ui, _| ui.panel = Some(panel));
     Ok(())
+}
+
+/// Which monitor is selected in the editor, so the badge on each screen can show it.
+struct SelectedOutput(Option<String>);
+
+/// A badge on each connected monitor naming it, numbered like its box in the editor.
+struct Badge {
+    number: usize,
+    output: String,
+    label: String,
+    detail: String,
+    selected: Entity<SelectedOutput>,
+}
+impl Render for Badge {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let colors = *cx.global::<ThemeColors>();
+        let selected = self.selected.read(cx).0.as_deref() == Some(self.output.as_str());
+        div()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .font_family(crate::power::FONT_FAMILY)
+            .font_features(crate::power::font_features())
+            .text_color(colors.foreground.rgb())
+            .child(
+                div()
+                    .px(px(48.))
+                    .py(px(32.))
+                    .rounded(px(28.))
+                    .border_4()
+                    .border_color(if selected {
+                        colors.primary.rgb()
+                    } else {
+                        colors.border.rgb()
+                    })
+                    .bg(colors.background.rgb())
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(div().text_size(px(120.)).child(self.number.to_string()))
+                    .child(div().text_size(px(22.)).child(self.label.clone()))
+                    .child(
+                        div()
+                            .text_size(px(14.))
+                            .text_color(colors.foreground_muted.rgb())
+                            .child(self.detail.clone()),
+                    ),
+            )
+    }
+}
+
+/// Opens a click-through badge on every connected monitor.
+fn open_badges(selected: &Entity<SelectedOutput>, cx: &mut App) -> Vec<WindowHandle<Badge>> {
+    let snapshot = cx.global::<DisplaysUi>().snapshot.clone();
+    let mut badges = Vec::new();
+    for display in cx.displays() {
+        let Ok(uuid) = display.uuid() else { continue };
+        let Some((index, shown)) = snapshot.displays.iter().enumerate().find(|(_, shown)| {
+            shown.settings.enabled
+                && crate::edge_reservation::display_uuid(&shown.settings.name) == uuid
+        }) else {
+            continue;
+        };
+        let model = shown.output.model.as_str();
+        let badge = Badge {
+            number: index + 1,
+            output: shown.settings.name.clone(),
+            label: if model.is_empty() || model == "Unknown" {
+                shown.settings.name.clone()
+            } else {
+                model.to_owned()
+            },
+            detail: match shown.settings.mode {
+                Some(mode) => format!("{} · {}×{}", shown.settings.name, mode.width, mode.height),
+                None => shown.settings.name.clone(),
+            },
+            selected: selected.clone(),
+        };
+        let opened = cx.open_window(
+            WindowOptions {
+                display_id: Some(display.id()),
+                window_bounds: Some(WindowBounds::Windowed(display.bounds())),
+                titlebar: None,
+                app_id: Some("dojo".into()),
+                window_background: WindowBackgroundAppearance::Transparent,
+                kind: WindowKind::LayerShell(layer_shell::LayerShellOptions {
+                    namespace: format!("dojo-display-badge-{}", shown.settings.name),
+                    layer: layer_shell::Layer::Overlay,
+                    anchor: layer_shell::Anchor::TOP
+                        | layer_shell::Anchor::BOTTOM
+                        | layer_shell::Anchor::LEFT
+                        | layer_shell::Anchor::RIGHT,
+                    exclusive_zone: Some(px(-1.)),
+                    keyboard_interactivity: layer_shell::KeyboardInteractivity::None,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            |window, cx| {
+                window.set_input_region(Some(&[]));
+                cx.new(|cx| {
+                    cx.observe(&badge.selected, |_, _, cx| cx.notify()).detach();
+                    badge
+                })
+            },
+        );
+        match opened {
+            Ok(handle) => badges.push(handle),
+            Err(error) => eprintln!("Could not open a monitor badge: {error:#}"),
+        }
+    }
+    badges
 }
 
 #[derive(Clone, Copy)]
@@ -272,6 +397,7 @@ enum Edit {
     Refresh,
     Mode(niri_ipc::Mode),
     Scale(f64),
+    Rotate(bool),
     Enabled,
     Apply,
     Keep,
@@ -287,6 +413,8 @@ struct Editor {
     error: Option<String>,
     drag: Option<Drag>,
     menu: Option<Menu>,
+    badges: Vec<WindowHandle<Badge>>,
+    selected_output: Entity<SelectedOutput>,
     focus: FocusHandle,
     reveal: dojo::design::MenuReveal,
     _observer: gpui::Subscription,
@@ -329,6 +457,9 @@ impl Editor {
                 if let Some(output) = self.draft.get_mut(self.selected) {
                     match action {
                         Edit::Scale(delta) => output.scale = (output.scale + delta).clamp(0.5, 4.),
+                        Edit::Rotate(clockwise) => {
+                            output.transform = rotated(output.transform, clockwise);
+                        }
                         Edit::Enabled => {
                             if output.enabled && enabled_count == 1 {
                                 self.error = Some("Keep at least one monitor enabled.".into());
@@ -434,6 +565,16 @@ impl Render for Editor {
             window.remove_window();
         }
         let editing = !snapshot.busy && snapshot.preview_remaining.is_none();
+        let selected_name = self.draft.get(self.selected).map(|o| o.name.clone());
+        if self.selected_output.read(cx).0 != selected_name {
+            let shared = self.selected_output.clone();
+            cx.defer(move |cx| {
+                shared.update(cx, |selected, cx| {
+                    selected.0 = selected_name;
+                    cx.notify();
+                })
+            });
+        }
         let mut map = div()
             .id("display-arrangement")
             .relative()
@@ -477,6 +618,7 @@ impl Render for Editor {
                     .gap(px(4.))
                     .text_size(px(12.))
                     .cursor_pointer()
+                    .child(div().text_size(px(20.)).child((index + 1).to_string()))
                     .child(label)
                     .child(
                         div()
@@ -531,7 +673,8 @@ impl Render for Editor {
                         colors.foreground.rgb()
                     })
                     .child(format!(
-                        "{}{}",
+                        "{} {}{}",
+                        index + 1,
                         output.name,
                         if output.enabled { "" } else { " · off" }
                     ))
@@ -574,7 +717,7 @@ impl Render for Editor {
                     .text_size(px(11.))
                     .text_color(colors.foreground_muted.rgb())
                     .child(
-                        "Drag monitors to match your desk. Changes apply after you press Apply.",
+                        "Drag monitors to match your desk. Numbers match the badges on each screen. Changes apply after you press Apply.",
                     ),
             )
             .child(map)
@@ -596,6 +739,9 @@ impl Render for Editor {
                 .child(self.button("display-scale-down","−".into(),Edit::Scale(-0.25),editing && output.scale>0.5,cx))
                 .child(div().py(px(8.)).text_size(px(12.)).child(format!("{:.0}%",output.scale*100.)))
                 .child(self.button("display-scale-up","+".into(),Edit::Scale(0.25),editing && output.scale<4.,cx))
+                .child(self.button("display-rotate-ccw","↺".into(),Edit::Rotate(false),editing && output.enabled,cx))
+                .child(div().py(px(8.)).text_size(px(12.)).child(rotation_label(output.transform)))
+                .child(self.button("display-rotate-cw","↻".into(),Edit::Rotate(true),editing && output.enabled,cx))
                 .child(self.button("display-enabled",if output.enabled { "Enabled" } else { "Disabled" }.into(),Edit::Enabled,editing,cx)))
                 .child(div().text_size(px(10.)).text_color(colors.foreground_muted.rgb()).child(format!("Position {}, {} · Arrow keys move the selected monitor. Shift moves one pixel.",output.position.0,output.position.1)));
         } else {

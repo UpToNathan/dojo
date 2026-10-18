@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# Bring a host from a checkout of this repository to a working Dojo desktop.
+#
+# Prerequisites that this script does not install: the Arch packages (see
+# scripts/capture-system-packages.py and system-config/README.md), Nix with
+# flakes, and devenv. Every step is idempotent, so a failed run can be repeated.
+#
+#   scripts/bootstrap-host system   # root: system files, NVIDIA driver record
+#   scripts/bootstrap-host user     # user: builds, installers, npm, Home Manager
+#   scripts/bootstrap-host finish   # root: NVIDIA user-space tree, update-nix-gl, ly
+#   scripts/bootstrap-host all      # the three in order; sudo prompts for root steps
+#
+# Run the root phases as root or through sudo. They act for $SUDO_USER, or for
+# the user that runs `all`. Host differences (NVIDIA instead of AMD, for one) are
+# detected here and recorded under /etc/dojo, never edited into tracked files.
+set -euo pipefail
+
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+target_user=${SUDO_USER:-$(id -un)}
+target_home=$(getent passwd "$target_user" | cut -d: -f6)
+export PATH=/nix/var/nix/profiles/default/bin:$target_home/.nix-profile/bin:$PATH
+
+as_root() {
+    if [[ $EUID -eq 0 ]]; then "$@"; else sudo "$@"; fi
+}
+
+has_nvidia() { modinfo -F version nvidia >/dev/null 2>&1; }
+
+phase_system() {
+    "$repo_root/scripts/install-system-config.sh"
+    if has_nvidia; then
+        "$repo_root/scripts/install-nvidia-gl.sh"
+    fi
+}
+
+# The compositor installation pins the semantic agent (an immutable store copy) and, once Home
+# Manager has run, the browser-control executables it exports. The speech service reads those
+# pins from the installation's environment.sh, so this runs again after the deployment.
+install_niri() {
+    local pin
+    pin=$(nix-store --add "$repo_root/target/release/dojo-agent")
+    env -u __HM_SESS_VARS_SOURCED bash -c '
+        [[ ! -f $HOME/.nix-profile/etc/profile.d/hm-session-vars.sh ]] || . "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
+        exec devenv shell -- env DOJO_SEMANTIC_AGENT_EXE="$1" scripts/install-niri-fork.sh
+    ' _ "$pin"
+}
+
+phase_user() {
+    [[ $EUID -ne 0 || $target_user != root ]] || { echo 'Run the user phase as your own account.' >&2; exit 1; }
+    cd "$repo_root"
+
+    echo '== audio'
+    # The packages are installed already; start PipeWire for sessions that began before them.
+    systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service
+
+    echo '== build'
+    devenv shell -- cargo build --release --locked --manifest-path vendor/niri/Cargo.toml
+    devenv shell -- cargo build --release --bin dojo --bin dojo-lock --bin dojo-lock-pam \
+        --bin dojo-agent --bin dojo-computer-recording --bin dojo-computer-verification
+
+    echo '== install'
+    install_niri
+    devenv shell -- scripts/install-dojo-release.sh
+    devenv shell -- scripts/install-helpers.sh
+
+    echo '== CUA driver'
+    # build-cua-driver.sh verifies the vendored copy against a pinned upstream checkout in the cache.
+    local cua_rev=88aff7e5424e9ed45b93ded85eb4111472ca5190
+    local cua_cache=${XDG_CACHE_HOME:-$HOME/.cache}/dojo/upstream/cua/$cua_rev
+    if [[ ! -d $cua_cache/.git ]]; then
+        mkdir -p "$(dirname "$cua_cache")"
+        git clone --filter=blob:none https://github.com/trycua/cua.git "$cua_cache"
+        git -C "$cua_cache" checkout --detach "$cua_rev"
+    fi
+    devenv shell -- scripts/build-cua-driver.sh
+
+    echo '== speech model'
+    # The default model (about 730 MB, checksum-verified) is the only download the voice service needs.
+    devenv shell -- "${XDG_DATA_HOME:-$HOME/.local/share}/dojo/bin/dojo-speech" install
+
+    echo '== speech runtime packages'
+    devenv shell -- bash -c 'cd tools/speech && npm ci --no-audit --no-fund'
+
+    echo '== home-manager'
+    # The installers above link repo scripts into ~/.local/bin. Home Manager owns
+    # some of those paths; move each conflicting file aside and try again.
+    local log attempt moved
+    log=$(mktemp)
+    for attempt in 1 2 3 4 5 6 7 8; do
+        if devenv machines deploy "$(cat /etc/hostname)" --yes 2>&1 | tee "$log"; then
+            if ! grep -q "would be clobbered" "$log"; then rm -f "$log"; install_niri; return 0; fi
+        fi
+        moved=false
+        while IFS= read -r file; do
+            [[ $file == "$HOME"/* && -e $file || -L $file ]] || continue
+            mv -- "$file" "$file.backup-before-hm-$(date +%Y%m%d%H%M%S)"
+            printf 'Moved %s aside for Home Manager\n' "$file"
+            moved=true
+        done < <(sed -n "s/.*Existing file '\\(.*\\)' would be clobbered.*/\\1/p" "$log")
+        $moved || { echo 'Home Manager deployment failed; see the output above.' >&2; rm -f "$log"; return 1; }
+    done
+    rm -f "$log"
+    echo 'Home Manager still conflicts after repeated attempts.' >&2
+    return 1
+}
+
+phase_finish() {
+    if has_nvidia; then
+        # Rebuilds /run/opengl-driver with the NVIDIA user-space half and keeps it across reboots.
+        as_root "$target_home/.nix-profile/bin/non-nixos-gpu-setup"
+    fi
+    as_root systemctl daemon-reload
+    as_root systemctl enable --now update-nix-gl.service
+    as_root systemctl enable ly@tty2.service
+    echo 'Done. Log in through ly (the "Niri (UWSM)" session) or reboot.'
+}
+
+case ${1:-} in
+    system) phase_system ;;
+    user) phase_user ;;
+    finish) phase_finish ;;
+    all) phase_system; phase_user; phase_finish ;;
+    *) echo "Usage: $0 system|user|finish|all" >&2; exit 2 ;;
+esac

@@ -1,5 +1,15 @@
 { pkgs, lib, config, inputs, homeDirectory, username, root }:
 let
+  # Hosts on the proprietary NVIDIA module record their driver here
+  # (scripts/install-nvidia-gl.sh). Home Manager then builds the matching user-space
+  # libraries into /run/opengl-driver; they must equal the loaded kernel module.
+  # Without the file nothing changes, as on AMD and Intel hosts.
+  nvidiaDriverFile = /etc/dojo/nvidia-driver.json;
+  nvidiaDriver =
+    if builtins.pathExists nvidiaDriverFile then
+      builtins.fromJSON (builtins.readFile nvidiaDriverFile)
+    else
+      null;
   heliumVersion = "0.19.2.1";
   heliumAppImage = pkgs.fetchurl {
     url = "https://github.com/imputnet/helium-linux/releases/download/${heliumVersion}/helium-${heliumVersion}-x86_64.AppImage";
@@ -78,17 +88,25 @@ in
       home.homeDirectory = homeDirectory;
       home.stateVersion = "26.05";
       targets.genericLinux.enable = true;
+      targets.genericLinux.gpu.nvidia = lib.mkIf (nvidiaDriver != null) {
+        enable = true;
+        inherit (nvidiaDriver) version sha256;
+      };
       dojo.themeIntegrations.enable = true;
       programs.dojoNativeAccessibility.enable = true;
       programs.dojoQt6Annotation.enable = true;
       programs.dojoQt5Annotation.enable = true;
       nixpkgs.config.allowUnfreePredicate =
         pkg:
-        builtins.elem (lib.getName pkg) [
-          "1password-cli"
-          "1password-gui"
-          "1password"
-        ];
+        builtins.elem (lib.getName pkg) (
+          [
+            "1password-cli"
+            "1password-gui"
+            "1password"
+          ]
+          ++ lib.optional (nvidiaDriver != null) "nvidia-x11"
+        );
+      nixpkgs.config.nvidia.acceptLicense = nvidiaDriver != null;
       # _1password-cli is installed at /usr/local/bin/op with the required
       # onepassword-cli setgid group; a Nix-store binary cannot carry that bit.
       home.packages = with pkgs; [
@@ -193,7 +211,7 @@ in
           pname = "btrbg";
           version = "0-unstable-2026-10-06";
           src = builtins.fetchTarball {
-            url = "https://codeberg.org/julmajustus/btrbg/archive/main.tar.gz";
+            url = "https://codeberg.org/julmajustus/btrbg/archive/2d36d378f7779fb91e29440bca1f701d9b6bfcf8.tar.gz";
             sha256 = "sha256:1dmz3p2jbncll8x071iarlnz3x0zbs9prwaf2xll0jk2r8sgdss8";
           };
           nativeBuildInputs = [ pkg-config wayland-scanner wayland-protocols ];
@@ -371,7 +389,11 @@ in
         Service = {
           Type = "simple";
           ExecStart = "${homeDirectory}/.local/bin/dojo-lock";
-          Environment = [ "VK_DRIVER_FILES=/run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json" ];
+          Environment = [
+            "VK_DRIVER_FILES=/run/opengl-driver/share/vulkan/icd.d/${
+              if nvidiaDriver != null then "nvidia_icd.json" else "radeon_icd.x86_64.json"
+            }"
+          ];
           Restart = "on-failure";
           RestartSec = "250ms";
           KillMode = "control-group";

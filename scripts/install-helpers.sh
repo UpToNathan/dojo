@@ -19,10 +19,10 @@ mkdir -p "$install_dir/roots"
 
 for name in "${helpers[@]}"; do
     source_file="$repo_root/target/release/$name"
-    if [[ $name == dojo-voice-ctl ]]; then
-        # A standalone crate: it builds in about a second without the desktop shell's dependencies.
-        manifest="$repo_root/crates/dojo-voice-ctl/Cargo.toml"
-        cargo build --release --locked --offline --manifest-path "$manifest"
+    if [[ $name == dojo-voice-ctl || $name == dojo-speech ]]; then
+        # Standalone crates, each with its own lockfile and target directory.
+        manifest="$repo_root/crates/$name/Cargo.toml"
+        cargo build --release --locked --manifest-path "$manifest"
         source_file="$(cargo metadata --offline --locked --no-deps --format-version 1 --manifest-path "$manifest" |
             jq -r .target_directory)/release/$name"
     fi

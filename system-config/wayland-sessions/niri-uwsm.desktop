@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Niri (UWSM)
+Comment=Niri Wayland session managed by UWSM
+Exec=uwsm start -N "Niri" -D niri -C "Niri Wayland compositor" -- /home/@USER@/.nix-profile/bin/niri-session
+TryExec=uwsm
+DesktopNames=niri
+Type=Application

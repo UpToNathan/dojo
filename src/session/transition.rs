@@ -20,7 +20,8 @@ const SHELL_CLOCK_WEIGHT: f32 = 400.;
 const DIAL_CLOCK_WEIGHT: f32 = 250.;
 const DIAL_DIAMETER_OF_HEIGHT: f32 = 0.317;
 const DIAL_CENTRE_Y_OF_HEIGHT: f32 = 0.417;
-const DIAL_CLOCK_PX_OF_HEIGHT: f32 = 0.087;
+/// Sized so the longest 12-hour time ("12:00 AM") sits inside the disc.
+const DIAL_CLOCK_PX_OF_HEIGHT: f32 = 0.062;
 /// Height of the shell clock's box relative to its text size (24 px bar, 11 px text).
 const CLOCK_BOX_PER_PX: f32 = crate::geometry::TOP_BAR_HEIGHT as f32 / TOP_BAR_CLOCK_PX;
 
@@ -300,7 +301,7 @@ mod tests {
         assert_eq!(centre.x, px(960.));
         assert!((f32::from(centre.y) - 0.417 * 1080.).abs() < 0.01);
         assert_eq!(dial.clock.center(), centre);
-        assert!((dial.clock_px - 0.087 * 1080.).abs() < 0.01);
+        assert!((dial.clock_px - 0.062 * 1080.).abs() < 0.01);
         assert_eq!(dial.clock_weight, 250.);
         assert_eq!((dial.ring, dial.text, dial.wallpaper), (1., 1., 1.));
         assert_eq!((dial.shell_label, dial.dial_time), (0., 1.));

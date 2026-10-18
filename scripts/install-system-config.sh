@@ -56,6 +56,7 @@ config_copies=(
     'sudoers.d/dojo-chromium-theme-policy|/etc/sudoers.d/dojo-chromium-theme-policy|0440'
     'pam.d/dojo-lock-fingerprint|/etc/pam.d/dojo-lock-fingerprint|0644'
     'pam.d/dojo-lock-password|/etc/pam.d/dojo-lock-password|0644'
+    'wayland-sessions/niri-uwsm.desktop|/usr/share/wayland-sessions/niri-uwsm.desktop|0644'
 )
 
 for config_copy in "${config_copies[@]}"; do

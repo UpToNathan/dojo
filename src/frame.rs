@@ -1426,25 +1426,28 @@ impl Render for FrameView {
         if tray_count > 0 {
             top_bar = top_bar.child(tray_group);
         }
-        top_bar = top_bar.child(
-            div()
-                .id("battery-status")
-                .aria_label(if power.battery_status.as_deref() == Some("Charging") {
-                    "Battery charging"
-                } else {
-                    "Battery status"
-                })
-                .flex()
-                .items_center()
-                .ml(px(2.))
-                .gap(px(0.))
-                .text_size(px(11.))
-                .child(top_bar_icon(
-                    &battery_glyph.to_string(),
-                    if charging { 0.545 } else { 0.907 },
-                ))
-                .child(div().ml(px(-1.)).child(battery_percent)),
-        );
+        // Desktops have no battery; an unknown-battery chip there would only mislead.
+        if power.has_battery() {
+            top_bar = top_bar.child(
+                div()
+                    .id("battery-status")
+                    .aria_label(if power.battery_status.as_deref() == Some("Charging") {
+                        "Battery charging"
+                    } else {
+                        "Battery status"
+                    })
+                    .flex()
+                    .items_center()
+                    .ml(px(2.))
+                    .gap(px(0.))
+                    .text_size(px(11.))
+                    .child(top_bar_icon(
+                        &battery_glyph.to_string(),
+                        if charging { 0.545 } else { 0.907 },
+                    ))
+                    .child(div().ml(px(-1.)).child(battery_percent)),
+            );
+        }
 
         let (menu_progress, menu_moving) = self.menu_reveal.sample_with_motion(now, reduced_motion);
         if self.open_menu.is_some() {

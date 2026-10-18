@@ -3,8 +3,13 @@
 Click the monitor icon in Dojo's top bar, or run `dojo-desktop --displays`.
 The editor uses the shell's current theme.
 
+While the editor is open, every connected monitor shows a numbered badge with its model,
+connector and resolution. The number matches the monitor's box in the editor, and the
+selected monitor's badge is highlighted. The badges ignore the pointer and close with the editor.
+
 1. Drag the monitor boxes into the arrangement you want. Nearby edges snap together.
-2. Select a monitor to change its resolution, refresh rate, scale, or enabled state.
+2. Select a monitor to change its resolution, refresh rate, scale, rotation (quarter turns,
+   named as Niri names them: counter-clockwise degrees), or enabled state.
 3. Click Apply to preview the layout for 15 seconds.
 4. Click Keep to save it. Click Revert to restore the previous layout.
 

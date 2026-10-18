@@ -851,6 +851,38 @@ pub fn validate(settings: &[OutputSettings]) -> Result<(), String> {
     Ok(())
 }
 
+/// The next transform when turning the monitor a quarter turn. Niri counts
+/// rotation counter-clockwise, so `clockwise` steps back through that order. A
+/// mirrored monitor stays mirrored.
+pub fn rotated(transform: niri_ipc::Transform, clockwise: bool) -> niri_ipc::Transform {
+    use niri_ipc::Transform::*;
+    const NORMAL: [niri_ipc::Transform; 4] = [Normal, _90, _180, _270];
+    const FLIPPED: [niri_ipc::Transform; 4] = [Flipped, Flipped90, Flipped180, Flipped270];
+    let (ring, index) = match NORMAL.iter().position(|t| *t == transform) {
+        Some(index) => (NORMAL, index),
+        None => (
+            FLIPPED,
+            FLIPPED.iter().position(|t| *t == transform).unwrap_or(0),
+        ),
+    };
+    ring[(index + if clockwise { 3 } else { 1 }) % 4]
+}
+
+/// How a monitor is turned, for display: degrees counter-clockwise, as Niri names them.
+pub fn rotation_label(transform: niri_ipc::Transform) -> &'static str {
+    use niri_ipc::Transform::*;
+    match transform {
+        Normal => "0°",
+        _90 => "90°",
+        _180 => "180°",
+        _270 => "270°",
+        Flipped => "0° mirrored",
+        Flipped90 => "90° mirrored",
+        Flipped180 => "180° mirrored",
+        Flipped270 => "270° mirrored",
+    }
+}
+
 /// Niri places outputs using rounded logical dimensions; IPC dimensions truncate.
 pub fn logical_size(settings: &OutputSettings) -> (f64, f64) {
     let Some(mode) = settings.mode else {
@@ -2007,5 +2039,38 @@ mod tests {
                 "live probe failed: {probe_error:#}; cleanup also failed: {cleanup_error:#}"
             )),
         }
+    }
+
+    #[test]
+    fn rotating_steps_quarter_turns_and_wraps_in_both_directions() {
+        use niri_ipc::Transform::*;
+        assert_eq!(rotated(Normal, false), _90);
+        assert_eq!(rotated(_270, false), Normal);
+        assert_eq!(rotated(Normal, true), _270);
+        assert_eq!(rotated(_90, true), Normal);
+        let mut transform = Normal;
+        for _ in 0..4 {
+            transform = rotated(transform, true);
+        }
+        assert_eq!(transform, Normal);
+    }
+
+    #[test]
+    fn rotating_a_mirrored_monitor_keeps_it_mirrored() {
+        use niri_ipc::Transform::*;
+        assert_eq!(rotated(Flipped, false), Flipped90);
+        assert_eq!(rotated(Flipped, true), Flipped270);
+        assert_eq!(rotated(Flipped270, false), Flipped);
+        assert_eq!(rotation_label(Flipped90), "90° mirrored");
+    }
+
+    #[test]
+    fn a_quarter_turn_swaps_the_logical_size() {
+        let mut output = setting("DP-1", (0, 0), niri_ipc::Transform::Normal);
+        let (width, height) = logical_size(&output);
+        output.transform = rotated(output.transform, false);
+        assert_eq!(logical_size(&output), (height, width));
+        output.transform = rotated(output.transform, false);
+        assert_eq!(logical_size(&output), (width, height));
     }
 }

@@ -4,6 +4,8 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 DOJO_CUA_REV=88aff7e5424e9ed45b93ded85eb4111472ca5190
 node vendor/cua/copy-upstream.mjs "${XDG_CACHE_HOME:-$HOME/.cache}/dojo/upstream/cua/$DOJO_CUA_REV" --verify
 manifest=vendor/cua/upstream/libs/cua-driver/rust/Cargo.toml
+# Fetch first so a fresh host has the crates; the build itself stays offline.
+cargo fetch --locked --manifest-path "$manifest"
 cargo build --release --offline --locked --manifest-path "$manifest" -p cua-driver
 DOJO_CUA_TARGET_DIR=$(cargo metadata --offline --no-deps --format-version 1 --manifest-path "$manifest" |
     node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0, "utf8")).target_directory)')
