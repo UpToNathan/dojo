@@ -96,3 +96,45 @@ test('the main ledger checks whole import bytes without an upstream checkout',t=
   writeFileSync(join(f.root,imported),'changed whole source\n');
   const changed=run();assert.notEqual(changed.status,0);assert.match(changed.stderr,/Whole import byte mismatch/);
 });
+
+// A source whose upstream file changed after the first commit; the ledger sits at the second.
+function twoRevisions(t) {
+  const f = fixture(t), first = JSON.parse(readFileSync(join(f.root, 'vendor/cua/ledger.json'))).upstream.revision;
+  writeFileSync(join(f.source, 'original.rs'), 'newer upstream bytes\n');
+  execFileSync('git', ['-C', f.source, '-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qam', 'newer']);
+  const second = execFileSync('git', ['-C', f.source, 'rev-parse', 'HEAD']).toString().trim();
+  const ledgerPath = join(f.root, 'vendor/cua/ledger.json'), ledger = JSON.parse(readFileSync(ledgerPath));
+  ledger.upstream.revision = second;
+  return {...f, first, second, ledger, save: () => writeFileSync(ledgerPath, JSON.stringify(ledger))};
+}
+test('a record pinned to an older upstream revision verifies while the ledger sits at a newer one', t => {
+  const f = twoRevisions(t);
+  f.ledger.files[0].upstream_revision = f.first;
+  f.ledger.source_evidence = [{path: 'original.rs', sha256: sha('upstream bytes\n'), upstream_revision: f.first},
+    {path: 'original.rs', sha256: sha('newer upstream bytes\n')}];
+  f.save();
+  const verify = f.run('verify-ledger.mjs'); assert.equal(verify.status, 0, verify.stderr);
+  assert.equal(f.run('refresh-ledger.mjs').status, 0);
+});
+test('a wrong hash for an older revision fails', t => {
+  const f = twoRevisions(t);
+  f.ledger.files[0].upstream_revision = f.first; f.ledger.files[0].upstream_sha256 = sha('newer upstream bytes\n'); f.save();
+  const verify = f.run('verify-ledger.mjs'); assert.notEqual(verify.status, 0); assert.match(verify.stderr, /Pinned source mismatch/);
+  const refresh = f.run('refresh-ledger.mjs'); assert.notEqual(refresh.status, 0); assert.match(refresh.stderr, /Changed copied source refused/);
+  f.ledger.files[0].upstream_sha256 = sha('upstream bytes\n'); f.ledger.source_evidence = [{path: 'original.rs', sha256: sha('newer upstream bytes\n'), upstream_revision: f.first}]; f.save();
+  const evidence = f.run('verify-ledger.mjs'); assert.notEqual(evidence.status, 0); assert.match(evidence.stderr, /Translation source mismatch/);
+});
+test('records without upstream_revision still use the ledger revision', t => {
+  const f = twoRevisions(t);
+  f.ledger.files[0].upstream_sha256 = sha('upstream bytes\n'); f.save();
+  const stale = f.run('verify-ledger.mjs'); assert.notEqual(stale.status, 0); assert.match(stale.stderr, /Pinned source mismatch/);
+  f.ledger.files[0].upstream_sha256 = sha('newer upstream bytes\n');
+  writeFileSync(join(f.root, 'maintained.rs'), 'newer upstream bytes\n'); f.ledger.files[0].sha256 = sha('newer upstream bytes\n'); f.save();
+  const current = f.run('verify-ledger.mjs'); assert.equal(current.status, 0, current.stderr);
+});
+test('upstream_revision must be a full commit id', t => {
+  const f = twoRevisions(t);
+  f.ledger.files[0].upstream_revision = 'main'; f.save();
+  const verify = f.run('verify-ledger.mjs'); assert.notEqual(verify.status, 0); assert.match(verify.stderr, /Invalid upstream revision/);
+  assert.match(f.run('refresh-ledger.mjs').stderr, /Invalid upstream revision/);
+});

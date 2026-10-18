@@ -98,13 +98,20 @@ pub enum HostCmd {
     /// from an enrolled device.
     #[command(after_help = "Examples:
   cua host pair
-  cua host pair --team team-aigis --expires 60
+  cua host pair --name build-box --expires 60
   cua host pair --list
-  cua host pair --revoke pc_0123456789abcdef")]
+  cua host pair --revoke pc_0123456789abcdef
+  # Add the machine to a team: waits for it to join, then adds it
+  cua host pair --team AIGIS")]
     Pair {
-        /// Add the machine for this team (its id).
+        /// Add the machine to this team (id, alias or name; owner or admin):
+        /// waits until the machine joins, then makes it a team machine.
         #[arg(long)]
         team: Option<String>,
+        /// With --team: print the code and exit instead of waiting; add the
+        /// machine later with `cua team add-machine <team> relay:<id>`.
+        #[arg(long, requires = "team")]
+        no_wait: bool,
         /// Name the machine gets (default: its own host name).
         #[arg(long)]
         name: Option<String>,
@@ -202,6 +209,12 @@ pub enum HostCmd {
         /// to ask on (scripts, agents): without it nothing is removed.
         #[arg(long, short)]
         force: bool,
+        /// For an uninstall of Cua Spaces: turns off the Spaces this machine
+        /// provides and takes them off the relay too, instead of refusing
+        /// while it provides any. The Spaces and their data stay on this
+        /// machine.
+        #[arg(long)]
+        uninstalling: bool,
     },
 }
 
@@ -605,12 +618,21 @@ pub async fn run_spaces_sdk(
         SpacesCmd::Share {
             space, who, role, ..
         } => {
+            let who = team_who(&who).await?;
+            if who.starts_with("team:") && !json {
+                eprintln!(
+                    "Adding {space} to the team… (right after a Teams checkout this can take up to a minute while the plan is set up)"
+                );
+            }
             let s = spaces.space(space).await?;
             print_shares(&s.share(who, Some(role)).await?, json, out);
         }
         SpacesCmd::Unshare { space, who, all } => {
             let s = spaces.space(space).await?;
-            let who = if all { None } else { who };
+            let who = match who {
+                Some(w) if !all => Some(team_who(&w).await?),
+                _ => None,
+            };
             print_shares(&s.unshare(who).await?, json, out);
         }
         SpacesCmd::Shares { space } => {
@@ -763,13 +785,21 @@ pub async fn run_spaces_sdk(
             // What each create is doing, on one updating line of the
             // terminal (never in --json output).
             let show = !json && std::io::stderr().is_terminal() && count == 1;
+            let steps = Arc::new(crate::util::StepLines::new(
+                crate::util::CreateWords::for_image(
+                    image.as_deref().unwrap_or_default(),
+                    kind.as_deref().unwrap_or_default(),
+                    true,
+                ),
+            ));
             let creates = names.into_iter().enumerate().map(|(i, n)| {
                 let options = one(i as u32 + 1, n);
                 let spaces = spaces.clone();
+                let steps = steps.clone();
                 async move {
                     if show {
                         Box::pin(
-                            spaces.create_with_progress(options, Arc::new(ProgressLine::default())),
+                            spaces.create_with_progress(options, Arc::new(StepListener(steps))),
                         )
                         .await
                     } else {
@@ -802,7 +832,7 @@ pub async fn run_spaces_sdk(
             };
             crate::util::exit_on_ctrl_c();
             if show {
-                eprint!("\r\x1b[2K");
+                steps.finish();
             }
             let mut failed = 0;
             let mut rows = Vec::new();
@@ -1376,6 +1406,7 @@ pub async fn run_host(
         }
         HostCmd::Pair {
             team,
+            no_wait,
             name,
             expires,
             list,
@@ -1390,6 +1421,7 @@ pub async fn run_host(
                 device,
                 relay,
                 team,
+                no_wait,
                 name,
                 expires,
                 list,
@@ -1398,7 +1430,7 @@ pub async fn run_host(
                 out,
             )
             .await
-            .map_err(host_err)?;
+            .map_err(crate::team_cmd::err)?;
         }
         HostCmd::Status => {
             let s = host.status().await.map_err(host_err)?;
@@ -1471,7 +1503,10 @@ pub async fn run_host(
                 .map_err(host_err)?;
             print_allow(&allow, json, out);
         }
-        HostCmd::Remove { force } => {
+        HostCmd::Remove {
+            force,
+            uninstalling,
+        } => {
             use crate::sandbox::{DeleteConfirmation, confirm_delete};
             use std::io::IsTerminal as _;
             match confirm_delete(force, std::io::stdin().is_terminal(), || {
@@ -1491,7 +1526,11 @@ pub async fn run_host(
                     ));
                 }
             }
-            host.remove().await.map_err(host_err)?;
+            if uninstalling {
+                host.remove_for_uninstall().await.map_err(host_err)?;
+            } else {
+                host.remove().await.map_err(host_err)?;
+            }
             if json {
                 line(out, r#"{"removed":true}"#);
             } else {
@@ -1500,6 +1539,38 @@ pub async fn run_host(
         }
     }
     Ok(0)
+}
+
+/// How long an uninstall waits for one Space to turn off.
+const UNINSTALL_STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(45);
+
+/// `cua host remove --uninstalling`: turns off (keeping its data) each Space
+/// this machine provides, so nothing of this machine stays reachable
+/// through the relay. Best effort, each reported on stderr.
+pub async fn turn_off_provided_spaces<F, Fut>(home: &Path, open: F)
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<Arc<cua_sdk::Cua>, CuaError>>,
+{
+    let provided = Host::new(home).provided_spaces().unwrap_or_default();
+    if provided.is_empty() {
+        return;
+    }
+    let cua = match open().await {
+        Ok(cua) => cua,
+        Err(e) => {
+            eprintln!("Could not turn off the Spaces this machine provides: {e}");
+            return;
+        }
+    };
+    for space in provided {
+        let id = space.local_space;
+        match tokio::time::timeout(UNINSTALL_STOP_WAIT, cua.spaces().stop(id.clone())).await {
+            Ok(Ok(_)) => eprintln!("Turned off {id}."),
+            Ok(Err(e)) => eprintln!("Could not turn off {id}: {e}"),
+            Err(_) => eprintln!("Timed out turning off {id}."),
+        }
+    }
 }
 
 fn print_allow(allow: &[String], json: bool, out: &mut dyn Write) {
@@ -1512,6 +1583,23 @@ fn print_allow(allow: &[String], json: bool, out: &mut dyn Write) {
     }
 }
 
+/// `who` as it is shared with: a `team:<name>` becomes `team:<organization
+/// id>` (the Spaces API resolves names and aliases); anything else as is.
+async fn team_who(who: &str) -> Result<String, CuaError> {
+    match who.trim().strip_prefix("team:") {
+        Some(t)
+            if !cua_host::spaces_api::is_org_ref(t)
+                && !cua_host::spaces_api::is_legacy_team_id(t) =>
+        {
+            Ok(format!(
+                "team:{}",
+                crate::team_cmd::resolve_team(&crate::util::cua_home(), t).await?
+            ))
+        }
+        _ => Ok(who.trim().to_string()),
+    }
+}
+
 /// `cua host pair`: mints (default), lists or revokes pairing codes as the
 /// account from this enrolled device.
 #[allow(clippy::too_many_arguments)]
@@ -1521,6 +1609,7 @@ async fn pair_codes(
     device: Option<&DeviceAuth>,
     relay: Option<String>,
     team: Option<String>,
+    no_wait: bool,
     name: Option<String>,
     expires: u64,
     list: bool,
@@ -1577,12 +1666,35 @@ async fn pair_codes(
             "--expires is 1 to 1440 minutes".into(),
         ));
     }
+    // A team is an organization of the Spaces API: the relay code carries
+    // no team (the relay's own teams are retired), and the machine becomes
+    // a team machine once it joins (below).
+    let api = cua_host::spaces_api::SpacesApiClient::current()?;
+    let org = match &team {
+        Some(t) => {
+            let org = api.resolve_org(&token, t).await?;
+            if !org.manages() {
+                return Err(cua_host::Error::PermissionDenied(format!(
+                    "only an owner or admin of {} can add machines to it",
+                    org.label()
+                )));
+            }
+            if !org.has("team_machines") {
+                eprintln!(
+                    "Note: {} has no team machines on its plan yet (buy Teams at app.cua.ai); a plan bought a moment ago is waited for.",
+                    org.label()
+                );
+            }
+            Some(org)
+        }
+        None => None,
+    };
     let minted = client
         .create_pairing_code(
             &token,
             &cua_host::PairingCodeRequest {
                 name,
-                team,
+                team: None,
                 ttl_secs: Some(expires * 60),
             },
         )
@@ -1600,7 +1712,7 @@ async fn pair_codes(
             out,
             serde_json::json!({
                 "id": minted.id, "code": code, "url": link, "expires_at": minted.expires_at,
-                "team": minted.team, "install": {"sh": sh, "powershell": ps},
+                "team": org.as_ref().map(|o| o.id.clone()), "install": {"sh": sh, "powershell": ps},
             })
             .to_string(),
         );
@@ -1618,6 +1730,62 @@ async fn pair_codes(
         ] {
             line(out, l);
         }
+    }
+    let Some(org) = org else {
+        return Ok(());
+    };
+    let later = format!("cua team add-machine {} relay:<machine id>", org.id);
+    if no_wait {
+        if !json {
+            line(
+                out,
+                format!("When it has joined, add it to {}: {later}", org.label()),
+            );
+        }
+        return Ok(());
+    }
+    if !json {
+        line(
+            out,
+            format!(
+                "Waiting for the machine to join, to add it to {} (Ctrl-C to stop; then: {later})…",
+                org.label()
+            ),
+        );
+    }
+    let mut said = false;
+    let machine = client
+        .add_paired_machine_to_team(
+            &api,
+            &token,
+            &minted.id,
+            &org.id,
+            minted.expires_at.max(1),
+            std::time::Duration::from_secs(3),
+            |_| {
+                if !said && !json {
+                    eprintln!(
+                        "{} (the team's plan is on its way)",
+                        cua_host::spaces_api::FINISHING_SETUP
+                    );
+                    said = true;
+                }
+            },
+        )
+        .await?;
+    if json {
+        line(
+            out,
+            serde_json::json!({ "team": org.id, "machine": machine }).to_string(),
+        );
+    } else {
+        line(
+            out,
+            format!(
+                "relay:{machine} joined and is a machine of {}.",
+                org.label()
+            ),
+        );
     }
     Ok(())
 }
@@ -1960,46 +2128,27 @@ pub async fn run_spaces(
     Ok(0)
 }
 
-/// Prints a create's progress on one updating line of stderr:
-/// "Downloading image 4.2 of 22.1 GB · 85 MB/s · about 4 min".
-#[derive(Default)]
-struct ProgressLine {
-    last: std::sync::Mutex<String>,
-}
+/// Passes a Space create's progress to the terminal's step lines.
+struct StepListener(Arc<crate::util::StepLines>);
 
-impl cua_sdk::SpaceCreateListener for ProgressLine {
+impl cua_sdk::SpaceCreateListener for StepListener {
     fn on_progress(&self, p: cua_sdk::SpaceCreateProgress) {
-        let words = match p.phase.as_str() {
-            "preparing" => "Preparing",
-            "pulling" => "Downloading image",
-            "creating" => "Creating",
-            "booting" => "Booting",
-            "waiting_for_services" => "Starting services",
-            "connecting" => "Connecting",
-            _ => return,
+        use cua_sandbox_core::progress::{Phase, Progress, Transfer};
+        let Some(phase) = Phase::parse(&p.phase) else {
+            return;
         };
-        let detail = match (p.bytes_done, p.bytes_total) {
-            (Some(done), total) => cua_sandbox_core::progress::Transfer {
-                done,
-                total: total.unwrap_or(0),
-                per_second: p.bytes_per_second,
-            }
-            .describe(),
-            _ => p
-                .fraction
-                .map(|f| format!("{:.0}%", f * 100.0))
-                .unwrap_or_default(),
-        };
-        let text = if p.space.is_empty() {
-            format!("{words} {detail}")
-        } else {
-            format!("{}: {words} {detail}", p.space)
-        };
-        let mut last = self.last.lock().unwrap_or_else(|e| e.into_inner());
-        if *last != text {
-            eprint!("\r\x1b[2K{}", text.trim_end());
-            *last = text;
+        let mut out = Progress::phase(phase).detail(p.detail);
+        if let Some(f) = p.fraction {
+            out = out.fraction(f);
         }
+        if let Some(done) = p.bytes_done {
+            out = out.bytes(Transfer {
+                done,
+                total: p.bytes_total.unwrap_or(0),
+                per_second: p.bytes_per_second,
+            });
+        }
+        self.0.show(&out);
     }
 }
 

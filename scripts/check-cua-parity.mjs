@@ -43,7 +43,7 @@ if (existing) {
     }
   }
 }
-const index = { schema_version: 1, upstream_commit: '88aff7e5424e9ed45b93ded85eb4111472ca5190', contracts };
+const index = { schema_version: 1, upstream_commit: 'afed1fcbba64acadcc154b8d5d377549ae62bc7e', contracts };
 const bytes = JSON.stringify(index, null, 2) + '\n';
 if (process.argv.includes('--write')) fs.writeFileSync(destination, bytes);
 else if (!existing || fs.readFileSync(destination, 'utf8') !== bytes) throw new Error('Parity index is stale; review baseline and run with --write');

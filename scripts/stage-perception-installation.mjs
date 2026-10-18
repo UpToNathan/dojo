@@ -11,7 +11,7 @@ if (!archive || !artifacts || process.argv.length !== 4) throw new Error('Usage:
 const run = (...args) => execFileSync('devenv', ['shell', '--', ...args], {cwd: root, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024});
 execFileSync(process.execPath, ['scripts/check-perception-artifacts.mjs', archive, artifacts], {cwd: root, stdio: 'inherit'});
 const ledger = JSON.parse(fs.readFileSync(path.join(root, 'vendor/cua/ledger.json')));
-if (ledger.upstream.revision !== '88aff7e5424e9ed45b93ded85eb4111472ca5190') throw new Error('Worker baseline changed');
+if (ledger.upstream.revision !== 'afed1fcbba64acadcc154b8d5d377549ae62bc7e') throw new Error('Worker baseline changed');
 const workerSources = ledger.files.filter(file => file.path.startsWith('vendor/cua/driver/crates/cua-perception/'));
 if (workerSources.length !== 46) throw new Error('Worker source closure differs');
 for (const file of workerSources) {
@@ -44,7 +44,7 @@ try {
   worker = path.join(store(directory), 'bin/cua-perception');
 } finally { fs.rmSync(stagedWorker, {recursive: true, force: true}); }
 const config = {
-  source_commit: '88aff7e5424e9ed45b93ded85eb4111472ca5190',
+  source_commit: 'afed1fcbba64acadcc154b8d5d377549ae62bc7e',
   executable: worker,
   executable_sha256: crypto.createHash('sha256').update(fs.readFileSync(worker)).digest('hex'),
   manifest: path.join(bundle, 'model-manifest.json'),

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+  "revision": "afed1fcbba64acadcc154b8d5d377549ae62bc7e",
   "scope": "Whole Driver and MIT sandbox/SDK source imports. Integration and runtime parity are separate gates.",
   "support_data": [
     {
@@ -13,12 +13,12 @@
   "patches": [
     {
       "metadata": "vendor/cua/metadata/niri-driver.patch",
-      "sha256": "b52a6b8ef7d0cf2e99480533c867e8360177e66ebe058df7a748f7fb02e10a82",
+      "sha256": "2d1132d025664ae2e82d82bb59039ffb563c58ea0bdfb106cd0200b603ca2207",
       "purpose": "Niri identity, capture and coordinated native seat execution; Dojo worker uses compositor cursor and parent authorization",
       "files": [
         {
           "path": "libs/cua-driver/rust/crates/platform-linux/Cargo.toml",
-          "sha256": "9442b9c8b211cda00c203d5f48d57f2aeff83a6c17d6d46532d9e4d75068d9bd"
+          "sha256": "e31fbb572cfdec9763adc27fceb1885c419b3a4231ae3df9a0bd2b5cffe60ccc"
         },
         {
           "path": "libs/cua-driver/rust/crates/platform-linux/src/wayland/mod.rs",
@@ -30,11 +30,11 @@
         },
         {
           "path": "libs/cua-driver/rust/crates/platform-linux/src/tools/impl_.rs",
-          "sha256": "e56d9149211eca9fbb7a6eac202b139632ff8955df4631322ba9488fff905615"
+          "sha256": "138aece7626772b458d0373ddf0cd0fc9c6207b25fc1e4f3b0fe03c4d5658052"
         },
         {
           "path": "libs/cua-driver/rust/Cargo.lock",
-          "sha256": "eaf7ec247543ebd93b96ced266edf69f9b4995a8c93eb452dd3c0dc20bbe4993"
+          "sha256": "7cb45b0853c72972f875a2bed390d37f4e4daffd44eb4a29cd3d7c86c12dd43b"
         },
         {
           "path": "libs/cua-driver/rust/crates/platform-linux/src/wayland/niri.rs",
@@ -69,7 +69,7 @@
     },
     {
       "metadata": "vendor/cua/metadata/immutable-acquisition.patch",
-      "sha256": "e8757275bac9db4994c7ce94526932ab5c66bbd77fb39f8614a00625d242f9bd",
+      "sha256": "5c09473861e5c6afb122d07f713acaff2687757ebbac8ff262246652395b89fb",
       "purpose": "Consume committed catalog image digests and refuse mutable runtime installers; original explicit ManifestSource injection retained",
       "files": [
         {
@@ -82,15 +82,15 @@
         },
         {
           "path": "libs/cua/crates/cua-vmm/src/qemu/mod.rs",
-          "sha256": "9fff8709caec82aabb3346113352b4d6ee045e8b688d5fd2f548ed3c01826526"
+          "sha256": "84dd891ee5f8afb7dd24154c4abfb7507484dad2a5f01d333bf311d62f653eeb"
         },
         {
           "path": "libs/cua/crates/cua-vmm/src/lume/mod.rs",
-          "sha256": "bfbab827e8cb74f66d6714dfb416adb8fff37dc6a0feefda5b914c9497dedb3d"
+          "sha256": "34f07579bb2259f16401a573dde09b853279729be61f08d7fade1b270e8779d5"
         },
         {
           "path": "libs/cua/crates/cua-vmm/src/container/mod.rs",
-          "sha256": "e4cffcbd211211dccf48a90446b2f2af913f0a1aa4ba50c4833660839f77f7a4"
+          "sha256": "99954347daf3b3372053f3a4b1166c5289463ed9bceabed991b27189761f7095"
         }
       ]
     }
@@ -108,9 +108,9 @@
     {
       "path": "vendor/cua/upstream/LICENSING.md",
       "upstream_path": "LICENSING.md",
-      "git_blob": "c274054477e3b217f6c6b15c3a90c8858d0debd9",
-      "sha256": "a780fb615249e32f070ab9a344f298ea75a87f6be181312d6393fa9dbcddfbc1",
-      "upstream_sha256": "a780fb615249e32f070ab9a344f298ea75a87f6be181312d6393fa9dbcddfbc1",
+      "git_blob": "96ea0cc4ae1b9fea40ab9e05e3fa37870189adfa",
+      "sha256": "9acf667d1b7b5db3aa356f5eafadf1bf29b014332bd760797499d0b97322e4e5",
+      "upstream_sha256": "9acf667d1b7b5db3aa356f5eafadf1bf29b014332bd760797499d0b97322e4e5",
       "mode": "100644",
       "state": "copied"
     },
@@ -153,45 +153,45 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/CHANGELOG.md",
       "upstream_path": "libs/cua-driver/rust/CHANGELOG.md",
-      "git_blob": "74bba2c868e8be4ce221f3dfaef72fac91325024",
-      "sha256": "a63770b4bd26920274ea2b0a579b2cf7e8be426a4e6fefefbee0fd012bd90401",
-      "upstream_sha256": "a63770b4bd26920274ea2b0a579b2cf7e8be426a4e6fefefbee0fd012bd90401",
+      "git_blob": "f3fa76e515fc23d03a59fc67c6ca476afa0e1de0",
+      "sha256": "cce2997be5672c8f1532b8499382942856706ec03c2c9a542c810ac202c2e982",
+      "upstream_sha256": "cce2997be5672c8f1532b8499382942856706ec03c2c9a542c810ac202c2e982",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/Cargo.lock",
       "upstream_path": "libs/cua-driver/rust/Cargo.lock",
-      "git_blob": "707ed352b39024b3e3ff855fa455d288acb4592c",
-      "sha256": "eaf7ec247543ebd93b96ced266edf69f9b4995a8c93eb452dd3c0dc20bbe4993",
-      "upstream_sha256": "6b600b4f6498076ef47ec1a3af5b69c10a65a82676f4e11c1e108330ba4b688d",
+      "git_blob": "232f88e858cc8cd09ffbf5ec9637577eb874e560",
+      "sha256": "7cb45b0853c72972f875a2bed390d37f4e4daffd44eb4a29cd3d7c86c12dd43b",
+      "upstream_sha256": "346cf1f23c7cb0779eed531ee1c0d379b6e044bd8e64a5830f650c5111fb3d27",
       "mode": "100644",
       "state": "modified"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/Cargo.toml",
       "upstream_path": "libs/cua-driver/rust/Cargo.toml",
-      "git_blob": "1013c7fa45581c885ab4afcaec2b68c119dbcae1",
-      "sha256": "8cf5a6d585f208774a3b146a770ab287391d52c3960717a8701f14e8d8104ecc",
-      "upstream_sha256": "8cf5a6d585f208774a3b146a770ab287391d52c3960717a8701f14e8d8104ecc",
+      "git_blob": "6f08f0c9aedcf1304387ad37f55c62b58c918fba",
+      "sha256": "8f49be746311d7443399df56d155f4c9a7499285827902bca90a9855a56a3b08",
+      "upstream_sha256": "8f49be746311d7443399df56d155f4c9a7499285827902bca90a9855a56a3b08",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/README.md",
       "upstream_path": "libs/cua-driver/rust/README.md",
-      "git_blob": "c9581829b756d7e8dfd2ea3385e83e5bd21e4fbb",
-      "sha256": "0e5e84be999b4368d93759768e672b6256206cf6a491d9d402872bc596317cf5",
-      "upstream_sha256": "0e5e84be999b4368d93759768e672b6256206cf6a491d9d402872bc596317cf5",
+      "git_blob": "71828ca8cea3d2e14a998b8333680d73c9718dc6",
+      "sha256": "712d5faa2c2059dfa941184138672588e5a691cb31ae13ae472e98c038863791",
+      "upstream_sha256": "712d5faa2c2059dfa941184138672588e5a691cb31ae13ae472e98c038863791",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/Skills/cua-driver/BROWSER.md",
       "upstream_path": "libs/cua-driver/rust/Skills/cua-driver/BROWSER.md",
-      "git_blob": "8f2c4c735035eadbb9bf83a44077acb910c08405",
-      "sha256": "2fef722b8fbefe78a3b50ca2d0a3130aded65758b7b496b497d47dd97c6a93e0",
-      "upstream_sha256": "2fef722b8fbefe78a3b50ca2d0a3130aded65758b7b496b497d47dd97c6a93e0",
+      "git_blob": "85166d4d40e68d893dccc5bdad2f29ec591bacfe",
+      "sha256": "b008c6bfef08beaf030304adee72a297ddc0df436af32ee8fa643c0dff77efbf",
+      "upstream_sha256": "b008c6bfef08beaf030304adee72a297ddc0df436af32ee8fa643c0dff77efbf",
       "mode": "100644",
       "state": "copied"
     },
@@ -216,9 +216,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/Skills/cua-driver/MACOS.md",
       "upstream_path": "libs/cua-driver/rust/Skills/cua-driver/MACOS.md",
-      "git_blob": "f01f7e3f96fc45c4ae6d881eaf6408c2260b4a61",
-      "sha256": "ce051cd937fc2a45fa5442ca3b25c7525eae199d27f4b6c3837dac3c7dfbb45a",
-      "upstream_sha256": "ce051cd937fc2a45fa5442ca3b25c7525eae199d27f4b6c3837dac3c7dfbb45a",
+      "git_blob": "888a8c6be2f236d2d11d22989dd8e08612c8ffae",
+      "sha256": "7c6bceeec23731cddb6bfb4d3e346359256eb3325c9db114f0a64cc151a62e8a",
+      "upstream_sha256": "7c6bceeec23731cddb6bfb4d3e346359256eb3325c9db114f0a64cc151a62e8a",
       "mode": "100644",
       "state": "copied"
     },
@@ -252,9 +252,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/Skills/cua-driver/SKILL.md",
       "upstream_path": "libs/cua-driver/rust/Skills/cua-driver/SKILL.md",
-      "git_blob": "db1a182bc38deb7c1dc5e39694468d44583d4fd8",
-      "sha256": "752b620d5d42a9692caae141895d114e9c4f2b17f742060c671ad80795b984bd",
-      "upstream_sha256": "752b620d5d42a9692caae141895d114e9c4f2b17f742060c671ad80795b984bd",
+      "git_blob": "b8ac29d63ef1964380d2959d4f86275b62430033",
+      "sha256": "be1868e8b9a8617c75900d75abd85823f3c7b3baaa3e8932a802f88b7ca13593",
+      "upstream_sha256": "be1868e8b9a8617c75900d75abd85823f3c7b3baaa3e8932a802f88b7ca13593",
       "mode": "100644",
       "state": "copied"
     },
@@ -297,9 +297,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/VERSION",
       "upstream_path": "libs/cua-driver/rust/VERSION",
-      "git_blob": "85e60ed180c43f96ad25d7f1ecab8ef2461a75d9",
-      "sha256": "a341550457891be148045ef7560e7499da6063d012ce8163bf6e6db2f08d2466",
-      "upstream_sha256": "a341550457891be148045ef7560e7499da6063d012ce8163bf6e6db2f08d2466",
+      "git_blob": "f00ab674d8ffb3d1651cc2f29a8b517e7a9f282e",
+      "sha256": "bf13148cad38fdf057f9b27fef9a23751a2b44bbfdce4950363a4a91b426047b",
+      "upstream_sha256": "bf13148cad38fdf057f9b27fef9a23751a2b44bbfdce4950363a4a91b426047b",
       "mode": "100644",
       "state": "copied"
     },
@@ -324,9 +324,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-cursor-motion/README.md",
       "upstream_path": "libs/cua-driver/rust/crates/cua-cursor-motion/README.md",
-      "git_blob": "3edbd4298c229b579ae9b2be881f900dad3219a3",
-      "sha256": "b0e4cc27a05b2039e88a408484c527e755b1eb7fdccb7f796dfccd1c5927cea0",
-      "upstream_sha256": "b0e4cc27a05b2039e88a408484c527e755b1eb7fdccb7f796dfccd1c5927cea0",
+      "git_blob": "18b40d33ba3f7a1f9447628ba336afd8a4fee5e1",
+      "sha256": "9fcb56172e58e7775334a4b1e6c042749f27c2210956983a135dafcfac01377a",
+      "upstream_sha256": "9fcb56172e58e7775334a4b1e6c042749f27c2210956983a135dafcfac01377a",
       "mode": "100644",
       "state": "copied"
     },
@@ -342,9 +342,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-cursor-motion/fixtures/golden.json",
       "upstream_path": "libs/cua-driver/rust/crates/cua-cursor-motion/fixtures/golden.json",
-      "git_blob": "08d979ee94fe642090fcd5c136c43f08162485fb",
-      "sha256": "617ef14dc6db6609d434335291f00c2812eb369b0257d3ce5913a1edad297cca",
-      "upstream_sha256": "617ef14dc6db6609d434335291f00c2812eb369b0257d3ce5913a1edad297cca",
+      "git_blob": "6b0f36a568ff46a3cf5c159757e29fd4b0ca74db",
+      "sha256": "7a779aa9bd9d2f12724da33b981c29b5e79a047e0d8e88e0b42cd8d1ae7293b0",
+      "upstream_sha256": "7a779aa9bd9d2f12724da33b981c29b5e79a047e0d8e88e0b42cd8d1ae7293b0",
       "mode": "100644",
       "state": "copied"
     },
@@ -396,9 +396,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-cursor-motion/src/params.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-cursor-motion/src/params.rs",
-      "git_blob": "cc5ca07d7dd313524f7fe092ffed047097423f37",
-      "sha256": "9fa4fff8ad77948ad1718ffdc0c9928a24224e498e9ba2a2bfa13d7e6fe9d18b",
-      "upstream_sha256": "9fa4fff8ad77948ad1718ffdc0c9928a24224e498e9ba2a2bfa13d7e6fe9d18b",
+      "git_blob": "773ecb5b4b6004683d8e3d04ec6a8edde74426d4",
+      "sha256": "71d2e8d34578afec09f98915e120db3c9f291d5e5fd1bc05491ed0869dc0a10c",
+      "upstream_sha256": "71d2e8d34578afec09f98915e120db3c9f291d5e5fd1bc05491ed0869dc0a10c",
       "mode": "100644",
       "state": "copied"
     },
@@ -414,9 +414,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-cursor-motion/src/plan.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-cursor-motion/src/plan.rs",
-      "git_blob": "62a1d1dc843a4a13e9341010cc0e339d67433e3f",
-      "sha256": "2f923bbeeff46d494ba8fb6044a8f62a93a92a27ada0ceb95126650ed47c8e75",
-      "upstream_sha256": "2f923bbeeff46d494ba8fb6044a8f62a93a92a27ada0ceb95126650ed47c8e75",
+      "git_blob": "0c99f44a9a7e21da54c61a8ce80fbef53edf3803",
+      "sha256": "f9abd21f62884b1dc8265db71ca358acad566ffca8f90dd49322403bccd46565",
+      "upstream_sha256": "f9abd21f62884b1dc8265db71ca358acad566ffca8f90dd49322403bccd46565",
       "mode": "100644",
       "state": "copied"
     },
@@ -441,9 +441,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-cursor-motion/src/style.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-cursor-motion/src/style.rs",
-      "git_blob": "221e773ea8f41aa9e04b5ed36757e5f1ef99da36",
-      "sha256": "ca5fe70d9f07026935f16009fc5c90bb2f14c5ff022ed48e47cd975dc8cae301",
-      "upstream_sha256": "ca5fe70d9f07026935f16009fc5c90bb2f14c5ff022ed48e47cd975dc8cae301",
+      "git_blob": "0181ecae629f79ae98886470969f20b06eb0ee3f",
+      "sha256": "c22cd47dae47eb3728336d5c595916517010a6973a0086d09a76751cfe4de634",
+      "upstream_sha256": "c22cd47dae47eb3728336d5c595916517010a6973a0086d09a76751cfe4de634",
       "mode": "100644",
       "state": "copied"
     },
@@ -477,9 +477,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-cursor-motion/tests/motion_parity.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-cursor-motion/tests/motion_parity.rs",
-      "git_blob": "eff60d2fd5820caa81eab0766b5f53dae323fd93",
-      "sha256": "07b69856adc444ce143fa0b9942c3b7a4fdbec4f4540eb03123253cb1d62892c",
-      "upstream_sha256": "07b69856adc444ce143fa0b9942c3b7a4fdbec4f4540eb03123253cb1d62892c",
+      "git_blob": "adfa6134418ec65d1b00c4efc2184f590cab4e47",
+      "sha256": "ea5d428e8949cbda503167b62502588eb4d09a0d8b6467cac86c7b27fd476288",
+      "upstream_sha256": "ea5d428e8949cbda503167b62502588eb4d09a0d8b6467cac86c7b27fd476288",
       "mode": "100644",
       "state": "copied"
     },
@@ -540,9 +540,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-contract/src/cursor.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-contract/src/cursor.rs",
-      "git_blob": "556f772d4c84c7b2679599af8f9184059804d0f6",
-      "sha256": "8a1650ef9db3c0de7b7b4a70a803312f788afbbf4b031499703ef8952d7080f9",
-      "upstream_sha256": "8a1650ef9db3c0de7b7b4a70a803312f788afbbf4b031499703ef8952d7080f9",
+      "git_blob": "461b63813bed5372426691e3c17886bcd1a75b0a",
+      "sha256": "b16c4b45431c75a62b6e3c28b93aaaaa90afba71010dcbdef395678893d83cfd",
+      "upstream_sha256": "b16c4b45431c75a62b6e3c28b93aaaaa90afba71010dcbdef395678893d83cfd",
       "mode": "100644",
       "state": "copied"
     },
@@ -567,9 +567,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-contract/src/inputs.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-contract/src/inputs.rs",
-      "git_blob": "75156eda5a6a912e2ab4ceb9a7633f76431df74b",
-      "sha256": "b6bcff700f05cbee2d9b46fa7dfd4f8583bbae1f2aa0a447e961a806f55291b3",
-      "upstream_sha256": "b6bcff700f05cbee2d9b46fa7dfd4f8583bbae1f2aa0a447e961a806f55291b3",
+      "git_blob": "5a0fca6b9ebe9b4714c6211287862e615814fbe1",
+      "sha256": "d9bb3f661d06a5783091d53f3c68cac02802bf744dbe24f1e5a61849f31b6aaa",
+      "upstream_sha256": "d9bb3f661d06a5783091d53f3c68cac02802bf744dbe24f1e5a61849f31b6aaa",
       "mode": "100644",
       "state": "copied"
     },
@@ -702,9 +702,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-core/src/action_record.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/action_record.rs",
-      "git_blob": "a84b9a93ffb2a14f2a8431049dd05094cb424867",
-      "sha256": "259649d6a1f81f9dcea1e587918960adaab8c7f1706d815a251e6b19a171b698",
-      "upstream_sha256": "259649d6a1f81f9dcea1e587918960adaab8c7f1706d815a251e6b19a171b698",
+      "git_blob": "4097d0857e5491593ffffe9b202a14b949200e59",
+      "sha256": "be304639fab82bbc644038dba5db60c7c865ca3dfeaea1d9ae9be20e88b6a06e",
+      "upstream_sha256": "be304639fab82bbc644038dba5db60c7c865ca3dfeaea1d9ae9be20e88b6a06e",
       "mode": "100644",
       "state": "copied"
     },
@@ -810,9 +810,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-core/src/browser/cdp_ws.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/cdp_ws.rs",
-      "git_blob": "08580616fbaf897e7084e79905fb42a0bdda29b1",
-      "sha256": "6ef8615cd552a62819ae2296fd5476dd97a3e0790c853c2156353c024baf99c7",
-      "upstream_sha256": "6ef8615cd552a62819ae2296fd5476dd97a3e0790c853c2156353c024baf99c7",
+      "git_blob": "c401f20b43426e1a5fda2a27a40ba890d9fd129d",
+      "sha256": "b8e2933c8eb875865435fd321eaf3e3d67e6325a3da783d9d8e166c181a43306",
+      "upstream_sha256": "b8e2933c8eb875865435fd321eaf3e3d67e6325a3da783d9d8e166c181a43306",
       "mode": "100644",
       "state": "copied"
     },
@@ -828,18 +828,18 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-core/src/browser/engine.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/engine.rs",
-      "git_blob": "68ca93ce8e668980b719dd83af76b2133736c0a6",
-      "sha256": "41fcef8e6c9963a70eb639640e85e7a01058049f9a450670062e3d82ab165d49",
-      "upstream_sha256": "41fcef8e6c9963a70eb639640e85e7a01058049f9a450670062e3d82ab165d49",
+      "git_blob": "c4e14caa416370c248592c8399a94d79a3317ed6",
+      "sha256": "3e35e4e6ba41146c81e047f8b500bb8baefc4683b09046cadd7af091009f2f33",
+      "upstream_sha256": "3e35e4e6ba41146c81e047f8b500bb8baefc4683b09046cadd7af091009f2f33",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-core/src/browser/grant.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/grant.rs",
-      "git_blob": "98af8fb2c6ce7b31770c85df12db31054d8c1d87",
-      "sha256": "9ad8a69e1d3cd5b4240c984af7e143af7bfd11a169f7e21dc1bbe96061b8bcd1",
-      "upstream_sha256": "9ad8a69e1d3cd5b4240c984af7e143af7bfd11a169f7e21dc1bbe96061b8bcd1",
+      "git_blob": "7469b0e828ea4dc63a3540273010f66de042510f",
+      "sha256": "97a93df078b9ed7e2ff7d118d5618ae372993098d1beda5460a6747995b612af",
+      "upstream_sha256": "97a93df078b9ed7e2ff7d118d5618ae372993098d1beda5460a6747995b612af",
       "mode": "100644",
       "state": "copied"
     },
@@ -855,9 +855,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-core/src/browser/mock_cdp.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/mock_cdp.rs",
-      "git_blob": "bdd3a39f6aacf7f4922c5fe2cb1693c651270e11",
-      "sha256": "518c8f6f0a1bdc89cbe504d8d867acbc644f139f19553f60dc03fdc0512e9d21",
-      "upstream_sha256": "518c8f6f0a1bdc89cbe504d8d867acbc644f139f19553f60dc03fdc0512e9d21",
+      "git_blob": "404ddd2a3078464b89740c6f4ef1cbfcfdf35e8f",
+      "sha256": "9db0d25022502653a2f28636fe07b4189290efbece9e6e1493c09e38d0c9ffd8",
+      "upstream_sha256": "9db0d25022502653a2f28636fe07b4189290efbece9e6e1493c09e38d0c9ffd8",
       "mode": "100644",
       "state": "copied"
     },
@@ -882,27 +882,27 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-core/src/browser/platform.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/platform.rs",
-      "git_blob": "8410fcec4c8b80583532f13f4c6be421fff38fb0",
-      "sha256": "18b3083128098ed9e44401700821a7f58d5a32cd40705ea91123b642a674359b",
-      "upstream_sha256": "18b3083128098ed9e44401700821a7f58d5a32cd40705ea91123b642a674359b",
+      "git_blob": "98296acb6ab002941b08cc08df78d34017a70ce7",
+      "sha256": "668625ad3885944ca7eb7936ce21295e5a0e117fa21e5320331f27b8aeec893e",
+      "upstream_sha256": "668625ad3885944ca7eb7936ce21295e5a0e117fa21e5320331f27b8aeec893e",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-core/src/browser/pointer.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/pointer.rs",
-      "git_blob": "fc4615a8af14f04cc5df6a0a6dff2a71b3962cf8",
-      "sha256": "9b4b491c6b66c16915c589d0a043bd77fab308c6fa58637ae9e89f7417b8b50e",
-      "upstream_sha256": "9b4b491c6b66c16915c589d0a043bd77fab308c6fa58637ae9e89f7417b8b50e",
+      "git_blob": "bc741d9ba2499bc0a9f30c44a649d8eaa1443928",
+      "sha256": "307e25de9fc75433a7b94f826e9fbe903b84216c671120b56fd793db1297c3cb",
+      "upstream_sha256": "307e25de9fc75433a7b94f826e9fbe903b84216c671120b56fd793db1297c3cb",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-core/src/browser/prepare.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/prepare.rs",
-      "git_blob": "aaa334586376b14ccf0359a8823f383110f47ef5",
-      "sha256": "d79baceddd4f13a4065fa0111af8061c37253223ee116a55f708a954164c598e",
-      "upstream_sha256": "d79baceddd4f13a4065fa0111af8061c37253223ee116a55f708a954164c598e",
+      "git_blob": "c6faae71924c2b681013a2d60bd18a9dd241de60",
+      "sha256": "685046d6293b32708fe23c31c3a753a75145f1cb28b90cf02b4fd50f8f4a1e39",
+      "upstream_sha256": "685046d6293b32708fe23c31c3a753a75145f1cb28b90cf02b4fd50f8f4a1e39",
       "mode": "100644",
       "state": "copied"
     },
@@ -954,9 +954,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-core/src/browser/tools.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/tools.rs",
-      "git_blob": "e26d3617d38815189a17f78ffc73b7e088c1eefb",
-      "sha256": "be2bd85f2bb5c1804301beced4ad4dd525d32a3a7e2e48e5509e91ef5f1fd849",
-      "upstream_sha256": "be2bd85f2bb5c1804301beced4ad4dd525d32a3a7e2e48e5509e91ef5f1fd849",
+      "git_blob": "dbb2fe6535c9dc76f26e9a9b6167ca82c8462313",
+      "sha256": "c33a24576bcfaab9a9c4a88feaa56239e2e88a8aff0e6ebbf38d1dd02ffb7227",
+      "upstream_sha256": "c33a24576bcfaab9a9c4a88feaa56239e2e88a8aff0e6ebbf38d1dd02ffb7227",
       "mode": "100644",
       "state": "copied"
     },
@@ -972,9 +972,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-core/src/browser/v2_tests.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/v2_tests.rs",
-      "git_blob": "14e196c8d6ce7bdbe611b1acac7ab1668781baee",
-      "sha256": "01c76209b9fc095a1c38a2e81e6caa068fa9a92445ff4c446fe0e8266bc6b75d",
-      "upstream_sha256": "01c76209b9fc095a1c38a2e81e6caa068fa9a92445ff4c446fe0e8266bc6b75d",
+      "git_blob": "f0dab72300c7ae1aa993e80d40aa63398b878ff8",
+      "sha256": "cea058e948cc252701448b33bea516a95ad052e2825955e42e9c74731b1e237a",
+      "upstream_sha256": "cea058e948cc252701448b33bea516a95ad052e2825955e42e9c74731b1e237a",
       "mode": "100644",
       "state": "copied"
     },
@@ -1053,9 +1053,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-core/src/cursor_events.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/cursor_events.rs",
-      "git_blob": "b05e8a9cf590b0db088af62a19dc453095c25913",
-      "sha256": "1ed32eec03f0d1efab98bac3455f53fa5baa693b1086b01f3e21caac6805325c",
-      "upstream_sha256": "1ed32eec03f0d1efab98bac3455f53fa5baa693b1086b01f3e21caac6805325c",
+      "git_blob": "23fe1cc4cc7c15d6fb08abbd3369bb65221a0fb9",
+      "sha256": "1c31403a1a3b7655f17b84fb3f6b612abfc841ac2f3969c1bbced2fdf715a5dd",
+      "upstream_sha256": "1c31403a1a3b7655f17b84fb3f6b612abfc841ac2f3969c1bbced2fdf715a5dd",
       "mode": "100644",
       "state": "copied"
     },
@@ -1368,18 +1368,18 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-core/src/protocol.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/protocol.rs",
-      "git_blob": "79cc410e9c858802d9fc2486edad8b9ac331ba11",
-      "sha256": "acb990cdd4ffe1a074b57eff48944bea5b24d7798679bc2a302f118a3cefc9fb",
-      "upstream_sha256": "acb990cdd4ffe1a074b57eff48944bea5b24d7798679bc2a302f118a3cefc9fb",
+      "git_blob": "f3db20d16e8af11844054f7ba76d2b79671d4f0b",
+      "sha256": "34d0038aca8e8e1629db82026649bf9c2ed9015ebf2a783ccf362b4e631ee029",
+      "upstream_sha256": "34d0038aca8e8e1629db82026649bf9c2ed9015ebf2a783ccf362b4e631ee029",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-core/src/recording.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/recording.rs",
-      "git_blob": "a3c9eaf04d249d24bcb3ac194b3f0dcf1e3db636",
-      "sha256": "14f38d668ea0a3e63d20825b5d0597dedc9a90dc880a323b652e01b53e4f4d32",
-      "upstream_sha256": "14f38d668ea0a3e63d20825b5d0597dedc9a90dc880a323b652e01b53e4f4d32",
+      "git_blob": "90e027aadcef75518e40ea00a8ca778101ed2608",
+      "sha256": "6e3c6c502f7241aebf020b035e2882981045a3e4627c72133675c0a6d16b0a9c",
+      "upstream_sha256": "6e3c6c502f7241aebf020b035e2882981045a3e4627c72133675c0a6d16b0a9c",
       "mode": "100644",
       "state": "copied"
     },
@@ -1467,9 +1467,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-core/src/session.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/session.rs",
-      "git_blob": "7f2c43cd226a634d9cd816c622632a16f721ec55",
-      "sha256": "606f8857adb9e9111f2cf7692077b7a070525ab8087b7e621b1328ae18c0ed18",
-      "upstream_sha256": "606f8857adb9e9111f2cf7692077b7a070525ab8087b7e621b1328ae18c0ed18",
+      "git_blob": "7acb98101fba484b55e14bca95fba50015107762",
+      "sha256": "8d0c3cdbfb016dee29f7db5c158cd8e62720ad48bf8c908b81e28cb37a78bc0d",
+      "upstream_sha256": "8d0c3cdbfb016dee29f7db5c158cd8e62720ad48bf8c908b81e28cb37a78bc0d",
       "mode": "100644",
       "state": "copied"
     },
@@ -1494,9 +1494,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-core/src/session_tools.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/session_tools.rs",
-      "git_blob": "3bc43f816eb72c60eb2062a68076b5e338fa17b0",
-      "sha256": "e877bbf487c53874dddd1c68498c76143dde42675115ad6e50a372cf16bc685b",
-      "upstream_sha256": "e877bbf487c53874dddd1c68498c76143dde42675115ad6e50a372cf16bc685b",
+      "git_blob": "ef179296c85ddaf487066bea420d2830dcef0299",
+      "sha256": "6d11a07ccf080881cdf1e202ac08cf71735cc79afe5c0c3a9485cf2e723465c3",
+      "upstream_sha256": "6d11a07ccf080881cdf1e202ac08cf71735cc79afe5c0c3a9485cf2e723465c3",
       "mode": "100644",
       "state": "copied"
     },
@@ -1557,9 +1557,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-core/src/tool.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/tool.rs",
-      "git_blob": "7bf3a58ad736cec2394ea95bbb4a957ed260bfec",
-      "sha256": "dbe728976ac6de43841aebe128f77e94ee6437cb88ee800b9c87fdfee8dac168",
-      "upstream_sha256": "dbe728976ac6de43841aebe128f77e94ee6437cb88ee800b9c87fdfee8dac168",
+      "git_blob": "7ff2e42c9d71869c88c74452f19c5576032f77ab",
+      "sha256": "0366052d1f40e533e3f9ca253397c2eb1862daeb0d85debecba476ab6a036862",
+      "upstream_sha256": "0366052d1f40e533e3f9ca253397c2eb1862daeb0d85debecba476ab6a036862",
       "mode": "100644",
       "state": "copied"
     },
@@ -1575,9 +1575,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-core/src/tool_schema.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/tool_schema.rs",
-      "git_blob": "b3cd09a75dcb8f05f5cbd1a3d193cd9e28cff2c0",
-      "sha256": "8896b41fd3e9329c275aa78bfc1116001d35a21113d8971131c8b00bb177544c",
-      "upstream_sha256": "8896b41fd3e9329c275aa78bfc1116001d35a21113d8971131c8b00bb177544c",
+      "git_blob": "e60d3e26c78deea710f4ecbd86804cd3a784ed93",
+      "sha256": "b1d1c4a08cedc6c9622a9541591f840898e0078ab231c748f9dbae7f604e0997",
+      "upstream_sha256": "b1d1c4a08cedc6c9622a9541591f840898e0078ab231c748f9dbae7f604e0997",
       "mode": "100644",
       "state": "copied"
     },
@@ -1690,6 +1690,15 @@
       "state": "copied"
     },
     {
+      "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-core/tests/recording_action_timestamp.rs",
+      "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/tests/recording_action_timestamp.rs",
+      "git_blob": "f4c1bf1e3c5a23c6c401eba9af487e4891bddc31",
+      "sha256": "35d1b1432456084ada13c0ff79c41143a66dba352b033c24c6ee1948a1642e20",
+      "upstream_sha256": "35d1b1432456084ada13c0ff79c41143a66dba352b033c24c6ee1948a1642e20",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-core/tests/recording_semantic_evidence.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/tests/recording_semantic_evidence.rs",
       "git_blob": "a0482b7614c5f480c62429016f0455dfa70400ad",
@@ -1791,9 +1800,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-e2e/tests/agent_cursor_showcase_test.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-e2e/tests/agent_cursor_showcase_test.rs",
-      "git_blob": "74b0fa7393093eb9b862f8c4b10ace8305da5760",
-      "sha256": "a241a000872eb9cd221583c025697de11faaacb4e0ffa8b17ba7ebef1fb5b45d",
-      "upstream_sha256": "a241a000872eb9cd221583c025697de11faaacb4e0ffa8b17ba7ebef1fb5b45d",
+      "git_blob": "c4b5e979216cf607b4a74d7ae6e51bc3a8911c10",
+      "sha256": "4c18e4103ecb8bfbad754896c300df992743ca1c847f1382ebdfe3e944554501",
+      "upstream_sha256": "4c18e4103ecb8bfbad754896c300df992743ca1c847f1382ebdfe3e944554501",
       "mode": "100644",
       "state": "copied"
     },
@@ -1854,9 +1863,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-e2e/tests/cross_platform_behavior_test.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-e2e/tests/cross_platform_behavior_test.rs",
-      "git_blob": "77925cc654fc9ed65ccaf45ef7a3c3f61654f5e3",
-      "sha256": "1f0d219fce47e30fdebb22d4bdc2e2cc1f2dc845e05cc83711591786198ace7f",
-      "upstream_sha256": "1f0d219fce47e30fdebb22d4bdc2e2cc1f2dc845e05cc83711591786198ace7f",
+      "git_blob": "fcf5071599307124e458f133b79b9fa93d0af3ed",
+      "sha256": "91305e3336c0001c19103e29fd8d730f8f22b0c57080c982e729a1d9da1bcb32",
+      "upstream_sha256": "91305e3336c0001c19103e29fd8d730f8f22b0c57080c982e729a1d9da1bcb32",
       "mode": "100644",
       "state": "copied"
     },
@@ -1899,9 +1908,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-e2e/tests/harness_appkit_test.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-e2e/tests/harness_appkit_test.rs",
-      "git_blob": "a836ead09c999ad3f0f4460db03f575430633741",
-      "sha256": "60f7f592c007db38313ed13fce0ef378102a9b46200df984e5cd4dfce09d8852",
-      "upstream_sha256": "60f7f592c007db38313ed13fce0ef378102a9b46200df984e5cd4dfce09d8852",
+      "git_blob": "418276cb96baa5cac351e7e26f8e5c5ddc55ca8c",
+      "sha256": "9c4074f9ffc88da6d196e83de2de7f9fbf023acd7292a798f0cb530675f8ac8f",
+      "upstream_sha256": "9c4074f9ffc88da6d196e83de2de7f9fbf023acd7292a798f0cb530675f8ac8f",
       "mode": "100644",
       "state": "copied"
     },
@@ -2052,9 +2061,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-e2e/tests/standalone_browser_behavior_test.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-e2e/tests/standalone_browser_behavior_test.rs",
-      "git_blob": "59806451eb4b04afde445e66d5c1c1f5d56efac6",
-      "sha256": "0bf63ab5bad60521688a70f7c5c95c72ed3461078a6e4f24a422c9302a9a6578",
-      "upstream_sha256": "0bf63ab5bad60521688a70f7c5c95c72ed3461078a6e4f24a422c9302a9a6578",
+      "git_blob": "f8b1e240f03dd9b034f32749566210c7a3b5b185",
+      "sha256": "9545982a4c2a757cc2051639a6e2876a3cc0668c07e257d0b8f1e7eb2ca182af",
+      "upstream_sha256": "9545982a4c2a757cc2051639a6e2876a3cc0668c07e257d0b8f1e7eb2ca182af",
       "mode": "100644",
       "state": "copied"
     },
@@ -2178,18 +2187,18 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-sdk/src/cursor_motion.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-sdk/src/cursor_motion.rs",
-      "git_blob": "6985675d8d1640a3a0d0b8f40bf9f166b9951624",
-      "sha256": "353bec11456d8955b51b533278c491025f64de73ed8f51b93f549e77c826f91b",
-      "upstream_sha256": "353bec11456d8955b51b533278c491025f64de73ed8f51b93f549e77c826f91b",
+      "git_blob": "d9429f7c9bf632aacb10c1d84d2792ab8b12cc6d",
+      "sha256": "3a465782f0bce65b275ce583f8277774a1adce3193416db89fcfb0382149707f",
+      "upstream_sha256": "3a465782f0bce65b275ce583f8277774a1adce3193416db89fcfb0382149707f",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-sdk/src/embedded.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-sdk/src/embedded.rs",
-      "git_blob": "a80221bdf34d2fa2fcb41b7456db5207cbdb68a7",
-      "sha256": "4930324b8dd36d815fbf89d253da0a1a2c42bc103e94cc5d19563d403f403604",
-      "upstream_sha256": "4930324b8dd36d815fbf89d253da0a1a2c42bc103e94cc5d19563d403f403604",
+      "git_blob": "abd692c362a577a71a711f696d6cbb35c9d06e30",
+      "sha256": "eb42c0b42e514c0092ba9fd64ce7f6541c3540b64244c11c0ad029490ec5932f",
+      "upstream_sha256": "eb42c0b42e514c0092ba9fd64ce7f6541c3540b64244c11c0ad029490ec5932f",
       "mode": "100644",
       "state": "copied"
     },
@@ -2358,9 +2367,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-testkit/src/bin/cua-e2e-report.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-testkit/src/bin/cua-e2e-report.rs",
-      "git_blob": "84a2ff411d9c7b6c17e480bc55cc25bbc2d7e806",
-      "sha256": "92effd7b3795b986604c9b4844e9bdde512b45a950fcc54ca47fc05f3b4af8a2",
-      "upstream_sha256": "92effd7b3795b986604c9b4844e9bdde512b45a950fcc54ca47fc05f3b4af8a2",
+      "git_blob": "a4e57ec53a3101d39be560b98520e94f19f59fe3",
+      "sha256": "5b0228e00ba7c3354c1888e4d4d32e37076f668fbb1c714dcf7b07c2f23591a8",
+      "upstream_sha256": "5b0228e00ba7c3354c1888e4d4d32e37076f668fbb1c714dcf7b07c2f23591a8",
       "mode": "100644",
       "state": "copied"
     },
@@ -2421,9 +2430,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver-testkit/src/host_state.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-testkit/src/host_state.rs",
-      "git_blob": "f1a9f2819fab458457503cd46b6f936cf0c89a59",
-      "sha256": "d79aa36c5358282da4c86e336ac6e160b28262e618e60e3de4adc59bc5ecc497",
-      "upstream_sha256": "d79aa36c5358282da4c86e336ac6e160b28262e618e60e3de4adc59bc5ecc497",
+      "git_blob": "d84a2eeb591951cfcf8dc11994467b7f63ea6dbf",
+      "sha256": "cbc58d4324913689c01aad98e8d57b99b9f50b9307222d1ab11eef4ae453c4dd",
+      "upstream_sha256": "cbc58d4324913689c01aad98e8d57b99b9f50b9307222d1ab11eef4ae453c4dd",
       "mode": "100644",
       "state": "copied"
     },
@@ -2601,9 +2610,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver/Cargo.toml",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver/Cargo.toml",
-      "git_blob": "8dc0840535a5e12aec7404b89d204eb63c2548c9",
-      "sha256": "f4c33aa3a0d58d7a960b32d7a952198c84aaaba9e1208efdea82a3d7ad7169e4",
-      "upstream_sha256": "f4c33aa3a0d58d7a960b32d7a952198c84aaaba9e1208efdea82a3d7ad7169e4",
+      "git_blob": "1ae75553a2678daebb1a4b6fca7fae4155ae2c89",
+      "sha256": "3733ec872f09da41d2e7571582fedb4c0f8d788e8316b5be7d9a6cb5b2e6fabb",
+      "upstream_sha256": "3733ec872f09da41d2e7571582fedb4c0f8d788e8316b5be7d9a6cb5b2e6fabb",
       "mode": "100644",
       "state": "copied"
     },
@@ -2673,9 +2682,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver/src/cli.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver/src/cli.rs",
-      "git_blob": "265f8169edab87c90b788f05df91c399e0bee287",
-      "sha256": "82f9ee90781dbf6bad0fdbf9a32ab9fbcbe0f03e25316e8a55c0352c1c618d7a",
-      "upstream_sha256": "82f9ee90781dbf6bad0fdbf9a32ab9fbcbe0f03e25316e8a55c0352c1c618d7a",
+      "git_blob": "c76f074604221323134a4335223540a00bf2ccb1",
+      "sha256": "321a7a20c09c6c1584186da7fb14e821ef6914947d3d72f22c3742b342916e3c",
+      "upstream_sha256": "321a7a20c09c6c1584186da7fb14e821ef6914947d3d72f22c3742b342916e3c",
       "mode": "100644",
       "state": "copied"
     },
@@ -2709,18 +2718,18 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver/src/history_runtime.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver/src/history_runtime.rs",
-      "git_blob": "54e807b1e2a97d47888f65e0629c48317d45f4b2",
-      "sha256": "cbff5dfd1ef207ca95307826c3f4befe8a92317250277828d6d99e1dee9d97b9",
-      "upstream_sha256": "cbff5dfd1ef207ca95307826c3f4befe8a92317250277828d6d99e1dee9d97b9",
+      "git_blob": "709546823f98797e28d7d220bc7141b368fe2288",
+      "sha256": "704f24c813432d3dc2ffb8b417e7f5fb8b3491331648c3aa9cfe46937ccfc74d",
+      "upstream_sha256": "704f24c813432d3dc2ffb8b417e7f5fb8b3491331648c3aa9cfe46937ccfc74d",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver/src/main.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver/src/main.rs",
-      "git_blob": "b5460a98ebed5b360579eb24254cf40737cd4b50",
-      "sha256": "393a998ca1e1d6e646260429a94f80813adc9881a8d30e0291c04e6251cdd289",
-      "upstream_sha256": "393a998ca1e1d6e646260429a94f80813adc9881a8d30e0291c04e6251cdd289",
+      "git_blob": "88e78472ec089f4816e0235abf0757b7a14d8a06",
+      "sha256": "51229c4dafb53385359d73dba31fc203b7e31837925751ddab50b6d051bd2466",
+      "upstream_sha256": "51229c4dafb53385359d73dba31fc203b7e31837925751ddab50b6d051bd2466",
       "mode": "100644",
       "state": "copied"
     },
@@ -2799,9 +2808,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver/src/sdk_adapter.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver/src/sdk_adapter.rs",
-      "git_blob": "9fe048bb3523adfe5e3a23ae12d0ba88e16115a9",
-      "sha256": "44efd31ad1d8a0ec89e84825f591efadc059246f4f463264f8885d9a9d3875d5",
-      "upstream_sha256": "44efd31ad1d8a0ec89e84825f591efadc059246f4f463264f8885d9a9d3875d5",
+      "git_blob": "b06386078b2f9b0777592df21c3e30e31fe84bbe",
+      "sha256": "efe2333ea22d950cff57182d8ce161b64a46118af4e9cc0482ddb1784a8d8734",
+      "upstream_sha256": "efe2333ea22d950cff57182d8ce161b64a46118af4e9cc0482ddb1784a8d8734",
       "mode": "100644",
       "state": "copied"
     },
@@ -2871,9 +2880,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver/tests/atspi_listener_startup_test.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver/tests/atspi_listener_startup_test.rs",
-      "git_blob": "d538346e27a32b8f46c1a2e6c41a3048ac9546df",
-      "sha256": "fb4c41ec5b0067e74fbe2e4ddc8d6c36b1f18f392a687a2c4700f156bd36dec4",
-      "upstream_sha256": "fb4c41ec5b0067e74fbe2e4ddc8d6c36b1f18f392a687a2c4700f156bd36dec4",
+      "git_blob": "d3f7857076c4aa62eefb7f02d1ef1cf7cb3c555c",
+      "sha256": "babd7f60a710f18d8ef3a6e555112ee2317edf8a15152a93d86d3597008c7c54",
+      "upstream_sha256": "babd7f60a710f18d8ef3a6e555112ee2317edf8a15152a93d86d3597008c7c54",
       "mode": "100644",
       "state": "copied"
     },
@@ -2883,6 +2892,15 @@
       "git_blob": "d4e56930a59be820673ff9f8108549f797f55f35",
       "sha256": "065b116ee235c12d5640a5df82555fa0f6ae859ade8cc0b90f9d9bb1f35ddcd4",
       "upstream_sha256": "065b116ee235c12d5640a5df82555fa0f6ae859ade8cc0b90f9d9bb1f35ddcd4",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver/tests/command_help_cli_test.rs",
+      "upstream_path": "libs/cua-driver/rust/crates/cua-driver/tests/command_help_cli_test.rs",
+      "git_blob": "6d7336016e27fb2155ba154dcf17bcfb6b5f39e6",
+      "sha256": "fde1e295be91c8d454d66ed17bf863b814e8345e34a2e8299dde5f60422161c3",
+      "upstream_sha256": "fde1e295be91c8d454d66ed17bf863b814e8345e34a2e8299dde5f60422161c3",
       "mode": "100644",
       "state": "copied"
     },
@@ -2907,9 +2925,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver/tests/embedded_host_sdk_mcp_test.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver/tests/embedded_host_sdk_mcp_test.rs",
-      "git_blob": "45d26fc728571e263f62352b14f33bbf0e1126a6",
-      "sha256": "177f58e914a36ae515cd31b3539fac801f5c99d2aa98accb24bb9e6dcf562657",
-      "upstream_sha256": "177f58e914a36ae515cd31b3539fac801f5c99d2aa98accb24bb9e6dcf562657",
+      "git_blob": "2a43bcd903d85e2661fbe98d98e0a8e91db30936",
+      "sha256": "59435b3255dbd5b6bc0fda66920d7f91ae9032beeffcdc5244ab2d79bb90790c",
+      "upstream_sha256": "59435b3255dbd5b6bc0fda66920d7f91ae9032beeffcdc5244ab2d79bb90790c",
       "mode": "100644",
       "state": "copied"
     },
@@ -3004,6 +3022,15 @@
       "state": "copied"
     },
     {
+      "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver/tests/permissions_cli_test.rs",
+      "upstream_path": "libs/cua-driver/rust/crates/cua-driver/tests/permissions_cli_test.rs",
+      "git_blob": "33e1a57fcc2865b14a1aca41b8c137fc076e2f76",
+      "sha256": "cf7202441d310a3e3efc5f31ae953494206305d915247ea965736e615e5bd404",
+      "upstream_sha256": "cf7202441d310a3e3efc5f31ae953494206305d915247ea965736e615e5bd404",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver/tests/policy_tools_list_test.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver/tests/policy_tools_list_test.rs",
       "git_blob": "68e85e1cd4322915a4866ee2d85622f5ca872a6d",
@@ -3060,9 +3087,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver/tests/protocol_schema_test.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver/tests/protocol_schema_test.rs",
-      "git_blob": "51c6c505b686365875f033658471d2574c961a1b",
-      "sha256": "e6c40703dccd74582efcc41ab9a3dae968453d4e60e708792b67ea6e84284290",
-      "upstream_sha256": "e6c40703dccd74582efcc41ab9a3dae968453d4e60e708792b67ea6e84284290",
+      "git_blob": "a7633bb55ad3d9298b619c6ec3654525a127f1ff",
+      "sha256": "142968baa24237fff2317f48cbe92913bc3de43adb36de02ca97b5d36ac43172",
+      "upstream_sha256": "142968baa24237fff2317f48cbe92913bc3de43adb36de02ca97b5d36ac43172",
       "mode": "100644",
       "state": "copied"
     },
@@ -3121,11 +3148,20 @@
       "state": "copied"
     },
     {
+      "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver/tests/status_pid_file_cli_test.rs",
+      "upstream_path": "libs/cua-driver/rust/crates/cua-driver/tests/status_pid_file_cli_test.rs",
+      "git_blob": "48e800311a07113a08d7a77b22812ec93543f8bb",
+      "sha256": "83539b4ecfb05f3a9e2ad30f5eebd88dacb7fb7a03b322468015fefa3cc4d7a6",
+      "upstream_sha256": "83539b4ecfb05f3a9e2ad30f5eebd88dacb7fb7a03b322468015fefa3cc4d7a6",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cua-driver/tests/testkit_host_state_isolation_test.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver/tests/testkit_host_state_isolation_test.rs",
-      "git_blob": "da34d41ad52896dd1679967eac9c566bb6f35da4",
-      "sha256": "0cc8354c857a6eeea232779d31a3d3b47775e4e93fb7ed45ada0c395aa81c73b",
-      "upstream_sha256": "0cc8354c857a6eeea232779d31a3d3b47775e4e93fb7ed45ada0c395aa81c73b",
+      "git_blob": "b6a36053fc06021472e796fc394e87ff10bbde58",
+      "sha256": "8b58d746b7b253858d0f52482728f219225b2899890bb67ee97042decb9f0c06",
+      "upstream_sha256": "8b58d746b7b253858d0f52482728f219225b2899890bb67ee97042decb9f0c06",
       "mode": "100644",
       "state": "copied"
     },
@@ -3627,9 +3663,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cursor-overlay/examples/export_gallery_frames.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cursor-overlay/examples/export_gallery_frames.rs",
-      "git_blob": "238ccc95a78cf2f10e838fb6bb164e1d0906c7fc",
-      "sha256": "52b27453ccc74f56405c94763b6700e1984a61b3fc452cf197413ebbeb9c0883",
-      "upstream_sha256": "52b27453ccc74f56405c94763b6700e1984a61b3fc452cf197413ebbeb9c0883",
+      "git_blob": "a0cfd49601685e9fa002359a1cbb28fa1e61b0a6",
+      "sha256": "aeeb755cbe985ac98e4c13fb53b4d0c9fff7c13a6927cf0d6bbc7719f576b437",
+      "upstream_sha256": "aeeb755cbe985ac98e4c13fb53b4d0c9fff7c13a6927cf0d6bbc7719f576b437",
       "mode": "100644",
       "state": "copied"
     },
@@ -3639,6 +3675,15 @@
       "git_blob": "0279863903e82dcba6dd46424cf30cb507a3b0cb",
       "sha256": "d56e0e2d776df370c9f5b840116f7f718f6702be248609f9ef4ad94309dd24f6",
       "upstream_sha256": "d56e0e2d776df370c9f5b840116f7f718f6702be248609f9ef4ad94309dd24f6",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cursor-overlay/src/badge_mode.rs",
+      "upstream_path": "libs/cua-driver/rust/crates/cursor-overlay/src/badge_mode.rs",
+      "git_blob": "27c168b68ed058ddb70b1165bbb3055d1bb9770a",
+      "sha256": "3c45a1a540b8a8626aa1cf3b29e095593bed12b617b9ac7753fc30d10aa79c8c",
+      "upstream_sha256": "3c45a1a540b8a8626aa1cf3b29e095593bed12b617b9ac7753fc30d10aa79c8c",
       "mode": "100644",
       "state": "copied"
     },
@@ -3672,54 +3717,54 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cursor-overlay/src/lib.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cursor-overlay/src/lib.rs",
-      "git_blob": "46177c85341d2cf7c9d4d235efcad7b368d160c4",
-      "sha256": "002f6b08c37ea95c867c30200e585bfba865fc53c675926cb61ff57d2cf7d568",
-      "upstream_sha256": "002f6b08c37ea95c867c30200e585bfba865fc53c675926cb61ff57d2cf7d568",
+      "git_blob": "152c681a0c0a71d555e29bc1dcbd3b4fb3b7243a",
+      "sha256": "586242e979a62d64bbc0539518249603aac35f3f7081423b3dca1a063b31e1e3",
+      "upstream_sha256": "586242e979a62d64bbc0539518249603aac35f3f7081423b3dca1a063b31e1e3",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cursor-overlay/src/motion.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cursor-overlay/src/motion.rs",
-      "git_blob": "4a694f7aaae39cbb68ab24862a22ed4d1893d3f6",
-      "sha256": "3d69d1d2fadcb29711bd38bf99a3b93ab7297ff4b789369c93cd23ddc61c5e5e",
-      "upstream_sha256": "3d69d1d2fadcb29711bd38bf99a3b93ab7297ff4b789369c93cd23ddc61c5e5e",
+      "git_blob": "f0edd54da92582db6f357cf351654cb80d81650b",
+      "sha256": "d2cdfe4d5660b7a905d4e086ff1930820222c6834c6c5fa537cb359d242968e8",
+      "upstream_sha256": "d2cdfe4d5660b7a905d4e086ff1930820222c6834c6c5fa537cb359d242968e8",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cursor-overlay/src/motion_defaults.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cursor-overlay/src/motion_defaults.rs",
-      "git_blob": "22e3b008c0684073ed6719f37ce6aece28bb2c21",
-      "sha256": "7335575656d9f27db79aaa8c091b5c200d063d9eefbfb4787e4284254f072e6d",
-      "upstream_sha256": "7335575656d9f27db79aaa8c091b5c200d063d9eefbfb4787e4284254f072e6d",
+      "git_blob": "ebe2c15c1af186f66ccd9aa7371964f72ac9c925",
+      "sha256": "ec3b9ba5483d4b46c739773cf52cebf8eaefa3c1c468eb93179903c9cc83d185",
+      "upstream_sha256": "ec3b9ba5483d4b46c739773cf52cebf8eaefa3c1c468eb93179903c9cc83d185",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cursor-overlay/src/render_map.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cursor-overlay/src/render_map.rs",
-      "git_blob": "de95a55784067a8fb98fafff129783941c943944",
-      "sha256": "10f548f049a2b68092015a30611d011298748ed951910b55b8ca99a7610c593c",
-      "upstream_sha256": "10f548f049a2b68092015a30611d011298748ed951910b55b8ca99a7610c593c",
+      "git_blob": "6c4fc28095f2bbae59cb3c27ce744be807ac125f",
+      "sha256": "d130ae5aec2432c62edc0737326f27dacad1c49785585636c9ae63604d214e7d",
+      "upstream_sha256": "d130ae5aec2432c62edc0737326f27dacad1c49785585636c9ae63604d214e7d",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cursor-overlay/src/render_state.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cursor-overlay/src/render_state.rs",
-      "git_blob": "5777cd9b34c9c7541401f0458c63183c232309bb",
-      "sha256": "2af03525b892863ebdf42729601dc894fe2dcef8c21afc7b227f26b566ffd6ee",
-      "upstream_sha256": "2af03525b892863ebdf42729601dc894fe2dcef8c21afc7b227f26b566ffd6ee",
+      "git_blob": "482d1867a06b3f3add3cadeb3844d1e3c449f23f",
+      "sha256": "86b5389ef75a2dc05c28a5648ca990bb557e5412528582c37745975d0c286ac3",
+      "upstream_sha256": "86b5389ef75a2dc05c28a5648ca990bb557e5412528582c37745975d0c286ac3",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/cursor-overlay/src/session_badge.rs",
       "upstream_path": "libs/cua-driver/rust/crates/cursor-overlay/src/session_badge.rs",
-      "git_blob": "610316a02550d4794b5af7a0f8c888842e2e924e",
-      "sha256": "f6c30cc22aca402b1e00992c64f8c88a983bee9fea501de764830100eb11e248",
-      "upstream_sha256": "f6c30cc22aca402b1e00992c64f8c88a983bee9fea501de764830100eb11e248",
+      "git_blob": "f66e866ad1c15195d85a77917d27755e3391ddf8",
+      "sha256": "3fe661a705ccb224ea3967769d3f70f37a22580f5a750686d33a1504ac5e0ee9",
+      "upstream_sha256": "3fe661a705ccb224ea3967769d3f70f37a22580f5a750686d33a1504ac5e0ee9",
       "mode": "100644",
       "state": "copied"
     },
@@ -3816,9 +3861,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-linux/Cargo.toml",
       "upstream_path": "libs/cua-driver/rust/crates/platform-linux/Cargo.toml",
-      "git_blob": "e953271c8bb6bdb01e8be3ef498b24d91672e1af",
-      "sha256": "9442b9c8b211cda00c203d5f48d57f2aeff83a6c17d6d46532d9e4d75068d9bd",
-      "upstream_sha256": "4a9e6f691d311ef15271f2d65ebe0b68784526dd88bfb0bd75a7bf2330acd718",
+      "git_blob": "dfb5ec0fdc3f971970dfd9e05a244ac8099fa87b",
+      "sha256": "e31fbb572cfdec9763adc27fceb1885c419b3a4231ae3df9a0bd2b5cffe60ccc",
+      "upstream_sha256": "18f8925950b55903a973eec91ff94c914b5e21332e7d84758c789b74a6339224",
       "mode": "100644",
       "state": "modified"
     },
@@ -3906,18 +3951,18 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-linux/src/atspi/native.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-linux/src/atspi/native.rs",
-      "git_blob": "10e9a52bd24e0dfd826000ca084566b63cccac93",
-      "sha256": "d829b989ef043367ef789c962d7b569321c4d82c8e30e3282e6eb59bdaecb7a8",
-      "upstream_sha256": "d829b989ef043367ef789c962d7b569321c4d82c8e30e3282e6eb59bdaecb7a8",
+      "git_blob": "36451e533335892864981f6f36a69ad318309199",
+      "sha256": "59e3c53a54b4d51dd1259cdcdf347400dcf85dd8ffdae2d0a04462012e21042f",
+      "upstream_sha256": "59e3c53a54b4d51dd1259cdcdf347400dcf85dd8ffdae2d0a04462012e21042f",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-linux/src/atspi/native/hit.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-linux/src/atspi/native/hit.rs",
-      "git_blob": "173d1af45b81909e22a11de70edb7bc4579945db",
-      "sha256": "4ae7726609af5fd21a14580a35bc2fdb845f4efd6b33520af6855d209d0ef3f2",
-      "upstream_sha256": "4ae7726609af5fd21a14580a35bc2fdb845f4efd6b33520af6855d209d0ef3f2",
+      "git_blob": "8e7781c28749460cbe96b881a50ad32a38d4ffd1",
+      "sha256": "cc77dc7cb3179e205a053749bcc5e4cd28c8b38b62b72112c0d73048f98254f0",
+      "upstream_sha256": "cc77dc7cb3179e205a053749bcc5e4cd28c8b38b62b72112c0d73048f98254f0",
       "mode": "100644",
       "state": "copied"
     },
@@ -3996,9 +4041,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-linux/src/health_report.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-linux/src/health_report.rs",
-      "git_blob": "1a8641f7dc007b6d5d5512efc0579d71b3784505",
-      "sha256": "7daae9c433101337f79e4da5ac021d67a07ad858044a5595836c47dba89f3c5a",
-      "upstream_sha256": "7daae9c433101337f79e4da5ac021d67a07ad858044a5595836c47dba89f3c5a",
+      "git_blob": "fbdf341328c74ba23b489cfe3e1335fa272b91f8",
+      "sha256": "cc489df58510aa99751744429136b7ed1b0d8a656a079eb05b61b8ce67c94c6b",
+      "upstream_sha256": "cc489df58510aa99751744429136b7ed1b0d8a656a079eb05b61b8ce67c94c6b",
       "mode": "100644",
       "state": "copied"
     },
@@ -4014,9 +4059,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-linux/src/input/delivery.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-linux/src/input/delivery.rs",
-      "git_blob": "381b4996c8e63ad5f39fb3c5e10a1ae8d1fc8ca8",
-      "sha256": "339d920174fa7972335ad5c1ea7b1b5efa4556b74071c2942d4f1b94b459cb2d",
-      "upstream_sha256": "339d920174fa7972335ad5c1ea7b1b5efa4556b74071c2942d4f1b94b459cb2d",
+      "git_blob": "d5270cd4711dfbc67f7486db8bbce6e489b4b873",
+      "sha256": "6d22bd85d88dede6a533c6fc85caa8a87b66afe2674b9bb71c07bd332a10bc4a",
+      "upstream_sha256": "6d22bd85d88dede6a533c6fc85caa8a87b66afe2674b9bb71c07bd332a10bc4a",
       "mode": "100644",
       "state": "copied"
     },
@@ -4050,18 +4095,18 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-linux/src/input/mod.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-linux/src/input/mod.rs",
-      "git_blob": "d1cd425be4dda2717e7b6738c428367ba694b30a",
-      "sha256": "353b18f6b438b0a866fd649ec26338264a1e617cfcfcc12011edc2e2aa5e1272",
-      "upstream_sha256": "353b18f6b438b0a866fd649ec26338264a1e617cfcfcc12011edc2e2aa5e1272",
+      "git_blob": "7a0cd50dae20134c6994b065e4c96b3852f1bae6",
+      "sha256": "d538d2eb9bd99638f0034d0403b8abc647b14dc157f281510fc21b7b9aa211f5",
+      "upstream_sha256": "d538d2eb9bd99638f0034d0403b8abc647b14dc157f281510fc21b7b9aa211f5",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-linux/src/input/mpx_keyboard.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-linux/src/input/mpx_keyboard.rs",
-      "git_blob": "e455c98b2c45741546ac887227510cd14fc378a7",
-      "sha256": "eb11a79b81109f1e27dbcd2f395422eb140a1f4b049b79c049627728e8fdbc37",
-      "upstream_sha256": "eb11a79b81109f1e27dbcd2f395422eb140a1f4b049b79c049627728e8fdbc37",
+      "git_blob": "7adc8376d5eb65a04e3fa1626eefc4e5cb20a4b2",
+      "sha256": "432d02f5489fe315e7fb62835e7152fb5f0a9d8c1664aac2d0d87bddff4b69b4",
+      "upstream_sha256": "432d02f5489fe315e7fb62835e7152fb5f0a9d8c1664aac2d0d87bddff4b69b4",
       "mode": "100644",
       "state": "copied"
     },
@@ -4077,9 +4122,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-linux/src/input/targeted.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-linux/src/input/targeted.rs",
-      "git_blob": "2637de7346fa6fc101f893287152cbdf6da5e957",
-      "sha256": "52e6e274ed3ee3a14bb00354873b48f175773ee99c0fcfcff15f30089da5ea3f",
-      "upstream_sha256": "52e6e274ed3ee3a14bb00354873b48f175773ee99c0fcfcff15f30089da5ea3f",
+      "git_blob": "ee6f41af2b0706ac8cef9cba9ca69a4f76395983",
+      "sha256": "41e9d688fad9859390947bc94303e6f819a421a5ac98ef9eb397f8d58338e8e3",
+      "upstream_sha256": "41e9d688fad9859390947bc94303e6f819a421a5ac98ef9eb397f8d58338e8e3",
       "mode": "100644",
       "state": "copied"
     },
@@ -4104,9 +4149,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-linux/src/overlay.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-linux/src/overlay.rs",
-      "git_blob": "1d35cd553c5f7ad79fe1f6676da91b1a106d6530",
-      "sha256": "4105cf1b3962efeb05578b15b57c4a5c10c5b19f3333b3e49f9dedcaa77a3e5f",
-      "upstream_sha256": "4105cf1b3962efeb05578b15b57c4a5c10c5b19f3333b3e49f9dedcaa77a3e5f",
+      "git_blob": "4e86686ab817d54e5be9b481eba1cb22e645ad8d",
+      "sha256": "8651dd06616c7b95c42daaa86f9b74a61f151d50606eb6d5b229e74829f03907",
+      "upstream_sha256": "8651dd06616c7b95c42daaa86f9b74a61f151d50606eb6d5b229e74829f03907",
       "mode": "100644",
       "state": "copied"
     },
@@ -4194,9 +4239,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-linux/src/tools/impl_.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-linux/src/tools/impl_.rs",
-      "git_blob": "3c07cd7bee615dd31dc13b8251fef251dbef9dae",
-      "sha256": "e56d9149211eca9fbb7a6eac202b139632ff8955df4631322ba9488fff905615",
-      "upstream_sha256": "35f6ac4d6a7cdfc9ed8d420114b8fa6d7773bdd41dcaf64ce6080e0058f92e8d",
+      "git_blob": "8b45428caf165cf0ff58b5facf97288935147a07",
+      "sha256": "138aece7626772b458d0373ddf0cd0fc9c6207b25fc1e4f3b0fe03c4d5658052",
+      "upstream_sha256": "fed6d3181f98a001961fe9b3a52fd89c16002bce5b4c9a853b1c208f201f2ac4",
       "mode": "100644",
       "state": "modified"
     },
@@ -4500,9 +4545,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-linux/src/wayland/overlay.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-linux/src/wayland/overlay.rs",
-      "git_blob": "f14e49a07de2ad3dcd9609139bb649bd3310f3b9",
-      "sha256": "5c2d9ce8e528ce8bbf7f36cc8b65c58a6745ac5c1c35c10b297dc9402b6b7c5b",
-      "upstream_sha256": "5c2d9ce8e528ce8bbf7f36cc8b65c58a6745ac5c1c35c10b297dc9402b6b7c5b",
+      "git_blob": "1fe4cdf77bed7521f3e45ec910a845013e858929",
+      "sha256": "fc6646518ffc5c2a5b8587e71bc6eb641a562a27a932d249e299c0b91fc491db",
+      "upstream_sha256": "fc6646518ffc5c2a5b8587e71bc6eb641a562a27a932d249e299c0b91fc491db",
       "mode": "100644",
       "state": "copied"
     },
@@ -4626,9 +4671,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-linux/tests/key_input_x11.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-linux/tests/key_input_x11.rs",
-      "git_blob": "60fcd1534c642f7c410290c34aff6faa8d90ebed",
-      "sha256": "b83a6d64e115e135ef21f6959978c82a7a522e03285e412f14631a2da20b424e",
-      "upstream_sha256": "b83a6d64e115e135ef21f6959978c82a7a522e03285e412f14631a2da20b424e",
+      "git_blob": "556edc5abe103ce0b20823808dd79a67cbf629db",
+      "sha256": "937cbaade96ba59d7ef8639d7e0535a65fb29963b1fbf9df4b7e40c8f3a180bc",
+      "upstream_sha256": "937cbaade96ba59d7ef8639d7e0535a65fb29963b1fbf9df4b7e40c8f3a180bc",
       "mode": "100644",
       "state": "copied"
     },
@@ -4674,6 +4719,15 @@
       "git_blob": "da59f3b2ee6f95fa75b5ed711c185ba1fadc6bcd",
       "sha256": "ff011429ce783107aa7d24b83eb2a396925e865b73ea33efe308a6f6a8c75433",
       "upstream_sha256": "ff011429ce783107aa7d24b83eb2a396925e865b73ea33efe308a6f6a8c75433",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/apple_events.rs",
+      "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/apple_events.rs",
+      "git_blob": "b4ee2a43fb3424ca9909601aa7291a8d6af6379c",
+      "sha256": "4ad1b7fd84095d89ef4a4b493fce68d95bd159c132574be82764c6137eb87a4c",
+      "upstream_sha256": "4ad1b7fd84095d89ef4a4b493fce68d95bd159c132574be82764c6137eb87a4c",
       "mode": "100644",
       "state": "copied"
     },
@@ -4743,9 +4797,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/ax/reveal_scroll.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/ax/reveal_scroll.rs",
-      "git_blob": "a8e324b7d241391a1957edc7b5d32fe3f5c1989c",
-      "sha256": "d44348c55ac6a5b37c1788f88bdf468f0ab700d28b7778bbfdd73353ece6f222",
-      "upstream_sha256": "d44348c55ac6a5b37c1788f88bdf468f0ab700d28b7778bbfdd73353ece6f222",
+      "git_blob": "39d99e2dd3117f184330fd94d9ff6cf88768a7be",
+      "sha256": "f500a055631b89dd79016f2fde7f215995fb214cce9b08bb292f73b051be19ed",
+      "upstream_sha256": "f500a055631b89dd79016f2fde7f215995fb214cce9b08bb292f73b051be19ed",
       "mode": "100644",
       "state": "copied"
     },
@@ -4761,9 +4815,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/ax/tree.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/ax/tree.rs",
-      "git_blob": "cedbbe404dc43296ba10531bf62a3c9280a77386",
-      "sha256": "a9b4b2e625a7ff2c83af9824da440d7bd664055b2a91213f38b23803dcc6357f",
-      "upstream_sha256": "a9b4b2e625a7ff2c83af9824da440d7bd664055b2a91213f38b23803dcc6357f",
+      "git_blob": "681c636058fd94609b9e8285c4dd8fbd4fc9bf2d",
+      "sha256": "bdd1b29d6f3374bf9633c9669b9458e7d15690973f8070c932403461426980ab",
+      "upstream_sha256": "bdd1b29d6f3374bf9633c9669b9458e7d15690973f8070c932403461426980ab",
       "mode": "100644",
       "state": "copied"
     },
@@ -4815,9 +4869,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/browser/consent_ui.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/browser/consent_ui.rs",
-      "git_blob": "57193da48f7b0a871958f6607428735dc0c3f3d6",
-      "sha256": "6b13cab4295e2fafa7a702145c9313183c95061692224e9e52ade7a5061c368e",
-      "upstream_sha256": "6b13cab4295e2fafa7a702145c9313183c95061692224e9e52ade7a5061c368e",
+      "git_blob": "82dac6171b718d193283f7fe7090f905fa2897ae",
+      "sha256": "da83356dbd75717830e97f2314805722417558747321e47ba0ad69e82fa7af95",
+      "upstream_sha256": "da83356dbd75717830e97f2314805722417558747321e47ba0ad69e82fa7af95",
       "mode": "100644",
       "state": "copied"
     },
@@ -4842,18 +4896,18 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/browser/platform.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/browser/platform.rs",
-      "git_blob": "cda3820990bcf02bd0d0dbfec07fbf9453b7b5e1",
-      "sha256": "a64853bc49789428761fed40f96f4c554fdd6678819a9542ba92b74e8b639576",
-      "upstream_sha256": "a64853bc49789428761fed40f96f4c554fdd6678819a9542ba92b74e8b639576",
+      "git_blob": "219cd56abd743214245ed81bfae42e2e12bfd40c",
+      "sha256": "0e7f0e048526bdc0e6058868027f44c7480208dc2ea72feac3113895e7194890",
+      "upstream_sha256": "0e7f0e048526bdc0e6058868027f44c7480208dc2ea72feac3113895e7194890",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/browser/setup_ui.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/browser/setup_ui.rs",
-      "git_blob": "f9f4838aa17cb32f487155a5f39c8c142073df3b",
-      "sha256": "87318e627cef93ba31009de22a3071d483f451a43c70163fb47d3afd288e7b9a",
-      "upstream_sha256": "87318e627cef93ba31009de22a3071d483f451a43c70163fb47d3afd288e7b9a",
+      "git_blob": "25270f7acd7380c4d6d36f31965f50dba88df3b3",
+      "sha256": "af1fde2b833c9d57138e3c3afa14ab0af72a476acb9fd64b8761743e9263272e",
+      "upstream_sha256": "af1fde2b833c9d57138e3c3afa14ab0af72a476acb9fd64b8761743e9263272e",
       "mode": "100644",
       "state": "copied"
     },
@@ -4869,9 +4923,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/capture.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/capture.rs",
-      "git_blob": "15fa2c82de30dd4c20e94ca59762c58a13da3969",
-      "sha256": "06e221606f79f5c4b7f4f87738d537155e5de7c278b012aa0d2af48b77614811",
-      "upstream_sha256": "06e221606f79f5c4b7f4f87738d537155e5de7c278b012aa0d2af48b77614811",
+      "git_blob": "0db5c6f10a71e78356b9a585f5161314bcba166e",
+      "sha256": "52f30444c65659dc4af7256f785f58bcfcdf9c8a980c6d9046bf3321619c3d9d",
+      "upstream_sha256": "52f30444c65659dc4af7256f785f58bcfcdf9c8a980c6d9046bf3321619c3d9d",
       "mode": "100644",
       "state": "copied"
     },
@@ -4887,9 +4941,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/cursor/overlay.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/cursor/overlay.rs",
-      "git_blob": "7b88534c6a718e7f29fde1cff33ffaaf0dbb5e50",
-      "sha256": "7d4ccda6248beeea3b195b25e8ce4978ff5c3ff33c9f11c8cfcd9221468b8815",
-      "upstream_sha256": "7d4ccda6248beeea3b195b25e8ce4978ff5c3ff33c9f11c8cfcd9221468b8815",
+      "git_blob": "358037ea5d65f12ea25c6632e98a8885539cb1d3",
+      "sha256": "2d9a564349a7be2d8362da9160105cafdf7848698e9bf2b79ea9cf7751f8610e",
+      "upstream_sha256": "2d9a564349a7be2d8362da9160105cafdf7848698e9bf2b79ea9cf7751f8610e",
       "mode": "100644",
       "state": "copied"
     },
@@ -4914,9 +4968,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/document_edit.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/document_edit.rs",
-      "git_blob": "674647e57cc56ad736c1d29e57264a64d22e6596",
-      "sha256": "5ad74e6ff8566090e23ef11e0d3477d30fdb017349e0622df2704f0440563141",
-      "upstream_sha256": "5ad74e6ff8566090e23ef11e0d3477d30fdb017349e0622df2704f0440563141",
+      "git_blob": "dd919c71c278d23550be46f613dfff639d917f98",
+      "sha256": "1b595172c8b791878e7fa6c8c5504db69c799cff3a80aad6cd2bc498563d194e",
+      "upstream_sha256": "1b595172c8b791878e7fa6c8c5504db69c799cff3a80aad6cd2bc498563d194e",
       "mode": "100644",
       "state": "copied"
     },
@@ -4995,9 +5049,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/input/mouse.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/input/mouse.rs",
-      "git_blob": "31a72ffe5152ed653a7f255c7b688c9302deee24",
-      "sha256": "6aabc6b5594dd0ceb0466164bf48b178835339a98fffc1795695fff3b7cbe797",
-      "upstream_sha256": "6aabc6b5594dd0ceb0466164bf48b178835339a98fffc1795695fff3b7cbe797",
+      "git_blob": "f588c65749b6766ea455305bfe883f69d656abb8",
+      "sha256": "6cb3634cad87a3aad3175942d03ee2d750377553560ebdaafeb506234e7ae003",
+      "upstream_sha256": "6cb3634cad87a3aad3175942d03ee2d750377553560ebdaafeb506234e7ae003",
       "mode": "100644",
       "state": "copied"
     },
@@ -5013,27 +5067,27 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/input/skylight.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/input/skylight.rs",
-      "git_blob": "45cb68b941029a76013e8feef347deda6b5c8b4a",
-      "sha256": "ff9192fea9e31ebf126814d9c0b86424273b9065de139b4522e98b9a00780e9b",
-      "upstream_sha256": "ff9192fea9e31ebf126814d9c0b86424273b9065de139b4522e98b9a00780e9b",
+      "git_blob": "9da32128dfbab1d1b82caf2da50b23e910d5765e",
+      "sha256": "dd1d41c1db446f36769d6f94b8a1e5a49ba61370c702674c2d80a7881e3fb218",
+      "upstream_sha256": "dd1d41c1db446f36769d6f94b8a1e5a49ba61370c702674c2d80a7881e3fb218",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/key_focus_guard.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/key_focus_guard.rs",
-      "git_blob": "9096e6b4a5f4be00b6b87bd1885cd3c56af2ea2f",
-      "sha256": "2fe27ec9e49c4f558b69746cc8a5030903376b4eff5646567b03442c3ac1e83f",
-      "upstream_sha256": "2fe27ec9e49c4f558b69746cc8a5030903376b4eff5646567b03442c3ac1e83f",
+      "git_blob": "afabdee4a17ecd8d499b224b941405f118f69181",
+      "sha256": "aa7688e6bf536f2c1401a0a17e01181a09bccf2c65fc77b569a59e60ad916a85",
+      "upstream_sha256": "aa7688e6bf536f2c1401a0a17e01181a09bccf2c65fc77b569a59e60ad916a85",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/lib.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/lib.rs",
-      "git_blob": "76275f9eb3054f46b12dc8f3813c20faeabb0251",
-      "sha256": "9559312a1894199e5da8500d73576d5ec1c7fe3eb8859879a837826b0363665d",
-      "upstream_sha256": "9559312a1894199e5da8500d73576d5ec1c7fe3eb8859879a837826b0363665d",
+      "git_blob": "376e3e90fb5377edaa9be2395048779c87bf3ef8",
+      "sha256": "cca42b181325965a61941e78f3b64cde2bc98508045e54e59c7cf8aaa4366a25",
+      "upstream_sha256": "cca42b181325965a61941e78f3b64cde2bc98508045e54e59c7cf8aaa4366a25",
       "mode": "100644",
       "state": "copied"
     },
@@ -5166,9 +5220,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/tools/click.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/tools/click.rs",
-      "git_blob": "996e625db62d02d86e0f116d9906fcee1953f84a",
-      "sha256": "9ef7cbe5c25a50f497d710944ead2537a604c0554e7f8802ad48fc1ee143db85",
-      "upstream_sha256": "9ef7cbe5c25a50f497d710944ead2537a604c0554e7f8802ad48fc1ee143db85",
+      "git_blob": "161b13f5a15572e835a0e7a78423e2dbaee3577d",
+      "sha256": "4515dcecc2466589b28eae8d7bba429d8be330969fec02197c4a5460762e70ef",
+      "upstream_sha256": "4515dcecc2466589b28eae8d7bba429d8be330969fec02197c4a5460762e70ef",
       "mode": "100644",
       "state": "copied"
     },
@@ -5191,20 +5245,29 @@
       "state": "copied"
     },
     {
+      "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/tools/desktop_pointer_guard.rs",
+      "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/tools/desktop_pointer_guard.rs",
+      "git_blob": "9d31492e1625c7058d0affd4e23c9a50cd7c09c6",
+      "sha256": "0ebbf6a7d6b8141b11cae7f8d0eaf8fade72cb30c86442a2746dee686c26137e",
+      "upstream_sha256": "0ebbf6a7d6b8141b11cae7f8d0eaf8fade72cb30c86442a2746dee686c26137e",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/tools/double_click.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/tools/double_click.rs",
-      "git_blob": "fd8d3273b9738d6cc01037b38ea653a1378038ce",
-      "sha256": "ac61d9727507cddb599e040fba1ab50308b9233c2b81bf9e2052c0c0df9b623a",
-      "upstream_sha256": "ac61d9727507cddb599e040fba1ab50308b9233c2b81bf9e2052c0c0df9b623a",
+      "git_blob": "0fafc8359d6cca03ad54c339acb96ebfecb5620f",
+      "sha256": "a422cc61a67d6116f662d15e5b05e08e03ccd133c0cb59692da5000c23142982",
+      "upstream_sha256": "a422cc61a67d6116f662d15e5b05e08e03ccd133c0cb59692da5000c23142982",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/tools/drag.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/tools/drag.rs",
-      "git_blob": "85e35796858c90fdbf19b29e59dc0eed2ff06a85",
-      "sha256": "f6350ad7d2813d1df1546a74044a22c962a0cb3ba7b3fff45cb386ef360ebc07",
-      "upstream_sha256": "f6350ad7d2813d1df1546a74044a22c962a0cb3ba7b3fff45cb386ef360ebc07",
+      "git_blob": "d08518eb06449f08057e189abe7ce1ca8f4f78b4",
+      "sha256": "2833ba1e74026774d1012c714f76e7fc07055ea0f6eae7cfd70602a9eb372862",
+      "upstream_sha256": "2833ba1e74026774d1012c714f76e7fc07055ea0f6eae7cfd70602a9eb372862",
       "mode": "100644",
       "state": "copied"
     },
@@ -5220,9 +5283,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/tools/get_config.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/tools/get_config.rs",
-      "git_blob": "0db24fb1de5d5b1c73886775e1266e1f38857ee4",
-      "sha256": "40f6d1378d9417bedba8722326578d8041ccffeed5219b05518d17f0846d4860",
-      "upstream_sha256": "40f6d1378d9417bedba8722326578d8041ccffeed5219b05518d17f0846d4860",
+      "git_blob": "ed98ea5e3cab8e30c248764bb261dfade09ca4fc",
+      "sha256": "3493301c7fe8ef95c9826625e38efa2ed6d65f36d5d750d903ecd9e87e04d394",
+      "upstream_sha256": "3493301c7fe8ef95c9826625e38efa2ed6d65f36d5d750d903ecd9e87e04d394",
       "mode": "100644",
       "state": "copied"
     },
@@ -5274,18 +5337,18 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/tools/hotkey.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/tools/hotkey.rs",
-      "git_blob": "87aed0fd8440464e563df16b5498bab47981e2fb",
-      "sha256": "83e0e33cf3367e412bbf3199b9451c10e311b3e14e377c9e16cde218556950a7",
-      "upstream_sha256": "83e0e33cf3367e412bbf3199b9451c10e311b3e14e377c9e16cde218556950a7",
+      "git_blob": "d197f10666c373701461e26c5801db864eb868db",
+      "sha256": "25c29d32f498c9829bb29a8bd3101f45787b2bc3f592ce298ac15d580fcd0777",
+      "upstream_sha256": "25c29d32f498c9829bb29a8bd3101f45787b2bc3f592ce298ac15d580fcd0777",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/tools/invoke_menu.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/tools/invoke_menu.rs",
-      "git_blob": "d0b73a98d8cdd57d7a169843b92495a6fdec1118",
-      "sha256": "82135915d619ebb37b4bbdedf80eeedda22dcc3eafa2f363140cbfecf0fc1287",
-      "upstream_sha256": "82135915d619ebb37b4bbdedf80eeedda22dcc3eafa2f363140cbfecf0fc1287",
+      "git_blob": "352fe4c3dc425cfa1578ab71f8389c824e266d16",
+      "sha256": "d286680c6f822ce9232333d9118de4723d6adbf5dfd9042405b9a52bd95b0407",
+      "upstream_sha256": "d286680c6f822ce9232333d9118de4723d6adbf5dfd9042405b9a52bd95b0407",
       "mode": "100644",
       "state": "copied"
     },
@@ -5301,9 +5364,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/tools/launch_app.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/tools/launch_app.rs",
-      "git_blob": "648a0adb0540a5868216daa996c6bbc715ba384d",
-      "sha256": "a9586e8a4a8b65172e86bc627be45ed865dd44121d7224b52acae8810ca638f6",
-      "upstream_sha256": "a9586e8a4a8b65172e86bc627be45ed865dd44121d7224b52acae8810ca638f6",
+      "git_blob": "dd879312fd97e330736650d7e570d2ac87d29a92",
+      "sha256": "366cf4a9c48639ac7e7dd24c111f01a46445bde453993e3a5cb39b36f7acaea4",
+      "upstream_sha256": "366cf4a9c48639ac7e7dd24c111f01a46445bde453993e3a5cb39b36f7acaea4",
       "mode": "100644",
       "state": "copied"
     },
@@ -5319,27 +5382,36 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/tools/list_windows.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/tools/list_windows.rs",
-      "git_blob": "5d0798576a95237a4f991ef90a2ccd25b23a12df",
-      "sha256": "8d1bc174758ef1316351e5c48576ebdaa0ae21c5dff967f945c2b6ce3035a6a3",
-      "upstream_sha256": "8d1bc174758ef1316351e5c48576ebdaa0ae21c5dff967f945c2b6ce3035a6a3",
+      "git_blob": "1c7449e4798fdc642e97ddcd3df3f9874cc444bd",
+      "sha256": "cce59ba62872c81566cfffdf0974d1e505ac26debbd52b7d47fae6dccc9f9d34",
+      "upstream_sha256": "cce59ba62872c81566cfffdf0974d1e505ac26debbd52b7d47fae6dccc9f9d34",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/tools/menu_equivalent.rs",
+      "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/tools/menu_equivalent.rs",
+      "git_blob": "638204710bbce0874c11b568e59e7b55bf97182a",
+      "sha256": "7b83a3f37b628063486a451649739841ce558d9e0a8aa0e51ed9da6d8b253f9d",
+      "upstream_sha256": "7b83a3f37b628063486a451649739841ce558d9e0a8aa0e51ed9da6d8b253f9d",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/tools/mod.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/tools/mod.rs",
-      "git_blob": "5c2b4573400dd99b7f6e90ba4a19f2daea92ffb3",
-      "sha256": "15d3d67ab54a8808979e349f40fc92d266f6f345c74a76b4628b3cbf99a2fcb4",
-      "upstream_sha256": "15d3d67ab54a8808979e349f40fc92d266f6f345c74a76b4628b3cbf99a2fcb4",
+      "git_blob": "1d14c4e63844d7bb463efc412c867533d9e635b4",
+      "sha256": "21b3c549d12ed743f151926845247cb2d94347373a78b679df45fb56b06ab5ca",
+      "upstream_sha256": "21b3c549d12ed743f151926845247cb2d94347373a78b679df45fb56b06ab5ca",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/tools/move_cursor.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/tools/move_cursor.rs",
-      "git_blob": "88b3cf0e8e2bf943e1ad0cc06034bb86dfffeb77",
-      "sha256": "26adb9b079b0b20b31d61a9551f73caab3887b83ddc1bb1622dcb29509b1f772",
-      "upstream_sha256": "26adb9b079b0b20b31d61a9551f73caab3887b83ddc1bb1622dcb29509b1f772",
+      "git_blob": "669f409bf6a176f06b804d056074016dfb05525e",
+      "sha256": "ea306cf7358fd9fee056ca62834e4b4770aff6fefa66278b04d36da950d30fd4",
+      "upstream_sha256": "ea306cf7358fd9fee056ca62834e4b4770aff6fefa66278b04d36da950d30fd4",
       "mode": "100644",
       "state": "copied"
     },
@@ -5382,36 +5454,36 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/tools/right_click.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/tools/right_click.rs",
-      "git_blob": "9f492f8d8c0193e5d28e44c0a7f2a9d53f1fbf8f",
-      "sha256": "5defc2d0a3028a9c47f180ae337cca37e7affdcd59ef452dd44148fd9ea92fe5",
-      "upstream_sha256": "5defc2d0a3028a9c47f180ae337cca37e7affdcd59ef452dd44148fd9ea92fe5",
+      "git_blob": "a16dc71830194928add2751e31fe566fb1668234",
+      "sha256": "519bc70d8d528c12578bf5e797d5fb6497afb8993861f7cba69ee096fb49ff39",
+      "upstream_sha256": "519bc70d8d528c12578bf5e797d5fb6497afb8993861f7cba69ee096fb49ff39",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/tools/scroll.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/tools/scroll.rs",
-      "git_blob": "df35919e5ee639a883acd14f65429f4dcbc1a917",
-      "sha256": "0c16bc8e3f2eb166cde531adff21f9769ac1e4093427f4425dc7d50b7feb74e2",
-      "upstream_sha256": "0c16bc8e3f2eb166cde531adff21f9769ac1e4093427f4425dc7d50b7feb74e2",
+      "git_blob": "87a6f05c676163124d6a48c51ee7b0c4da7426a2",
+      "sha256": "ef6cdb379e3d8e5042b526223146025f1ffe6b8ad3de915213fe731598717b26",
+      "upstream_sha256": "ef6cdb379e3d8e5042b526223146025f1ffe6b8ad3de915213fe731598717b26",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/tools/set_config.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/tools/set_config.rs",
-      "git_blob": "731335df7321b125b38a6172b21d41d6409eb8b8",
-      "sha256": "ffee68c72403fa72af83b29847be6a26512a40c0bd3ac1f91aa04df87af69922",
-      "upstream_sha256": "ffee68c72403fa72af83b29847be6a26512a40c0bd3ac1f91aa04df87af69922",
+      "git_blob": "dd4c83e8ddac00519a54fe719543221fc404ceba",
+      "sha256": "436b6a09617750aac2aa009507e53a279f4e4da5cfc298536059b2f6a794443a",
+      "upstream_sha256": "436b6a09617750aac2aa009507e53a279f4e4da5cfc298536059b2f6a794443a",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/tools/set_value.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/tools/set_value.rs",
-      "git_blob": "03e10e7eb2d58d044c214b892d2796ef9fe9e2c6",
-      "sha256": "2d60b285b706748c998ff3f30e6854d8c056cea690c18ac193ef647a4d3e83ff",
-      "upstream_sha256": "2d60b285b706748c998ff3f30e6854d8c056cea690c18ac193ef647a4d3e83ff",
+      "git_blob": "e16e87ceb42b95a8511f6d499762d87221c9105d",
+      "sha256": "53de53336444f1a72c0f55cef4646a2070dcb250b8ccbf8da433e4c3088a5949",
+      "upstream_sha256": "53de53336444f1a72c0f55cef4646a2070dcb250b8ccbf8da433e4c3088a5949",
       "mode": "100644",
       "state": "copied"
     },
@@ -5427,9 +5499,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/tools/type_text.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/tools/type_text.rs",
-      "git_blob": "fd2455e193039bf1b121e3bdcab013f17808ff0a",
-      "sha256": "13e602fcc15293bd1ac71837615abd4315d01b0d1849beeab413772c6635ddfe",
-      "upstream_sha256": "13e602fcc15293bd1ac71837615abd4315d01b0d1849beeab413772c6635ddfe",
+      "git_blob": "0c5d3c8e20391d2cb5e24789bdaac8294a6879d6",
+      "sha256": "57839f2ea7e6de6d09405de962e7efd6ca066d9bf42712da1b0feabd10dcc49f",
+      "upstream_sha256": "57839f2ea7e6de6d09405de962e7efd6ca066d9bf42712da1b0feabd10dcc49f",
       "mode": "100644",
       "state": "copied"
     },
@@ -5463,18 +5535,18 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/window_change_detector.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/window_change_detector.rs",
-      "git_blob": "82d073f3d83d0d0c35143abbba749127e0be3eda",
-      "sha256": "de5f600af24bd175b186ea8486c3df81a3cf591aef9f8a496614b2c799e42392",
-      "upstream_sha256": "de5f600af24bd175b186ea8486c3df81a3cf591aef9f8a496614b2c799e42392",
+      "git_blob": "becd8b6f19521d750be79744337733e5d5af1bab",
+      "sha256": "cf77e942b3a9e143fb532087e2cf25101e67d30bf95aa2664f753feb05fdac57",
+      "upstream_sha256": "cf77e942b3a9e143fb532087e2cf25101e67d30bf95aa2664f753feb05fdac57",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-macos/src/windows.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-macos/src/windows.rs",
-      "git_blob": "461228dfc3509a041750b1bb47f4a94a2c46f0e1",
-      "sha256": "8e876bb5e188f37d02e3aa6fd09c782e29e70c7b57ff31fc2228f707b5eb9727",
-      "upstream_sha256": "8e876bb5e188f37d02e3aa6fd09c782e29e70c7b57ff31fc2228f707b5eb9727",
+      "git_blob": "d5984292417ce515a0b3c682e1656249428af70d",
+      "sha256": "bbddbe40a7682f4c97274e5e7ab5e070f13c07475e32606bd57b07936eb94c3d",
+      "upstream_sha256": "bbddbe40a7682f4c97274e5e7ab5e070f13c07475e32606bd57b07936eb94c3d",
       "mode": "100644",
       "state": "copied"
     },
@@ -5805,9 +5877,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-windows/src/browser_consent_ui.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-windows/src/browser_consent_ui.rs",
-      "git_blob": "25f91303b3c392644afafcb3ef8a4f5497756e08",
-      "sha256": "e3d21303ac132d009e9cf6a081e2052b056a7bb5fb826dd8e04d9d02131b2d99",
-      "upstream_sha256": "e3d21303ac132d009e9cf6a081e2052b056a7bb5fb826dd8e04d9d02131b2d99",
+      "git_blob": "38099eb9cc580de9d5c23ff2871ef3cd1f1d8f04",
+      "sha256": "84f5d26e3c0fe3ab0e69f45912d7eab0cbb53b7bf718693175aad0f1303add40",
+      "upstream_sha256": "84f5d26e3c0fe3ab0e69f45912d7eab0cbb53b7bf718693175aad0f1303add40",
       "mode": "100644",
       "state": "copied"
     },
@@ -5850,9 +5922,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-windows/src/browser_setup_ui.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-windows/src/browser_setup_ui.rs",
-      "git_blob": "98cb11de7a4a7cb758b2527ffcd12f1497c8b23b",
-      "sha256": "63dc1a377712f19d2297949a0537d5d4e2aaac752f5166197afbcc9db3721756",
-      "upstream_sha256": "63dc1a377712f19d2297949a0537d5d4e2aaac752f5166197afbcc9db3721756",
+      "git_blob": "91bbe5cd9f191cf396648f00adaf0851a0a49cf2",
+      "sha256": "49c3ee40601bf6d62bc7db0f09c4e09d668240d30c544051f543c58b4cf7da99",
+      "upstream_sha256": "49c3ee40601bf6d62bc7db0f09c4e09d668240d30c544051f543c58b4cf7da99",
       "mode": "100644",
       "state": "copied"
     },
@@ -5868,9 +5940,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-windows/src/capture.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-windows/src/capture.rs",
-      "git_blob": "ed8a92c98b652bfec8a404c7eee7e3dab3b75dc0",
-      "sha256": "56b4a197f294b5109f03523317a4db5f95a91f63f26d6cf97583005f4dcc727f",
-      "upstream_sha256": "56b4a197f294b5109f03523317a4db5f95a91f63f26d6cf97583005f4dcc727f",
+      "git_blob": "453b0b715f06e00d81a360231902d436385caf9e",
+      "sha256": "480e7715c970df0d32459e3ac97fe13911f20f79d01d76f08f75c7fdc0fc8b98",
+      "upstream_sha256": "480e7715c970df0d32459e3ac97fe13911f20f79d01d76f08f75c7fdc0fc8b98",
       "mode": "100644",
       "state": "copied"
     },
@@ -5895,9 +5967,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-windows/src/diagnostics.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-windows/src/diagnostics.rs",
-      "git_blob": "726fb538e3d2ee0d75c483295cf402ea51f4a631",
-      "sha256": "76dc106c83cac0343e8b30b2abbfb7698afb49b93557ff2e94969507bade457f",
-      "upstream_sha256": "76dc106c83cac0343e8b30b2abbfb7698afb49b93557ff2e94969507bade457f",
+      "git_blob": "dd80c66ac8ec9d9824d388e2b70c0dcfc86c7c68",
+      "sha256": "32bdac31adc70f21f66b6f5d45954865a2c9ff3b6ff80d1057d7aa6891ef96b8",
+      "upstream_sha256": "32bdac31adc70f21f66b6f5d45954865a2c9ff3b6ff80d1057d7aa6891ef96b8",
       "mode": "100644",
       "state": "copied"
     },
@@ -6012,9 +6084,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-windows/src/overlay.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-windows/src/overlay.rs",
-      "git_blob": "b00c19ed00fe6d7e0bcefc7c31044d8981831d26",
-      "sha256": "8d3ccc357f5cc5f2c016d8421842e866de0b65b10103bd1e79e74f799b3b60b7",
-      "upstream_sha256": "8d3ccc357f5cc5f2c016d8421842e866de0b65b10103bd1e79e74f799b3b60b7",
+      "git_blob": "7a2378e6a0aa3248c923594dbb751cc31504abd6",
+      "sha256": "6751f66f934248d3623e3b8a23afddeedccd7289c13616bc1c1a95351c7d437f",
+      "upstream_sha256": "6751f66f934248d3623e3b8a23afddeedccd7289c13616bc1c1a95351c7d437f",
       "mode": "100644",
       "state": "copied"
     },
@@ -6075,9 +6147,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/rust/crates/platform-windows/src/tools/impl_.rs",
       "upstream_path": "libs/cua-driver/rust/crates/platform-windows/src/tools/impl_.rs",
-      "git_blob": "e9793e6acf519df1de2f5c21d95b7ee7803c78fc",
-      "sha256": "7b0aa59f65cbbd50e2bdd483576076732e1e649b193ead7923ab35c59a104ae5",
-      "upstream_sha256": "7b0aa59f65cbbd50e2bdd483576076732e1e649b193ead7923ab35c59a104ae5",
+      "git_blob": "94d1c68610ccb4db9fb55bbf39cbca8110df5bf2",
+      "sha256": "8db99aefc501c8747b825be534dbf48602f1e1423fb553c886eb9c84e864ef8f",
+      "upstream_sha256": "8db99aefc501c8747b825be534dbf48602f1e1423fb553c886eb9c84e864ef8f",
       "mode": "100644",
       "state": "copied"
     },
@@ -7110,9 +7182,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/tests/fixtures/apps/macos/appkit/main.swift",
       "upstream_path": "libs/cua-driver/tests/fixtures/apps/macos/appkit/main.swift",
-      "git_blob": "316be765329815cba112699cdbd588bc670b0b28",
-      "sha256": "f5ef03a23c0102957c944c5a1fe40a6dfc0ba506c195d29bae1122247e6c275d",
-      "upstream_sha256": "f5ef03a23c0102957c944c5a1fe40a6dfc0ba506c195d29bae1122247e6c275d",
+      "git_blob": "b283a93e785c13840b3377d468bab9112250f1d9",
+      "sha256": "8e4ebef85d574c38dee9add6af8a1850cd221080c2bc5c2d86a9826d60536e03",
+      "upstream_sha256": "8e4ebef85d574c38dee9add6af8a1850cd221080c2bc5c2d86a9826d60536e03",
       "mode": "100644",
       "state": "copied"
     },
@@ -7416,9 +7488,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua-driver/tests/fixtures/build/macos.sh",
       "upstream_path": "libs/cua-driver/tests/fixtures/build/macos.sh",
-      "git_blob": "8c50f2d37551e46a5791192046efc5f320ea48b0",
-      "sha256": "36f2faef0ad69f59bc1e200169b886cec12bcd6cbe04723eb4665352ddeb0180",
-      "upstream_sha256": "36f2faef0ad69f59bc1e200169b886cec12bcd6cbe04723eb4665352ddeb0180",
+      "git_blob": "06537265b333b44c2666940284229f3fe3358e36",
+      "sha256": "ad3357f57e3a9935a3e52f443cb15c700c3e191fd63a894907daac9e9f753694",
+      "upstream_sha256": "ad3357f57e3a9935a3e52f443cb15c700c3e191fd63a894907daac9e9f753694",
       "mode": "100755",
       "state": "copied"
     },
@@ -7722,18 +7794,18 @@
     {
       "path": "vendor/cua/upstream/libs/cua/Cargo.lock",
       "upstream_path": "libs/cua/Cargo.lock",
-      "git_blob": "24de7d6368b88663bc2780d2c813a22ae8580900",
-      "sha256": "adb6f9c7f6fd494c999a798d66335a09dae718efd02a50f55d629d1ce07fb653",
-      "upstream_sha256": "cf5c9f17c39c3eb20b808c289babafa67c06af9d0b2aa0d119d7e94b26e2ea98",
+      "git_blob": "dd394fbc21328be36dce3be88f7fcaad2e20bb79",
+      "sha256": "020239fafd4ebca30e778bb95b34052cb30843411c543e1e4352ce11fcc7dd61",
+      "upstream_sha256": "8226fd3d0c2888cc4a96ce51005b38d20ee997e3c3a9f7bc8fefdf0876202c62",
       "mode": "100644",
       "state": "modified"
     },
     {
       "path": "vendor/cua/upstream/libs/cua/Cargo.toml",
       "upstream_path": "libs/cua/Cargo.toml",
-      "git_blob": "bf428e22fde1f7334acb8de9fa0fbcdb27477326",
-      "sha256": "75879c1beca022fb1a362b9675411782bdc38b946a22031f5df72e21928dbadf",
-      "upstream_sha256": "ff5a0bae5d118eefe5869aa64d5647edd2f7a0a7e67364e1a73f98431a8432e5",
+      "git_blob": "c470eb0bdfb1b5e7c455dbfd4fb09bda1085f538",
+      "sha256": "ccc6db9dfb1626fddb2d935d99237c951f9276bd960535ee97e484dc240259cd",
+      "upstream_sha256": "39bdb036d5cff37fd2eb056d25c90b282782b76ba1d64a625d5176f3fdf2fc6a",
       "mode": "100644",
       "state": "modified"
     },
@@ -7794,9 +7866,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-agent-setup/src/lib.rs",
       "upstream_path": "libs/cua/crates/cua-agent-setup/src/lib.rs",
-      "git_blob": "61fe662c220fa83e0729e3c554993cea633ec75f",
-      "sha256": "82bee040695f1099020280e4fd61704b0b84e36101e4d9c550df0c027d8e2fd4",
-      "upstream_sha256": "82bee040695f1099020280e4fd61704b0b84e36101e4d9c550df0c027d8e2fd4",
+      "git_blob": "b2d3353f4f48c494216642a4b95270d3f2cc5a72",
+      "sha256": "81dbb293b5c125063847e153966c83e799f2c3d8d5e4c38e42668b4dcd4c1a2d",
+      "upstream_sha256": "81dbb293b5c125063847e153966c83e799f2c3d8d5e4c38e42668b4dcd4c1a2d",
       "mode": "100644",
       "state": "copied"
     },
@@ -8062,11 +8134,20 @@
       "state": "copied"
     },
     {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-auth/src/chunked.rs",
+      "upstream_path": "libs/cua/crates/cua-auth/src/chunked.rs",
+      "git_blob": "94f959772215e5847937876c1329a6c58a0217f0",
+      "sha256": "21e6385e22487b99c650cc6791a34f8c93e398bcff361cdc9e4583721affc857",
+      "upstream_sha256": "21e6385e22487b99c650cc6791a34f8c93e398bcff361cdc9e4583721affc857",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-auth/src/lib.rs",
       "upstream_path": "libs/cua/crates/cua-auth/src/lib.rs",
-      "git_blob": "93f454f7b0a8126fdc94d0d8a81e59be76f2d1ac",
-      "sha256": "89cf56acd4e440a4a9d3613b5fa09e89b433eeaa9a62d1251ffd63e4f965badd",
-      "upstream_sha256": "89cf56acd4e440a4a9d3613b5fa09e89b433eeaa9a62d1251ffd63e4f965badd",
+      "git_blob": "d66267a3e99c9eb01dfaea77180170fb53aa00c7",
+      "sha256": "a7f1d252b7ecc72a5c5e93076fbb6317e42f8c6b729894357ee801b928833c69",
+      "upstream_sha256": "a7f1d252b7ecc72a5c5e93076fbb6317e42f8c6b729894357ee801b928833c69",
       "mode": "100644",
       "state": "copied"
     },
@@ -8289,9 +8370,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-cli/Cargo.toml",
       "upstream_path": "libs/cua/crates/cua-cli/Cargo.toml",
-      "git_blob": "0f1bd2948cbc2936eeef1d90380bdd4cd154560e",
-      "sha256": "ed2d2011ade15230d2cc807ac1a4f1ba1faa140624122b7e2fd25abd7aaa8cc7",
-      "upstream_sha256": "ed2d2011ade15230d2cc807ac1a4f1ba1faa140624122b7e2fd25abd7aaa8cc7",
+      "git_blob": "62308d1a9646ec046fceabe5a7519d7bcc7329b5",
+      "sha256": "94f1f047f9b006823727c28bea97a8dd143544e9fc73e97747804ef18cad5d4c",
+      "upstream_sha256": "94f1f047f9b006823727c28bea97a8dd143544e9fc73e97747804ef18cad5d4c",
       "mode": "100644",
       "state": "copied"
     },
@@ -8334,9 +8415,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-cli/src/auth.rs",
       "upstream_path": "libs/cua/crates/cua-cli/src/auth.rs",
-      "git_blob": "5fa15214104112892cd8fd093ee7827862fd902f",
-      "sha256": "174d4e9dae07d99d99570578f48a6da6f34ddc4715e372b4b00b66c53445e508",
-      "upstream_sha256": "174d4e9dae07d99d99570578f48a6da6f34ddc4715e372b4b00b66c53445e508",
+      "git_blob": "3685d8cffb5231dd660b5a4b2c54545dada458b0",
+      "sha256": "8ce9674c71500d03683c2ec4a80b37351aff610c12108baad4b0fbc01c1e7123",
+      "upstream_sha256": "8ce9674c71500d03683c2ec4a80b37351aff610c12108baad4b0fbc01c1e7123",
       "mode": "100644",
       "state": "copied"
     },
@@ -8487,18 +8568,18 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-cli/src/extension.rs",
       "upstream_path": "libs/cua/crates/cua-cli/src/extension.rs",
-      "git_blob": "82784030ec88a849d3a2fcd39a581ed2f98c19d5",
-      "sha256": "19b5d8f636de6e327f251537c7c1946c990eecab9d01c3cd641e534165487267",
-      "upstream_sha256": "19b5d8f636de6e327f251537c7c1946c990eecab9d01c3cd641e534165487267",
+      "git_blob": "b7f97a3f9ffff30ba40e435a6d2bf22cad074997",
+      "sha256": "1e944f621a939de7adaafddfa1f2db704260b4c59c5df6157e67c9abc8bc6224",
+      "upstream_sha256": "1e944f621a939de7adaafddfa1f2db704260b4c59c5df6157e67c9abc8bc6224",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-cli/src/host.rs",
       "upstream_path": "libs/cua/crates/cua-cli/src/host.rs",
-      "git_blob": "07fa9dad80b8cd2332c15d98758e7fba89921d42",
-      "sha256": "6e2aae35239186dae4ac810bba73e5201cb11bdfd9f05e9b78005bef72a8551e",
-      "upstream_sha256": "6e2aae35239186dae4ac810bba73e5201cb11bdfd9f05e9b78005bef72a8551e",
+      "git_blob": "528162b14c62df691fe514be533eb49c53a1a568",
+      "sha256": "7ab1be4b4a16c8898c13622c265952be9f51c62ad6cf763bf7710c8c78320b82",
+      "upstream_sha256": "7ab1be4b4a16c8898c13622c265952be9f51c62ad6cf763bf7710c8c78320b82",
       "mode": "100644",
       "state": "copied"
     },
@@ -8541,9 +8622,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-cli/src/lib.rs",
       "upstream_path": "libs/cua/crates/cua-cli/src/lib.rs",
-      "git_blob": "ee4e2ddc83119cfaf8bf692410da2504b20b7e75",
-      "sha256": "2b30f58782abe97cf362921674d4fb9dba367a4dda1f80a959852bbfb582314e",
-      "upstream_sha256": "2b30f58782abe97cf362921674d4fb9dba367a4dda1f80a959852bbfb582314e",
+      "git_blob": "bc0bd92035bc2633efbdd2c89ffdc902cd942cca",
+      "sha256": "81dcb56f8b9101049cb50e723ec383bb919110bac62d2229500b1233ad011c22",
+      "upstream_sha256": "81dcb56f8b9101049cb50e723ec383bb919110bac62d2229500b1233ad011c22",
       "mode": "100644",
       "state": "copied"
     },
@@ -8559,9 +8640,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-cli/src/mcp.rs",
       "upstream_path": "libs/cua/crates/cua-cli/src/mcp.rs",
-      "git_blob": "240f2cc8d60288207bc0a47be477f88e99222383",
-      "sha256": "36f7909d766884c7775ac302d441c915651cdc727318cca348000c07af698479",
-      "upstream_sha256": "36f7909d766884c7775ac302d441c915651cdc727318cca348000c07af698479",
+      "git_blob": "1e5aac9be3b7239be05e1d7187647b3413be535f",
+      "sha256": "c3c40ec4a6bdc392e2271e9cda0ec25ccf35be97dea3e457fe6577221c79d485",
+      "upstream_sha256": "c3c40ec4a6bdc392e2271e9cda0ec25ccf35be97dea3e457fe6577221c79d485",
       "mode": "100644",
       "state": "copied"
     },
@@ -8595,9 +8676,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-cli/src/sandbox.rs",
       "upstream_path": "libs/cua/crates/cua-cli/src/sandbox.rs",
-      "git_blob": "1f6d04861da0ad2727efbc2defc77e819342e0b7",
-      "sha256": "6544a8ef6f1c50115226ecd5c59e324f7cd11778ad9398cadb5f8df70c5d9b2f",
-      "upstream_sha256": "6544a8ef6f1c50115226ecd5c59e324f7cd11778ad9398cadb5f8df70c5d9b2f",
+      "git_blob": "ed5c4de893f0b9d6bcee6a25dd69d9249e5d577d",
+      "sha256": "041b1131198ad5fd5d68016d095c5660a6e7f30ea72f5010d9ee685c21b61f05",
+      "upstream_sha256": "041b1131198ad5fd5d68016d095c5660a6e7f30ea72f5010d9ee685c21b61f05",
       "mode": "100644",
       "state": "copied"
     },
@@ -8631,9 +8712,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-cli/src/team_cmd.rs",
       "upstream_path": "libs/cua/crates/cua-cli/src/team_cmd.rs",
-      "git_blob": "fa19728ac74d92f9dbed95e1dbb28619d8afd972",
-      "sha256": "dbe317700458a03cff98beee7051c6da0f9bd633b8d858e2642655b9f01fe0ac",
-      "upstream_sha256": "dbe317700458a03cff98beee7051c6da0f9bd633b8d858e2642655b9f01fe0ac",
+      "git_blob": "147b3d1fc71ba24dff0836ca3b38d4a68ab178bd",
+      "sha256": "d1d947d6016271883b6fc687a70c7778cadaa93e6a03a7269c725d305b03327c",
+      "upstream_sha256": "d1d947d6016271883b6fc687a70c7778cadaa93e6a03a7269c725d305b03327c",
       "mode": "100644",
       "state": "copied"
     },
@@ -8685,9 +8766,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-cli/src/util.rs",
       "upstream_path": "libs/cua/crates/cua-cli/src/util.rs",
-      "git_blob": "05fa9a2708708879c0d19f2058b0e405d3097b9f",
-      "sha256": "7d36d1ab1b661669a83513adfde2a93491d33f1c8729206d75025070d25eb07b",
-      "upstream_sha256": "7d36d1ab1b661669a83513adfde2a93491d33f1c8729206d75025070d25eb07b",
+      "git_blob": "6554bfef951ae089c45c93177bcd02a805fcc7c4",
+      "sha256": "0b6a4c841f30f0725aa18a6e72a2a2a18f86b410a8563f76df00a08cede06427",
+      "upstream_sha256": "0b6a4c841f30f0725aa18a6e72a2a2a18f86b410a8563f76df00a08cede06427",
       "mode": "100644",
       "state": "copied"
     },
@@ -8703,18 +8784,18 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-cli/tests/agents_login.rs",
       "upstream_path": "libs/cua/crates/cua-cli/tests/agents_login.rs",
-      "git_blob": "1f313a2870d9a2d4515963dd928e1bec6ae3c41a",
-      "sha256": "5855505892ed0e9a144405cd7156e51a7f96f6f48ece0c346c58df3c66b6ce4f",
-      "upstream_sha256": "5855505892ed0e9a144405cd7156e51a7f96f6f48ece0c346c58df3c66b6ce4f",
+      "git_blob": "45d9f5abe98517ab21f64c0710d7d964339d7457",
+      "sha256": "e8d63650081e56f9a5581c7d4e4de9420bf6d4be3f8d0bd9b5823c9858fe66af",
+      "upstream_sha256": "e8d63650081e56f9a5581c7d4e4de9420bf6d4be3f8d0bd9b5823c9858fe66af",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-cli/tests/auth.rs",
       "upstream_path": "libs/cua/crates/cua-cli/tests/auth.rs",
-      "git_blob": "dbe5f892e2247c028699b7208fa9357c187d4c52",
-      "sha256": "a50201a3812ded16391c28aea5320c41fee5afb306b05952b644d0cc373ebfec",
-      "upstream_sha256": "a50201a3812ded16391c28aea5320c41fee5afb306b05952b644d0cc373ebfec",
+      "git_blob": "b68484cff2b278d59dd4e2b4077cc502c89f73af",
+      "sha256": "ea66ddfb8146538cd5b41b9e340f6fa37f10b555e4abe5c41977116e9318bd5b",
+      "upstream_sha256": "ea66ddfb8146538cd5b41b9e340f6fa37f10b555e4abe5c41977116e9318bd5b",
       "mode": "100644",
       "state": "copied"
     },
@@ -8751,6 +8832,15 @@
       "git_blob": "134d470232e0a8c7ae01a5b62f50a920ffa798fb",
       "sha256": "92d0dcd2a50036d5651d6f2e09c98710f27166f6454d55453a062e6f804c0e7b",
       "upstream_sha256": "92d0dcd2a50036d5651d6f2e09c98710f27166f6454d55453a062e6f804c0e7b",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-cli/tests/experimental_teams.rs",
+      "upstream_path": "libs/cua/crates/cua-cli/tests/experimental_teams.rs",
+      "git_blob": "ee29650b0845082acba4cf3c21bfcc0a0b8884dd",
+      "sha256": "104ace377636364573aa74b1d1783ff5c6af7685882a82e802e5ce45d6083f34",
+      "upstream_sha256": "104ace377636364573aa74b1d1783ff5c6af7685882a82e802e5ce45d6083f34",
       "mode": "100644",
       "state": "copied"
     },
@@ -8793,9 +8883,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-cli/tests/host_setup.rs",
       "upstream_path": "libs/cua/crates/cua-cli/tests/host_setup.rs",
-      "git_blob": "7e179518e4af9a723880845b250f13e013c4e60c",
-      "sha256": "e5845b520c540f65401267bc4fcd2f2c046d9bb44a3dd84ccef255b7fc22f4f9",
-      "upstream_sha256": "e5845b520c540f65401267bc4fcd2f2c046d9bb44a3dd84ccef255b7fc22f4f9",
+      "git_blob": "125dfdec4f3316d81bcc3e2bad36100aa3f37cb4",
+      "sha256": "dda126bcfe2ed0534e9a84a057a68ffa8cafe9a392dd6a3eded147bfec3c0d02",
+      "upstream_sha256": "dda126bcfe2ed0534e9a84a057a68ffa8cafe9a392dd6a3eded147bfec3c0d02",
       "mode": "100644",
       "state": "copied"
     },
@@ -8820,9 +8910,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-cli/tests/sandbox_do.rs",
       "upstream_path": "libs/cua/crates/cua-cli/tests/sandbox_do.rs",
-      "git_blob": "73c286bb4a483a092d05abd9008b2f1b1a51e1c4",
-      "sha256": "e8af68a59d478622048c20512cdfec07b26e3a1a522f89b026337f415a319694",
-      "upstream_sha256": "e8af68a59d478622048c20512cdfec07b26e3a1a522f89b026337f415a319694",
+      "git_blob": "62450db6c30a73b35ce660b3165daab3d2d343bf",
+      "sha256": "18765d6254ab96f87991169e92e84a4965cd1e0eed3b2e46543a39a249efb79d",
+      "upstream_sha256": "18765d6254ab96f87991169e92e84a4965cd1e0eed3b2e46543a39a249efb79d",
       "mode": "100644",
       "state": "copied"
     },
@@ -9090,9 +9180,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-daemon/Cargo.toml",
       "upstream_path": "libs/cua/crates/cua-daemon/Cargo.toml",
-      "git_blob": "5a9727cd48c1c0e3292d235c5e6735c01b498f08",
-      "sha256": "e16c1257216fdff83d5e67bf43da8dff800e5332caf5a5167aa68e10996a029a",
-      "upstream_sha256": "e16c1257216fdff83d5e67bf43da8dff800e5332caf5a5167aa68e10996a029a",
+      "git_blob": "3ddb7e26e111894fe9a6eb91cded3882a0f2c56b",
+      "sha256": "b281f3538ee5b351024bf15b65c613cbf559abf430d0d6f987d1064b37cb67a5",
+      "upstream_sha256": "b281f3538ee5b351024bf15b65c613cbf559abf430d0d6f987d1064b37cb67a5",
       "mode": "100644",
       "state": "copied"
     },
@@ -9108,9 +9198,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-daemon/src/client.rs",
       "upstream_path": "libs/cua/crates/cua-daemon/src/client.rs",
-      "git_blob": "4600c94a0fdb19e2013940f93589039f0bfc834e",
-      "sha256": "25ca821a1c7297eaf4aed9e7f0d73d89c4ad833f9692b7ce9c0ccc7ec53e68a2",
-      "upstream_sha256": "25ca821a1c7297eaf4aed9e7f0d73d89c4ad833f9692b7ce9c0ccc7ec53e68a2",
+      "git_blob": "8e1689cef236417ece26bc96178f53899c13652d",
+      "sha256": "c0977e6e989bfc56ad7f86ac50f139f1017a6231728385fe25438277edecced2",
+      "upstream_sha256": "c0977e6e989bfc56ad7f86ac50f139f1017a6231728385fe25438277edecced2",
       "mode": "100644",
       "state": "copied"
     },
@@ -9171,18 +9261,18 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-daemon/src/lib.rs",
       "upstream_path": "libs/cua/crates/cua-daemon/src/lib.rs",
-      "git_blob": "68d69f5234cd28763a202d39e198091ccc56008d",
-      "sha256": "e2a12fdae529c03aef7f28be5425c664739349fbfa5da70c82bcf4ce9b755f20",
-      "upstream_sha256": "e2a12fdae529c03aef7f28be5425c664739349fbfa5da70c82bcf4ce9b755f20",
+      "git_blob": "10940238921f0f5e44969624480c9c7d9aa07e6e",
+      "sha256": "bf760592bea8f102e03fb5db1102878030061633f71dbaa112590a7a14480b9e",
+      "upstream_sha256": "bf760592bea8f102e03fb5db1102878030061633f71dbaa112590a7a14480b9e",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-daemon/src/local.rs",
       "upstream_path": "libs/cua/crates/cua-daemon/src/local.rs",
-      "git_blob": "e1ced0bac9994feb07b3e73bebc458cbdf57d702",
-      "sha256": "0b52583d836cb2169dfa5517410d2089ec061a0537d04a122ec87a688ce900c5",
-      "upstream_sha256": "0b52583d836cb2169dfa5517410d2089ec061a0537d04a122ec87a688ce900c5",
+      "git_blob": "e9f6083f6ba294098ed53152edf3b010ccf34256",
+      "sha256": "44614cbf262b224bf254f7843ab9c343a0ffbd3052699b9e5da6e8184463217d",
+      "upstream_sha256": "44614cbf262b224bf254f7843ab9c343a0ffbd3052699b9e5da6e8184463217d",
       "mode": "100644",
       "state": "copied"
     },
@@ -9216,9 +9306,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-daemon/src/server.rs",
       "upstream_path": "libs/cua/crates/cua-daemon/src/server.rs",
-      "git_blob": "e149f590581abb259c8bc621de9aadb80c2ed6b8",
-      "sha256": "b1717945ed0dfd6c45385bd9b072344388f011f4940a173c37479636bfdaf0a5",
-      "upstream_sha256": "b1717945ed0dfd6c45385bd9b072344388f011f4940a173c37479636bfdaf0a5",
+      "git_blob": "911f1ad224cca552854947be366826b723b03068",
+      "sha256": "cabe756ce57a8e8f89c919e38e6d282acf8c47a1b3aac65980fbf1797110ad9c",
+      "upstream_sha256": "cabe756ce57a8e8f89c919e38e6d282acf8c47a1b3aac65980fbf1797110ad9c",
       "mode": "100644",
       "state": "copied"
     },
@@ -9243,18 +9333,27 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-daemon/src/spaces_svc.rs",
       "upstream_path": "libs/cua/crates/cua-daemon/src/spaces_svc.rs",
-      "git_blob": "fc33b7b16ed135c2d1437b1c93863f8bbb00b2d6",
-      "sha256": "9b7e07980cc1d38bf1c1a169d2dc830be7528562f67ce9ac64fc6bb7481fa055",
-      "upstream_sha256": "9b7e07980cc1d38bf1c1a169d2dc830be7528562f67ce9ac64fc6bb7481fa055",
+      "git_blob": "dac0f7f9c1a268e1a3615375ee1591fbabb4995a",
+      "sha256": "a6eedb2475c5b427938df0767263017e84d11be97837a855a740ddff691a058c",
+      "upstream_sha256": "a6eedb2475c5b427938df0767263017e84d11be97837a855a740ddff691a058c",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-daemon/src/storage.rs",
       "upstream_path": "libs/cua/crates/cua-daemon/src/storage.rs",
-      "git_blob": "5472ce1511df73f6f6e3c7b53c4829fec496fce4",
-      "sha256": "cb8c1f6a30af86c341966820583705aea39a417721851660109ad740cfbabdc3",
-      "upstream_sha256": "cb8c1f6a30af86c341966820583705aea39a417721851660109ad740cfbabdc3",
+      "git_blob": "c1bd85b4451060b56abdea9412d41995ba4e3026",
+      "sha256": "ffe915422255f160021302fee33218e29ef681e5b44f15c5e403a979e5a7644d",
+      "upstream_sha256": "ffe915422255f160021302fee33218e29ef681e5b44f15c5e403a979e5a7644d",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-daemon/tests/direct_space_media_bridge.rs",
+      "upstream_path": "libs/cua/crates/cua-daemon/tests/direct_space_media_bridge.rs",
+      "git_blob": "7811b770a40b002f1a21090787675676b4055d8d",
+      "sha256": "95942cb1f4ee8c9580d6d7cd9926ac2c35f4cd60c3ff9b35846525e03fb17097",
+      "upstream_sha256": "95942cb1f4ee8c9580d6d7cd9926ac2c35f4cd60c3ff9b35846525e03fb17097",
       "mode": "100644",
       "state": "copied"
     },
@@ -9450,9 +9549,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-fleet/src/billing.rs",
       "upstream_path": "libs/cua/crates/cua-fleet/src/billing.rs",
-      "git_blob": "8f0378f2a60b10b375b907a0ac0383799f00782c",
-      "sha256": "5690fe24d2b2638aba54e67f6a49c8e746cdc0ed5a8db283f0c7ed459663c7e4",
-      "upstream_sha256": "5690fe24d2b2638aba54e67f6a49c8e746cdc0ed5a8db283f0c7ed459663c7e4",
+      "git_blob": "c9be7fae8f82a9a99b4737cc2cf9e3849a906465",
+      "sha256": "f9848f347f24de33f4b920f1bc60e053e5cca534bd4b118fc5b867c091c89aaa",
+      "upstream_sha256": "f9848f347f24de33f4b920f1bc60e053e5cca534bd4b118fc5b867c091c89aaa",
       "mode": "100644",
       "state": "copied"
     },
@@ -9477,9 +9576,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-fleet/src/config.rs",
       "upstream_path": "libs/cua/crates/cua-fleet/src/config.rs",
-      "git_blob": "4a57b526546784e998cdcf50eb1f5d5ef5ed9e05",
-      "sha256": "1d3c81c62080ff7f9fd5a2f1577ad7a15fd91712d7661c3c488d84f4a293f82b",
-      "upstream_sha256": "1d3c81c62080ff7f9fd5a2f1577ad7a15fd91712d7661c3c488d84f4a293f82b",
+      "git_blob": "a851acfc84a415f021ca0e4423ff0ce16f5aef75",
+      "sha256": "a5ccbac2f8bdbabde4d4b09f2c9e51206350d07f8cf7859656547404ea2f4a5b",
+      "upstream_sha256": "a5ccbac2f8bdbabde4d4b09f2c9e51206350d07f8cf7859656547404ea2f4a5b",
       "mode": "100644",
       "state": "copied"
     },
@@ -9720,27 +9819,36 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-home/src/env.rs",
       "upstream_path": "libs/cua/crates/cua-home/src/env.rs",
-      "git_blob": "fe9951c268983837a8131ea97ab2918d4d93cbeb",
-      "sha256": "cbc3273184f4cba3f3a46155f7373d2c7f5e3fc7e258e486e4303487be1ddfdc",
-      "upstream_sha256": "cbc3273184f4cba3f3a46155f7373d2c7f5e3fc7e258e486e4303487be1ddfdc",
+      "git_blob": "237a5363c9f9b71ee7d7622f7d0fe6e682a0a4c8",
+      "sha256": "5aae5921dd206d1b098c78bc27d72384e3288003abac26cfbd229c4b7cb030d1",
+      "upstream_sha256": "5aae5921dd206d1b098c78bc27d72384e3288003abac26cfbd229c4b7cb030d1",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-home/src/experimental.rs",
+      "upstream_path": "libs/cua/crates/cua-home/src/experimental.rs",
+      "git_blob": "81599492ebf4f2cf4eebf27ec7bedf070098ed20",
+      "sha256": "d83c8bb90994ec58f36bf541c9ee8a311bf25fe267ba876f8f5981da55a181c8",
+      "upstream_sha256": "d83c8bb90994ec58f36bf541c9ee8a311bf25fe267ba876f8f5981da55a181c8",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-home/src/lib.rs",
       "upstream_path": "libs/cua/crates/cua-home/src/lib.rs",
-      "git_blob": "88c07bc62c7219b50d2de12e24e27c4f539a22dd",
-      "sha256": "0ed0425338439f9a1b9cc451d36ba33403d0907209181abe04e89df29c76df85",
-      "upstream_sha256": "0ed0425338439f9a1b9cc451d36ba33403d0907209181abe04e89df29c76df85",
+      "git_blob": "1101d8f134b923e48dd103121d3f226f4a1e95cd",
+      "sha256": "14c72e2a5f95317abbe4b848977443901f6611f7d438fe8e6c1098a3c77d76cc",
+      "upstream_sha256": "14c72e2a5f95317abbe4b848977443901f6611f7d438fe8e6c1098a3c77d76cc",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-host/Cargo.toml",
       "upstream_path": "libs/cua/crates/cua-host/Cargo.toml",
-      "git_blob": "aded14acb25797843fa2c8331a0e908d3edf62c1",
-      "sha256": "6a5bd04e13ed114089303be27de4fd01240545b0af00a38adba516a8376e72be",
-      "upstream_sha256": "6a5bd04e13ed114089303be27de4fd01240545b0af00a38adba516a8376e72be",
+      "git_blob": "15ab548add9e33bea1196b974eacae32619fb477",
+      "sha256": "d45fa7adef2e7debdff5e3a462ddbed0dbcaa1c8ef5929418f68a9438d7d1104",
+      "upstream_sha256": "d45fa7adef2e7debdff5e3a462ddbed0dbcaa1c8ef5929418f68a9438d7d1104",
       "mode": "100644",
       "state": "copied"
     },
@@ -9792,18 +9900,18 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-host/src/host.rs",
       "upstream_path": "libs/cua/crates/cua-host/src/host.rs",
-      "git_blob": "f42cff33dbde31eb7a0b5b4bdd354271bc9f8590",
-      "sha256": "c2da1cddfd807fb1431bd1e186f4b8702ce971800ceec262f4f32bd422eb32bd",
-      "upstream_sha256": "c2da1cddfd807fb1431bd1e186f4b8702ce971800ceec262f4f32bd422eb32bd",
+      "git_blob": "71f1eb430f4231742d990ec59c9ca4534680b082",
+      "sha256": "38fb19405edb6262b057725d70d353252c187b6cef78b07601997bb4fe10a010",
+      "upstream_sha256": "38fb19405edb6262b057725d70d353252c187b6cef78b07601997bb4fe10a010",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-host/src/lib.rs",
       "upstream_path": "libs/cua/crates/cua-host/src/lib.rs",
-      "git_blob": "ba1560cce49804cd5e9d4e66a18a45417b14a8a0",
-      "sha256": "e5f3ae74a0a5f5f0d3cb0ab2c062cfa74192b03e472996fb6217bea4392b9e10",
-      "upstream_sha256": "e5f3ae74a0a5f5f0d3cb0ab2c062cfa74192b03e472996fb6217bea4392b9e10",
+      "git_blob": "4f40778075a68eece269a5804cb3af79aa75407d",
+      "sha256": "6cb6d05b627b412915bbd715b890b20487524047d9ff442aa4d680f60f1da04a",
+      "upstream_sha256": "6cb6d05b627b412915bbd715b890b20487524047d9ff442aa4d680f60f1da04a",
       "mode": "100644",
       "state": "copied"
     },
@@ -9819,9 +9927,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-host/src/pairing.rs",
       "upstream_path": "libs/cua/crates/cua-host/src/pairing.rs",
-      "git_blob": "a819fbb336d11c1bfb1e4c28ab1a651d1a765e29",
-      "sha256": "c5fc1e2941ccfc9aafbfc5b9d213da21f46f87705ae605d9d36952f4e5c42bb6",
-      "upstream_sha256": "c5fc1e2941ccfc9aafbfc5b9d213da21f46f87705ae605d9d36952f4e5c42bb6",
+      "git_blob": "eb6fca429b354484f46986cb87d4d04ed2e3d3ae",
+      "sha256": "d41ed319d7fe721432a06e847b7b1337b79eab0479aad2e1cf8bef3e6930b7a6",
+      "upstream_sha256": "d41ed319d7fe721432a06e847b7b1337b79eab0479aad2e1cf8bef3e6930b7a6",
       "mode": "100644",
       "state": "copied"
     },
@@ -9846,18 +9954,18 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-host/src/relay.rs",
       "upstream_path": "libs/cua/crates/cua-host/src/relay.rs",
-      "git_blob": "2117a7fea6e07520a89a226563d5f5385642bb31",
-      "sha256": "5036c359b6cae25b17b7485d214106a95339d3427a9bae4c6b0e71c6d07a8108",
-      "upstream_sha256": "5036c359b6cae25b17b7485d214106a95339d3427a9bae4c6b0e71c6d07a8108",
+      "git_blob": "20e4f4dc84075957fde14aab22473a0d135d7b05",
+      "sha256": "a62964440c8876ef9c50136ab246dfffa1cf6ac79e964d0d950c5aaf4b247c1c",
+      "upstream_sha256": "a62964440c8876ef9c50136ab246dfffa1cf6ac79e964d0d950c5aaf4b247c1c",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-host/src/service.rs",
       "upstream_path": "libs/cua/crates/cua-host/src/service.rs",
-      "git_blob": "c6057c0f582640ab9fbe75954f5aaac59dfcdd63",
-      "sha256": "d4119257a57104a9147b7b674050119eab2bed479f75a742b3b4294117dda407",
-      "upstream_sha256": "d4119257a57104a9147b7b674050119eab2bed479f75a742b3b4294117dda407",
+      "git_blob": "a2f83154b81a4b67f5c5c37d4febb72f9766b146",
+      "sha256": "ff0ebae4ba67a96c3c34e1e4c983f81f093b3f5f3d83647c1b8c0e7c4f2c79fb",
+      "upstream_sha256": "ff0ebae4ba67a96c3c34e1e4c983f81f093b3f5f3d83647c1b8c0e7c4f2c79fb",
       "mode": "100644",
       "state": "copied"
     },
@@ -9871,29 +9979,29 @@
       "state": "copied"
     },
     {
-      "path": "vendor/cua/upstream/libs/cua/crates/cua-host/src/team.rs",
-      "upstream_path": "libs/cua/crates/cua-host/src/team.rs",
-      "git_blob": "79d5415aecc0bc79a905190b05d5aa61944a79fb",
-      "sha256": "a4bc87898c24acdbae6f8ed515651a17f2c56c5b5d5dbf15d15e3d1ff023470a",
-      "upstream_sha256": "a4bc87898c24acdbae6f8ed515651a17f2c56c5b5d5dbf15d15e3d1ff023470a",
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-host/src/spaces_api.rs",
+      "upstream_path": "libs/cua/crates/cua-host/src/spaces_api.rs",
+      "git_blob": "4b480320289de42155d6d073b3ae3f1a2a77a2d4",
+      "sha256": "d14b9bdcbfbefda5ca0c5f6ce2431f767333369ea6bc7d99829a1c4745c6935c",
+      "upstream_sha256": "d14b9bdcbfbefda5ca0c5f6ce2431f767333369ea6bc7d99829a1c4745c6935c",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-host/src/testing.rs",
       "upstream_path": "libs/cua/crates/cua-host/src/testing.rs",
-      "git_blob": "b6c4229ef0a7e0a20971d96b7dbde5f465fb7120",
-      "sha256": "2f791e50819e4aab3feb3114fc2f2ebd84901b120b07d8b02b569bc220b9b27a",
-      "upstream_sha256": "2f791e50819e4aab3feb3114fc2f2ebd84901b120b07d8b02b569bc220b9b27a",
+      "git_blob": "d6e13703be1afcda9296a249494e33c57f5dd223",
+      "sha256": "d6e779aad5d85ed46aa03226c0c72870a4972c2c7e43f93b4432b997a9ceb293",
+      "upstream_sha256": "d6e779aad5d85ed46aa03226c0c72870a4972c2c7e43f93b4432b997a9ceb293",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-host/src/tests.rs",
       "upstream_path": "libs/cua/crates/cua-host/src/tests.rs",
-      "git_blob": "8161e7270d7c4d2982d3219d2f7c729c7f94b2f0",
-      "sha256": "5ca7bb69a1486dd0c31ab5081998df311e7af9ca03c9cddc97a7c91f30cf3a45",
-      "upstream_sha256": "5ca7bb69a1486dd0c31ab5081998df311e7af9ca03c9cddc97a7c91f30cf3a45",
+      "git_blob": "8a2f73d391ce8ad4d80e5ae3614aeebc9ab1f46c",
+      "sha256": "051c53515bd3d93c2c9bbf1ec251a5d58cc7c8f8173741ad815f27185463a49c",
+      "upstream_sha256": "051c53515bd3d93c2c9bbf1ec251a5d58cc7c8f8173741ad815f27185463a49c",
       "mode": "100644",
       "state": "copied"
     },
@@ -10062,9 +10170,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-image/src/containerdisk.rs",
       "upstream_path": "libs/cua/crates/cua-image/src/containerdisk.rs",
-      "git_blob": "f4983387180398db18d07a78a06566c7ef9966cd",
-      "sha256": "f28c088c566769ff73cdf91b253d1fa72476054472f6aad9967f51633e9acf38",
-      "upstream_sha256": "f28c088c566769ff73cdf91b253d1fa72476054472f6aad9967f51633e9acf38",
+      "git_blob": "0961f32bf021180436ba8514af0973432a43ef9b",
+      "sha256": "eaaa3f595a2562daeb78e4492283d7c02564318dad07e92a43125d68a0b50868",
+      "upstream_sha256": "eaaa3f595a2562daeb78e4492283d7c02564318dad07e92a43125d68a0b50868",
       "mode": "100644",
       "state": "copied"
     },
@@ -10278,9 +10386,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-image/tests/low_disk.rs",
       "upstream_path": "libs/cua/crates/cua-image/tests/low_disk.rs",
-      "git_blob": "0b6acc9ade68bd5f8ab3a9d07e8b29cc22c1ba7e",
-      "sha256": "7681057ba8acdb537da40937f88c4cd02a359f06aaaca528ea387150b59bf733",
-      "upstream_sha256": "7681057ba8acdb537da40937f88c4cd02a359f06aaaca528ea387150b59bf733",
+      "git_blob": "39ed65d57b5c7d5ae364599c0a733021d6d3efab",
+      "sha256": "97ff9d39d77c62c486b1e947316a7f9ec9f3a784ae9f3659f24f077dbe79f210",
+      "upstream_sha256": "97ff9d39d77c62c486b1e947316a7f9ec9f3a784ae9f3659f24f077dbe79f210",
       "mode": "100644",
       "state": "copied"
     },
@@ -10290,6 +10398,159 @@
       "git_blob": "1f6dd48973190fefd329969c467efa01fe4c2031",
       "sha256": "e380518dc2375c85e46c629e640aade72681de6881b4f22bd4314793480b6a66",
       "upstream_sha256": "e380518dc2375c85e46c629e640aade72681de6881b4f22bd4314793480b6a66",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-mesh/Cargo.toml",
+      "upstream_path": "libs/cua/crates/cua-mesh/Cargo.toml",
+      "git_blob": "c3423b941164953c09fb43315fe23faa8bbd34d5",
+      "sha256": "f68a1dc928b95d001289e51d5f15c02a6d4a3439c4905433d36459fd4dcb4dea",
+      "upstream_sha256": "f68a1dc928b95d001289e51d5f15c02a6d4a3439c4905433d36459fd4dcb4dea",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-mesh/examples/mesh-bench.rs",
+      "upstream_path": "libs/cua/crates/cua-mesh/examples/mesh-bench.rs",
+      "git_blob": "a229a474677ee028dfd218151526bd064bcc15cd",
+      "sha256": "15ca15c222b3e59c38e29dbbd4de2eb32486980160524b27ce54c4e65d7de77d",
+      "upstream_sha256": "15ca15c222b3e59c38e29dbbd4de2eb32486980160524b27ce54c4e65d7de77d",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-mesh/src/coord.rs",
+      "upstream_path": "libs/cua/crates/cua-mesh/src/coord.rs",
+      "git_blob": "6d2b3eadfe5a60930e5fc38465b6cf41b2e9a78f",
+      "sha256": "9b0325fbdee00612666caf669312ec99b301b00aab54f5ecd8344c684c2b638b",
+      "upstream_sha256": "9b0325fbdee00612666caf669312ec99b301b00aab54f5ecd8344c684c2b638b",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-mesh/src/dialer.rs",
+      "upstream_path": "libs/cua/crates/cua-mesh/src/dialer.rs",
+      "git_blob": "8e5508c37d2e6d87b40f64dac2da8c650e350eb2",
+      "sha256": "111ccfe38e84fe4003eba0ad97488898ff968c90f92c5979cafac57d0d117bf9",
+      "upstream_sha256": "111ccfe38e84fe4003eba0ad97488898ff968c90f92c5979cafac57d0d117bf9",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-mesh/src/disco.rs",
+      "upstream_path": "libs/cua/crates/cua-mesh/src/disco.rs",
+      "git_blob": "1df4221319ae85452dee43a9aae65cc175968d47",
+      "sha256": "ea1ee8fb09777125d582de0248c4453aa5b689d0306eb463155cb76d41b887f3",
+      "upstream_sha256": "ea1ee8fb09777125d582de0248c4453aa5b689d0306eb463155cb76d41b887f3",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-mesh/src/engine.rs",
+      "upstream_path": "libs/cua/crates/cua-mesh/src/engine.rs",
+      "git_blob": "9b0e21d3e2375aaf959db0d2692b234abd8deb0e",
+      "sha256": "da447ad1ec6f2f01ad0fa49386549320e130251bd30ac45e9fa28e6817af2c3f",
+      "upstream_sha256": "da447ad1ec6f2f01ad0fa49386549320e130251bd30ac45e9fa28e6817af2c3f",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-mesh/src/key.rs",
+      "upstream_path": "libs/cua/crates/cua-mesh/src/key.rs",
+      "git_blob": "ad009a878ee057c8809fffa4b93a62805db1de4e",
+      "sha256": "5d765d8ce69de324542583b327389f65d4656558fd538ce78198c2535f4ff212",
+      "upstream_sha256": "5d765d8ce69de324542583b327389f65d4656558fd538ce78198c2535f4ff212",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-mesh/src/lib.rs",
+      "upstream_path": "libs/cua/crates/cua-mesh/src/lib.rs",
+      "git_blob": "1b0354a303e3ad6be221484e89a5c45737cda8ea",
+      "sha256": "8b817e43c7ce7a57152de47a299b0a47f52bccc7f3c12aa18a1e32dffda11766",
+      "upstream_sha256": "8b817e43c7ce7a57152de47a299b0a47f52bccc7f3c12aa18a1e32dffda11766",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-mesh/src/node.rs",
+      "upstream_path": "libs/cua/crates/cua-mesh/src/node.rs",
+      "git_blob": "c4acb8cf1adb81950a877c3057badf1e6f03138e",
+      "sha256": "8d05906b7879716db3d0257ee7be3597505c96980343b85e3a52d343863d346b",
+      "upstream_sha256": "8d05906b7879716db3d0257ee7be3597505c96980343b85e3a52d343863d346b",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-mesh/src/packet.rs",
+      "upstream_path": "libs/cua/crates/cua-mesh/src/packet.rs",
+      "git_blob": "79e028072eb56efdec9ccaf2aca22224ad9c4b10",
+      "sha256": "6b6455d48974b236605eb3b4deccc21a41a7b258bc340f54859e3e96c8adee5b",
+      "upstream_sha256": "6b6455d48974b236605eb3b4deccc21a41a7b258bc340f54859e3e96c8adee5b",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-mesh/src/policy.rs",
+      "upstream_path": "libs/cua/crates/cua-mesh/src/policy.rs",
+      "git_blob": "2fbbee79424dc4f8c9a0d6af1038bccbfafd0181",
+      "sha256": "72b1570030666bda6e37794653e787433eb0d2ac17a9039b2880ff7c0c841121",
+      "upstream_sha256": "72b1570030666bda6e37794653e787433eb0d2ac17a9039b2880ff7c0c841121",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-mesh/src/proto.rs",
+      "upstream_path": "libs/cua/crates/cua-mesh/src/proto.rs",
+      "git_blob": "7edf4b5128dd7c6417ee7aadcca34aa974dbcd3f",
+      "sha256": "06c31d4399e9df01ae9f6ebdd644039398c070abc346a02af7d75b92f9f111e3",
+      "upstream_sha256": "06c31d4399e9df01ae9f6ebdd644039398c070abc346a02af7d75b92f9f111e3",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-mesh/src/quic.rs",
+      "upstream_path": "libs/cua/crates/cua-mesh/src/quic.rs",
+      "git_blob": "37ff1c44345a4554268e333aa64fa4ed952f17af",
+      "sha256": "03cc0a4877aab400c56afb55d594ba366ff7b747b287cb11b58dd942938f6122",
+      "upstream_sha256": "03cc0a4877aab400c56afb55d594ba366ff7b747b287cb11b58dd942938f6122",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-mesh/src/stun.rs",
+      "upstream_path": "libs/cua/crates/cua-mesh/src/stun.rs",
+      "git_blob": "7a507078f7cf54743cf7347cd01eaefb4ca516ad",
+      "sha256": "710e4812fbd1a1500665e7c08582d748f0f417dad2860b4d94c416f7b1e416c0",
+      "upstream_sha256": "710e4812fbd1a1500665e7c08582d748f0f417dad2860b4d94c416f7b1e416c0",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-mesh/src/testing.rs",
+      "upstream_path": "libs/cua/crates/cua-mesh/src/testing.rs",
+      "git_blob": "9a9678cfc8a2c05f314e5d60e04116795a512250",
+      "sha256": "ced4fe3d57df258c3339789073b448fe863453bfba24dad24a3becad686a243b",
+      "upstream_sha256": "ced4fe3d57df258c3339789073b448fe863453bfba24dad24a3becad686a243b",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-mesh/src/vnet.rs",
+      "upstream_path": "libs/cua/crates/cua-mesh/src/vnet.rs",
+      "git_blob": "d83a006acdb05949ba80a574681e3eab6bd2b9f4",
+      "sha256": "1263ba9f54f2ca4696836c931348eb65804e1f6270f321c5882e4298ca0944f4",
+      "upstream_sha256": "1263ba9f54f2ca4696836c931348eb65804e1f6270f321c5882e4298ca0944f4",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-mesh/tests/mesh.rs",
+      "upstream_path": "libs/cua/crates/cua-mesh/tests/mesh.rs",
+      "git_blob": "9280f20633e7c3e9934ed478b7977f99d428dbbf",
+      "sha256": "c29cf3c6e62c9bdbf4fd6199653c1f8f2392562b912b2b5dda736d215ba8c694",
+      "upstream_sha256": "c29cf3c6e62c9bdbf4fd6199653c1f8f2392562b912b2b5dda736d215ba8c694",
       "mode": "100644",
       "state": "copied"
     },
@@ -10755,9 +11016,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-sdk/src/native/host.rs",
       "upstream_path": "libs/cua/crates/cua-sdk/src/native/host.rs",
-      "git_blob": "a418ddb218bf505a4c3f9bdaf20bd7fc239fb6ca",
-      "sha256": "2e5d42a89a02852b1a19a578a411bbeb60ea34e242d04452f9221c89af53752b",
-      "upstream_sha256": "2e5d42a89a02852b1a19a578a411bbeb60ea34e242d04452f9221c89af53752b",
+      "git_blob": "fb8849a8dcfac3fa869ccd341690f103a7990000",
+      "sha256": "6f4cdae56422fedf61ad07ee98418afb9c231a1b94a077b60b8a739340f0fb5f",
+      "upstream_sha256": "6f4cdae56422fedf61ad07ee98418afb9c231a1b94a077b60b8a739340f0fb5f",
       "mode": "100644",
       "state": "copied"
     },
@@ -10773,9 +11034,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-sdk/src/native/local.rs",
       "upstream_path": "libs/cua/crates/cua-sdk/src/native/local.rs",
-      "git_blob": "03e93ba8ba005b65eee1d333b2580252ebca42f3",
-      "sha256": "320a41a0effe84368197ac10cdaa6b3c3aee7777e3855bf74757f017de1b6ecf",
-      "upstream_sha256": "320a41a0effe84368197ac10cdaa6b3c3aee7777e3855bf74757f017de1b6ecf",
+      "git_blob": "edf169f932f3b03ae968e7f5a6e827ad0187fd46",
+      "sha256": "406625a4d9f26d68bcdc2ba49178a355d806c7325c59846228d12a9f2c78a251",
+      "upstream_sha256": "406625a4d9f26d68bcdc2ba49178a355d806c7325c59846228d12a9f2c78a251",
       "mode": "100644",
       "state": "copied"
     },
@@ -10827,18 +11088,18 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-sdk/src/native/sandbox.rs",
       "upstream_path": "libs/cua/crates/cua-sdk/src/native/sandbox.rs",
-      "git_blob": "be9ded0b55395657c8780c0ec19fd47417aca0ca",
-      "sha256": "a7887ce7b986b3e3e6b3cdfda67bb0f9e9680cf441e99e27acb12b61e0b73ff9",
-      "upstream_sha256": "a7887ce7b986b3e3e6b3cdfda67bb0f9e9680cf441e99e27acb12b61e0b73ff9",
+      "git_blob": "68580b8c092458fe84345c7ace7c59a5f83f9048",
+      "sha256": "fc88f7fafbb71f117ebd17bed29450219229533f9eb49ca126bd8a4310ad0746",
+      "upstream_sha256": "fc88f7fafbb71f117ebd17bed29450219229533f9eb49ca126bd8a4310ad0746",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-sdk/src/native/spaces.rs",
       "upstream_path": "libs/cua/crates/cua-sdk/src/native/spaces.rs",
-      "git_blob": "171114f983253e1c5ea66771d07ecf11886f1ba3",
-      "sha256": "c5c5db9ceff1d70eee10677c06416749307a1a410f411ffc97c5b8743ddbb1b8",
-      "upstream_sha256": "c5c5db9ceff1d70eee10677c06416749307a1a410f411ffc97c5b8743ddbb1b8",
+      "git_blob": "d93952a6c22641d5898a87ce4cadf55becba4a80",
+      "sha256": "63975811944041337555fbd7178cdd0678793554e6e042536c33c5bb2c3cfe95",
+      "upstream_sha256": "63975811944041337555fbd7178cdd0678793554e6e042536c33c5bb2c3cfe95",
       "mode": "100644",
       "state": "copied"
     },
@@ -10908,9 +11169,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-sdk/tests/create_progress.rs",
       "upstream_path": "libs/cua/crates/cua-sdk/tests/create_progress.rs",
-      "git_blob": "de8232b3d6caa8a4314f93b6b49b778b44aede6d",
-      "sha256": "c5f427d4c3073d5a5d687d5a3f379b916e787e7fd3f02a6dd6955b522b590d80",
-      "upstream_sha256": "c5f427d4c3073d5a5d687d5a3f379b916e787e7fd3f02a6dd6955b522b590d80",
+      "git_blob": "5d54018e538b4de0944168dcb798843111033ce5",
+      "sha256": "df0297973cd3a2f5633456b3507441ef0d5fefd5028af28b4308793a85dcd7a5",
+      "upstream_sha256": "df0297973cd3a2f5633456b3507441ef0d5fefd5028af28b4308793a85dcd7a5",
       "mode": "100644",
       "state": "copied"
     },
@@ -11133,9 +11394,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-spaces/Cargo.toml",
       "upstream_path": "libs/cua/crates/cua-spaces/Cargo.toml",
-      "git_blob": "11ad4981ce3c5b733bd8f9e024b067829c95545a",
-      "sha256": "a464979f825e920c9faeafe8b4a11e1c43adce98ccc3ebaa05c2c9e4bc741667",
-      "upstream_sha256": "a464979f825e920c9faeafe8b4a11e1c43adce98ccc3ebaa05c2c9e4bc741667",
+      "git_blob": "160df5fd67f7b03ba09f6df367d56edc33af6957",
+      "sha256": "d9cd81e63646239ac06389af130f16e1bb4a6372f404b89bf7b4029de2c15eb0",
+      "upstream_sha256": "d9cd81e63646239ac06389af130f16e1bb4a6372f404b89bf7b4029de2c15eb0",
       "mode": "100644",
       "state": "copied"
     },
@@ -11385,9 +11646,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-spaces/src/host_spaces.rs",
       "upstream_path": "libs/cua/crates/cua-spaces/src/host_spaces.rs",
-      "git_blob": "9ebb9ee42d526c495ad0dfb0ccda7c8643181ff8",
-      "sha256": "7d52da595e2822b3977defdc7c5aea1c5c2c9dbb1abc89a46ef09e7af1937389",
-      "upstream_sha256": "7d52da595e2822b3977defdc7c5aea1c5c2c9dbb1abc89a46ef09e7af1937389",
+      "git_blob": "8c969fbf550e58978e04f32a97bf522d64ef55a6",
+      "sha256": "223d3d8285780a4b8e77c6d267d70d8708bac30937de8596df1e61a0b1780be6",
+      "upstream_sha256": "223d3d8285780a4b8e77c6d267d70d8708bac30937de8596df1e61a0b1780be6",
       "mode": "100644",
       "state": "copied"
     },
@@ -11421,9 +11682,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-spaces/src/lib.rs",
       "upstream_path": "libs/cua/crates/cua-spaces/src/lib.rs",
-      "git_blob": "6af853b2bda211b80ae06baf1653768bdd600e5f",
-      "sha256": "eb1d696fc4b26346c28ebe1e1d8330e4c212f2bc0748b6f4b6a01d53ca666df7",
-      "upstream_sha256": "eb1d696fc4b26346c28ebe1e1d8330e4c212f2bc0748b6f4b6a01d53ca666df7",
+      "git_blob": "be1bc1c68a01a8d4aeb6c616f10f9a24f429e4ce",
+      "sha256": "9961177716bfd78b95cf01e2c3c4ec4df7fe4f9daf3c2350fc692762f520a59c",
+      "upstream_sha256": "9961177716bfd78b95cf01e2c3c4ec4df7fe4f9daf3c2350fc692762f520a59c",
       "mode": "100644",
       "state": "copied"
     },
@@ -11439,9 +11700,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-spaces/src/mcp/mod.rs",
       "upstream_path": "libs/cua/crates/cua-spaces/src/mcp/mod.rs",
-      "git_blob": "9d7e5b89eb4b0532487374a3dfa9fe42bcabcfde",
-      "sha256": "15a062e61e0cdbd0e5ef9e6ab7d23e3025e6a08c1e8ec94aa0dba4ac7a51c844",
-      "upstream_sha256": "15a062e61e0cdbd0e5ef9e6ab7d23e3025e6a08c1e8ec94aa0dba4ac7a51c844",
+      "git_blob": "bf8957406c5151e4ab304799d9a33e0566a9e17c",
+      "sha256": "ac77d3915483d3bc1b578989d94831359c8e4dde875fc556a86a60c421d83589",
+      "upstream_sha256": "ac77d3915483d3bc1b578989d94831359c8e4dde875fc556a86a60c421d83589",
       "mode": "100644",
       "state": "copied"
     },
@@ -11457,9 +11718,18 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-spaces/src/mcp/tools.rs",
       "upstream_path": "libs/cua/crates/cua-spaces/src/mcp/tools.rs",
-      "git_blob": "3d03890d5735271ad1dff8423d84afa9868e9f3f",
-      "sha256": "74ae97b49a441a23be8ca9b06bf950240e435b02f77e8264770ea0eb942c588e",
-      "upstream_sha256": "74ae97b49a441a23be8ca9b06bf950240e435b02f77e8264770ea0eb942c588e",
+      "git_blob": "0ffa1cc0f307990c0627b8cc62221c7dcd93104b",
+      "sha256": "b3075026eeb50a46e951a2d66c86c397f4f6ee5413bc6a59c316139ac1edd7a7",
+      "upstream_sha256": "b3075026eeb50a46e951a2d66c86c397f4f6ee5413bc6a59c316139ac1edd7a7",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-spaces/src/mesh.rs",
+      "upstream_path": "libs/cua/crates/cua-spaces/src/mesh.rs",
+      "git_blob": "455f8340f75d89dcf680b8c76d9438a39a9a8b6e",
+      "sha256": "eaffff49b5cee1855c4d1578f9729951754a6bbc34c35c820a08515c740704e4",
+      "upstream_sha256": "eaffff49b5cee1855c4d1578f9729951754a6bbc34c35c820a08515c740704e4",
       "mode": "100644",
       "state": "copied"
     },
@@ -11520,9 +11790,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-spaces/src/relay.rs",
       "upstream_path": "libs/cua/crates/cua-spaces/src/relay.rs",
-      "git_blob": "1a2b987ca390aca1b1d09d67fb2fd51ff55ff469",
-      "sha256": "ecf6d1242da6a3f58af6830daa2b209a3eb2a5735ac5ad195307a87c98e006aa",
-      "upstream_sha256": "ecf6d1242da6a3f58af6830daa2b209a3eb2a5735ac5ad195307a87c98e006aa",
+      "git_blob": "f0d2c3a1eee8a16e24a35d1197e3c07a8329ac1e",
+      "sha256": "60a08b88cdd1a47ff6b919fe15a99eefef85766c96bd9df931ac46f73f329dd8",
+      "upstream_sha256": "60a08b88cdd1a47ff6b919fe15a99eefef85766c96bd9df931ac46f73f329dd8",
       "mode": "100644",
       "state": "copied"
     },
@@ -11547,9 +11817,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-spaces/src/share.rs",
       "upstream_path": "libs/cua/crates/cua-spaces/src/share.rs",
-      "git_blob": "9fba12276da64d01f2e7a50345b5b19a0955a59e",
-      "sha256": "d599110dc0650789f7f2ba1ffc99b01480ce943d0fb3e5506e6afe4444ec6897",
-      "upstream_sha256": "d599110dc0650789f7f2ba1ffc99b01480ce943d0fb3e5506e6afe4444ec6897",
+      "git_blob": "dcb8b8e8db6975f0a3ac5437a14477e51d1a773d",
+      "sha256": "bbef5002668f6667c59dd4bc6479e18e0216bf51d2b60db3f2db22031350463f",
+      "upstream_sha256": "bbef5002668f6667c59dd4bc6479e18e0216bf51d2b60db3f2db22031350463f",
       "mode": "100644",
       "state": "copied"
     },
@@ -11574,9 +11844,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-spaces/src/spaces.rs",
       "upstream_path": "libs/cua/crates/cua-spaces/src/spaces.rs",
-      "git_blob": "3da0f7fb49c9f4b0cb8dcf5313324ab12fe8cd7a",
-      "sha256": "f759d4fce87266c24a37e85c3ca92e79c67a7633209219c3cee56be9e5e74020",
-      "upstream_sha256": "f759d4fce87266c24a37e85c3ca92e79c67a7633209219c3cee56be9e5e74020",
+      "git_blob": "38db6264e8ee5b1af81943191a777d8126bf9734",
+      "sha256": "72f9311e085db2d6235c2280f9c47edc6dc274027c37a2085d6c9622fe99a692",
+      "upstream_sha256": "72f9311e085db2d6235c2280f9c47edc6dc274027c37a2085d6c9622fe99a692",
       "mode": "100644",
       "state": "copied"
     },
@@ -11718,9 +11988,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-spaces/tests/host_spaces.rs",
       "upstream_path": "libs/cua/crates/cua-spaces/tests/host_spaces.rs",
-      "git_blob": "09a53ac0c2abde8f8aa771b7566d036e8ba82bd6",
-      "sha256": "fe2824b519e2649a3027323a982a071074dcaa1c3bfeba7e477e900f26bb9ed0",
-      "upstream_sha256": "fe2824b519e2649a3027323a982a071074dcaa1c3bfeba7e477e900f26bb9ed0",
+      "git_blob": "7e6ef8864a6181f3b11153d6746ba0925b93883c",
+      "sha256": "73fd33592b24d825d9361e522d74ca3103feeb2336271504fc84fb585905cbb7",
+      "upstream_sha256": "73fd33592b24d825d9361e522d74ca3103feeb2336271504fc84fb585905cbb7",
       "mode": "100644",
       "state": "copied"
     },
@@ -11754,9 +12024,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-spaces/tests/share.rs",
       "upstream_path": "libs/cua/crates/cua-spaces/tests/share.rs",
-      "git_blob": "43d2de73ab764db9a3e86609e41a1afe915bae6e",
-      "sha256": "060f46bfca823dbbb6f8a87fd8193e4b871815ee23dc7abcdfa118623c3a2c03",
-      "upstream_sha256": "060f46bfca823dbbb6f8a87fd8193e4b871815ee23dc7abcdfa118623c3a2c03",
+      "git_blob": "281931820952e5ae272dcba5c117ccd55eaa7d47",
+      "sha256": "09ed3f86042c48de2cc77a8218aa9546de64cf2a016054bac30074b0d5d27371",
+      "upstream_sha256": "09ed3f86042c48de2cc77a8218aa9546de64cf2a016054bac30074b0d5d27371",
       "mode": "100644",
       "state": "copied"
     },
@@ -11790,9 +12060,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-spacesd-client/src/client.rs",
       "upstream_path": "libs/cua/crates/cua-spacesd-client/src/client.rs",
-      "git_blob": "483b2033fcca31f04c05fe3157a939ee42bc7ab1",
-      "sha256": "3eff861609c3555d57c8b16aaf4573b27dea54564972c9e59796b37c46bfb11a",
-      "upstream_sha256": "3eff861609c3555d57c8b16aaf4573b27dea54564972c9e59796b37c46bfb11a",
+      "git_blob": "2e66d3c022dbd49b43aea0d36640157d8f3e8a8b",
+      "sha256": "c79f8ea764e070d59da05af537ebabef71fb0fed34a69e1bd8645a3998c8a79d",
+      "upstream_sha256": "c79f8ea764e070d59da05af537ebabef71fb0fed34a69e1bd8645a3998c8a79d",
       "mode": "100644",
       "state": "copied"
     },
@@ -11880,9 +12150,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-spacesd-client/src/lib.rs",
       "upstream_path": "libs/cua/crates/cua-spacesd-client/src/lib.rs",
-      "git_blob": "39c825044542d6d08e352ad0148c726280e34d18",
-      "sha256": "5cf9f69546a916702cf7cd5a3fc7d3e6cf3fbe2b2d239ff22db4d0e59d272410",
-      "upstream_sha256": "5cf9f69546a916702cf7cd5a3fc7d3e6cf3fbe2b2d239ff22db4d0e59d272410",
+      "git_blob": "a07c2e9e565a1acf0e1b38e053881837772ba154",
+      "sha256": "ecb231b98b07be271e69f49c96a766e9d9abe8fdd09667fb18a2ddd60a29c01a",
+      "upstream_sha256": "ecb231b98b07be271e69f49c96a766e9d9abe8fdd09667fb18a2ddd60a29c01a",
       "mode": "100644",
       "state": "copied"
     },
@@ -11925,9 +12195,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-spacesd-client/src/transport.rs",
       "upstream_path": "libs/cua/crates/cua-spacesd-client/src/transport.rs",
-      "git_blob": "1992e41e5e2c261c9456cdef3d575b1ff1f3f3b4",
-      "sha256": "454229fe548fef00324e0d1356ee0fce5420871b891a133ca58a254452378d95",
-      "upstream_sha256": "454229fe548fef00324e0d1356ee0fce5420871b891a133ca58a254452378d95",
+      "git_blob": "7af8f15620c8bfcc6429255b14db155aa4edef4d",
+      "sha256": "d381a9477d0c4b16800c6b24d633d7e8a651c621efef996a265df810e20d0985",
+      "upstream_sha256": "d381a9477d0c4b16800c6b24d633d7e8a651c621efef996a265df810e20d0985",
       "mode": "100644",
       "state": "copied"
     },
@@ -12132,9 +12402,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-teleport/src/ux/targets.json",
       "upstream_path": "libs/cua/crates/cua-teleport/src/ux/targets.json",
-      "git_blob": "7c01a82c9d87616ed07a7097012bd786d3d8662c",
-      "sha256": "dde512e05b8b363b79dd553702dde37bec17c17786be7f2af93fda0271433fb2",
-      "upstream_sha256": "dde512e05b8b363b79dd553702dde37bec17c17786be7f2af93fda0271433fb2",
+      "git_blob": "ab468b6c948606a43c2e80f90ee49901ee66fc9f",
+      "sha256": "2827d790e4de4d9c2feeacd87a2bdb97e596e62958b0f4d1f6206ca79629d31c",
+      "upstream_sha256": "2827d790e4de4d9c2feeacd87a2bdb97e596e62958b0f4d1f6206ca79629d31c",
       "mode": "100644",
       "state": "copied"
     },
@@ -12177,9 +12447,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-vmm/src/container/engine.rs",
       "upstream_path": "libs/cua/crates/cua-vmm/src/container/engine.rs",
-      "git_blob": "6b143ef7afd510af07b6e2523889b0e637cd90c2",
-      "sha256": "9718e2f371068edd8b1211e26c6796d6a98b100e71c129ee23c51d1db7844212",
-      "upstream_sha256": "9718e2f371068edd8b1211e26c6796d6a98b100e71c129ee23c51d1db7844212",
+      "git_blob": "c604b9bd136dfca22ed37173576ca0c7790d0349",
+      "sha256": "b28fb03bfc006368d6af29fe6841ebff321992e8be82659de025922cf9b493c5",
+      "upstream_sha256": "b28fb03bfc006368d6af29fe6841ebff321992e8be82659de025922cf9b493c5",
       "mode": "100644",
       "state": "copied"
     },
@@ -12204,9 +12474,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-vmm/src/container/mod.rs",
       "upstream_path": "libs/cua/crates/cua-vmm/src/container/mod.rs",
-      "git_blob": "45e51a3b5313c17495ba2ea54296072e67018030",
-      "sha256": "e4cffcbd211211dccf48a90446b2f2af913f0a1aa4ba50c4833660839f77f7a4",
-      "upstream_sha256": "7abb112a603e30267795ffafa402d201d7fa512dc461a9367f9680b371d3763f",
+      "git_blob": "b93b8aa7ebecdf29d78dd46fcfc30afffa9f1c8e",
+      "sha256": "99954347daf3b3372053f3a4b1166c5289463ed9bceabed991b27189761f7095",
+      "upstream_sha256": "4f4c51ae15217fdde2161214fe9d12369583687e57ebf45fd3035154b8e1443d",
       "mode": "100644",
       "state": "modified"
     },
@@ -12222,9 +12492,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-vmm/src/error.rs",
       "upstream_path": "libs/cua/crates/cua-vmm/src/error.rs",
-      "git_blob": "11dc664428f9f48763858f4fd189cccb74be0973",
-      "sha256": "4bde9847e63d6ef9081a14c483a80a4df7eff96e7881113f0b670b159a44abd3",
-      "upstream_sha256": "4bde9847e63d6ef9081a14c483a80a4df7eff96e7881113f0b670b159a44abd3",
+      "git_blob": "c606102a5201b0c49261a4f6c9c6eb15215cc19c",
+      "sha256": "314e1e79132477b871b7b7de963fd0f83ed08fb3fcb68577d4640543f50e1404",
+      "upstream_sha256": "314e1e79132477b871b7b7de963fd0f83ed08fb3fcb68577d4640543f50e1404",
       "mode": "100644",
       "state": "copied"
     },
@@ -12276,9 +12546,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-vmm/src/lume/client.rs",
       "upstream_path": "libs/cua/crates/cua-vmm/src/lume/client.rs",
-      "git_blob": "e55ec935423516eb9a51f197397bfdfffe8c7fdd",
-      "sha256": "06d86d68c7b8390d05aab1ba92a1fddb5ecaedc6daf40155d3fef1398377e9ba",
-      "upstream_sha256": "06d86d68c7b8390d05aab1ba92a1fddb5ecaedc6daf40155d3fef1398377e9ba",
+      "git_blob": "bd268df462cb93261957d1d7e1853e33ff13fe45",
+      "sha256": "1a9a703ffb5baf1e5740dd58558c661975928988685cc14b5ce093a1efbff424",
+      "upstream_sha256": "1a9a703ffb5baf1e5740dd58558c661975928988685cc14b5ce093a1efbff424",
       "mode": "100644",
       "state": "copied"
     },
@@ -12303,9 +12573,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-vmm/src/lume/mod.rs",
       "upstream_path": "libs/cua/crates/cua-vmm/src/lume/mod.rs",
-      "git_blob": "a00c59fdb1e683fa92e9451bdb3d5879eaad484e",
-      "sha256": "bfbab827e8cb74f66d6714dfb416adb8fff37dc6a0feefda5b914c9497dedb3d",
-      "upstream_sha256": "a1ac525295b82f4e8995fc1d20404dd165d0cda2487ca548d1c989179f158267",
+      "git_blob": "ac077b8147e78a347596ecf8ae5cb33d141c226b",
+      "sha256": "34f07579bb2259f16401a573dde09b853279729be61f08d7fade1b270e8779d5",
+      "upstream_sha256": "cfd180b03f73dffe4d2eaf19111fe0a47176e6e45bb9f7974c379e27ae0758ae",
       "mode": "100644",
       "state": "modified"
     },
@@ -12330,9 +12600,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-vmm/src/managed.rs",
       "upstream_path": "libs/cua/crates/cua-vmm/src/managed.rs",
-      "git_blob": "7e81239e79c4dbc779255ee5803d9f4926bd28ec",
-      "sha256": "cc7cfd9c9b4070c1ee3007ebf443ac6816abe2be28c10efb3bf290931908e4f1",
-      "upstream_sha256": "cc7cfd9c9b4070c1ee3007ebf443ac6816abe2be28c10efb3bf290931908e4f1",
+      "git_blob": "16bb76da4132000d64dd971b1ae38b793bf8dc3e",
+      "sha256": "eb6d85ab8661096a6e9dc0eb7835649f0299d585daa358526707a45c625bff22",
+      "upstream_sha256": "eb6d85ab8661096a6e9dc0eb7835649f0299d585daa358526707a45c625bff22",
       "mode": "100644",
       "state": "copied"
     },
@@ -12393,9 +12663,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-vmm/src/qemu/mod.rs",
       "upstream_path": "libs/cua/crates/cua-vmm/src/qemu/mod.rs",
-      "git_blob": "9e8e96ed6c57b59aca9eaec897667947d33018b5",
-      "sha256": "9fff8709caec82aabb3346113352b4d6ee045e8b688d5fd2f548ed3c01826526",
-      "upstream_sha256": "92e22294d72b7688b55a8e612d04286e725012ed09a65026ad96e5946826c42d",
+      "git_blob": "785007626ff1379f03216a37bd72f2bfbb0eb3ce",
+      "sha256": "84dd891ee5f8afb7dd24154c4abfb7507484dad2a5f01d333bf311d62f653eeb",
+      "upstream_sha256": "d3406fdcb771b38095f45b42a56204617770c56ca8f86d88dcfbddca232d2dc7",
       "mode": "100644",
       "state": "modified"
     },
@@ -12472,6 +12742,15 @@
       "state": "copied"
     },
     {
+      "path": "vendor/cua/upstream/libs/cua/crates/cua-vmm/tests/lume_pull_fail.rs",
+      "upstream_path": "libs/cua/crates/cua-vmm/tests/lume_pull_fail.rs",
+      "git_blob": "6c7489e7982fae82a1ea487a1578ca527a064a00",
+      "sha256": "0fd862ce8f098a96685661b967319627574c0641b809a9014e17b04a347793f4",
+      "upstream_sha256": "0fd862ce8f098a96685661b967319627574c0641b809a9014e17b04a347793f4",
+      "mode": "100644",
+      "state": "copied"
+    },
+    {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-vmm/tests/lume_resume.rs",
       "upstream_path": "libs/cua/crates/cua-vmm/tests/lume_resume.rs",
       "git_blob": "773319d4558d60a0873cfb24bcd34c8a122cfa2a",
@@ -12501,18 +12780,18 @@
     {
       "path": "vendor/cua/upstream/libs/cua/crates/cua-vmm/tests/support/fake_lume.rs",
       "upstream_path": "libs/cua/crates/cua-vmm/tests/support/fake_lume.rs",
-      "git_blob": "68f03b0dfa2896719442b8c91e2a5e00d6c4f5cd",
-      "sha256": "71cebb25b15062a1965f4565d2b030a8a89938b19a3c214d2a2632525194e570",
-      "upstream_sha256": "71cebb25b15062a1965f4565d2b030a8a89938b19a3c214d2a2632525194e570",
+      "git_blob": "d5604f47dab4ba9bd82165033b40426111466c81",
+      "sha256": "af1de21aefb83f854958351439fab06c156d97af361d77964c4877c81113e277",
+      "upstream_sha256": "af1de21aefb83f854958351439fab06c156d97af361d77964c4877c81113e277",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua/kotlin/src/main/kotlin/ai/cua/sdk/cua_sdk.kt",
       "upstream_path": "libs/cua/kotlin/src/main/kotlin/ai/cua/sdk/cua_sdk.kt",
-      "git_blob": "b3b6f02007e48f195b44325b2a35926b822ace9c",
-      "sha256": "054204c98c2219e46dabb9741fb1cc851616a33010c442747db17fcade37e6ff",
-      "upstream_sha256": "054204c98c2219e46dabb9741fb1cc851616a33010c442747db17fcade37e6ff",
+      "git_blob": "b2db44139ab27b45df094a1ac7e68fa113c6a013",
+      "sha256": "4e5ec82f8c407f7df422cf9cee97006bafeb9400d3e1f706950a9b2ed1dea20a",
+      "upstream_sha256": "4e5ec82f8c407f7df422cf9cee97006bafeb9400d3e1f706950a9b2ed1dea20a",
       "mode": "100644",
       "state": "copied"
     },
@@ -12564,9 +12843,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/proto/cua/daemon/v1/sandboxes.proto",
       "upstream_path": "libs/cua/proto/cua/daemon/v1/sandboxes.proto",
-      "git_blob": "9a64312264eaa633f45107cacec89fe310cf2f17",
-      "sha256": "9aca0fb8d595c6f2c68f2a636f6c92425477ca349f0e6779e89f0d109e63541e",
-      "upstream_sha256": "9aca0fb8d595c6f2c68f2a636f6c92425477ca349f0e6779e89f0d109e63541e",
+      "git_blob": "666482734a566f46ad3bb5771045262c3c6290d6",
+      "sha256": "b9185b74a0eb783a1c9c924cdb8837c34cd03d268701144f8811686b900a36ff",
+      "upstream_sha256": "b9185b74a0eb783a1c9c924cdb8837c34cd03d268701144f8811686b900a36ff",
       "mode": "100644",
       "state": "copied"
     },
@@ -12636,9 +12915,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/proto/cua/env/v1/host.proto",
       "upstream_path": "libs/cua/proto/cua/env/v1/host.proto",
-      "git_blob": "fa06933e3dbeeff3439cf2b49c07e83e5f8746e5",
-      "sha256": "26a77f300ed9d60a58cd088d46853849862ea01457532becf0bf64b01210caca",
-      "upstream_sha256": "26a77f300ed9d60a58cd088d46853849862ea01457532becf0bf64b01210caca",
+      "git_blob": "82f6fc6c259575aded6a102acc31571db1ddb4d0",
+      "sha256": "9f06050275978702234745ba7582964db0a6773c74728e3d17d83bede3969fcb",
+      "upstream_sha256": "9f06050275978702234745ba7582964db0a6773c74728e3d17d83bede3969fcb",
       "mode": "100644",
       "state": "copied"
     },
@@ -12726,9 +13005,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/python/src/cua/_native.py",
       "upstream_path": "libs/cua/python/src/cua/_native.py",
-      "git_blob": "49216db55500797e151cab0c14eb219fd5b958c6",
-      "sha256": "f33a26770abcc223a621c542d06e4aa1fe84ee3333832fec67e04c351ecae7e3",
-      "upstream_sha256": "f33a26770abcc223a621c542d06e4aa1fe84ee3333832fec67e04c351ecae7e3",
+      "git_blob": "0780e5d30552297c0b36d81888e2a4ddd97a6302",
+      "sha256": "522f59d932dd112b2cb0e4514d2f0f0513441b063370af2d207a6a8507fe4225",
+      "upstream_sha256": "522f59d932dd112b2cb0e4514d2f0f0513441b063370af2d207a6a8507fe4225",
       "mode": "100644",
       "state": "copied"
     },
@@ -12744,9 +13023,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/skills/cua-driver/BROWSER.md",
       "upstream_path": "libs/cua/skills/cua-driver/BROWSER.md",
-      "git_blob": "8f2c4c735035eadbb9bf83a44077acb910c08405",
-      "sha256": "2fef722b8fbefe78a3b50ca2d0a3130aded65758b7b496b497d47dd97c6a93e0",
-      "upstream_sha256": "2fef722b8fbefe78a3b50ca2d0a3130aded65758b7b496b497d47dd97c6a93e0",
+      "git_blob": "af3670ceaed7707d0492438824be68088fc837cc",
+      "sha256": "d5a47a4622fefe39ad87c068b51f7d149a2ff54364bf77fea0ed40270230e618",
+      "upstream_sha256": "d5a47a4622fefe39ad87c068b51f7d149a2ff54364bf77fea0ed40270230e618",
       "mode": "100644",
       "state": "copied"
     },
@@ -12771,9 +13050,9 @@
     {
       "path": "vendor/cua/upstream/libs/cua/skills/cua-driver/MACOS.md",
       "upstream_path": "libs/cua/skills/cua-driver/MACOS.md",
-      "git_blob": "496cbe8c57a4196d9caa4b29654652a296188559",
-      "sha256": "522111c1f9f500a7cf5b5c3cc17b6975b61867cbeb81410dcce3e496ed880951",
-      "upstream_sha256": "522111c1f9f500a7cf5b5c3cc17b6975b61867cbeb81410dcce3e496ed880951",
+      "git_blob": "10b24ed40328c47613012576f64355b599a84f0e",
+      "sha256": "25f255925553952856b2417e8f888349d8e102395647f49501f16795c2026c49",
+      "upstream_sha256": "25f255925553952856b2417e8f888349d8e102395647f49501f16795c2026c49",
       "mode": "100644",
       "state": "copied"
     },
@@ -13194,18 +13473,18 @@
     {
       "path": "vendor/cua/upstream/libs/cua/swift/Sources/CuaSDK/CuaSDK.swift",
       "upstream_path": "libs/cua/swift/Sources/CuaSDK/CuaSDK.swift",
-      "git_blob": "744a1ab67db9eff9a5f7d6a4f2de622f27cf65d0",
-      "sha256": "74a27c07add3392fe07cb9686215efdb1ba6efc3d1d04b8b3b303b80cad3e4f7",
-      "upstream_sha256": "74a27c07add3392fe07cb9686215efdb1ba6efc3d1d04b8b3b303b80cad3e4f7",
+      "git_blob": "ef7c01d13b79800863db5d9a4dac6392eadd51d2",
+      "sha256": "75d19f32aacacfbf6962cec338d6c80364d8c8a5e7dc377155672563898f3f09",
+      "upstream_sha256": "75d19f32aacacfbf6962cec338d6c80364d8c8a5e7dc377155672563898f3f09",
       "mode": "100644",
       "state": "copied"
     },
     {
       "path": "vendor/cua/upstream/libs/cua/typescript/src/native/cua_sdk.ts",
       "upstream_path": "libs/cua/typescript/src/native/cua_sdk.ts",
-      "git_blob": "60404cdf566322c85e9073210afa48c83ec3bc37",
-      "sha256": "c9b4e49b6dd88a168fee0889addbab7f62dbd9a1049848c6e2038ff0904a867e",
-      "upstream_sha256": "c9b4e49b6dd88a168fee0889addbab7f62dbd9a1049848c6e2038ff0904a867e",
+      "git_blob": "8260aabbeaf56acf078bb48931424409e77b8f14",
+      "sha256": "85a00286a1f886f5d7cbd3696db65b966900a7ed8819f6cd117baee5de62eed5",
+      "upstream_sha256": "85a00286a1f886f5d7cbd3696db65b966900a7ed8819f6cd117baee5de62eed5",
       "mode": "100644",
       "state": "copied"
     },
@@ -14364,9 +14643,9 @@
     {
       "path": "vendor/cua/upstream/libs/images/linux/Dockerfile",
       "upstream_path": "libs/images/linux/Dockerfile",
-      "git_blob": "8978ce432a7925b85b73bcdea233da919e0d49b1",
-      "sha256": "435bba30c5492bd62a8856e701afbb5f2dcebfa2c58c8daa38fe1b52294556ae",
-      "upstream_sha256": "435bba30c5492bd62a8856e701afbb5f2dcebfa2c58c8daa38fe1b52294556ae",
+      "git_blob": "0c366b29c4fe51966a41f400406be3ee3d1cefd0",
+      "sha256": "63d4646c13c2294dd14951ba4c3b0be3d272a076d0f4ad57233409919fab3822",
+      "upstream_sha256": "63d4646c13c2294dd14951ba4c3b0be3d272a076d0f4ad57233409919fab3822",
       "mode": "100644",
       "state": "copied"
     },

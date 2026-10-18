@@ -22,7 +22,9 @@
     },
     {
       "path": "libs/python/agent/cua_agent/loops/anthropic.py",
-      "sha256": "ae111ad726e5b8bc0cb49102787b83fa65319491b1210cb8da6b1596f035b010"
+      "sha256": "4aba616443cbdfa984bbf3a984c4d30c0c74ec685f871ae4bb08bc875a86e7c6",
+      "upstream_revision": "afed1fcbba64acadcc154b8d5d377549ae62bc7e",
+      "reviewed": "Reviewed 88aff7e5..afed1fcb. The upstream diff adds the Claude 5-series computer tool version mapping (computer_20251124). dojo-computer-models has no model-to-tool-version mapping, so no translation change."
     },
     {
       "path": "libs/python/agent/cua_agent/loops/openai.py",
@@ -83,5 +85,13 @@
   "license_audit": {
     "s1_python": "libs/cua-s1/python/LICENSE: MIT Copyright (c) 2025 Cua AI, Inc.; included notice matches LICENSE.md",
     "weights": "not imported, downloaded or licensed by this source audit"
+  },
+  "reviewed_at": {
+    "revision": "afed1fcbba64acadcc154b8d5d377549ae62bc7e",
+    "baseline_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+    "paths": [
+      "libs/python/agent/cua_agent/loops/anthropic.py"
+    ],
+    "scope": "Only the listed sources were re-pinned after review. This is not a whole-crate re-derivation; the crate baseline stays at the earlier revision."
   }
 }

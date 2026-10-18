@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+  "revision": "afed1fcbba64acadcc154b8d5d377549ae62bc7e",
   "destination": "vendor/cua/upstream",
   "trees": [
     "libs/cua-driver/rust",
@@ -19,6 +19,7 @@
     "libs/cua/crates/cua-hotspot",
     "libs/cua/crates/cua-icon-cache",
     "libs/cua/crates/cua-image",
+    "libs/cua/crates/cua-mesh",
     "libs/cua/crates/cua-proto",
     "libs/cua/crates/cua-sandbox-core",
     "libs/cua/crates/cua-sdk",
@@ -77,6 +78,7 @@
         "crates/cua-hotspot",
         "crates/cua-icon-cache",
         "crates/cua-image",
+        "crates/cua-mesh",
         "crates/cua-proto",
         "crates/cua-sandbox-core",
         "crates/cua-sdk",
@@ -100,7 +102,7 @@
     {
       "file": "libs/cua/Cargo.lock",
       "metadata": "vendor/cua/metadata/sdk-Cargo.lock",
-      "sha256": "adb6f9c7f6fd494c999a798d66335a09dae718efd02a50f55d629d1ce07fb653"
+      "sha256": "020239fafd4ebca30e778bb95b34052cb30843411c543e1e4352ce11fcc7dd61"
     }
   ],
   "support_data": [
@@ -114,12 +116,12 @@
   "patches": [
     {
       "metadata": "vendor/cua/metadata/niri-driver.patch",
-      "sha256": "b52a6b8ef7d0cf2e99480533c867e8360177e66ebe058df7a748f7fb02e10a82",
+      "sha256": "2d1132d025664ae2e82d82bb59039ffb563c58ea0bdfb106cd0200b603ca2207",
       "purpose": "Niri identity, capture and coordinated native seat execution; Dojo worker uses compositor cursor and parent authorization",
       "files": [
         {
           "path": "libs/cua-driver/rust/crates/platform-linux/Cargo.toml",
-          "sha256": "9442b9c8b211cda00c203d5f48d57f2aeff83a6c17d6d46532d9e4d75068d9bd"
+          "sha256": "e31fbb572cfdec9763adc27fceb1885c419b3a4231ae3df9a0bd2b5cffe60ccc"
         },
         {
           "path": "libs/cua-driver/rust/crates/platform-linux/src/wayland/mod.rs",
@@ -131,11 +133,11 @@
         },
         {
           "path": "libs/cua-driver/rust/crates/platform-linux/src/tools/impl_.rs",
-          "sha256": "e56d9149211eca9fbb7a6eac202b139632ff8955df4631322ba9488fff905615"
+          "sha256": "138aece7626772b458d0373ddf0cd0fc9c6207b25fc1e4f3b0fe03c4d5658052"
         },
         {
           "path": "libs/cua-driver/rust/Cargo.lock",
-          "sha256": "eaf7ec247543ebd93b96ced266edf69f9b4995a8c93eb452dd3c0dc20bbe4993"
+          "sha256": "7cb45b0853c72972f875a2bed390d37f4e4daffd44eb4a29cd3d7c86c12dd43b"
         },
         {
           "path": "libs/cua-driver/rust/crates/platform-linux/src/wayland/niri.rs",
@@ -170,7 +172,7 @@
     },
     {
       "metadata": "vendor/cua/metadata/immutable-acquisition.patch",
-      "sha256": "e8757275bac9db4994c7ce94526932ab5c66bbd77fb39f8614a00625d242f9bd",
+      "sha256": "5c09473861e5c6afb122d07f713acaff2687757ebbac8ff262246652395b89fb",
       "purpose": "Consume committed catalog image digests and refuse mutable runtime installers; original explicit ManifestSource injection retained",
       "files": [
         {
@@ -183,15 +185,15 @@
         },
         {
           "path": "libs/cua/crates/cua-vmm/src/qemu/mod.rs",
-          "sha256": "9fff8709caec82aabb3346113352b4d6ee045e8b688d5fd2f548ed3c01826526"
+          "sha256": "84dd891ee5f8afb7dd24154c4abfb7507484dad2a5f01d333bf311d62f653eeb"
         },
         {
           "path": "libs/cua/crates/cua-vmm/src/lume/mod.rs",
-          "sha256": "bfbab827e8cb74f66d6714dfb416adb8fff37dc6a0feefda5b914c9497dedb3d"
+          "sha256": "34f07579bb2259f16401a573dde09b853279729be61f08d7fade1b270e8779d5"
         },
         {
           "path": "libs/cua/crates/cua-vmm/src/container/mod.rs",
-          "sha256": "e4cffcbd211211dccf48a90446b2f2af913f0a1aa4ba50c4833660839f77f7a4"
+          "sha256": "99954347daf3b3372053f3a4b1166c5289463ed9bceabed991b27189761f7095"
         }
       ]
     }

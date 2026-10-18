@@ -11,14 +11,14 @@
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "d2753adaf5f67760aef4be3ba82be0601ddd720150c081329b53f91c1da5108f"
+      "sha256": "ff2853df809184af78c6826f8db30f1143bbd7d266ac47953956b06d8a60782c"
     },
     {
       "path": "Cargo.toml",
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "5d8c6393e8760e22539c14b1d7486375da0fbc7b60a870f7357ea7f07e054d0f"
+      "sha256": "1197a1408277fa3c2d90461b0079b31574a270bef91c22741fc3b1e730c511ed"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -51,7 +51,7 @@
     {
       "owner": "Dojo CUA integration maintainers",
       "path": "crates/dojo-accessibility/provenance.json",
-      "sha256": "dfd1b04afaa91ab054150c2aabb3c48e6b9ee80e1ae787d801af612758582966",
+      "sha256": "d2ba9e644f07aa011d3d6d89ca78638e7db7eca7d80ba2d742a0fec3ae81fe2f",
       "state": "local",
       "unit": "dojo-accessibility"
     },
@@ -149,7 +149,8 @@
       "upstream_sha256": "82bee040695f1099020280e4fd61704b0b84e36101e4d9c550df0c027d8e2fd4",
       "sha256": "e33023def3257281957c99ab2b637c87b3333291db7bb7f370f5bc930d3f94ac",
       "patch": "vendor/cua/ledger-patches/crates/dojo-agent-setup/src/lib.rs.patch",
-      "patch_sha256": "014e1acd8088195214641ac97c74665f6136090141281ebeb19342e05ffe0d4d"
+      "patch_sha256": "014e1acd8088195214641ac97c74665f6136090141281ebeb19342e05ffe0d4d",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "path": "crates/dojo-agent-setup/src/registry.rs",
@@ -268,7 +269,7 @@
     {
       "owner": "Dojo CUA integration maintainers",
       "path": "crates/dojo-computer-models/provenance.json",
-      "sha256": "5398c06f4446ac5f4e434f3a9db36b335dcd0c0402a1cb4d498a8aefe28b253d",
+      "sha256": "864f662cef14471dba03cb285960770155b9b526752ad590a9fd7f9e7f437865",
       "state": "local",
       "unit": "dojo-computer-models"
     },
@@ -375,7 +376,7 @@
       "state": "local",
       "unit": "dojo-computer-recording",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "d33061955abbbb48413199d5005ced5b174ac70e63a7e7ad12986dd711065f1b"
+      "sha256": "873a4faba698aa74aefd1788c442c64ff4d5eb3af16149f01217d6b687ce8025"
     },
     {
       "path": "crates/dojo-computer-recording/fixtures/general-metrics.json",
@@ -396,7 +397,7 @@
       "state": "local",
       "unit": "dojo-computer-recording",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "91187a2ee5cc0e238cf98989e10d20bb250d0fe3d7709a145c4285d48c5e0744"
+      "sha256": "ba0b510d3fbd27413886292f3f4810de66232943f4a5afce8357b297857fb852"
     },
     {
       "path": "crates/dojo-computer-recording/src/benchmark.rs",
@@ -642,7 +643,8 @@
       "state": "copied",
       "unit": "dojo-cua-primitives",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/cdp_ws.rs",
-      "upstream_sha256": "6ef8615cd552a62819ae2296fd5476dd97a3e0790c853c2156353c024baf99c7"
+      "upstream_sha256": "6ef8615cd552a62819ae2296fd5476dd97a3e0790c853c2156353c024baf99c7",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -651,7 +653,8 @@
       "state": "copied",
       "unit": "dojo-cua-primitives",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/mock_cdp.rs",
-      "upstream_sha256": "518c8f6f0a1bdc89cbe504d8d867acbc644f139f19553f60dc03fdc0512e9d21"
+      "upstream_sha256": "518c8f6f0a1bdc89cbe504d8d867acbc644f139f19553f60dc03fdc0512e9d21",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -1114,7 +1117,7 @@
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "67a8c5258a893732830b690ce50c3a880908eea5f2a5da39eb870d25dbc8de62"
+      "sha256": "d13057e30aa861c99e1f8cee702f5e3fd5ab2207995f96f0d6234cf3b2e60531"
     },
     {
       "path": "scripts/check-cua-metrics-reference.py",
@@ -1142,7 +1145,7 @@
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "49a340fe3e0d65a5f38891be4b075ca272ba34bf1de14015100f14b8fa2e1ea6"
+      "sha256": "8754c528f708902868492bfd0e54d63f19e9d4e95eca7702413975d68fdee968"
     },
     {
       "path": "src/agent_input.rs",
@@ -1163,7 +1166,7 @@
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "eaf06733f628bd14daf4efefebfb561ee69c1b7f1add75797b347bb65bc305c0"
+      "sha256": "f510309b759da9bd4d83cc9dd9d4eeb100f5a7f50df7928b0ae9697f02a6d656"
     },
     {
       "path": "src/bin/dojo-agent/accessibility.rs",
@@ -1191,7 +1194,7 @@
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "6a4adb19eb72bfe4d1669034eca3a25a61134c69dc96977fc71d564032001e0b"
+      "sha256": "a1df9c7dc50b85fa23644d96f042fd3a6b9c1ab239e4ae17b2e3e792b3d5d1a6"
     },
     {
       "path": "src/bin/dojo-agent/perception.rs",
@@ -1219,7 +1222,7 @@
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "59ea0e302e30af8e91856a71bdab63528a8e7bf145a85e610e9e1b4a2c8c9ecd"
+      "sha256": "7926b1ff05820106829352331ebf5fd6a16a77e6a69de4113a3b1471e14ad2df"
     },
     {
       "path": "src/bin/dojo-agent/verification.rs",
@@ -1240,7 +1243,7 @@
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "b5cae15a0a6a9ea646dadc6523e634a1f31100ed74e5e08aa7bc3a458a8b8fa6"
+      "sha256": "3770d25cca80eb63f51124cbf9de9c0ffc161580c4f18717d2562a4b3e5f673b"
     },
     {
       "path": "tests/capture_desktop.rs",
@@ -1289,63 +1292,63 @@
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "cfaa51cfb6f64b7274b5e86836a6ce575b32cc655de0f280cc19343f6a68d959"
+      "sha256": "42abf9ec134354e2e4730329c5ac25235aa7ce8768a1535e5fce6f958eea98c2"
     },
     {
       "path": "tools/speech/computer-steps.test.mjs",
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "2fe68cd3a811f0579797c8d75884f67459c1a3cb1fe4d4118417bcd5a5d0e1aa"
+      "sha256": "d7cde472eb4273c80a9239ee6455e6009950494483456c75cb0c18beca045f24"
     },
     {
       "path": "tools/speech/cua-extension.mjs",
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "ee61ee13b38c3aa104bc24e0dce93fffa9c4084205a897c00178a3aab24e7340"
+      "sha256": "853f44152c28223fdf7a4c7f00d5f76548da4a3893b4b25a375f5b677373029d"
     },
     {
       "path": "tools/speech/cua-extension.test.mjs",
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "6566e33475a02b4170b56a41479257dbddcc14c9a50d3bf13ab6a85ddb938e27"
+      "sha256": "35703d2e65b97549cd27eace75a5cf7bb271ab252eeba0735c0d25be3b166521"
     },
     {
       "path": "tools/speech/desktop-extension.mjs",
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "97e0818c97e5d7ab623cde89af1782e0b15ef2907e032fa60343734362cc6baa"
+      "sha256": "0648814820edb9f585d1b454ef193e9161d39a0422526e54b49f2ec3e549630b"
     },
     {
       "path": "tools/speech/desktop-extension.test.mjs",
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "8d2f958a1baa7b2ddc8206add807c1555db1a0448bfc0e4a29e75cadc0d3869d"
+      "sha256": "93db31ba36877c760c5c2f82180d6a9d567b275cc60db9b045cf3d668c85f7ae"
     },
     {
       "path": "tools/speech/desktop-trace.mjs",
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "3bc35f586b7fd9563328e58bb6e98408cf7b986ab92acd71af793b1d3bd066bc"
+      "sha256": "854319d04477c4d902ec27a67c696b8697fc84efc9a6a445edf9a4035af738ba"
     },
     {
       "path": "tools/speech/desktop-trace.test.mjs",
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "4eb9c244687777160ec82bbd24e1ca5b41eb7a6251e8b48caaf0e85e28919772"
+      "sha256": "9ac384f140d14718b523f69eb641cb496fc6590757e770dad15068cb6f490609"
     },
     {
       "path": "tools/speech/human-requests.mjs",
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "22831c52bbefa1e293db8532a6726c3c3779823ece1db8f040eacf7e9e32359c"
+      "sha256": "55cdf9a259a38d1ecafe635ad57ac69889a397f63f48a6036ec23d4b47e2084a"
     },
     {
       "path": "tools/speech/image-retention.mjs",
@@ -1373,14 +1376,14 @@
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "72b933948c451478fbf375625d239926888773d2a42878edad9212d87155be89"
+      "sha256": "f57e15d17f3220bf2b905c87204f92623864a543d66d0b8935f849c94639f896"
     },
     {
       "path": "tools/speech/pi-runtime.test.mjs",
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "4ed48c1b8035e37a055dd5d2561ac8879c3a91aed3e7b8e66434c1fdf3167ba5"
+      "sha256": "8150fdb5831f76b410d65cf2846271db39c67ca5bf8793386cec0cb0114c71cf"
     },
     {
       "path": "vendor/cua/audit-dependencies.mjs",
@@ -1394,21 +1397,21 @@
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "456519b87ac0dcb4d162de59ed9270cc375764e794623dcc291e9ece6df45e73"
+      "sha256": "2f64367db85e6b05afb8c74b60be61c97089b9f8cff5b85ee1abc796a0493b2d"
     },
     {
       "path": "vendor/cua/copy-inventory.json",
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "a651658b0f2632897efd77daf10dc97230236fcabfdf38d7b722a9439032ed74"
+      "sha256": "b03f105d776f5334697dbd2f708d77fa35740f0b389ef9666a559e08ba5296c5"
     },
     {
       "path": "vendor/cua/copy-plan.json",
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "6a7970889f58db1bf4a7dee116f972864afb126355888c56e9f0f40cefa527be"
+      "sha256": "f09a6ff50dc9c12a8182ff77fc9830212fef85e13843dfa70ab94e30e29243d0"
     },
     {
       "path": "vendor/cua/copy-upstream.mjs",
@@ -1458,7 +1461,8 @@
       "state": "copied",
       "unit": "cua-cursor-motion",
       "upstream_path": "libs/cua-driver/rust/crates/cua-cursor-motion/README.md",
-      "upstream_sha256": "b0e4cc27a05b2039e88a408484c527e755b1eb7fdccb7f796dfccd1c5927cea0"
+      "upstream_sha256": "b0e4cc27a05b2039e88a408484c527e755b1eb7fdccb7f796dfccd1c5927cea0",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -1476,7 +1480,8 @@
       "state": "copied",
       "unit": "cua-cursor-motion",
       "upstream_path": "libs/cua-driver/rust/crates/cua-cursor-motion/fixtures/golden.json",
-      "upstream_sha256": "617ef14dc6db6609d434335291f00c2812eb369b0257d3ce5913a1edad297cca"
+      "upstream_sha256": "617ef14dc6db6609d434335291f00c2812eb369b0257d3ce5913a1edad297cca",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -1530,7 +1535,8 @@
       "state": "copied",
       "unit": "cua-cursor-motion",
       "upstream_path": "libs/cua-driver/rust/crates/cua-cursor-motion/src/params.rs",
-      "upstream_sha256": "9fa4fff8ad77948ad1718ffdc0c9928a24224e498e9ba2a2bfa13d7e6fe9d18b"
+      "upstream_sha256": "9fa4fff8ad77948ad1718ffdc0c9928a24224e498e9ba2a2bfa13d7e6fe9d18b",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -1548,7 +1554,8 @@
       "state": "copied",
       "unit": "cua-cursor-motion",
       "upstream_path": "libs/cua-driver/rust/crates/cua-cursor-motion/src/plan.rs",
-      "upstream_sha256": "2f923bbeeff46d494ba8fb6044a8f62a93a92a27ada0ceb95126650ed47c8e75"
+      "upstream_sha256": "2f923bbeeff46d494ba8fb6044a8f62a93a92a27ada0ceb95126650ed47c8e75",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -1575,7 +1582,8 @@
       "state": "copied",
       "unit": "cua-cursor-motion",
       "upstream_path": "libs/cua-driver/rust/crates/cua-cursor-motion/src/style.rs",
-      "upstream_sha256": "ca5fe70d9f07026935f16009fc5c90bb2f14c5ff022ed48e47cd975dc8cae301"
+      "upstream_sha256": "ca5fe70d9f07026935f16009fc5c90bb2f14c5ff022ed48e47cd975dc8cae301",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -1611,7 +1619,8 @@
       "state": "copied",
       "unit": "cua-cursor-motion",
       "upstream_path": "libs/cua-driver/rust/crates/cua-cursor-motion/tests/motion_parity.rs",
-      "upstream_sha256": "07b69856adc444ce143fa0b9942c3b7a4fdbec4f4540eb03123253cb1d62892c"
+      "upstream_sha256": "07b69856adc444ce143fa0b9942c3b7a4fdbec4f4540eb03123253cb1d62892c",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -1742,7 +1751,7 @@
     {
       "owner": "Dojo CUA integration maintainers",
       "path": "vendor/cua/dependency-closure.json",
-      "sha256": "3f56e716b14cb022e07651b0bee8d89742a090e4e65df6e369453541fdff5082",
+      "sha256": "5491e64df6547e07d6a5d97bcdbd7c761923620b8e5341fc23aa599f02caca24",
       "state": "local",
       "unit": "provenance"
     },
@@ -1788,7 +1797,8 @@
       "state": "copied",
       "sha256": "2fef722b8fbefe78a3b50ca2d0a3130aded65758b7b496b497d47dd97c6a93e0",
       "upstream_path": "libs/cua-driver/rust/Skills/cua-driver/BROWSER.md",
-      "upstream_sha256": "2fef722b8fbefe78a3b50ca2d0a3130aded65758b7b496b497d47dd97c6a93e0"
+      "upstream_sha256": "2fef722b8fbefe78a3b50ca2d0a3130aded65758b7b496b497d47dd97c6a93e0",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -1815,7 +1825,8 @@
       "state": "copied",
       "sha256": "ce051cd937fc2a45fa5442ca3b25c7525eae199d27f4b6c3837dac3c7dfbb45a",
       "upstream_path": "libs/cua-driver/rust/Skills/cua-driver/MACOS.md",
-      "upstream_sha256": "ce051cd937fc2a45fa5442ca3b25c7525eae199d27f4b6c3837dac3c7dfbb45a"
+      "upstream_sha256": "ce051cd937fc2a45fa5442ca3b25c7525eae199d27f4b6c3837dac3c7dfbb45a",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -1851,7 +1862,8 @@
       "state": "copied",
       "sha256": "752b620d5d42a9692caae141895d114e9c4f2b17f742060c671ad80795b984bd",
       "upstream_path": "libs/cua-driver/rust/Skills/cua-driver/SKILL.md",
-      "upstream_sha256": "752b620d5d42a9692caae141895d114e9c4f2b17f742060c671ad80795b984bd"
+      "upstream_sha256": "752b620d5d42a9692caae141895d114e9c4f2b17f742060c671ad80795b984bd",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -1914,7 +1926,8 @@
       "state": "copied",
       "sha256": "8a1650ef9db3c0de7b7b4a70a803312f788afbbf4b031499703ef8952d7080f9",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-contract/src/cursor.rs",
-      "upstream_sha256": "8a1650ef9db3c0de7b7b4a70a803312f788afbbf4b031499703ef8952d7080f9"
+      "upstream_sha256": "8a1650ef9db3c0de7b7b4a70a803312f788afbbf4b031499703ef8952d7080f9",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -1941,7 +1954,8 @@
       "state": "copied",
       "sha256": "b6bcff700f05cbee2d9b46fa7dfd4f8583bbae1f2aa0a447e961a806f55291b3",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-contract/src/inputs.rs",
-      "upstream_sha256": "b6bcff700f05cbee2d9b46fa7dfd4f8583bbae1f2aa0a447e961a806f55291b3"
+      "upstream_sha256": "b6bcff700f05cbee2d9b46fa7dfd4f8583bbae1f2aa0a447e961a806f55291b3",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -2079,7 +2093,8 @@
       "state": "copied",
       "sha256": "259649d6a1f81f9dcea1e587918960adaab8c7f1706d815a251e6b19a171b698",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/action_record.rs",
-      "upstream_sha256": "259649d6a1f81f9dcea1e587918960adaab8c7f1706d815a251e6b19a171b698"
+      "upstream_sha256": "259649d6a1f81f9dcea1e587918960adaab8c7f1706d815a251e6b19a171b698",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -2189,7 +2204,8 @@
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/cdp_ws.rs",
       "upstream_sha256": "6ef8615cd552a62819ae2296fd5476dd97a3e0790c853c2156353c024baf99c7",
       "patch": "vendor/cua/ledger-patches/vendor/cua/driver/crates/cua-driver-core/src/browser/cdp_ws.rs.patch",
-      "patch_sha256": "e7a3aec4b5c590b37cf550cb103b7314494939870a930b84bc23a31bc0caf99a"
+      "patch_sha256": "e7a3aec4b5c590b37cf550cb103b7314494939870a930b84bc23a31bc0caf99a",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -2211,7 +2227,8 @@
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/engine.rs",
       "upstream_sha256": "41fcef8e6c9963a70eb639640e85e7a01058049f9a450670062e3d82ab165d49",
       "patch": "vendor/cua/ledger-patches/vendor/cua/driver/crates/cua-driver-core/src/browser/engine.rs.patch",
-      "patch_sha256": "37f9c4f1d66e3a7832c3c3e4d02faf23813d583f50f5d10f509ffec385b4cfcc"
+      "patch_sha256": "37f9c4f1d66e3a7832c3c3e4d02faf23813d583f50f5d10f509ffec385b4cfcc",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -2220,7 +2237,8 @@
       "state": "copied",
       "sha256": "9ad8a69e1d3cd5b4240c984af7e143af7bfd11a169f7e21dc1bbe96061b8bcd1",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/grant.rs",
-      "upstream_sha256": "9ad8a69e1d3cd5b4240c984af7e143af7bfd11a169f7e21dc1bbe96061b8bcd1"
+      "upstream_sha256": "9ad8a69e1d3cd5b4240c984af7e143af7bfd11a169f7e21dc1bbe96061b8bcd1",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -2240,7 +2258,8 @@
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/mock_cdp.rs",
       "upstream_sha256": "518c8f6f0a1bdc89cbe504d8d867acbc644f139f19553f60dc03fdc0512e9d21",
       "patch": "vendor/cua/ledger-patches/vendor/cua/driver/crates/cua-driver-core/src/browser/mock_cdp.rs.patch",
-      "patch_sha256": "6e620058f18de3fa58fb6d5c3c18f75861f322a76ed688093aed8e4263086f24"
+      "patch_sha256": "6e620058f18de3fa58fb6d5c3c18f75861f322a76ed688093aed8e4263086f24",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -2283,7 +2302,8 @@
       "state": "copied",
       "sha256": "18b3083128098ed9e44401700821a7f58d5a32cd40705ea91123b642a674359b",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/platform.rs",
-      "upstream_sha256": "18b3083128098ed9e44401700821a7f58d5a32cd40705ea91123b642a674359b"
+      "upstream_sha256": "18b3083128098ed9e44401700821a7f58d5a32cd40705ea91123b642a674359b",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -2294,7 +2314,8 @@
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/pointer.rs",
       "upstream_sha256": "9b4b491c6b66c16915c589d0a043bd77fab308c6fa58637ae9e89f7417b8b50e",
       "patch": "vendor/cua/ledger-patches/vendor/cua/driver/crates/cua-driver-core/src/browser/pointer.rs.patch",
-      "patch_sha256": "4983aad441e2e7ec0c1ba4d805abe19fffc2600d718b330117d54d8030102636"
+      "patch_sha256": "4983aad441e2e7ec0c1ba4d805abe19fffc2600d718b330117d54d8030102636",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -2305,7 +2326,8 @@
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/prepare.rs",
       "upstream_sha256": "d79baceddd4f13a4065fa0111af8061c37253223ee116a55f708a954164c598e",
       "patch": "vendor/cua/ledger-patches/vendor/cua/driver/crates/cua-driver-core/src/browser/prepare.rs.patch",
-      "patch_sha256": "eb6d177efe8acb57792dfdf96efc94c8b48c7a277f1d885c55e04996ec050069"
+      "patch_sha256": "eb6d177efe8acb57792dfdf96efc94c8b48c7a277f1d885c55e04996ec050069",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -2368,7 +2390,8 @@
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/tools.rs",
       "upstream_sha256": "be2bd85f2bb5c1804301beced4ad4dd525d32a3a7e2e48e5509e91ef5f1fd849",
       "patch": "vendor/cua/ledger-patches/vendor/cua/driver/crates/cua-driver-core/src/browser/tools.rs.patch",
-      "patch_sha256": "03c1a42b4ede2983f041097c884d68167150334e1f9de5d7f8ef04e559bb78b9"
+      "patch_sha256": "03c1a42b4ede2983f041097c884d68167150334e1f9de5d7f8ef04e559bb78b9",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -2388,7 +2411,8 @@
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/browser/v2_tests.rs",
       "upstream_sha256": "01c76209b9fc095a1c38a2e81e6caa068fa9a92445ff4c446fe0e8266bc6b75d",
       "patch": "vendor/cua/ledger-patches/vendor/cua/driver/crates/cua-driver-core/src/browser/v2_tests.rs.patch",
-      "patch_sha256": "86a2e03bf88ad90f71359dd95930cd44027282f1d7ab5f6c89aa652b3793a427"
+      "patch_sha256": "86a2e03bf88ad90f71359dd95930cd44027282f1d7ab5f6c89aa652b3793a427",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -2483,7 +2507,8 @@
       "state": "copied",
       "sha256": "1ed32eec03f0d1efab98bac3455f53fa5baa693b1086b01f3e21caac6805325c",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/cursor_events.rs",
-      "upstream_sha256": "1ed32eec03f0d1efab98bac3455f53fa5baa693b1086b01f3e21caac6805325c"
+      "upstream_sha256": "1ed32eec03f0d1efab98bac3455f53fa5baa693b1086b01f3e21caac6805325c",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -2825,7 +2850,8 @@
       "state": "copied",
       "sha256": "acb990cdd4ffe1a074b57eff48944bea5b24d7798679bc2a302f118a3cefc9fb",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/protocol.rs",
-      "upstream_sha256": "acb990cdd4ffe1a074b57eff48944bea5b24d7798679bc2a302f118a3cefc9fb"
+      "upstream_sha256": "acb990cdd4ffe1a074b57eff48944bea5b24d7798679bc2a302f118a3cefc9fb",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -2834,7 +2860,8 @@
       "state": "copied",
       "sha256": "14f38d668ea0a3e63d20825b5d0597dedc9a90dc880a323b652e01b53e4f4d32",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/recording.rs",
-      "upstream_sha256": "14f38d668ea0a3e63d20825b5d0597dedc9a90dc880a323b652e01b53e4f4d32"
+      "upstream_sha256": "14f38d668ea0a3e63d20825b5d0597dedc9a90dc880a323b652e01b53e4f4d32",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -2924,7 +2951,8 @@
       "state": "copied",
       "sha256": "606f8857adb9e9111f2cf7692077b7a070525ab8087b7e621b1328ae18c0ed18",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/session.rs",
-      "upstream_sha256": "606f8857adb9e9111f2cf7692077b7a070525ab8087b7e621b1328ae18c0ed18"
+      "upstream_sha256": "606f8857adb9e9111f2cf7692077b7a070525ab8087b7e621b1328ae18c0ed18",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -2951,7 +2979,8 @@
       "state": "copied",
       "sha256": "e877bbf487c53874dddd1c68498c76143dde42675115ad6e50a372cf16bc685b",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/session_tools.rs",
-      "upstream_sha256": "e877bbf487c53874dddd1c68498c76143dde42675115ad6e50a372cf16bc685b"
+      "upstream_sha256": "e877bbf487c53874dddd1c68498c76143dde42675115ad6e50a372cf16bc685b",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -3016,7 +3045,8 @@
       "state": "copied",
       "sha256": "dbe728976ac6de43841aebe128f77e94ee6437cb88ee800b9c87fdfee8dac168",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/tool.rs",
-      "upstream_sha256": "dbe728976ac6de43841aebe128f77e94ee6437cb88ee800b9c87fdfee8dac168"
+      "upstream_sha256": "dbe728976ac6de43841aebe128f77e94ee6437cb88ee800b9c87fdfee8dac168",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -3034,7 +3064,8 @@
       "state": "copied",
       "sha256": "8896b41fd3e9329c275aa78bfc1116001d35a21113d8971131c8b00bb177544c",
       "upstream_path": "libs/cua-driver/rust/crates/cua-driver-core/src/tool_schema.rs",
-      "upstream_sha256": "8896b41fd3e9329c275aa78bfc1116001d35a21113d8971131c8b00bb177544c"
+      "upstream_sha256": "8896b41fd3e9329c275aa78bfc1116001d35a21113d8971131c8b00bb177544c",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -3768,7 +3799,7 @@
     {
       "owner": "Dojo CUA integration maintainers",
       "path": "vendor/cua/inventory.json",
-      "sha256": "b4540a63bc7140dc1a01d3bae71358cf2008205f95823213b23b15f045594db1",
+      "sha256": "9e111cc0d4d6eef6bd9b365a38733823701c0adb026414416fcec98588db852f",
       "state": "local",
       "unit": "provenance"
     },
@@ -3777,42 +3808,42 @@
       "state": "local",
       "unit": "ledger-tooling",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "656689c9312f5e8fbdbbb8678f33d3fe1fb10e2fe375413aa3f14c25d14ba0ef"
+      "sha256": "f1632e2559aceeb11f6dc925bf3d88f5da4ffc392b58376b07508a1954b02b04"
     },
     {
       "path": "vendor/cua/metadata/driver-upstream-Cargo.lock",
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "6b600b4f6498076ef47ec1a3af5b69c10a65a82676f4e11c1e108330ba4b688d"
+      "sha256": "346cf1f23c7cb0779eed531ee1c0d379b6e044bd8e64a5830f650c5111fb3d27"
     },
     {
       "path": "vendor/cua/metadata/immutable-acquisition.patch",
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "e8757275bac9db4994c7ce94526932ab5c66bbd77fb39f8614a00625d242f9bd"
+      "sha256": "5c09473861e5c6afb122d07f713acaff2687757ebbac8ff262246652395b89fb"
     },
     {
       "path": "vendor/cua/metadata/niri-driver.patch",
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "b52a6b8ef7d0cf2e99480533c867e8360177e66ebe058df7a748f7fb02e10a82"
+      "sha256": "2d1132d025664ae2e82d82bb59039ffb563c58ea0bdfb106cd0200b603ca2207"
     },
     {
       "path": "vendor/cua/metadata/pi-resource-catalog.json",
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "bfc9f4751b1186c1ea998c211d6de005d230e22a48c6412a41de71b105b41c1f"
+      "sha256": "23fb81866b381822b7149a23e9937ae0ab795cd88a2d71e8f5da12f9c74fabd8"
     },
     {
       "path": "vendor/cua/metadata/sdk-Cargo.lock",
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "adb6f9c7f6fd494c999a798d66335a09dae718efd02a50f55d629d1ce07fb653"
+      "sha256": "020239fafd4ebca30e778bb95b34052cb30843411c543e1e4352ce11fcc7dd61"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -3821,14 +3852,15 @@
       "state": "copied",
       "unit": "provenance",
       "upstream_path": "LICENSING.md",
-      "upstream_sha256": "a780fb615249e32f070ab9a344f298ea75a87f6be181312d6393fa9dbcddfbc1"
+      "upstream_sha256": "a780fb615249e32f070ab9a344f298ea75a87f6be181312d6393fa9dbcddfbc1",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "path": "vendor/cua/provenance/dojo-driver-service.md",
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "6268fd4f178a51b0e214795c946520550dc13d6f50f8c75f1b33436161963acc"
+      "sha256": "08c55077f42057d1b9e593c59db285f00a300727c74f0b02a97a4ca242ce66fd"
     },
     {
       "path": "vendor/cua/provenance/dojo-owned-browser.md",
@@ -3844,7 +3876,8 @@
       "state": "copied",
       "unit": "provenance",
       "upstream_path": "libs/cua-driver/rust/Cargo.lock",
-      "upstream_sha256": "6b600b4f6498076ef47ec1a3af5b69c10a65a82676f4e11c1e108330ba4b688d"
+      "upstream_sha256": "6b600b4f6498076ef47ec1a3af5b69c10a65a82676f4e11c1e108330ba4b688d",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -3853,7 +3886,8 @@
       "state": "copied",
       "unit": "provenance",
       "upstream_path": "libs/cua-driver/rust/Cargo.toml",
-      "upstream_sha256": "8cf5a6d585f208774a3b146a770ab287391d52c3960717a8701f14e8d8104ecc"
+      "upstream_sha256": "8cf5a6d585f208774a3b146a770ab287391d52c3960717a8701f14e8d8104ecc",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -3862,7 +3896,8 @@
       "state": "copied",
       "unit": "provenance",
       "upstream_path": "libs/cua/Cargo.lock",
-      "upstream_sha256": "cf5c9f17c39c3eb20b808c289babafa67c06af9d0b2aa0d119d7e94b26e2ea98"
+      "upstream_sha256": "cf5c9f17c39c3eb20b808c289babafa67c06af9d0b2aa0d119d7e94b26e2ea98",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -3871,14 +3906,15 @@
       "state": "copied",
       "unit": "provenance",
       "upstream_path": "libs/cua/Cargo.toml",
-      "upstream_sha256": "ff5a0bae5d118eefe5869aa64d5647edd2f7a0a7e67364e1a73f98431a8432e5"
+      "upstream_sha256": "ff5a0bae5d118eefe5869aa64d5647edd2f7a0a7e67364e1a73f98431a8432e5",
+      "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
     },
     {
       "path": "vendor/cua/refresh-ledger.mjs",
       "state": "local",
       "unit": "ledger-tooling",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "52ac83b231d4d85a85ec90e52aaa5ecf82f44e1218be901c0e8953e38aca3caa"
+      "sha256": "e1c171652d96b8ed6636b7ed56a39b6a92e0445d2013d1a956042c10c1f50d82"
     },
     {
       "owner": "Dojo CUA integration maintainers",
@@ -4155,7 +4191,7 @@
       "state": "local",
       "unit": "ledger-tooling",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "a4e5e4bb5e7978562095465d13a3c4e50ef600b421e9d2e9668d3c561655746f"
+      "sha256": "4a8d53d586d8383c9d40afd61f9ea74c30822dab0f25a4312e4027a6b48e3c63"
     },
     {
       "path": "vendor/niri/Cargo.lock",
@@ -4197,7 +4233,7 @@
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "a4c91a80f9ad42612738b0016eb605f8a4fcb8d16a64741c2fc9d2a8f431c4a6"
+      "sha256": "74f7a2853d3113442178f7a001bcddb4bb0ddeab1ec487a79d92f5477efa8241"
     },
     {
       "path": "vendor/niri/src/agent_input/coordination.rs",
@@ -4482,7 +4518,7 @@
   "upstream": {
     "acquisition": "git clone --no-checkout; git checkout --detach REV outside maintained source; verify committed objects with verify-import.mjs --source",
     "repository": "https://github.com/trycua/cua",
-    "revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190"
+    "revision": "afed1fcbba64acadcc154b8d5d377549ae62bc7e"
   },
   "verification": {
     "byte_check": "node vendor/cua/verify-ledger.mjs [--source PINNED_CHECKOUT]; exact canonical diffs and git apply reproduce every declared modification",
@@ -4527,7 +4563,7 @@
   },
   "refresh": {
     "command": "node vendor/cua/refresh-ledger.mjs --source PINNED_CHECKOUT --write",
-    "policy": "Only local/translated and explicitly modified records are refreshed. Existing copied records must still equal both recorded and pinned bytes. Unified patches compare pinned git objects to maintained source."
+    "policy": "Only local/translated and explicitly modified records are refreshed. A record may pin an older object of the same repository with upstream_revision; it is never moved to the ledger revision implicitly. Existing copied records must still equal both recorded and pinned bytes. Unified patches compare pinned git objects to maintained source."
   },
   "source_evidence": [
     {
@@ -4582,8 +4618,9 @@
     },
     {
       "path": "libs/cua-driver/rust/crates/cua-driver-core/src/action_record.rs",
-      "sha256": "259649d6a1f81f9dcea1e587918960adaab8c7f1706d815a251e6b19a171b698",
-      "declared_by": "crates/dojo-computer-recording/provenance.json"
+      "sha256": "be304639fab82bbc644038dba5db60c7c865ca3dfeaea1d9ae9be20e88b6a06e",
+      "declared_by": "crates/dojo-computer-recording/provenance.json",
+      "reviewed": "Reviewed 88aff7e5..afed1fcb. No Dojo code derives from this file; dojo-computer-recording lists it as a source only and its Receipt/Effect model is Dojo's own. The upstream diff adds a macOS-only MacosAppleEvent transport and passes the browser tools' delivery_mode through actual_delivery_from_legacy (Foreground vs Background). Dojo has no browser delivery mapping, so no translation change."
     },
     {
       "path": "libs/cua-driver/rust/crates/cua-driver-core/src/batch_tools.rs",
@@ -4627,8 +4664,9 @@
     },
     {
       "path": "libs/cua-driver/rust/crates/platform-linux/src/atspi/native.rs",
-      "sha256": "d829b989ef043367ef789c962d7b569321c4d82c8e30e3282e6eb59bdaecb7a8",
-      "declared_by": "crates/dojo-accessibility/provenance.json"
+      "sha256": "59e3c53a54b4d51dd1259cdcdf347400dcf85dd8ffdae2d0a04462012e21042f",
+      "declared_by": "crates/dojo-accessibility/provenance.json",
+      "reviewed": "Reviewed 88aff7e5..afed1fcb. dojo-accessibility copies only the activation selection region (const ACTIVATION_VERBS through fn at_point_activation_index), byte-identical at both revisions (sha256 feb871ad90917150..., 3892 chars). The upstream diff is the atspi_connection import with p2p off (e3ad8319a), a once-per-pid app.get_attributes() wake before the first traversal (e7af6a61b) and the X11 top-level-frame rebase guards (6e050d720, 7d8378f16); none touches the copied code, so the translation needs no change. The wake and the p2p change are adoption candidates for Dojo, not part of this change."
     },
     {
       "path": "libs/cua-driver/rust/crates/platform-linux/src/installed_apps.rs",
@@ -4649,9 +4687,10 @@
     },
     {
       "path": "libs/cua-driver/rust/crates/platform-linux/src/tools/impl_.rs",
-      "sha256": "35f6ac4d6a7cdfc9ed8d420114b8fa6d7773bdd41dcaf64ce6080e0058f92e8d",
+      "sha256": "fed6d3181f98a001961fe9b3a52fd89c16002bce5b4c9a853b1c208f201f2ac4",
       "declared_by": "src/bin/dojo-agent/discovery.rs",
-      "method": "Bounded Rust translation of Linux discovery and merge semantics"
+      "method": "Bounded Rust translation of Linux discovery and merge semantics",
+      "reviewed": "Reviewed 88aff7e5..afed1fcb. Declared by src/bin/dojo-agent/discovery.rs for bounded Linux discovery and merge semantics. The upstream diff touches only background_keyboard_refusal (AT-SPI hint), atspi_up, type_text (skipped characters are now an error, type_text_mpx_result), tool schemas (pid optional with element_token on set_value/double_click/right_click), the ignored prompt argument of check_permissions and get_config cursor badges. No discovery or merge function changed, so no translation change."
     },
     {
       "path": "libs/cua-driver/rust/crates/platform-linux/src/wayland/ext_screencopy.rs",
@@ -4752,8 +4791,9 @@
     },
     {
       "path": "libs/python/agent/cua_agent/loops/anthropic.py",
-      "sha256": "ae111ad726e5b8bc0cb49102787b83fa65319491b1210cb8da6b1596f035b010",
-      "declared_by": "crates/dojo-computer-models/provenance.json"
+      "sha256": "4aba616443cbdfa984bbf3a984c4d30c0c74ec685f871ae4bb08bc875a86e7c6",
+      "declared_by": "crates/dojo-computer-models/provenance.json",
+      "reviewed": "Reviewed 88aff7e5..afed1fcb. The upstream diff adds the Claude 5-series computer tool version mapping (computer_20251124). dojo-computer-models has no model-to-tool-version mapping, so no translation change."
     },
     {
       "path": "libs/python/agent/cua_agent/loops/composed_grounded.py",

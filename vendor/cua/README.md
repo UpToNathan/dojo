@@ -2,7 +2,7 @@
 
 The [whole-source copy and fork record](copy-first.md) describes the full Driver and sandbox SDK imports, the thin Pi resource connection, and their executable checks. Source integrity and runtime parity remain separate gates.
 
-Dojo imports CUA source at revision `88aff7e5424e9ed45b93ded85eb4111472ca5190` and translates useful MIT behavior into Rust. Pi owns scheduling, canonical conversations and credentials. Imported modules, successful builds and offline fixtures each establish a limited fact; the capability gates below describe runtime availability.
+Dojo imports the whole CUA source at revision `afed1fcbba64acadcc154b8d5d377549ae62bc7e` (see `copy-plan.json`) and translates useful MIT behavior into Rust. The ledger sits at the same revision. Records whose upstream object changed and that nobody has reviewed keep their original hash and pin `upstream_revision: 88aff7e5424e9ed45b93ded85eb4111472ca5190`; only reviewed sources are re-pinned. Pi owns scheduling, canonical conversations and credentials. Imported modules, successful builds and offline fixtures each establish a limited fact; the capability gates below describe runtime availability.
 
 ## Reproduce the audit
 
@@ -21,13 +21,16 @@ The upstream checkout is an audit input. Normal builds never depend on that temp
 
 ```sh
 git clone --no-checkout https://github.com/trycua/cua /tmp/cua-import-source
-git -C /tmp/cua-import-source checkout --detach 88aff7e5424e9ed45b93ded85eb4111472ca5190
+git -C /tmp/cua-import-source checkout --detach afed1fcbba64acadcc154b8d5d377549ae62bc7e
 node vendor/cua/verify-ledger.mjs --source /tmp/cua-import-source
+node vendor/cua/copy-upstream.mjs /tmp/cua-import-source --verify
 ```
+
+The checkout serves both revisions because they belong to the same repository. `verify-ledger.mjs --source` requires HEAD to equal the ledger revision and reads records pinned to `upstream_revision` from the same repository's older commits (a blob-less clone fetches them on demand).
 
 `refresh-ledger.mjs` defaults to a read-only report. `--write` updates hashes only for owned local translations/glue and already declared source modifications. Every existing `copied` entry must still match its recorded hash and the pinned git object. A changed copied file aborts before any write. Review and explicitly declare such a modification before refreshing. Source objects come from `git show REV:path`, so dirty upstream working trees cannot redefine the baseline.
 
-The refresh tool generates canonical unified diffs under `ledger-patches/`. `verify-ledger.mjs --source` independently regenerates each diff, applies it to the original source with `git apply` in a disposable directory and compares the resulting bytes with maintained source. A forged diff fails even if its checksum was updated. The verifier also checks translated source objects and all 72 inventoried upstream package manifests and governing notice hashes.
+The refresh tool generates canonical unified diffs under `ledger-patches/`. `verify-ledger.mjs --source` independently regenerates each diff, applies it to the original source with `git apply` in a disposable directory and compares the resulting bytes with maintained source. A forged diff fails even if its checksum was updated. The verifier also checks translated source objects and all 73 inventoried upstream package manifests and governing notice hashes.
 
 All 14 refresh/verifier tests pass. They demonstrate copied-byte refusal, dirty-source isolation, idempotence, exact patch reproduction, forged-patch detection and local-byte mismatch detection. No installed files, user profiles, live desktop or runtime state are changed by these tools.
 
@@ -35,9 +38,9 @@ All 14 refresh/verifier tests pass. They demonstrate copied-byte refusal, dirty-
 
 | File | What it proves |
 | --- | --- |
-| `ledger.json` | Per-file integrity, immutable copies, explicit modifications, translated source objects, owners and scoped runtime evidence |
+| `ledger.json` | Per-file integrity (a record may carry `upstream_revision` to keep an older, unreviewed upstream object), immutable copies, explicit modifications, translated source objects, owners and scoped runtime evidence |
 | `ledger-patches/` | Exact changes from pinned source to declared adapted files |
-| `inventory.json` | 72 upstream Cargo package declarations and current adopted/translated slice status; inventories do not authorize a product or artifact |
+| `inventory.json` | 73 upstream Cargo package declarations and current adopted/translated slice status; inventories do not authorize a product or artifact |
 | `dependency-closure.json` | Locked Linux Cargo metadata for 15 manifests, resolved features/graphs, separate normal/build membership, license declarations and available notice/copyright evidence |
 | Unit `provenance.json`, archived sources and README files | Behavior correspondence, retained tests, local changes and remaining integration gates |
 

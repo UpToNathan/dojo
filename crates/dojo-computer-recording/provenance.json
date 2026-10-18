@@ -42,7 +42,9 @@
     },
     {
       "path": "libs/cua-driver/rust/crates/cua-driver-core/src/action_record.rs",
-      "sha256": "259649d6a1f81f9dcea1e587918960adaab8c7f1706d815a251e6b19a171b698"
+      "sha256": "be304639fab82bbc644038dba5db60c7c865ca3dfeaea1d9ae9be20e88b6a06e",
+      "upstream_revision": "afed1fcbba64acadcc154b8d5d377549ae62bc7e",
+      "reviewed": "Reviewed 88aff7e5..afed1fcb. No Dojo code derives from this file; dojo-computer-recording lists it as a source only and its Receipt/Effect model is Dojo's own. The upstream diff adds a macOS-only MacosAppleEvent transport and passes the browser tools' delivery_mode through actual_delivery_from_legacy (Foreground vs Background). Dojo has no browser delivery mapping, so no translation change."
     },
     {
       "path": "libs/cua/crates/cua-spaces-transcript/src/cast.rs",
@@ -295,5 +297,13 @@
       "Mixed float/integer ordering above exact float range is refused, never rounded.",
       "Fuzzy ratio is bounded Unicode LCS normalized Indel similarity; separate pinned RapidFuzz differential proof remains open."
     ]
+  },
+  "reviewed_at": {
+    "revision": "afed1fcbba64acadcc154b8d5d377549ae62bc7e",
+    "baseline_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+    "paths": [
+      "libs/cua-driver/rust/crates/cua-driver-core/src/action_record.rs"
+    ],
+    "scope": "Only the listed sources were re-pinned after review. This is not a whole-crate re-derivation; the crate baseline stays at the earlier revision."
   }
 }

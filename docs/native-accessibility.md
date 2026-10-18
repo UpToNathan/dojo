@@ -92,7 +92,7 @@ installer stages the compositor and trusted agent for the next login.
 [Source pins](../provenance/native-accessibility.json) record the protocol,
 AccessKit and GPUI bases. Qt manifests record exact runtime revisions and the
 small backend patch. CUA remains pinned at
-`88aff7e5424e9ed45b93ded85eb4111472ca5190`.
+`afed1fcbba64acadcc154b8d5d377549ae62bc7e`.
 
 Run `tools/speech/check-semantic-accessibility-live.mjs --private-bus` through
 devenv after building `dojo-agent`, `dojo-accessibility-fixture` and Niri. It uses

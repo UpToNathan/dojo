@@ -1,5 +1,5 @@
 {
-  "coverage": "72 pinned upstream Cargo package declarations plus adopted/translated slices and exact source evidence. Runtime capabilities and third-party closure licenses are recorded separately; inventories do not authorize FSL/model/dataset distribution.",
+  "coverage": "73 pinned upstream Cargo package declarations plus adopted/translated slices and exact source evidence. Runtime capabilities and third-party closure licenses are recorded separately; inventories do not authorize FSL/model/dataset distribution.",
   "packages": [
     {
       "dependencies": [
@@ -2006,7 +2006,9 @@
           "declaration": {
             "features": [
               "Win32_Foundation",
-              "Win32_System_Console"
+              "Win32_System_Console",
+              "Win32_UI_Shell",
+              "Win32_UI_WindowsAndMessaging"
             ],
             "version": "0.61"
           },
@@ -2015,7 +2017,9 @@
           "resolved_workspace": {
             "features": [
               "Win32_Foundation",
-              "Win32_System_Console"
+              "Win32_System_Console",
+              "Win32_UI_Shell",
+              "Win32_UI_WindowsAndMessaging"
             ],
             "version": "0.61"
           },
@@ -2028,7 +2032,7 @@
       "license_file": "LICENSE.md",
       "license_sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9",
       "manifest": "libs/cua/crates/cua-cli/Cargo.toml",
-      "manifest_sha256": "ed2d2011ade15230d2cc807ac1a4f1ba1faa140624122b7e2fd25abd7aaa8cc7",
+      "manifest_sha256": "94f1f047f9b006823727c28bea97a8dd143544e9fc73e97747804ef18cad5d4c",
       "package": "cua-cli",
       "reason": "not required for ticket 01; inventory is not license or build approval",
       "status": "not-imported"
@@ -2838,6 +2842,13 @@
           "name": "tempfile",
           "resolved_workspace": "3",
           "target": null
+        },
+        {
+          "declaration": "0.2",
+          "kind": "dependencies",
+          "name": "libc",
+          "resolved_workspace": "0.2",
+          "target": "cfg(unix)"
         }
       ],
       "extraction_build": "not-run",
@@ -2846,7 +2857,7 @@
       "license_file": "LICENSE.md",
       "license_sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9",
       "manifest": "libs/cua/crates/cua-daemon/Cargo.toml",
-      "manifest_sha256": "e16c1257216fdff83d5e67bf43da8dff800e5332caf5a5167aa68e10996a029a",
+      "manifest_sha256": "b281f3538ee5b351024bf15b65c613cbf559abf430d0d6f987d1064b37cb67a5",
       "package": "cua-daemon",
       "reason": "not required for ticket 01; inventory is not license or build approval",
       "status": "not-imported"
@@ -3540,6 +3551,27 @@
           "name": "libc",
           "resolved_workspace": "0.2",
           "target": "cfg(unix)"
+        },
+        {
+          "declaration": {
+            "features": [
+              "Win32_Foundation",
+              "Win32_System_Diagnostics_ToolHelp",
+              "Win32_System_Threading"
+            ],
+            "version": "0.61"
+          },
+          "kind": "dependencies",
+          "name": "windows-sys",
+          "resolved_workspace": {
+            "features": [
+              "Win32_Foundation",
+              "Win32_System_Diagnostics_ToolHelp",
+              "Win32_System_Threading"
+            ],
+            "version": "0.61"
+          },
+          "target": "cfg(windows)"
         }
       ],
       "extraction_build": "not-run",
@@ -3548,7 +3580,7 @@
       "license_file": "LICENSE.md",
       "license_sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9",
       "manifest": "libs/cua/crates/cua-host/Cargo.toml",
-      "manifest_sha256": "6a5bd04e13ed114089303be27de4fd01240545b0af00a38adba516a8376e72be",
+      "manifest_sha256": "d45fa7adef2e7debdff5e3a462ddbed0dbcaa1c8ef5929418f68a9438d7d1104",
       "package": "cua-host",
       "reason": "not required for ticket 01; inventory is not license or build approval",
       "status": "not-imported"
@@ -4095,6 +4127,18 @@
             "workspace": true
           },
           "kind": "dependencies",
+          "name": "cua-home",
+          "resolved_workspace": {
+            "path": "crates/cua-home",
+            "version": "0.1.0"
+          },
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dependencies",
           "name": "tracing",
           "resolved_workspace": "0.1",
           "target": null
@@ -4300,7 +4344,7 @@
       "license_file": "libs/cua/crates/cua-keyvault/LICENSE",
       "license_sha256": "394023b2176ae770796fee3b43f0eda61c23d0effbe4f6a0cfcae050a72cb70c",
       "manifest": "libs/cua/crates/cua-keyvault/Cargo.toml",
-      "manifest_sha256": "0f6bd05b5d282a5e76ce8fc4bfed3645af60f53a9c1c2686bdc3859a939c8aaa",
+      "manifest_sha256": "c40f0152b0e3d4ecf5bd04c7200e35a12fd5e059ca657d701c2a8763fdbbfc37",
       "package": "cua-keyvault",
       "reason": "not required for ticket 01; inventory is not license or build approval",
       "status": "not-imported"
@@ -4930,6 +4974,383 @@
       "manifest": "libs/cua/crates/cua-media-transport/Cargo.toml",
       "manifest_sha256": "8efe7ca5d4cba519f1c3f16d7fe7ef7367688ef3421ea6c8d75221de66c39486",
       "package": "cua-media-transport",
+      "reason": "not required for ticket 01; inventory is not license or build approval",
+      "status": "not-imported"
+    },
+    {
+      "dependencies": [
+        {
+          "declaration": {
+            "default-features": false,
+            "version": "0.7.1"
+          },
+          "kind": "dependencies",
+          "name": "boringtun",
+          "resolved_workspace": {
+            "default-features": false,
+            "version": "0.7.1"
+          },
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dependencies",
+          "name": "quinn",
+          "resolved_workspace": {
+            "default-features": false,
+            "features": [
+              "runtime-tokio",
+              "rustls-ring"
+            ],
+            "version": "0.11.11"
+          },
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dependencies",
+          "name": "rustls",
+          "resolved_workspace": {
+            "default-features": false,
+            "features": [
+              "ring",
+              "std",
+              "tls12"
+            ],
+            "version": "0.23.42"
+          },
+          "target": null
+        },
+        {
+          "declaration": "1",
+          "kind": "dependencies",
+          "name": "webpki-roots",
+          "resolved_workspace": "1",
+          "target": null
+        },
+        {
+          "declaration": {
+            "default-features": false,
+            "features": [
+              "crypto",
+              "ring",
+              "pem"
+            ],
+            "version": "0.14"
+          },
+          "kind": "dependencies",
+          "name": "rcgen",
+          "resolved_workspace": {
+            "default-features": false,
+            "features": [
+              "crypto",
+              "ring",
+              "pem"
+            ],
+            "version": "0.14"
+          },
+          "target": null
+        },
+        {
+          "declaration": {
+            "features": [
+              "io-util",
+              "macros",
+              "net",
+              "rt",
+              "sync",
+              "time"
+            ],
+            "workspace": true
+          },
+          "kind": "dependencies",
+          "name": "tokio",
+          "resolved_workspace": {
+            "features": [
+              "full"
+            ],
+            "version": "1"
+          },
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dependencies",
+          "name": "tokio-tungstenite",
+          "resolved_workspace": {
+            "default-features": false,
+            "features": [
+              "connect",
+              "handshake",
+              "rustls-tls-webpki-roots"
+            ],
+            "version": "0.29"
+          },
+          "target": null
+        },
+        {
+          "declaration": {
+            "features": [
+              "sink"
+            ],
+            "workspace": true
+          },
+          "kind": "dependencies",
+          "name": "futures-util",
+          "resolved_workspace": "0.3",
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dependencies",
+          "name": "http",
+          "resolved_workspace": "1",
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dependencies",
+          "name": "serde",
+          "resolved_workspace": {
+            "features": [
+              "derive"
+            ],
+            "version": "1"
+          },
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dependencies",
+          "name": "serde_json",
+          "resolved_workspace": "1",
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dependencies",
+          "name": "base64",
+          "resolved_workspace": "0.22",
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dependencies",
+          "name": "hex",
+          "resolved_workspace": "0.4",
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dependencies",
+          "name": "sha2",
+          "resolved_workspace": "0.10",
+          "target": null
+        },
+        {
+          "declaration": "0.12",
+          "kind": "dependencies",
+          "name": "hmac",
+          "resolved_workspace": "0.12",
+          "target": null
+        },
+        {
+          "declaration": "0.12",
+          "kind": "dependencies",
+          "name": "hkdf",
+          "resolved_workspace": "0.12",
+          "target": null
+        },
+        {
+          "declaration": "0.10",
+          "kind": "dependencies",
+          "name": "chacha20poly1305",
+          "resolved_workspace": "0.10",
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dependencies",
+          "name": "rand",
+          "resolved_workspace": "0.9",
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dependencies",
+          "name": "thiserror",
+          "resolved_workspace": "2",
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dependencies",
+          "name": "tracing",
+          "resolved_workspace": "0.1",
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dependencies",
+          "name": "url",
+          "resolved_workspace": "2.5",
+          "target": null
+        },
+        {
+          "declaration": "0.13",
+          "kind": "dependencies",
+          "name": "if-addrs",
+          "resolved_workspace": "0.13",
+          "target": null
+        },
+        {
+          "declaration": {
+            "features": [
+              "all"
+            ],
+            "version": "0.6"
+          },
+          "kind": "dependencies",
+          "name": "socket2",
+          "resolved_workspace": {
+            "features": [
+              "all"
+            ],
+            "version": "0.6"
+          },
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dependencies",
+          "name": "bytes",
+          "resolved_workspace": "1",
+          "target": null
+        },
+        {
+          "declaration": {
+            "features": [
+              "macros",
+              "rt-multi-thread",
+              "time",
+              "test-util"
+            ],
+            "workspace": true
+          },
+          "kind": "dev-dependencies",
+          "name": "tokio",
+          "resolved_workspace": {
+            "features": [
+              "full"
+            ],
+            "version": "1"
+          },
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dev-dependencies",
+          "name": "tempfile",
+          "resolved_workspace": "3",
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dev-dependencies",
+          "name": "tracing-subscriber",
+          "resolved_workspace": {
+            "features": [
+              "env-filter"
+            ],
+            "version": "0.3"
+          },
+          "target": null
+        },
+        {
+          "declaration": {
+            "features": [
+              "testing"
+            ],
+            "path": "."
+          },
+          "kind": "dev-dependencies",
+          "name": "cua-mesh",
+          "resolved_workspace": {
+            "features": [
+              "testing"
+            ],
+            "path": "."
+          },
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dev-dependencies",
+          "name": "cua-spacesd-client",
+          "resolved_workspace": {
+            "path": "crates/cua-spacesd-client",
+            "version": "0.1.0"
+          },
+          "target": null
+        },
+        {
+          "declaration": {
+            "features": [
+              "client"
+            ],
+            "workspace": true
+          },
+          "kind": "dev-dependencies",
+          "name": "cua-proto",
+          "resolved_workspace": {
+            "path": "crates/cua-proto",
+            "version": "0.1.0"
+          },
+          "target": null
+        }
+      ],
+      "extraction_build": "not-run",
+      "gate": "adapter/dependency/build audit required",
+      "license": "MIT",
+      "license_file": "LICENSE.md",
+      "license_sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9",
+      "manifest": "libs/cua/crates/cua-mesh/Cargo.toml",
+      "manifest_sha256": "f68a1dc928b95d001289e51d5f15c02a6d4a3439c4905433d36459fd4dcb4dea",
+      "package": "cua-mesh",
       "reason": "not required for ticket 01; inventory is not license or build approval",
       "status": "not-imported"
     },
@@ -6405,6 +6826,18 @@
             "workspace": true
           },
           "kind": "dependencies",
+          "name": "cua-mesh",
+          "resolved_workspace": {
+            "path": "crates/cua-mesh",
+            "version": "0.1.0"
+          },
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dependencies",
           "name": "async-trait",
           "resolved_workspace": "0.1",
           "target": null
@@ -6709,6 +7142,21 @@
             "workspace": true
           },
           "kind": "dev-dependencies",
+          "name": "cua-mesh",
+          "resolved_workspace": {
+            "path": "crates/cua-mesh",
+            "version": "0.1.0"
+          },
+          "target": null
+        },
+        {
+          "declaration": {
+            "features": [
+              "testing"
+            ],
+            "workspace": true
+          },
+          "kind": "dev-dependencies",
           "name": "cua-sandbox-core",
           "resolved_workspace": {
             "path": "crates/cua-sandbox-core",
@@ -6872,7 +7320,7 @@
       "license_file": "LICENSE.md",
       "license_sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9",
       "manifest": "libs/cua/crates/cua-spaces/Cargo.toml",
-      "manifest_sha256": "a464979f825e920c9faeafe8b4a11e1c43adce98ccc3ebaa05c2c9e4bc741667",
+      "manifest_sha256": "d9cd81e63646239ac06389af130f16e1bb4a6372f404b89bf7b4029de2c15eb0",
       "package": "cua-spaces",
       "reason": "not required for ticket 01; inventory is not license or build approval",
       "status": "not-imported"
@@ -8102,6 +8550,18 @@
             "workspace": true
           },
           "kind": "dependencies",
+          "name": "cua-home",
+          "resolved_workspace": {
+            "path": "crates/cua-home",
+            "version": "0.1.0"
+          },
+          "target": null
+        },
+        {
+          "declaration": {
+            "workspace": true
+          },
+          "kind": "dependencies",
           "name": "cua-host",
           "resolved_workspace": {
             "path": "crates/cua-host",
@@ -8401,7 +8861,7 @@
       "license_file": "libs/cua/crates/cua-spaces-ffi/LICENSE",
       "license_sha256": "394023b2176ae770796fee3b43f0eda61c23d0effbe4f6a0cfcae050a72cb70c",
       "manifest": "libs/cua/crates/cua-spaces-ffi/Cargo.toml",
-      "manifest_sha256": "ff4b96e77dee3dc216c169395f24bbc18a4110546823bd161fa9a271c134e5df",
+      "manifest_sha256": "ac6468860a52be31f7ef2fa87d9944258584efbdc30a616b20ebebe4b7d07228",
       "package": "cua-spaces-ffi",
       "reason": "not required for ticket 01; inventory is not license or build approval",
       "status": "not-imported"
@@ -9620,6 +10080,12 @@
               "Foundation",
               "Security_Credentials_UI",
               "Win32_Foundation",
+              "Win32_Graphics_Gdi",
+              "Win32_Security",
+              "Win32_Security_Authentication_Identity",
+              "Win32_Security_Credentials",
+              "Win32_System_Com",
+              "Win32_System_Threading",
               "Win32_System_WinRT",
               "Win32_UI_WindowsAndMessaging"
             ],
@@ -9632,6 +10098,12 @@
               "Foundation",
               "Security_Credentials_UI",
               "Win32_Foundation",
+              "Win32_Graphics_Gdi",
+              "Win32_Security",
+              "Win32_Security_Authentication_Identity",
+              "Win32_Security_Credentials",
+              "Win32_System_Com",
+              "Win32_System_Threading",
               "Win32_System_WinRT",
               "Win32_UI_WindowsAndMessaging"
             ],
@@ -9646,7 +10118,7 @@
       "license_file": "libs/cua/crates/cua-teleport/LICENSE",
       "license_sha256": "394023b2176ae770796fee3b43f0eda61c23d0effbe4f6a0cfcae050a72cb70c",
       "manifest": "libs/cua/crates/cua-teleport/Cargo.toml",
-      "manifest_sha256": "81a8b04d062780322e180c56fabe0af0459f80a8ac342b5286fa96712da16cde",
+      "manifest_sha256": "438f9a3c0589612c48b7120de31469df29f46abdd3cbc6be4fb6d8585df211eb",
       "package": "cua-teleport",
       "reason": "not required for ticket 01; inventory is not license or build approval",
       "status": "not-imported"
@@ -11305,6 +11777,25 @@
             "path": "../platform-linux"
           },
           "target": "cfg(target_os = \"linux\")"
+        },
+        {
+          "declaration": {
+            "default-features": false,
+            "features": [
+              "tokio"
+            ],
+            "version": "5"
+          },
+          "kind": "dev-dependencies",
+          "name": "zbus",
+          "resolved_workspace": {
+            "default-features": false,
+            "features": [
+              "tokio"
+            ],
+            "version": "5"
+          },
+          "target": "cfg(target_os = \"linux\")"
         }
       ],
       "extraction_build": "not-run",
@@ -11313,7 +11804,7 @@
       "license_file": "LICENSE.md",
       "license_sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9",
       "manifest": "libs/cua-driver/rust/crates/cua-driver/Cargo.toml",
-      "manifest_sha256": "f4c33aa3a0d58d7a960b32d7a952198c84aaaba9e1208efdea82a3d7ad7169e4",
+      "manifest_sha256": "3733ec872f09da41d2e7571582fedb4c0f8d788e8316b5be7d9a6cb5b2e6fabb",
       "package": "cua-driver",
       "reason": "not required for ticket 01; inventory is not license or build approval",
       "status": "not-imported"
@@ -13407,7 +13898,6 @@
           "declaration": {
             "default-features": false,
             "features": [
-              "connection",
               "proxies",
               "wrappers",
               "tokio",
@@ -13420,13 +13910,31 @@
           "resolved_workspace": {
             "default-features": false,
             "features": [
-              "connection",
               "proxies",
               "wrappers",
               "tokio",
               "zbus"
             ],
             "version": "0.30"
+          },
+          "target": "cfg(target_os = \"linux\")"
+        },
+        {
+          "declaration": {
+            "default-features": false,
+            "features": [
+              "wrappers"
+            ],
+            "version": "0.14"
+          },
+          "kind": "dependencies",
+          "name": "atspi-connection",
+          "resolved_workspace": {
+            "default-features": false,
+            "features": [
+              "wrappers"
+            ],
+            "version": "0.14"
           },
           "target": "cfg(target_os = \"linux\")"
         },
@@ -13669,7 +14177,7 @@
       "license_file": "LICENSE.md",
       "license_sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9",
       "manifest": "libs/cua-driver/rust/crates/platform-linux/Cargo.toml",
-      "manifest_sha256": "4a9e6f691d311ef15271f2d65ebe0b68784526dd88bfb0bd75a7bf2330acd718",
+      "manifest_sha256": "18f8925950b55903a973eec91ff94c914b5e21332e7d84758c789b74a6339224",
       "package": "platform-linux",
       "reason": "not required for ticket 01; inventory is not license or build approval",
       "status": "not-imported"
@@ -16450,6 +16958,17 @@
       "dependencies": [
         {
           "declaration": {
+            "path": "../../../cua/crates/cua-mesh"
+          },
+          "kind": "dependencies",
+          "name": "cua-mesh",
+          "resolved_workspace": {
+            "path": "../../../cua/crates/cua-mesh"
+          },
+          "target": null
+        },
+        {
+          "declaration": {
             "path": "../../../cua/crates/cua-proto"
           },
           "kind": "dependencies",
@@ -16745,6 +17264,27 @@
           "kind": "dependencies",
           "name": "rand",
           "resolved_workspace": "0.8",
+          "target": null
+        },
+        {
+          "declaration": {
+            "default-features": false,
+            "features": [
+              "json",
+              "rustls-tls"
+            ],
+            "version": "0.12"
+          },
+          "kind": "dependencies",
+          "name": "reqwest",
+          "resolved_workspace": {
+            "default-features": false,
+            "features": [
+              "json",
+              "rustls-tls"
+            ],
+            "version": "0.12"
+          },
           "target": null
         },
         {
@@ -17088,7 +17628,7 @@
       "license_file": "libs/cua-spacesd/LICENSE",
       "license_sha256": "394023b2176ae770796fee3b43f0eda61c23d0effbe4f6a0cfcae050a72cb70c",
       "manifest": "libs/cua-spacesd/crates/cua-spacesd-server/Cargo.toml",
-      "manifest_sha256": "733a8ef9f663d7170ce15156956e974a242234e978c63028755d1f9d378bc911",
+      "manifest_sha256": "88a9ef7e79397a7ce0519353e126b7534ba291910827253eebc7386c06cb6da9",
       "package": "cua-spacesd-server",
       "reason": "not required for ticket 01; inventory is not license or build approval",
       "status": "not-imported"
@@ -18005,37 +18545,37 @@
       "status": "not-imported"
     }
   ],
-  "upstream_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
   "translated_units": [
     {
       "name": "dojo-computer-models",
-      "source_manifest": "crates/dojo-computer-models/provenance.json",
-      "scope": "Rust parsers/preprocessing plans/grounding-budget-retention/S1 pure policy; per-request foreground-only Pi text bridge; same-ID concurrent summaries bypass decoding; native provider/inference gates remain"
+      "scope": "Rust parsers/preprocessing plans/grounding-budget-retention/S1 pure policy; per-request foreground-only Pi text bridge; same-ID concurrent summaries bypass decoding; native provider/inference gates remain",
+      "source_manifest": "crates/dojo-computer-models/provenance.json"
     },
     {
       "name": "dojo-computer-recording",
-      "source_manifest": "crates/dojo-computer-recording/provenance.json",
-      "scope": "Redacted canonical Pi traces/typed reported usage estimates, ATIF, bounded terminal observations, isolated grounding episodes and GUI-R1/Aguvis offline processors"
+      "scope": "Redacted canonical Pi traces/typed reported usage estimates, ATIF, bounded terminal observations, isolated grounding episodes and GUI-R1/Aguvis offline processors",
+      "source_manifest": "crates/dojo-computer-recording/provenance.json"
     },
     {
       "name": "dojo-accessibility",
-      "source_manifest": "crates/dojo-accessibility/provenance.json",
-      "scope": "Read-only bounded AT-SPI observation; semantic mutations refused pending top-level identity"
+      "scope": "Read-only bounded AT-SPI observation; semantic mutations refused pending top-level identity",
+      "source_manifest": "crates/dojo-accessibility/provenance.json"
     },
     {
       "name": "dojo-capture-wayland",
-      "source_manifest": "crates/dojo-capture-wayland/provenance.json",
-      "scope": "Named-output bounded native capture plus pixel transformation"
+      "scope": "Named-output bounded native capture plus pixel transformation",
+      "source_manifest": "crates/dojo-capture-wayland/provenance.json"
     },
     {
       "name": "dojo-external-admission",
-      "source_manifest": "crates/dojo-external-admission/provenance.json",
-      "scope": "Original Rust serialized writer/broker experiments and operator-opt-in browser navigate adapter; no generalized semantic effect admission claim"
+      "scope": "Original Rust serialized writer/broker experiments and operator-opt-in browser navigate adapter; no generalized semantic effect admission claim",
+      "source_manifest": "crates/dojo-external-admission/provenance.json"
     },
     {
       "name": "dojo-computer-verification",
-      "source_manifest": "crates/dojo-computer-verification/provenance.json",
-      "scope": "Pure bounded predicates, exact browser identity/full coverage, Pi-owned step phases/intent gaps, real Rust catalog nesting; no scheduler or uncertain-effect replay; exact native AT-SPI binding unavailable"
+      "scope": "Pure bounded predicates, exact browser identity/full coverage, Pi-owned step phases/intent gaps, real Rust catalog nesting; no scheduler or uncertain-effect replay; exact native AT-SPI binding unavailable",
+      "source_manifest": "crates/dojo-computer-verification/provenance.json"
     }
-  ]
+  ],
+  "upstream_revision": "afed1fcbba64acadcc154b8d5d377549ae62bc7e"
 }

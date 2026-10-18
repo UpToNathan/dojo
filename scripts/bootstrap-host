@@ -66,7 +66,7 @@ phase_user() {
 
     echo '== CUA driver'
     # build-cua-driver.sh verifies the vendored copy against a pinned upstream checkout in the cache.
-    local cua_rev=88aff7e5424e9ed45b93ded85eb4111472ca5190
+    local cua_rev=afed1fcbba64acadcc154b8d5d377549ae62bc7e
     local cua_cache=${XDG_CACHE_HOME:-$HOME/.cache}/dojo/upstream/cua/$cua_rev
     if [[ ! -d $cua_cache/.git ]]; then
         mkdir -p "$(dirname "$cua_cache")"

@@ -39,7 +39,9 @@ for (const file of ledger.files) {
   let upstream;
   if (source && file.upstream_path) {
     // Read committed objects, never trust a dirty source working tree.
-    upstream = git('show', `${ledger.upstream.revision}:${file.upstream_path}`);
+    const revision = file.upstream_revision ?? ledger.upstream.revision;
+    if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error(`Invalid upstream revision: ${file.path}`);
+    upstream = git('show', `${revision}:${file.upstream_path}`);
     if (sha(upstream) !== file.upstream_sha256) throw new Error(`Upstream mismatch: ${file.upstream_path}`);
     if (file.state === 'copied' && sha(upstream) !== file.sha256) throw new Error(`Copy differs: ${file.path}`);
   }
