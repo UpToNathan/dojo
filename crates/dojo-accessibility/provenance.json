@@ -7,7 +7,9 @@
   "upstream_files": [
     {
       "path": "libs/cua-driver/rust/crates/platform-linux/src/atspi/native.rs",
-      "sha256": "d829b989ef043367ef789c962d7b569321c4d82c8e30e3282e6eb59bdaecb7a8"
+      "sha256": "59e3c53a54b4d51dd1259cdcdf347400dcf85dd8ffdae2d0a04462012e21042f",
+      "upstream_revision": "afed1fcbba64acadcc154b8d5d377549ae62bc7e",
+      "reviewed": "Reviewed 88aff7e5..afed1fcb. dojo-accessibility copies only the activation selection region (const ACTIVATION_VERBS through fn at_point_activation_index), byte-identical at both revisions (sha256 feb871ad90917150..., 3892 chars). The upstream diff is the atspi_connection import with p2p off (e3ad8319a), a once-per-pid app.get_attributes() wake before the first traversal (e7af6a61b) and the X11 top-level-frame rebase guards (6e050d720, 7d8378f16); none touches the copied code, so the translation needs no change. The wake and the p2p change are adoption candidates for Dojo, not part of this change."
     },
     {
       "path": "libs/cua-driver/rust/crates/platform-linux/src/atspi/mod.rs",
@@ -30,5 +32,13 @@
   "validation": "Rust p2p D-Bus fixtures plus logic tests through devenv; GTK7 exact-surface live evidence is recorded in .scratch/native-assistance/result.md",
   "adaptations": {
     "actions.rs": "Copied ACTIVATION_VERBS through activation_index plus is_selectable_item_role/is_option_role; exported selector; typed capability policy and validated direct Selection parent, without transport"
+  },
+  "reviewed_at": {
+    "revision": "afed1fcbba64acadcc154b8d5d377549ae62bc7e",
+    "baseline_revision": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+    "paths": [
+      "libs/cua-driver/rust/crates/platform-linux/src/atspi/native.rs"
+    ],
+    "scope": "Only the listed sources were re-pinned after review. This is not a whole-crate re-derivation; the crate baseline stays at the earlier revision."
   }
 }

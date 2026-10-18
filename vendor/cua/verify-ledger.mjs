@@ -24,6 +24,12 @@ function safe(path) {
 }
 function git(...args) { return execFileSync('git', ['-C', source, ...args], { maxBuffer: 32 * 1024 * 1024 }); }
 if (source && git('rev-parse', 'HEAD').toString().trim() !== ledger.upstream.revision) throw new Error('Pinned revision mismatch');
+// A record may pin an older object of the same upstream repository with upstream_revision.
+const revisionOf = record => {
+  const revision = record.upstream_revision ?? ledger.upstream.revision;
+  if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error(`Invalid upstream revision: ${record.path}`);
+  return revision;
+};
 const paths = new Set(), temp = mkdtempSync(join(tmpdir(), 'dojo-verify-ledger-'));
 let copies = 0, modifications = 0, wholeImportFiles = 0;
 try {
@@ -34,10 +40,11 @@ try {
     const maintained = readFileSync(safe(file.path));
     if (sha(maintained) !== file.sha256) throw new Error(`Local byte mismatch: ${file.path}`);
     let original;
+    if (file.upstream_revision !== undefined) revisionOf(file);
     if (file.upstream_path) {
       if (!file.upstream_sha256) throw new Error(`Missing upstream hash: ${file.path}`);
       if (source) {
-        original = git('show', `${ledger.upstream.revision}:${file.upstream_path}`);
+        original = git('show', `${revisionOf(file)}:${file.upstream_path}`);
         if (sha(original) !== file.upstream_sha256) throw new Error(`Pinned source mismatch: ${file.path}`);
       }
     } else if (file.state === 'copied' || file.state === 'modified') throw new Error(`Missing source correspondence: ${file.path}`);
@@ -82,7 +89,8 @@ try {
     }
   }
   for (const entry of ledger.source_evidence ?? []) {
-    if (source && sha(git('show', `${ledger.upstream.revision}:${entry.path}`)) !== entry.sha256) throw new Error(`Translation source mismatch: ${entry.path}`);
+    const revision = revisionOf(entry);
+    if (source && sha(git('show', `${revision}:${entry.path}`)) !== entry.sha256) throw new Error(`Translation source mismatch: ${entry.path}`);
   }
   if (paths.has('vendor/cua/copy-plan.json')) {
     if (!paths.has('vendor/cua/copy-inventory.json')) throw new Error('Whole import inventory is not pinned in the ledger');

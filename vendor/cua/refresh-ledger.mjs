@@ -24,6 +24,12 @@ const revision = ledger.upstream.revision;
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 function git(...args) { return execFileSync('git', ['-C', source, ...args], { maxBuffer: 32 * 1024 * 1024 }); }
 if (git('rev-parse', 'HEAD').toString().trim() !== revision) throw new Error('Source checkout HEAD differs from pinned revision');
+// A record may pin an older object of the same upstream repository with upstream_revision.
+function revisionOf(record) {
+  const recorded = record.upstream_revision ?? revision;
+  if (!/^[0-9a-f]{40}$/.test(recorded)) throw new Error(`Invalid upstream revision: ${record.path}`);
+  return recorded;
+}
 function safe(path) {
   const file = resolve(root, path), rel = relative(root, file);
   if (!rel || rel.startsWith('..') || isAbsolute(rel)) throw new Error(`Unsafe path: ${path}`);
@@ -39,13 +45,13 @@ for (const file of files.values()) {
   const maintained = bytes(file.path);
   if (file.state === 'copied') {
     if (!file.upstream_path || !file.upstream_sha256) throw new Error(`Copied record lacks provenance: ${file.path}`);
-    const upstream = git('show', `${revision}:${file.upstream_path}`);
+    const upstream = git('show', `${revisionOf(file)}:${file.upstream_path}`);
     if (sha(upstream) !== file.upstream_sha256 || sha(maintained) !== file.sha256 || sha(maintained) !== sha(upstream)) {
       throw new Error(`Changed copied source refused: ${file.path}; explicitly review and declare a modification first`);
     }
   } else if (file.state === 'modified') {
     if (!file.upstream_path || !file.upstream_sha256) throw new Error(`Modified record lacks provenance: ${file.path}`);
-    if (sha(git('show', `${revision}:${file.upstream_path}`)) !== file.upstream_sha256) throw new Error(`Pinned source hash mismatch: ${file.path}`);
+    if (sha(git('show', `${revisionOf(file)}:${file.upstream_path}`)) !== file.upstream_sha256) throw new Error(`Pinned source hash mismatch: ${file.path}`);
   } else if (file.state !== 'local' && file.state !== 'translated') throw new Error(`Unknown ledger state: ${file.state}`);
 }
 const ownedRoots = ['crates/dojo-cua-primitives', 'crates/dojo-computer', 'crates/dojo-computer-models',
@@ -126,7 +132,7 @@ for (const [path, upstream_path, unit] of correspondences) {
   if (!existsSync(safe(path))) continue;
   const previous = files.get(path);
   if (previous?.upstream_path && previous.upstream_path !== upstream_path) throw new Error(`Conflicting source correspondence: ${path}`);
-  const upstream = git('show', `${revision}:${upstream_path}`), maintained = bytes(path);
+  const upstream = git('show', `${revisionOf(previous ?? {path})}:${upstream_path}`), maintained = bytes(path);
   const state = sha(upstream) === sha(maintained) ? 'copied' : 'modified';
   if (previous?.state === 'copied' && state !== 'copied') throw new Error(`Changed copied source refused: ${path}`);
   files.set(path, { ...previous, path, unit, owner: ledger.owner, state, upstream_path, upstream_sha256: sha(upstream), sha256: sha(maintained) });
@@ -138,7 +144,7 @@ try {
     if(file.state==='copied'&&digest!==file.upstream_sha256)throw new Error(`Copied source changed during refresh: ${file.path}`);
     if (file.sha256 !== digest) changes.push(file.path);
     if (file.state === 'modified') {
-      const upstream = git('show', `${revision}:${file.upstream_path}`);
+      const upstream = git('show', `${revisionOf(file)}:${file.upstream_path}`);
       if (sha(upstream) !== file.upstream_sha256) throw new Error(`Pinned source mismatch: ${file.path}`);
       const oldFile = join(temp, 'original'), newFile = join(temp, 'maintained');
       writeFileSync(oldFile, upstream); writeFileSync(newFile, maintained);
@@ -155,7 +161,7 @@ try {
 ledger.files = [...files.values()].sort((a,b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 ledger.schema_version = 2;
 ledger.refresh = { command: 'node vendor/cua/refresh-ledger.mjs --source PINNED_CHECKOUT --write',
-  policy: 'Only local/translated and explicitly modified records are refreshed. Existing copied records must still equal both recorded and pinned bytes. Unified patches compare pinned git objects to maintained source.' };
+  policy: 'Only local/translated and explicitly modified records are refreshed. A record may pin an older object of the same repository with upstream_revision; it is never moved to the ledger revision implicitly. Existing copied records must still equal both recorded and pinned bytes. Unified patches compare pinned git objects to maintained source.' };
 ledger.source_evidence = ledger.source_evidence ?? [];
 // Behavioral translations may span many source files. Record those source objects without pretending there is a literal one-file copy.
 for (const manifest of ['crates/dojo-computer-models/provenance.json','crates/dojo-computer-verification/provenance.json','crates/dojo-computer-recording/provenance.json','crates/dojo-accessibility/provenance.json','crates/dojo-capture-wayland/provenance.json']) {
@@ -164,9 +170,10 @@ for (const manifest of ['crates/dojo-computer-models/provenance.json','crates/do
   for (const item of record.sources ?? record.upstream_sources ?? record.upstream_files ?? []) {
     const path = typeof item === 'string' ? item : item.path;
     if (!path) continue;
-    const digest = sha(git('show', `${revision}:${path}`));
+    const known = ledger.source_evidence.find(entry => entry.path === path);
+    const digest = sha(git('show', `${revisionOf(known ?? {path})}:${path}`));
     if (item.sha256 && item.sha256 !== digest) throw new Error(`Translation source hash mismatch: ${path}`);
-    if (!ledger.source_evidence.some(entry => entry.path === path)) ledger.source_evidence.push({ path, sha256: digest, declared_by: manifest });
+    if (!known) ledger.source_evidence.push({ path, sha256: digest, declared_by: manifest });
   }
 }
 for (const [path, declared_by, method] of [

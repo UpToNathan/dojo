@@ -14306,7 +14306,7 @@
     },
     {
       "file": "vendor/cua/ledger.json",
-      "line": 4484,
+      "line": 4520,
       "url": "https://github.com/trycua/cua",
       "identity": null,
       "status": "requires-classification"
@@ -14327,7 +14327,7 @@
     },
     {
       "file": "vendor/cua/provenance/LICENSING.md",
-      "line": 154,
+      "line": 147,
       "url": "https://github.com/pingdotgg/t3code",
       "identity": null,
       "status": "requires-classification"
@@ -14348,7 +14348,7 @@
     },
     {
       "file": "vendor/cua/provenance/sdk-Cargo.toml",
-      "line": 87,
+      "line": 84,
       "url": "https://github.com/trycua/cua",
       "identity": null,
       "status": "requires-classification"

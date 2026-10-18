@@ -1,6 +1,6 @@
 # Copied CUA implementation
 
-The baseline is CUA commit `afed1fcbba64acadcc154b8d5d377549ae62bc7e`. The earlier baseline `88aff7e5424e9ed45b93ded85eb4111472ca5190` still anchors the integrity ledger, the private Driver extraction and the Rust translations until the ledger migration described in [README.md](README.md) is reviewed.
+The baseline is CUA commit `afed1fcbba64acadcc154b8d5d377549ae62bc7e`. Ledger records that derive from files upstream changed since `88aff7e5424e9ed45b93ded85eb4111472ca5190` and are not yet reviewed (the private Driver extraction, the cursor-motion copy and the browser copies) keep that revision in `upstream_revision`.
 `copy-plan.json` selects whole source trees. `copy-inventory.json` records each original Git object and maintained digest.
 
 ## Source and fork ownership
