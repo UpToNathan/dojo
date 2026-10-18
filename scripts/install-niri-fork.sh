@@ -101,6 +101,11 @@ link_with_backup() {
     if [[ -L $target_file && $(readlink -f "$target_file") == "$source_file" ]]; then
         return
     fi
+    # Home Manager owns some of these paths once it has run. Replacing its link would make the
+    # next deployment refuse to overwrite the file.
+    if [[ -L $target_file && $(readlink -f "$target_file") == /nix/store/* ]]; then
+        return
+    fi
     if [[ -e $target_file || -L $target_file ]]; then
         mv -- "$target_file" "$target_file.backup-$(date +%Y%m%d%H%M%S)-$$"
     fi
