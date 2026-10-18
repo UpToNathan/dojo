@@ -381,6 +381,9 @@ fn run_with_surfaces(
         theme_paths.root.join("selection.json"),
         theme_paths.root.join("current/selection.json"),
         theme_paths.root.join("current/wallpaper.txt"),
+        theme_paths
+            .root
+            .join(dojo::theme::wallpaper_layout::FILE_NAME),
     ]);
     let mut file_watcher = match crate::file_events::Watcher::start(watch_paths) {
         Ok(watcher) => Some(watcher),

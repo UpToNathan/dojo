@@ -36,6 +36,11 @@ left of the system tray. It opens on Wallpaper and offers Wallpaper, Presets, an
   **Apply wallpaper**. This preserves the existing palette, preset,
   appearance policy and targets without calling darkman. With no selected theme,
   the current config colors are retained rather than running extraction.
+  Below it, **Each monitor** (the default) or **Span all monitors** chooses how the
+  wallpaper sits on the displays. Unlike an image, the layout takes effect at once:
+  it only describes this machine's monitors, so it is kept in
+  `~/.local/state/dojo/themes/wallpaper-layout` (`fill` or `span`) outside the theme
+  generations and survives theme changes.
 - **Presets**: 41 variants grouped by family.
 - **Derive**: previews all 23 refined modes from the chosen wallpaper. Select
   Dark or Light, then Apply theme to publish that exact mode and appearance.
@@ -218,6 +223,18 @@ current activation. It publishes no target, signals nothing, makes no new
 activation and leaves `current` where it is; it prints what it did as JSON
 and is idempotent. A generation without a retained wallpaper gets no file
 (`path` is `null`).
+
+### Spanning monitors
+
+With the `span` layout one image covers the bounding box of all enabled monitors,
+scaled to cover it and centred. Each wallpaper window shows the part of the image
+behind its monitor: Niri supplies every monitor's logical position and size, so
+scale, rotation and gaps between monitors are respected (a gap hides the picture
+behind it, as with one picture seen through separate windows). Dojo re-slices when
+monitors are rearranged, rotated or connected. If Niri cannot be queried or the
+image header cannot be read, each monitor falls back to filling. Spanned slices are
+prepared per window and are not stored in the wallpaper cache, which holds whole
+monitor-sized images. The lock screen's own wallpaper is not spanned.
 
 ### Monitor wallpaper preparation
 

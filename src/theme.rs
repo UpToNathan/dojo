@@ -7,6 +7,7 @@ mod presets;
 mod preview;
 mod refined;
 mod store;
+pub mod wallpaper_layout;
 
 use std::collections::BTreeMap;
 use std::path::Path;

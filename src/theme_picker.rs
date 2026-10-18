@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use dojo::extraction::Mode;
+use dojo::theme::wallpaper_layout::WallpaperLayout;
 use dojo::theme::{Appearance, Paths, Preset, Selection, SemanticPalette, Theme, ThemeStore};
 use gpui::{
     App, AppContext, Context, FocusHandle, KeyDownEvent, MouseButton, Render, Window,
@@ -283,6 +284,9 @@ impl ThemePicker {
                         message: "Choose a wallpaper. No desktop changes until Apply.".into(),
                         panel: None,
                         show_wallpaper: true,
+                        layout: dojo::theme::Paths::user_default()
+                            .and_then(|paths| WallpaperLayout::read(&paths.root))
+                            .unwrap_or_default(),
                         file_request: None,
                         file_request_revision: 0,
                         file_request_error: None,
@@ -311,6 +315,7 @@ struct PickerView {
     message: String,
     panel: Option<gpui::Bounds<gpui::Pixels>>,
     show_wallpaper: bool,
+    layout: WallpaperLayout,
     file_request: Option<portal::Request>,
     file_request_revision: u64,
     file_request_error: Option<String>,
@@ -437,6 +442,25 @@ impl PickerView {
             }
         })
         .detach();
+    }
+
+    /// Unlike an image, the layout applies at once: it only describes how the current wallpaper
+    /// sits on this machine's monitors and changes nothing else.
+    fn set_layout(&mut self, layout: WallpaperLayout, cx: &mut Context<Self>) {
+        if self.layout == layout || self.applying {
+            return;
+        }
+        match dojo::theme::Paths::user_default().and_then(|paths| layout.write(&paths.root)) {
+            Ok(()) => {
+                self.layout = layout;
+                self.message = match layout {
+                    WallpaperLayout::Span => "One wallpaper now spans all monitors.".into(),
+                    WallpaperLayout::Fill => "Each monitor shows the whole wallpaper.".into(),
+                };
+            }
+            Err(error) => self.message = format!("Could not save the wallpaper layout: {error:#}"),
+        }
+        cx.notify();
     }
 
     fn choose_image(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -754,6 +778,40 @@ impl Render for PickerView {
                         cx.listener(|view, _, window, cx| view.choose_image(window, cx)),
                     ),
             );
+            let mut layout_buttons = div().id("wallpaper-layout").w_full().flex().gap(px(8.));
+            for (index, (layout, label)) in [
+                (WallpaperLayout::Fill, "Each monitor"),
+                (WallpaperLayout::Span, "Span all monitors"),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let selected = self.layout == layout;
+                layout_buttons = layout_buttons.child(
+                    div()
+                        .id(("wallpaper-layout-option", index))
+                        .px(px(12.))
+                        .py(px(8.))
+                        .rounded(px(crate::design::PILL_RADIUS))
+                        .cursor_pointer()
+                        .bg(if selected {
+                            colors.primary.rgb()
+                        } else {
+                            colors.background_highlight.rgb()
+                        })
+                        .text_color(if selected {
+                            colors.primary_foreground.rgb()
+                        } else {
+                            colors.selection_foreground.rgb()
+                        })
+                        .child(label)
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |view, _, _, cx| view.set_layout(layout, cx)),
+                        ),
+                );
+            }
+            mode_buttons.push(layout_buttons);
             mode_buttons.push(div().id("wallpaper-picker-hint").w_full().text_color(colors.foreground_muted.rgb()).child("Choose a JPEG, PNG, or WebP with the system file picker. Preview it here, then Apply."));
             if let Some(error) = &self.file_request_error {
                 mode_buttons.push(
