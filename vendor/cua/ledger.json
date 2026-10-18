@@ -4212,7 +4212,7 @@
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "027419cebcbb18e47e0485ebfaaa2223a76d30495dfeef7feffdd6053308b3f5"
+      "sha256": "fce782e9b770014bdc65f93938763ad3dda908c8eeaa576707eb0cd47c453d99"
     },
     {
       "path": "vendor/niri/niri-ipc/src/socket.rs",
@@ -4226,7 +4226,7 @@
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "2140a8da5032530077f775d675bfb76cb7fda4378fea8c48939175d64c9d30cc"
+      "sha256": "b87c32a25cb30c98250fe41862d7e799d4b3ab0613afa88942333bd86cf9163a"
     },
     {
       "path": "vendor/niri/src/agent_input.rs",
@@ -4296,14 +4296,14 @@
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "65714507cd61ac8ce1ed4b479c0c8ed51978eca34220ea44e4d28bf552b37a50"
+      "sha256": "239bf2194c0555d4e8e2aef843605fa495c3f70c410b37fe60fc53aabfc464c9"
     },
     {
       "path": "vendor/niri/src/ipc/server.rs",
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "de7df2f45fa23426370c8c29c0c3f9092efdee64cceb6f38942dbba304d65839"
+      "sha256": "a0ad39ed30e89d61d00213bbcce1ded85c075696152f5aff4b5d249b975364b1"
     },
     {
       "path": "vendor/niri/src/layout/scrolling.rs",
@@ -4324,7 +4324,7 @@
       "state": "local",
       "unit": "dojo-root-integration",
       "owner": "Dojo CUA integration maintainers",
-      "sha256": "0f36098390902dad723168b757123442360d9c68f0461b16fb02c3121b96ed3c"
+      "sha256": "fa98d387c647e8d577b5ef36c99da553b211d6eacaaa514c7d60f63c5ddfa6f3"
     },
     {
       "path": "vendor/niri/src/scene_capture.rs",
