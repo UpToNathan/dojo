@@ -81,6 +81,7 @@ in
         ./qt6-annotation-home-manager.nix
         ./qt5-annotation-home-manager.nix
         ./yazi-home-manager.nix
+        ./stasis-home-manager.nix
         ./update-home-manager.nix
       ];
       home.username = username;
@@ -162,13 +163,18 @@ in
           if ${pkgs.procps}/bin/pgrep -u "$UID" -x vigiland >/dev/null; then
             ${pkgs.procps}/bin/pkill -u "$UID" -x vigiland
           else
-            ${pkgs.systemd}/bin/systemd-inhibit \
-              --what=handle-lid-switch \
-              --mode=block \
-              --who=Vigiland \
-              --why='Vigiland is keeping the laptop running with its lid closed' \
-              ${inputs.vigiland.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/vigiland \
-              >/dev/null 2>&1 </dev/null &
+            # Niri ignores vigiland's idle inhibitor (its surface is never shown), so hold
+            # stasis's timers directly and release them when vigiland exits, however it ends.
+            (
+              ${inputs.stasis.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/stasis pause
+              ${pkgs.systemd}/bin/systemd-inhibit \
+                --what=handle-lid-switch \
+                --mode=block \
+                --who=Vigiland \
+                --why='Vigiland is keeping the machine awake' \
+                ${inputs.vigiland.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/vigiland
+              ${inputs.stasis.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/stasis resume
+            ) >/dev/null 2>&1 </dev/null &
           fi
         '')
         (pkgs.writeShellScriptBin "toggle-wlsunset" ''
@@ -309,14 +315,29 @@ in
             monitor_media false
             ignore_remote_media true
 
+            # Stasis runs the steps directly under `default:` on desktops only. On a laptop it
+            # ignores them and runs `ac:` or `battery:`, so the idle lock goes in all three.
             lock_screen:
               timeout ${toString dojoLockIdleSeconds}
               command "${dojoLockNow}"
             end
+
+            ac:
+              lock_screen:
+                timeout ${toString dojoLockIdleSeconds}
+                command "${dojoLockNow}"
+              end
+            end
+
+            battery:
+              lock_screen:
+                timeout ${toString dojoLockIdleSeconds}
+                command "${dojoLockNow}"
+              end
+            end
           end
         '';
       };
-
       # 1Password's Linux CLI integration requires a PolKit authentication
       # agent in the graphical session; polkitd alone is not sufficient.
       services.polkit-gnome.enable = true;
