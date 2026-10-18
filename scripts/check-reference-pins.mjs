@@ -85,7 +85,7 @@ for (const product of ['driver', 'spaces']) {
 for (const source of JSON.parse(read('provenance/artifacts/sources.json'))) {
   const bytes = read(source.file);
   const blob = crypto.createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
-  if (source.commit !== '88aff7e5424e9ed45b93ded85eb4111472ca5190' || blob !== source.git_blob || digest(bytes) !== source.sha256) {
+  if (source.commit !== 'afed1fcbba64acadcc154b8d5d377549ae62bc7e' || blob !== source.git_blob || digest(bytes) !== source.sha256) {
     errors.push(`Artifact lock provenance differs: ${source.file}`);
   }
 }
@@ -122,7 +122,7 @@ for (const name of all) {
 const inventory = {
   schema_version: 1,
   scope: 'Source files in this checkout outside generated directories and .delta managed worktrees. This inventory identifies unresolved references; it does not label them pinned.',
-  cua: { repository: 'https://github.com/trycua/cua', commit: '88aff7e5424e9ed45b93ded85eb4111472ca5190', ledger: 'vendor/cua/ledger.json' },
+  cua: { repository: 'https://github.com/trycua/cua', commit: 'afed1fcbba64acadcc154b8d5d377549ae62bc7e', ledger: 'vendor/cua/ledger.json' },
   nix_inputs: nix,
   vendored_source_bases: sources,
   dependency_locks: locks.map(file => ({ file, sha256: digest(read(file)) })),

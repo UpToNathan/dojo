@@ -1,15 +1,15 @@
 # Copied CUA implementation
 
-The baseline is CUA commit `88aff7e5424e9ed45b93ded85eb4111472ca5190`.
+The baseline is CUA commit `afed1fcbba64acadcc154b8d5d377549ae62bc7e`. The earlier baseline `88aff7e5424e9ed45b93ded85eb4111472ca5190` still anchors the integrity ledger, the private Driver extraction and the Rust translations until the ledger migration described in [README.md](README.md) is reviewed.
 `copy-plan.json` selects whole source trees. `copy-inventory.json` records each original Git object and maintained digest.
 
 ## Source and fork ownership
 
-The import contains the full Rust Driver workspace, its Wayland helper resources, 22 MIT Cua workspace packages, three Fleet packages, image assets, contracts, fixtures, and notices. The existing private Driver extraction remains until its callers migrate.
+The import contains the full Rust Driver workspace, its Wayland helper resources, 23 MIT Cua workspace packages, three Fleet packages, image assets, contracts, fixtures, and notices. The existing private Driver extraction remains until its callers migrate.
 
 The copier reads committed Git objects. Workspace membership changes and the filtered SDK lock are explicit metadata adaptations. Fork patches have pinned digests and declared output files. New adapter files have no fabricated upstream Git object.
 
-The filtered SDK lock retains 572 upstream package identities. The filter removes 374 unused identities and changes no retained version or checksum. The raw Driver lock remains in `metadata/driver-upstream-Cargo.lock`. The Niri fork changes only shared libc, Serde, and serde_json versions to the existing Dojo pins, adds niri-ipc, and pins syn 3.0.5. All retained source identities and checksums remain unchanged.
+The filtered SDK lock retains 596 upstream package identities. The filter removes 363 unused identities and changes no retained version or checksum. The raw Driver lock remains in `metadata/driver-upstream-Cargo.lock`. The Niri fork changes only shared libc, Serde, and serde_json versions to the existing Dojo pins, adds niri-ipc, and pins syn 3.0.5. All retained source identities and checksums remain unchanged.
 
 `libs/cua/crates/cua-teleport/src/ux/targets.json` is FSL-1.1-MIT support data required by MIT telemetry. Its original license accompanies it. The Teleport implementation and other FSL server implementations are excluded. This source copy does not resolve distribution decisions.
 

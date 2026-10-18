@@ -165,7 +165,7 @@ fn verify_artifact(binary: &Path, manifest_path: &Path) -> Result<()> {
             "Driver artifact pin missing; run scripts/build-cua-driver.sh through devenv",
         )?)?;
     ensure!(
-        manifest["upstream_commit"] == "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+        manifest["upstream_commit"] == "afed1fcbba64acadcc154b8d5d377549ae62bc7e",
         "Driver upstream pin differs"
     );
     ensure!(
@@ -269,7 +269,7 @@ mod tests {
                 Value::String(digest(&Path::new(env!("CARGO_MANIFEST_DIR")).join(source)).unwrap()),
             );
         }
-        let mut manifest = serde_json::json!({"upstream_commit":"88aff7e5424e9ed45b93ded85eb4111472ca5190","binary_sha256":digest(&binary).unwrap(),"sources":sources});
+        let mut manifest = serde_json::json!({"upstream_commit":"afed1fcbba64acadcc154b8d5d377549ae62bc7e","binary_sha256":digest(&binary).unwrap(),"sources":sources});
         std::fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
         verify_artifact(&binary, &manifest_path).unwrap();
         std::fs::write(&binary, b"different binary").unwrap();

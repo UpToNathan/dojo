@@ -253,7 +253,7 @@
          ))
      }
  
-@@ -893,35 +890,10 @@
+@@ -895,35 +892,10 @@
  
  /// Install QEMU through the host package manager (explicit opt-in).
  pub async fn install_qemu() -> Result<()> {
@@ -306,7 +306,7 @@
                  ));
              }
          };
-@@ -1166,27 +1164,10 @@
+@@ -1250,27 +1248,10 @@
  
  /// Run the official Lume installer (explicit opt-in only).
  pub async fn install_lume() -> Result<()> {
@@ -349,7 +349,7 @@
                  Err(h) => h,
              };
              return Err(VmmError::missing("gVisor (runsc)", hint));
-@@ -311,40 +311,10 @@
+@@ -311,45 +311,10 @@
          Ok("runc".into())
      }
  
@@ -374,12 +374,17 @@
 -        // dockerd restarts; wait for it to come back with runsc registered.
 -        let deadline = tokio::time::Instant::now() + Duration::from_secs(300);
 -        while tokio::time::Instant::now() < deadline {
--            if let Ok(rts) = connect_uri(&self.endpoint.uri)?.info().await.map(|i| {
--                i.runtimes
--                    .unwrap_or_default()
--                    .into_keys()
--                    .collect::<Vec<_>>()
--            }) && rts.iter().any(|r| r == "runsc")
+-            if let Ok(rts) = connect_uri(&self.endpoint.uri)
+-                .await?
+-                .info()
+-                .await
+-                .map(|i| {
+-                    i.runtimes
+-                        .unwrap_or_default()
+-                        .into_keys()
+-                        .collect::<Vec<_>>()
+-                })
+-                && rts.iter().any(|r| r == "runsc")
 -            {
 -                return Ok(());
 -            }
