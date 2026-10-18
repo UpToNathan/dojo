@@ -73,6 +73,23 @@ by merging the whole repository (checked against upstream `56934ec056`, 2026-10-
 Skipped: hot reload, the Apple, iOS and web backends, and `4f6d97b9de` (frame pacing, which is
 profiler and telemetry churn across crates Dojo does not use).
 
+## Niri upstream picks
+
+`vendor/niri` is based on YaLTeR/niri `d0cd58ec`. Upstream commits through `12de51d6` (2026-10-18)
+are applied on top as patches: `62ae83d7`, `27706a4d`, `19ad2c57`, `eff4211b`, `64404054`,
+`4ad20379`, `2b0cb065` (pointing grabs cancelled when the screen locks), `899462b1`, `acfec91c`,
+`9d2841bc`, `f8b7b7fc` (lock and screenshot-UI gesture guards), `4e3661b3`, `1fe33538`, `5fe88779`,
+`45739bc0` (touchpad toggle and its IPC event; merged by hand beside `input_coordination`),
+`bb38b7e1` (no fallback frame callbacks without active outputs), `90af637e`, `e53294b0` (key repeat
+stops on VT switch and suspend) and `d0543952`. `12de51d6` (keyboard LEDs on keymap changes) is
+ported by hand: upstream's version builds on the virtual-keyboard rework, so the LED update runs
+after the num-lock restore in `set_xkb_file` and `set_xkb_config` instead.
+
+Held back on purpose: `7da6ae44` and its Smithay bump `fc9e8c42`, which replace Niri's virtual
+pointer with Smithay's virtual keyboard and pointer and overlap the agent seat filtering in
+`src/handlers/mod.rs` and `src/input/mod.rs`. That needs its own change with the agent-input
+tests. Skipped as irrelevant: CI, wiki and 32-bit build commits.
+
 ## Follow-up discussion
 
 After the parity and pinning pass, discuss durable execution approvals and

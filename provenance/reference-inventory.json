@@ -37208,21 +37208,21 @@
     },
     {
       "file": "vendor/niri/docs/wiki/Configuration:-Input.md",
-      "line": 252,
+      "line": 255,
       "url": "https://wayland.freedesktop.org/libinput/doc/latest/tapping.html#tap-and-drag",
       "identity": null,
       "status": "moving-reference"
     },
     {
       "file": "vendor/niri/docs/wiki/Configuration:-Input.md",
-      "line": 256,
+      "line": 259,
       "url": "https://wayland.freedesktop.org/libinput/doc/latest/clickpad-softbuttons.html",
       "identity": null,
       "status": "moving-reference"
     },
     {
       "file": "vendor/niri/docs/wiki/Configuration:-Input.md",
-      "line": 267,
+      "line": 270,
       "url": "https://wayland.freedesktop.org/libinput/doc/latest/device-configuration-via-udev.html",
       "identity": null,
       "status": "moving-reference"
@@ -37257,14 +37257,14 @@
     },
     {
       "file": "vendor/niri/docs/wiki/Configuration:-Key-Bindings.md",
-      "line": 176,
+      "line": 179,
       "url": "https://docs.gtk.org/Pango/pango_markup.html",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/niri/docs/wiki/Configuration:-Key-Bindings.md",
-      "line": 184,
+      "line": 187,
       "url": "https://github.com/user-attachments/assets/2a2ba914-bfa7-4dfa-bb5e-49839034765d",
       "identity": null,
       "status": "requires-classification"
@@ -38300,7 +38300,7 @@
     },
     {
       "file": "vendor/niri/niri-config/src/binds.rs",
-      "line": 1042,
+      "line": 1044,
       "url": "https://github.com/xkbcommon/libxkbcommon/blob/45a118d5325b051343b4b174f60c1434196fa7d4/src/keysym.c#L276",
       "identity": {
         "git_commit": "45a118d5325b051343b4b174f60c1434196fa7d4"
@@ -38309,14 +38309,14 @@
     },
     {
       "file": "vendor/niri/niri-config/src/binds.rs",
-      "line": 1043,
+      "line": 1045,
       "url": "https://docs.rs/xkbcommon/latest/xkbcommon/xkb/keysyms/index.html#:~:text=KEY%5FXF86ScreenSaver",
       "identity": null,
       "status": "moving-reference"
     },
     {
       "file": "vendor/niri/niri-config/src/binds.rs",
-      "line": 1045,
+      "line": 1047,
       "url": "https://github.com/niri-wm/niri/issues/1969",
       "identity": null,
       "status": "requires-classification"
@@ -38568,7 +38568,7 @@
     },
     {
       "file": "vendor/niri/src/handlers/mod.rs",
-      "line": 823,
+      "line": 814,
       "url": "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/issues/150",
       "identity": null,
       "status": "requires-classification"
@@ -38603,7 +38603,7 @@
     },
     {
       "file": "vendor/niri/src/niri.rs",
-      "line": 339,
+      "line": 343,
       "url": "https://github.com/niri-wm/niri/issues/619",
       "identity": null,
       "status": "requires-classification"
