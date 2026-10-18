@@ -898,6 +898,17 @@
       "source_link_matches": true,
       "type": "symlink",
       "uid": 0
+    },
+    {
+      "classification": "repo-managed",
+      "expected_mode": "0644",
+      "gid": 0,
+      "installation": "copy",
+      "mode": "0644",
+      "path": "/usr/share/wayland-sessions/niri-uwsm.desktop",
+      "source": "system-config/wayland-sessions/niri-uwsm.desktop",
+      "type": "file",
+      "uid": 0
     }
   ],
   "inspection_gaps": [
