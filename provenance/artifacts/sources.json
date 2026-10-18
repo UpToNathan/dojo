@@ -2,7 +2,7 @@
   {
     "file": "provenance/artifacts/cua-s1-weights.lock.json",
     "repository": "https://github.com/trycua/cua",
-    "commit": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+    "commit": "afed1fcbba64acadcc154b8d5d377549ae62bc7e",
     "upstream_path": "libs/cua-s1/ci/weights.lock.json",
     "git_blob": "dfb9748b45d850ea6e5b7ada784bf6697ca19431",
     "sha256": "9820bd232c5762f114e19680c0f8203d7e1faaf8a60c196cfe01964d6d8a6c09"
@@ -10,7 +10,7 @@
   {
     "file": "provenance/artifacts/cua-perception-artifacts.lock.json",
     "repository": "https://github.com/trycua/cua",
-    "commit": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+    "commit": "afed1fcbba64acadcc154b8d5d377549ae62bc7e",
     "upstream_path": "libs/cua-driver/rust/crates/cua-perception/scripts/artifacts.lock.json",
     "git_blob": "1a34e7396e9c4b512ed42cdf95fbe9f2888c83fd",
     "sha256": "1485910c4843238a2baf3a2cf7a528d4b7834bb98c8b54e42c0ead4df336ddb9"
@@ -18,15 +18,15 @@
   {
     "file": "provenance/contracts/cua-driver.manifest.json",
     "repository": "https://github.com/trycua/cua",
-    "commit": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+    "commit": "afed1fcbba64acadcc154b8d5d377549ae62bc7e",
     "upstream_path": "libs/cua-driver/contract/manifest.json",
-    "git_blob": "fcc4a8a0a25a686d957a092c1da148752e9defda",
-    "sha256": "309be90c4acf3a3a01e65b95a2d658feef6abaeb784a32fce96493868fab3124"
+    "git_blob": "2e4b8383b4b59bf126305dfff7036584bb4b7fd9",
+    "sha256": "2a59d849ffb8c267fbfd145e2dfee4f13029c6eb880f119e0b5cbe90d50d33f9"
   },
   {
     "file": "provenance/contracts/cua-spaces.manifest.json",
     "repository": "https://github.com/trycua/cua",
-    "commit": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+    "commit": "afed1fcbba64acadcc154b8d5d377549ae62bc7e",
     "upstream_path": "libs/cua/spaces-contract/manifest.json",
     "git_blob": "15f430e9c23b311c3701fd16a51941db5a816814",
     "sha256": "3103f3df0961ef655db54d8cdd6effdaad0d3f0f377a65f77781fb29f3b5f50e"

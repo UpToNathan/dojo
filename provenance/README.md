@@ -1,6 +1,6 @@
 # Pinned references and parity
 
-The CUA baseline is commit `88aff7e5424e9ed45b93ded85eb4111472ca5190`.
+The CUA baseline is commit `afed1fcbba64acadcc154b8d5d377549ae62bc7e`.
 Full parity covers its Driver and Spaces contracts, model workflows, evaluation,
 inference, sandbox, hosted products and platform adapters. The source index is
 in [.scratch/cua-adoption/full-parity-reference-research.md](../.scratch/cua-adoption/full-parity-reference-research.md).

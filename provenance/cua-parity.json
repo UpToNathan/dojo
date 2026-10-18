@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "upstream_commit": "88aff7e5424e9ed45b93ded85eb4111472ca5190",
+  "upstream_commit": "afed1fcbba64acadcc154b8d5d377549ae62bc7e",
   "contracts": [
     {
       "product": "driver",
       "file": "provenance/contracts/cua-driver.manifest.json",
-      "sha256": "309be90c4acf3a3a01e65b95a2d658feef6abaeb784a32fce96493868fab3124",
+      "sha256": "2a59d849ffb8c267fbfd145e2dfee4f13029c6eb880f119e0b5cbe90d50d33f9",
       "contract_version": "0.8.0",
       "mcp_protocol_version": "2025-06-18",
       "tools": [
@@ -52,7 +52,7 @@
         },
         {
           "name": "get_agent_cursor_state",
-          "contract_sha256": "a2b5530aae80cf91fbaa0cce02736853aff30eb540d96d568d83b8ce66149875",
+          "contract_sha256": "73c80317266505cfa94d17f6b30c368380da588493063c292062b721752c557b",
           "status": "unverified",
           "evidence": []
         },
@@ -189,7 +189,7 @@
         },
         {
           "name": "set_agent_cursor_motion",
-          "contract_sha256": "edc21cb5ac9cae9d2c39dbf738cabe3c345d36928d805fafd2d97f50732069e1",
+          "contract_sha256": "d5a5ede9739cca2008d7ce7136cc90b47933540a3b99bd6a08dabf8a4cea2a4b",
           "status": "unverified",
           "evidence": []
         },
@@ -207,7 +207,7 @@
         },
         {
           "name": "start_session",
-          "contract_sha256": "98b8bbe1001c1ce166af538ac19ce5d7545a87121e37163a8eba0611ca8e68a6",
+          "contract_sha256": "559720aec35b33800d9eb549fba14a326be15362cf6561acc9eaa5ab914214c3",
           "status": "unverified",
           "evidence": []
         },
