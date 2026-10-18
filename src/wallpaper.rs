@@ -78,6 +78,17 @@ impl WallpaperSelection {
     }
 }
 
+/// The pixel size from the image header. Stored wallpapers have no file extension, so the format
+/// is guessed from the content.
+fn image_size(path: &std::path::Path) -> Option<(u32, u32)> {
+    image::ImageReader::open(path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()
+}
+
 fn selected_wallpaper(file: PathBuf) -> anyhow::Result<Option<WallpaperSource>> {
     let path = match std::fs::read_to_string(file) {
         Ok(path) => PathBuf::from(path.trim()),
@@ -89,7 +100,7 @@ fn selected_wallpaper(file: PathBuf) -> anyhow::Result<Option<WallpaperSource>> 
         "selected wallpaper must be an existing absolute file"
     );
     let digest = Sha256::digest(std::fs::read(&path)?).into();
-    let size = image::image_dimensions(&path).ok();
+    let size = image_size(&path);
     Ok(Some(WallpaperSource { path, digest, size }))
 }
 
@@ -392,6 +403,10 @@ impl WallpaperController {
             (WallpaperLayout::Span, Some(size)) => span_by_display(size)
                 .map_err(|error| eprintln!("Dojo could not span the wallpaper: {error:#}"))
                 .unwrap_or_default(),
+            (WallpaperLayout::Span, None) => {
+                eprintln!("Dojo cannot read the wallpaper's size, so it fills each monitor.");
+                HashMap::new()
+            }
             _ => HashMap::new(),
         };
         for display in displays {
@@ -641,6 +656,17 @@ mod tests {
                 .chunks_exact(4)
                 .all(|pixel| pixel[0] == 255)
         );
+    }
+
+    #[test]
+    fn the_size_of_an_extensionless_stored_wallpaper_is_read() -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("wallpaper");
+        image::RgbaImage::new(30, 20).save_with_format(&path, image::ImageFormat::Png)?;
+        assert_eq!(image_size(&path), Some((30, 20)));
+        std::fs::write(&path, b"not an image")?;
+        assert_eq!(image_size(&path), None);
+        Ok(())
     }
 
     fn ready(source: Option<WallpaperSource>) -> Option<ReadyWallpaper> {
