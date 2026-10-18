@@ -9,6 +9,7 @@
 #   scripts/bootstrap-host user     # user: builds, installers, npm, Home Manager
 #   scripts/bootstrap-host finish   # root: NVIDIA user-space tree, update-nix-gl, ly
 #   scripts/bootstrap-host all      # the three in order; sudo prompts for root steps
+#   scripts/bootstrap-host check    # does the running session see what the deployment installed?
 #
 # Run the root phases as root or through sudo. They act for $SUDO_USER, or for
 # the user that runs `all`. Host differences (NVIDIA instead of AMD, for one) are
@@ -115,10 +116,30 @@ phase_finish() {
     echo 'Done. Log in through ly (the "Niri (UWSM)" session) or reboot.'
 }
 
+# A login session that began before the deployment keeps the D-Bus broker, user manager and
+# compositor it started with. The broker only learns of the Nix profile's service files
+# (the file-picker and settings portals, among others) at start-up, so the picker stays dead
+# until the next login.
+phase_check() {
+    local missing=0 name
+    for name in org.freedesktop.portal.Desktop org.freedesktop.impl.portal.desktop.termfilechooser org.freedesktop.FileManager1; do
+        if ! busctl --user list --activatable --no-legend | awk '{print $1}' | grep -qx "$name"; then
+            echo "Session D-Bus cannot activate $name." >&2
+            missing=1
+        fi
+    done
+    if (( missing )); then
+        echo 'This session began before the deployment: log out and back in (or reboot).' >&2
+        return 1
+    fi
+    echo 'Session sees the deployed D-Bus services.'
+}
+
 case ${1:-} in
     system) phase_system ;;
     user) phase_user ;;
     finish) phase_finish ;;
+    check) phase_check ;;
     all) phase_system; phase_user; phase_finish ;;
-    *) echo "Usage: $0 system|user|finish|all" >&2; exit 2 ;;
+    *) echo "Usage: $0 system|user|finish|check|all" >&2; exit 2 ;;
 esac
