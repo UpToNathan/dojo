@@ -116,10 +116,9 @@ phase_finish() {
     echo 'Done. Log in through ly (the "Niri (UWSM)" session) or reboot.'
 }
 
-# A login session that began before the deployment keeps the D-Bus broker, user manager and
-# compositor it started with. The broker only learns of the Nix profile's service files
-# (the file-picker and settings portals, among others) at start-up, so the picker stays dead
-# until the next login.
+# The session bus reads XDG_DATA_DIRS once, when it starts, so a login session that began before
+# the Nix profile existed cannot find the profile's portals. yazi-home-manager.nix links those
+# service files into ~/.local/share, which the bus watches; this confirms they took effect.
 phase_check() {
     local missing=0 name
     for name in org.freedesktop.portal.Desktop org.freedesktop.impl.portal.desktop.termfilechooser org.freedesktop.FileManager1; do
@@ -129,7 +128,7 @@ phase_check() {
         fi
     done
     if (( missing )); then
-        echo 'This session began before the deployment: log out and back in (or reboot).' >&2
+        echo 'Run the user phase again; if it persists, log out and back in.' >&2
         return 1
     fi
     echo 'Session sees the deployed D-Bus services.'

@@ -28,9 +28,8 @@ To bring a new host up from a checkout, run `scripts/bootstrap-host` (`system`, 
 or `all`). It chains the installers, builds, speech packages, Home Manager deployment and
 session setup, and detects the NVIDIA driver (`/etc/dojo/nvidia-driver.json`, written by
 `scripts/install-nvidia-gl.sh`; rerun it after the NVIDIA package updates). It expects the Arch
-packages, Nix and devenv to be installed already. Log out and back in afterwards: a session that
-began earlier has a D-Bus broker that cannot see the new portals, so the file picker stays dead.
-`scripts/bootstrap-host check` reports whether the running session is affected.
+packages, Nix and devenv to be installed already. `scripts/bootstrap-host check`
+confirms the running session can activate the file-picker and portal services.
 
 Home Manager also installs T3's bundled CLI. The desktop app owns its local
 backend; Dojo does not autostart a separate T3 server. See

@@ -21,6 +21,33 @@ let
     export DOJO_YAZI_CHOOSER_PLUGIN=${./scripts/yazi-chooser.lua}
     exec ${pkgs.python3}/bin/python3 ${./scripts/yazi-chooser.py} "$@"
   '';
+  # The session bus finds D-Bus service files through XDG_DATA_DIRS, which it reads once when it
+  # starts. A login session that began before the Nix profile existed never sees the portals (so
+  # no file picker) until the next login. ~/.local/share is always watched, so link the portal
+  # services there and the desktop works whenever the session started.
+  portalServiceFiles = lib.listToAttrs (lib.concatMap
+    (entry: map
+      (name: {
+        name = "dbus-1/services/${name}.service";
+        value.source = "${entry.package}/share/dbus-1/services/${name}.service";
+      })
+      entry.services)
+    [
+      {
+        package = pkgs.xdg-desktop-portal;
+        services = [
+          "org.freedesktop.portal.Desktop"
+          "org.freedesktop.portal.Documents"
+          "org.freedesktop.impl.portal.PermissionStore"
+        ];
+      }
+      { package = pkgs.xdg-desktop-portal-gtk; services = [ "org.freedesktop.impl.portal.desktop.gtk" ]; }
+      { package = pkgs.xdg-desktop-portal-gnome; services = [ "org.freedesktop.impl.portal.desktop.gnome" ]; }
+      {
+        package = config.services.darkman.package;
+        services = [ "nl.whynothugo.darkman" "org.freedesktop.impl.portal.desktop.darkman" ];
+      }
+    ]);
 in
 {
   # The parent retains ownership of Yazi/Kitty settings and portal routing.
@@ -35,12 +62,6 @@ in
   home.packages = [ backend chooser fileManager ];
   systemd.user.packages = [ backend ];
   # Browser "Show in folder" often uses this D-Bus API, not xdg-open.
-  xdg.dataFile."dbus-1/services/org.freedesktop.FileManager1.service".text = ''
-    [D-BUS Service]
-    Name=org.freedesktop.FileManager1
-    Exec=${fileManager}/bin/dojo-yazi-filemanager
-    SystemdService=dojo-yazi-filemanager.service
-  '';
   systemd.user.services.dojo-yazi-filemanager = {
     Unit = {
       Description = "Yazi FileManager1 folder/reveal routing";
@@ -56,10 +77,18 @@ in
   };
   # Explicit registration also works on generic Linux hosts whose portal
   # daemon does not discover portal descriptors in the Nix profile.
-  xdg.dataFile."xdg-desktop-portal/portals/termfilechooser.portal".source =
-    "${backend}/share/xdg-desktop-portal/portals/termfilechooser.portal";
-  xdg.dataFile."dbus-1/services/org.freedesktop.impl.portal.desktop.termfilechooser.service".source =
-    "${backend}/share/dbus-1/services/org.freedesktop.impl.portal.desktop.termfilechooser.service";
+  xdg.dataFile = portalServiceFiles // {
+    "dbus-1/services/org.freedesktop.FileManager1.service".text = ''
+      [D-BUS Service]
+      Name=org.freedesktop.FileManager1
+      Exec=${fileManager}/bin/dojo-yazi-filemanager
+      SystemdService=dojo-yazi-filemanager.service
+    '';
+    "xdg-desktop-portal/portals/termfilechooser.portal".source =
+      "${backend}/share/xdg-desktop-portal/portals/termfilechooser.portal";
+    "dbus-1/services/org.freedesktop.impl.portal.desktop.termfilechooser.service".source =
+      "${backend}/share/dbus-1/services/org.freedesktop.impl.portal.desktop.termfilechooser.service";
+  };
   xdg.configFile."xdg-desktop-portal-termfilechooser/config".text = ''
     [filechooser]
     cmd=${chooser}/bin/dojo-yazi-chooser
