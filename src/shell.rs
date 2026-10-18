@@ -113,6 +113,7 @@ impl ShellController {
 
     fn enable(&mut self, cx: &mut App) -> anyhow::Result<()> {
         self.niri_layout.borrow_mut().capture()?;
+        crate::startup::mark("niri-layout-captured");
 
         let mut tray_service = match TrayService::start() {
             Ok(service) => Some(service),
@@ -125,6 +126,7 @@ impl ShellController {
             .as_ref()
             .map(TrayService::handle)
             .unwrap_or_default();
+        crate::startup::mark("tray-started");
         let mut opened = HashMap::new();
         if let Err(error) = self.open_active_displays(cx, &mut opened, tray) {
             close_displays(opened, cx);
@@ -139,6 +141,7 @@ impl ShellController {
             return Err(error).context("opening the frame on active displays");
         }
 
+        crate::startup::mark("displays-opened");
         if let Err(error) = self.niri_layout.borrow_mut().enable() {
             close_displays(opened, cx);
             if let Some(service) = tray_service.take() {
@@ -147,6 +150,7 @@ impl ShellController {
             return Err(error).context("reserving the Niri tiled area");
         }
 
+        crate::startup::mark("niri-layout-reserved");
         if let Err(error) = self.state.save(Preferences {
             frame_enabled: true,
         }) {
@@ -364,7 +368,10 @@ fn run_with_surfaces(
     show_theme: bool,
     show_models: bool,
 ) -> anyhow::Result<()> {
+    // Connects to the compositor while GPUI initializes; the frame's edges are made on it.
+    crate::edge_reservation::prewarm();
     let launcher = Launcher::new()?;
+    crate::startup::mark("launcher-built");
     let mut config_store = ConfigStore::user_default()?;
     let initial_colors = config_store.load()?.context("loading initial Dojo theme")?;
     let theme_paths = dojo::theme::Paths::user_default()?;
@@ -407,14 +414,17 @@ fn run_with_surfaces(
     let niri_layout_for_exit = Rc::clone(&niri_layout);
     let (command_sender, command_receiver) = async_channel::bounded(32);
     let mut control_server = ControlServer::start(command_sender)?;
+    crate::startup::mark("control-listening");
     let startup_error = Rc::new(RefCell::new(None::<String>));
     let startup_error_for_run = Rc::clone(&startup_error);
 
     application()
         .with_quit_mode(QuitMode::Explicit)
         .run(move |cx: &mut App| {
+            crate::startup::mark("gpui-running");
             cx.set_global(initial_colors);
             crate::session_overlay::begin_login(cx);
+            crate::startup::mark("login-overlay");
             cx.set_global(crate::speech::SpeechUi::default());
             crate::frame::initialize_host_state(cx);
             crate::audio::initialize(cx);
@@ -424,6 +434,7 @@ fn run_with_surfaces(
             }
             crate::bluetooth_ui::initialize(cx);
             crate::model_picker::watch_setup(cx);
+            crate::startup::mark("services-initialized");
             if let Err(error) = crate::wallpaper::start(cx, wallpaper_events) {
                 eprintln!("Dojo could not start its wallpaper surfaces: {error:#}");
             }
@@ -501,6 +512,7 @@ fn run_with_surfaces(
                 return;
             }
 
+            crate::startup::mark("shell-enabled");
             if show_launcher {
                 if let Err(error) =
                     controller.update(cx, |controller, cx| controller.launcher.toggle(None, cx))
@@ -665,6 +677,7 @@ fn run_with_surfaces(
             })
             .detach();
             crate::session_overlay::start_login(cx);
+            crate::startup::mark("start-up-queued");
         });
     crate::session_overlay::clear_overlay_ready();
     appearance_task.borrow_mut().take();

@@ -3,7 +3,7 @@ let
   home = config.home.homeDirectory;
 in
 {
-  # The unit template names the checkout and the devenv profile; fill them in for this account.
+  # The unit template names the checkout; fill it in for this account.
   xdg.configFile."systemd/user/dojo-voice.service".text = builtins.replaceStrings
     [ "@DOJO_ROOT@" "@HOME@" ] [ config.dojo.root home ]
     (builtins.readFile ./tools/speech/dojo-voice.service);

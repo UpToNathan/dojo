@@ -6,7 +6,8 @@ After=graphical-session.target
 [Service]
 Type=simple
 WorkingDirectory=@DOJO_ROOT@
-ExecStart=@HOME@/.nix-profile/bin/devenv shell -- env DOJO_VOICE_DEVENV=1 @DOJO_ROOT@/tools/speech/dojo-voice --serve
+# The wrapper loads the installed environment itself, so there is no devenv shell to evaluate first.
+ExecStart=@DOJO_ROOT@/tools/speech/dojo-voice --serve
 Restart=on-failure
 RestartSec=3
 

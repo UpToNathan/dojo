@@ -256,10 +256,9 @@ export class VoiceService {
     const nativeArgs = ['--model', this.config.transcriptionModel || 'parakeet_unified_en', 'serve',
       ...(this.config.microphone ? ['--device', this.config.microphone] : [])];
     const executable = helperBinary(root, 'dojo-speech');
-    // An installed or pinned worker needs no devenv; only a checkout build does.
-    const prepared = process.env.DOJO_VOICE_DEVENV === '1' || !executable.startsWith(`${root}/target/`);
-    const child = this.spawnWorker(prepared ? executable : 'devenv',
-      prepared ? nativeArgs : ['shell', '--', executable, ...nativeArgs], {
+    // The worker runs as installed (scripts/install-helpers.sh), never through devenv, which is
+    // for development. A missing binary surfaces through the 'error' handler below.
+    const child = this.spawnWorker(executable, nativeArgs, {
       cwd: root, detached: true, stdio: ['pipe', 'pipe', 'pipe'],
     });
     this.speechWorker = child;
@@ -289,7 +288,8 @@ export class VoiceService {
         }).catch(error => this.failure(error));
       }
     });
-    child.on('error', error => this.failure(error));
+    child.on('error', error => this.failure(error.code === 'ENOENT'
+      ? new Error(`Speech worker is not installed (${executable}). Run scripts/install-helpers.sh from devenv.`) : error));
     child.on('close', code => {
       if (this.speechWorker !== child) return;
       this.speechWorker = null;

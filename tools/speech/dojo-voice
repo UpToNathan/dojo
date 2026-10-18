@@ -1,8 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Hold-to-talk keybinds run this on every press and release. The native client answers
+# in a few milliseconds; it exits 75 when the full client is needed (the service is not
+# running, or the action is not one of its few). Without it, everything runs in Node.
+ctl="${XDG_DATA_HOME:-$HOME/.local/share}/dojo/bin/dojo-voice-ctl"
+if [[ -x $ctl ]]; then
+    status=0
+    "$ctl" "$@" || status=$?
+    (( status == 75 )) || exit "$status"
+fi
 project_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 installation="${XDG_DATA_HOME:-$HOME/.local/share}/dojo/niri/current"
 if [[ -f "$installation/environment.sh" ]]; then
     source "$installation/environment.sh"
+fi
+# The service needs the audio plugin paths, which install-helpers.sh records beside the helpers.
+# Dojo never runs through devenv: that environment is for development.
+speech_environment="${XDG_DATA_HOME:-$HOME/.local/share}/dojo/bin/speech-environment.sh"
+if [[ -f $speech_environment ]]; then
+    source "$speech_environment"
 fi
 exec "${DOJO_NODE:-node}" "$project_root/tools/speech/voice.mjs" "$@"

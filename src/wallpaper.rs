@@ -14,9 +14,36 @@ struct WallpaperSource {
     digest: [u8; 32],
 }
 
+/// A monitor-sized wallpaper read back from the cache.
+#[derive(Clone)]
+struct CachedImage {
+    width: u32,
+    height: u32,
+    image: Arc<gpui::RenderImage>,
+}
+
 struct ReadyWallpaper {
     source: WallpaperSource,
-    image: Arc<gpui::RenderImage>,
+    /// The full-size decode. Absent when cached monitor-sized images stood in for it; a window
+    /// decodes the source itself if it needs a size the cache lacks.
+    image: Option<Arc<gpui::RenderImage>>,
+    cached: Vec<CachedImage>,
+}
+
+impl ReadyWallpaper {
+    /// What a new window shows until it has prepared its exact size: the cached image that best
+    /// fits the display, else the full-size decode.
+    fn initial(&self, width: f32, height: f32) -> Option<(Arc<gpui::RenderImage>, Option<(u32, u32)>)> {
+        match crate::wallpaper_cache::best_for(
+            &self.cached,
+            |cached| (cached.width, cached.height),
+            width,
+            height,
+        ) {
+            Some(cached) => Some((cached.image.clone(), Some((cached.width, cached.height)))),
+            None => self.image.clone().map(|image| (image, None)),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -90,11 +117,84 @@ fn monitor_wallpaper(
     Arc::new(gpui::RenderImage::new(frames))
 }
 
+/// Every monitor-sized image the cache holds for this wallpaper.
+fn load_cached(digest: &[u8; 32]) -> Vec<CachedImage> {
+    let Some(directory) = crate::wallpaper_cache::directory() else {
+        return Vec::new();
+    };
+    crate::wallpaper_cache::load(&directory, digest)
+        .into_iter()
+        .filter_map(|prepared| {
+            let pixels =
+                image::RgbaImage::from_raw(prepared.width, prepared.height, prepared.pixels)?;
+            Some(CachedImage {
+                width: prepared.width,
+                height: prepared.height,
+                image: Arc::new(gpui::RenderImage::new(vec![image::Frame::new(pixels)])),
+            })
+        })
+        .collect()
+}
+
+/// Writes a prepared wallpaper to the cache so the next start skips the decode and the resize.
+/// Animated wallpapers, and images smaller than the display, are left out.
+fn remember(digest: &[u8; 32], target: (u32, u32), image: &gpui::RenderImage) {
+    if image.frame_count() != 1 {
+        return;
+    }
+    let size = image.size(0);
+    if (size.width.0 as u32, size.height.0 as u32) != target {
+        return;
+    }
+    let (Some(directory), Some(pixels)) = (crate::wallpaper_cache::directory(), image.as_bytes(0))
+    else {
+        return;
+    };
+    if let Err(error) =
+        crate::wallpaper_cache::store(&directory, digest, target.0, target.1, pixels)
+    {
+        eprintln!("Dojo could not cache its prepared wallpaper: {error:#}");
+    }
+}
+
 struct WallpaperView {
-    source: Arc<gpui::RenderImage>,
+    digest: [u8; 32],
+    path: PathBuf,
+    /// The full-size decode, once there is one.
+    source: Option<Arc<gpui::RenderImage>>,
+    cached: Vec<CachedImage>,
     image: Arc<gpui::RenderImage>,
     prepared_for: Option<(u32, u32)>,
     pending_for: Option<(u32, u32)>,
+}
+
+impl WallpaperView {
+    fn new(ready: &ReadyWallpaper, width: f32, height: f32) -> Option<Self> {
+        let (image, prepared_for) = ready.initial(width, height)?;
+        Some(Self {
+            digest: ready.source.digest,
+            path: ready.source.path.clone(),
+            source: ready.image.clone(),
+            cached: ready.cached.clone(),
+            image,
+            prepared_for,
+            pending_for: None,
+        })
+    }
+
+    /// Switches to a different wallpaper. The old image stays up until the new one is ready.
+    fn adopt(&mut self, ready: &ReadyWallpaper, width: f32, height: f32) {
+        self.digest = ready.source.digest;
+        self.path = ready.source.path.clone();
+        self.source = ready.image.clone();
+        self.cached = ready.cached.clone();
+        self.prepared_for = None;
+        self.pending_for = None;
+        if let Some((image, prepared_for)) = ready.initial(width, height) {
+            self.image = image;
+            self.prepared_for = prepared_for;
+        }
+    }
 }
 
 impl Render for WallpaperView {
@@ -106,30 +206,62 @@ impl Render for WallpaperView {
             (f32::from(size.height) * scale).round().max(1.) as u32,
         );
         if self.prepared_for != Some(target) && self.pending_for != Some(target) {
-            self.pending_for = Some(target);
-            let source = self.source.clone();
-            let input = source.clone();
-            let preparation = cx
-                .background_executor()
-                .spawn(async move { monitor_wallpaper(&input, target.0, target.1) });
-            cx.spawn_in(window, async move |view, cx| {
-                let image = preparation.await;
-                let _ = view.update_in(cx, |view, window, cx| {
-                    if !Arc::ptr_eq(&source, &view.source) || view.pending_for != Some(target) {
-                        return;
+            if let Some(hit) = self.cached.iter().find(|cached| (cached.width, cached.height) == target) {
+                self.prepared_for = Some(target);
+                let previous = std::mem::replace(&mut self.image, hit.image.clone());
+                window.on_next_frame(move |window, _| {
+                    if let Err(error) = window.drop_image(previous) {
+                        eprintln!("Could not retire previous wallpaper: {error:#}");
                     }
-                    view.pending_for = None;
-                    view.prepared_for = Some(target);
-                    let previous = std::mem::replace(&mut view.image, image);
-                    window.on_next_frame(move |window, _| {
-                        if let Err(error) = window.drop_image(previous) {
-                            eprintln!("Could not retire previous wallpaper: {error:#}");
-                        }
-                    });
-                    cx.notify();
                 });
-            })
-            .detach();
+            } else {
+                self.pending_for = Some(target);
+                let digest = self.digest;
+                let source = self.source.clone();
+                let decoding = source.is_none().then(|| {
+                    let resource = gpui::Resource::Path(self.path.clone().into());
+                    let future = gpui::ImageAssetLoader::load(resource, cx);
+                    cx.background_executor().spawn(future)
+                });
+                let preparation = cx.background_executor().spawn(async move {
+                    let source = match (source, decoding) {
+                        (Some(source), _) => source,
+                        (None, Some(decoding)) => match decoding.await {
+                            Ok(source) => source,
+                            Err(error) => {
+                                eprintln!("Dojo could not decode its wallpaper: {error:#}");
+                                return None;
+                            }
+                        },
+                        (None, None) => return None,
+                    };
+                    let image = monitor_wallpaper(&source, target.0, target.1);
+                    remember(&digest, target, &image);
+                    Some((source, image))
+                });
+                cx.spawn_in(window, async move |view, cx| {
+                    let Some((source, image)) = preparation.await else {
+                        return;
+                    };
+                    let _ = view.update_in(cx, |view, window, cx| {
+                        if view.digest != digest || view.pending_for != Some(target) {
+                            return;
+                        }
+                        view.source = Some(source);
+                        view.pending_for = None;
+                        view.prepared_for = Some(target);
+                        crate::startup::mark("wallpaper-resized");
+                        let previous = std::mem::replace(&mut view.image, image);
+                        window.on_next_frame(move |window, _| {
+                            if let Err(error) = window.drop_image(previous) {
+                                eprintln!("Could not retire previous wallpaper: {error:#}");
+                            }
+                        });
+                        cx.notify();
+                    });
+                })
+                .detach();
+            }
         }
         window.set_input_region(Some(&[]));
         div().size_full().child(
@@ -167,15 +299,21 @@ impl WallpaperController {
         for display in displays {
             if let Some(window) = self.windows.get(&display.id()) {
                 window.update(cx, |view, _window, cx| {
-                    if !Arc::ptr_eq(&view.source, &ready.image) {
-                        view.source = ready.image.clone();
-                        view.prepared_for = None;
-                        view.pending_for = None;
+                    if view.digest != ready.source.digest {
+                        let bounds = display.bounds();
+                        view.adopt(ready, f32::from(bounds.size.width), f32::from(bounds.size.height));
                         cx.notify();
                     }
                 })?;
             } else {
-                let image = ready.image.clone();
+                let bounds = display.bounds();
+                let Some(view) = WallpaperView::new(
+                    ready,
+                    f32::from(bounds.size.width),
+                    f32::from(bounds.size.height),
+                ) else {
+                    continue;
+                };
                 let window = cx.open_window(
                     WindowOptions {
                         window_bounds: Some(WindowBounds::Windowed(display.bounds())),
@@ -196,16 +334,10 @@ impl WallpaperController {
                         }),
                         ..Default::default()
                     },
-                    |_, cx| {
-                        cx.new(|_| WallpaperView {
-                            source: image.clone(),
-                            image,
-                            prepared_for: None,
-                            pending_for: None,
-                        })
-                    },
+                    |_, cx| cx.new(|_| view),
                 )?;
                 self.windows.insert(display.id(), window);
+                crate::startup::mark("wallpaper-window");
             }
         }
         Ok(())
@@ -248,17 +380,30 @@ pub fn start(cx: &mut App, events: async_channel::Receiver<()>) -> anyhow::Resul
                     if unchanged {
                         continue;
                     }
-                    let resource = gpui::Resource::Path(source.path.clone().into());
-                    let loading = cx.update(|cx| {
-                        let future = gpui::ImageAssetLoader::load(resource, cx);
-                        cx.background_executor().spawn(future)
-                    });
-                    match loading.await {
-                        Ok(image) => Some(ReadyWallpaper { source, image }),
-                        Err(error) => {
-                            eprintln!("Dojo retained its previous wallpaper: {error:#}");
-                            continue;
+                    let digest = source.digest;
+                    let cached = cx
+                        .background_executor()
+                        .spawn(async move { load_cached(&digest) })
+                        .await;
+                    if cached.is_empty() {
+                        let resource = gpui::Resource::Path(source.path.clone().into());
+                        let loading = cx.update(|cx| {
+                            let future = gpui::ImageAssetLoader::load(resource, cx);
+                            cx.background_executor().spawn(future)
+                        });
+                        match loading.await {
+                            Ok(image) => {
+                                crate::startup::mark("wallpaper-decoded");
+                                Some(ReadyWallpaper { source, image: Some(image), cached })
+                            }
+                            Err(error) => {
+                                eprintln!("Dojo retained its previous wallpaper: {error:#}");
+                                continue;
+                            }
                         }
+                    } else {
+                        crate::startup::mark("wallpaper-cached");
+                        Some(ReadyWallpaper { source, image: None, cached })
                     }
                 }
                 Ok(None) => None,
@@ -326,9 +471,10 @@ mod tests {
     fn ready(source: Option<WallpaperSource>) -> Option<ReadyWallpaper> {
         source.map(|source| ReadyWallpaper {
             source,
-            image: Arc::new(gpui::RenderImage::new(vec![image::Frame::new(
+            image: Some(Arc::new(gpui::RenderImage::new(vec![image::Frame::new(
                 image::RgbaImage::new(1, 1),
-            )])),
+            )]))),
+            cached: Vec::new(),
         })
     }
     #[test]

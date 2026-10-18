@@ -67,6 +67,29 @@ installer keeps the previous installation for rollback: point `current` back at
 `previous`. Older store copies lose their roots when installations are pruned;
 `nix-collect-garbage` then reclaims them.
 
+## Where start-up time goes
+
+The shell logs a `dojo-startup: event=… ms=…` timeline from process start:
+
+```sh
+journalctl --user -u app-dojo@autostart.service -o cat | grep dojo-startup
+```
+
+On this host a start reaches `shell-enabled` in about 200 ms, `wallpaper-window` at about 250 ms.
+
+- The frame's four edge reservations (exclusive-zone strips) are made by
+  `src/edge_reservation.rs`: a thread with its own Wayland connection that creates
+  transparent, input-less layer-shell surfaces from one shared 1x1 `wl_shm` buffer scaled by a
+  viewport. There is no GPU surface, and the thread connects while GPUI initializes, so the
+  main thread only requests them (`reservations-requested`). They used to be four GPUI windows
+  costing about 110 ms. If the direct client cannot start (a protocol is missing) the frame
+  falls back to GPUI windows; the journal says so.
+- The wallpaper's decode and resize used to add about 1.7 s of CPU and keep the wallpaper
+  blank for the first second. The prepared, monitor-sized pixels are cached under
+  `$XDG_CACHE_HOME/dojo/wallpaper` (`~/.cache/dojo/wallpaper`), keyed by the source's content
+  digest, so a repeat start shows `wallpaper-cached` instead of `wallpaper-decoded`. The cache
+  keeps the four most recent wallpapers and can be deleted at any time.
+
 ## Return to upstream Niri
 
 Remove the Dojo drop-in and reload user service definitions:

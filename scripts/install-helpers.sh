@@ -12,13 +12,20 @@ fi
 if (( $# > 0 )); then
     helpers=("$@")
 else
-    helpers=(dojo-speech dojo-computer-recording dojo-computer-verification)
+    helpers=(dojo-speech dojo-computer-recording dojo-computer-verification dojo-voice-ctl)
 fi
 install_dir="$data_home/dojo/bin"
 mkdir -p "$install_dir/roots"
 
 for name in "${helpers[@]}"; do
     source_file="$repo_root/target/release/$name"
+    if [[ $name == dojo-voice-ctl ]]; then
+        # A standalone crate: it builds in about a second without the desktop shell's dependencies.
+        manifest="$repo_root/crates/dojo-voice-ctl/Cargo.toml"
+        cargo build --release --locked --offline --manifest-path "$manifest"
+        source_file="$(cargo metadata --offline --locked --no-deps --format-version 1 --manifest-path "$manifest" |
+            jq -r .target_directory)/release/$name"
+    fi
     if [[ ! -x $source_file ]]; then
         printf 'Missing %s. Build it first with cargo build --release (see docs/agent-input.md).\n' "$source_file" >&2
         exit 1
@@ -40,3 +47,18 @@ for name in "${helpers[@]}"; do
     done
     printf 'Installed %s\n' "$install_dir/$name"
 done
+
+# The voice service starts without the devenv shell, which used to supply the audio plugin paths
+# dojo-speech needs to record. Keep the plugin directory alive and record the paths.
+if [[ -n ${ALSA_CONFIG_PATH:-} && -n ${ALSA_PLUGIN_DIR:-} ]]; then
+    {
+        printf 'export ALSA_CONFIG_PATH=%q\n' "$ALSA_CONFIG_PATH"
+        printf 'export ALSA_PLUGIN_DIR=%q\n' "$ALSA_PLUGIN_DIR"
+    } > "$install_dir/speech-environment.sh.new-$$"
+    mv -f -- "$install_dir/speech-environment.sh.new-$$" "$install_dir/speech-environment.sh"
+    plugin_store_path=$(printf '%s\n' "$ALSA_PLUGIN_DIR" | grep -o -E '/nix/store/[^/[:space:]:]+' || true)
+    if [[ -n $plugin_store_path ]]; then
+        nix-store --add-root "$install_dir/roots/$(basename "$plugin_store_path")" --indirect --realise "$plugin_store_path" >/dev/null
+    fi
+    printf 'Installed %s\n' "$install_dir/speech-environment.sh"
+fi

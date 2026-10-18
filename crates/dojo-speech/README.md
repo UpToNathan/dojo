@@ -27,6 +27,12 @@ their Nix libraries GC-rooted. The service looks for `DOJO_SPEECH_EXE` (or
 `DOJO_COMPUTER_RECORDING_EXE`, `DOJO_COMPUTER_VERIFICATION_EXE`), then that
 directory, then `target/release` and `target/debug`.
 
+The same script installs `dojo-voice-ctl`, a std-only client (`crates/dojo-voice-ctl`) that
+`tools/speech/dojo-voice` runs first for `begin`, `finish`, `cancel`, `toggle` and `status`.
+A keypress then takes about 5 ms instead of the 250 ms Node needs to load the whole service.
+It exits 75 when the full client is needed (the service is not running, or another action),
+and the wrapper falls through to Node, which also starts the service on demand.
+
 Only `install` downloads models. `--model` and `--language` select from Hex's
 pinned GGUF catalog; defaults are `parakeet_unified_en` and `en`. The model cache
 is `$XDG_DATA_HOME/dojo/speech/models`, normally

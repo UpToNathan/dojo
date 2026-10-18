@@ -232,11 +232,34 @@ struct ReservationView {
     exclusive_zone: f32,
 }
 
+/// How a display's four edges are held: by the direct client, or by GPUI windows when that is
+/// unavailable.
+enum Reservations {
+    Direct(crate::edge_reservation::Reservation),
+    Windows(Vec<gpui::WindowHandle<ReservationView>>),
+}
+
+impl Reservations {
+    fn is_open(&self, cx: &App) -> bool {
+        match self {
+            Self::Direct(reservation) => reservation.is_active(),
+            Self::Windows(windows) => windows.iter().all(|window| window.read(cx).is_ok()),
+        }
+    }
+
+    fn close(self, cx: &mut App) -> Vec<String> {
+        match self {
+            Self::Direct(_) => Vec::new(),
+            Self::Windows(windows) => close_windows(windows, cx),
+        }
+    }
+}
+
 pub struct DisplayFrame {
     display_id: DisplayId,
     bounds: Bounds<gpui::Pixels>,
     frame: gpui::WindowHandle<FrameView>,
-    reservations: Vec<gpui::WindowHandle<ReservationView>>,
+    reservations: Reservations,
 }
 
 impl DisplayFrame {
@@ -246,6 +269,76 @@ impl DisplayFrame {
         bounds: Bounds<gpui::Pixels>,
         tray: TrayHandle,
     ) -> anyhow::Result<Self> {
+        let reservations = match Self::reserve_directly(cx, display_id) {
+            Some(reservation) => Reservations::Direct(reservation),
+            None => Reservations::Windows(Self::open_reservation_windows(cx, display_id, bounds)?),
+        };
+        crate::startup::mark("reservations-requested");
+
+        let frame = match cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                titlebar: None,
+                app_id: Some("dojo".to_string()),
+                display_id: Some(display_id),
+                window_background: WindowBackgroundAppearance::Transparent,
+                kind: WindowKind::LayerShell(gpui::layer_shell::LayerShellOptions {
+                    namespace: format!("dojo-frame-{}", u64::from(display_id)),
+                    layer: gpui::layer_shell::Layer::Top,
+                    anchor: Anchor::TOP | Anchor::RIGHT | Anchor::BOTTOM | Anchor::LEFT,
+                    exclusive_zone: Some(px(-1.)),
+                    keyboard_interactivity: gpui::layer_shell::KeyboardInteractivity::None,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            |window, cx| cx.new(|cx| FrameView::new(tray.clone(), window, cx)),
+        ) {
+            Ok(window) => window,
+            Err(error) => {
+                let errors = reservations.close(cx);
+                if !errors.is_empty() {
+                    eprintln!(
+                        "Failed to close partial edge reservations: {}",
+                        errors.join("; ")
+                    );
+                }
+                return Err(error).context("opening desktop frame surface");
+            }
+        };
+
+        crate::startup::mark("frame-window-opened");
+        Ok(Self {
+            display_id,
+            bounds,
+            frame,
+            reservations,
+        })
+    }
+
+    /// The four edges through the direct client, or `None` when it is not available here.
+    fn reserve_directly(
+        cx: &App,
+        display_id: DisplayId,
+    ) -> Option<crate::edge_reservation::Reservation> {
+        use crate::edge_reservation::Edge;
+        let uuid = cx.find_display(display_id)?.uuid().ok()?;
+        crate::edge_reservation::reserve(
+            uuid,
+            &[
+                (Edge::Top, TOP_BAR_HEIGHT as u32),
+                (Edge::Bottom, BOTTOM_INSET as u32),
+                (Edge::Left, LEFT_PANEL_WIDTH as u32),
+                (Edge::Right, RIGHT_INSET as u32),
+            ],
+        )
+    }
+
+    fn open_reservation_windows(
+        cx: &mut App,
+        display_id: DisplayId,
+        bounds: Bounds<gpui::Pixels>,
+    ) -> anyhow::Result<Vec<gpui::WindowHandle<ReservationView>>> {
         let reservations = [
             (
                 Anchor::TOP | Anchor::LEFT | Anchor::RIGHT,
@@ -302,7 +395,10 @@ impl DisplayFrame {
                 },
                 |_, cx| cx.new(|_| ReservationView { exclusive_zone }),
             ) {
-                Ok(window) => opened_reservations.push(window),
+                Ok(window) => {
+                    opened_reservations.push(window);
+                    crate::startup::mark(&format!("reservation-{name}-opened"));
+                }
                 Err(error) => {
                     let errors = close_windows(opened_reservations, cx);
                     if !errors.is_empty() {
@@ -315,58 +411,17 @@ impl DisplayFrame {
                 }
             }
         }
-
-        let frame = match cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                titlebar: None,
-                app_id: Some("dojo".to_string()),
-                display_id: Some(display_id),
-                window_background: WindowBackgroundAppearance::Transparent,
-                kind: WindowKind::LayerShell(gpui::layer_shell::LayerShellOptions {
-                    namespace: format!("dojo-frame-{}", u64::from(display_id)),
-                    layer: gpui::layer_shell::Layer::Top,
-                    anchor: Anchor::TOP | Anchor::RIGHT | Anchor::BOTTOM | Anchor::LEFT,
-                    exclusive_zone: Some(px(-1.)),
-                    keyboard_interactivity: gpui::layer_shell::KeyboardInteractivity::None,
-                    ..Default::default()
-                }),
-                ..Default::default()
-            },
-            |window, cx| cx.new(|cx| FrameView::new(tray.clone(), window, cx)),
-        ) {
-            Ok(window) => window,
-            Err(error) => {
-                let errors = close_windows(opened_reservations, cx);
-                if !errors.is_empty() {
-                    eprintln!(
-                        "Failed to close partial edge reservations: {}",
-                        errors.join("; ")
-                    );
-                }
-                return Err(error).context("opening desktop frame surface");
-            }
-        };
-
-        Ok(Self {
-            display_id,
-            bounds,
-            frame,
-            reservations: opened_reservations,
-        })
+        Ok(opened_reservations)
     }
 
     pub fn can_reuse(&self, cx: &App, bounds: Bounds<gpui::Pixels>) -> bool {
         self.bounds.size == bounds.size
             && self.frame.read(cx).is_ok()
-            && self
-                .reservations
-                .iter()
-                .all(|window| window.read(cx).is_ok())
+            && self.reservations.is_open(cx)
     }
 
     pub fn close(self, cx: &mut App) -> anyhow::Result<()> {
-        let mut errors = close_windows(self.reservations, cx);
+        let mut errors = self.reservations.close(cx);
         if let Err(error) = self.frame.update(cx, |_, window, _| window.remove_window()) {
             if !is_already_closed_window(&error) {
                 errors.push(error.to_string());

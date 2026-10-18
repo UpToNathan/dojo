@@ -177,6 +177,9 @@ export class PiRuntime {
   }
   scheduleCompaction() {
     if (!this.memory.compact || this.closed) return;
+    // compact() hands every caller the run already in flight, so a second handler would report
+    // that run's failure again. The first one reports it.
+    if (this.memory.compacting) return;
     this.compaction = this.memory.compact(this.summarize, { shouldStop: () => this.closed }).then(result => {
       if (result?.errors?.length) this.onEvent({ type: 'memory', status: 'error', error: result.errors.map(error => error.message ?? String(error)).join('; ') });
     }).catch(error => this.onEvent({ type: 'memory', status: 'error', error: error.message }));
@@ -290,7 +293,7 @@ export class PiRuntime {
       if (this.closed || job.cancelled) throw new Error('Dojo summary cancelled');
       const submission = await conversation.submit({ type: 'input', content: prompt, requestId: `summary:${attempt}` }, this.context);
       const settled = await submission.wait(this.context);
-      if (settled.status !== 'done') throw new Error(`Pi summary failed: ${settled.reason ?? settled.status}`);
+      if (settled.status !== 'done') throw new Error(`Pi summary failed: ${settled.reason ?? settled.status}${settled.detail ? ` (${settled.detail})` : ''}`);
       const entry = await conversation.commit(tx => tx.entry(this.pi.AssistantEntry, settled.answer), this.context);
       const candidate = textContent(entry?.model?.[0]?.content).trim();
       if (!candidate) throw new Error('Pi summary returned no text');

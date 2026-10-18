@@ -1671,6 +1671,9 @@ dependencies = [
  "toml 1.1.7+spec-1.1.0",
  "unicode-segmentation",
  "uuid",
+ "wayland-client",
+ "wayland-protocols",
+ "wayland-protocols-wlr",
  "zbus",
  "zeroize",
 ]

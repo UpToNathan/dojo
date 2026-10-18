@@ -3,6 +3,7 @@ mod bluetooth;
 mod bluetooth_ui;
 mod clock;
 mod displays_ui;
+mod edge_reservation;
 mod file_events;
 mod frame;
 mod launcher;
@@ -13,11 +14,13 @@ mod quick_terminal;
 mod session_overlay;
 mod shell;
 mod sign_in;
+mod startup;
 mod state;
 mod system_menu;
 mod theme_picker;
 mod tray;
 mod wallpaper;
+mod wallpaper_cache;
 mod wifi;
 mod wifi_ui;
 
@@ -33,6 +36,7 @@ fn main() {
 }
 
 fn run() -> anyhow::Result<()> {
+    startup::begin();
     let mut arguments = std::env::args().skip(1);
     let command = match arguments.next().as_deref() {
         Some("--launcher-benchmark") => {

@@ -27,6 +27,10 @@ rift remove                      # from inside the workspace when finished; then
 - Run Cargo through `devenv shell --`. That puts the mbx shim first on `PATH`, which shares compiled work across checkouts and prunes its own storage. Do not point `CARGO_TARGET_DIR` at a private directory, and do not leave build outputs in `/tmp`.
 - Do not leave `tmp_pack_*` files, spike targets or other large scratch output behind. Check `du -sh` on anything you created before you finish.
 
+### Runtime never uses devenv
+
+devenv is the development environment: use it to build, test and install. Nothing Dojo runs on the desktop (systemd units, keybinding commands, wrappers, the voice service and its workers, the shell and its helpers) may start through `devenv shell`, evaluate devenv, or depend on its `PATH` or variables. Installed binaries get their libraries from the installers' `environment.sh` files and GC-rooted store paths; add anything else a runtime process needs (as `install-helpers.sh` does for `speech-environment.sh`) rather than borrowing devenv's environment.
+
 ### Rust changes
 
 Read the relevant module and its callers before changing behavior. Keep configuration parsing and external input validation at the boundary, and keep domain logic independent of GPUI, Niri, and host services where the existing design allows it.

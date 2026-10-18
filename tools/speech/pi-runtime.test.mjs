@@ -278,3 +278,18 @@ test('human clarification is durable, host answered, one-use and cancelled on st
   const stopped = await runtime.harness.snapshot(runtime.HumanState, runtime.id, runtime.context);
   assert.equal(stopped.requests.test.status, 'cancelled');
 });
+
+test('a failed summary names the provider error, not only its category', async t => {
+  const { runtime } = await fixture(t, [fauxAssistantMessage([], { stopReason: 'error', errorMessage: 'Connection error.' })]);
+  await assert.rejects(runtime.summarize('user: offline'), /Pi summary failed: model_error \(Connection error\.\)/);
+});
+
+test('one failed compaction run is reported once however many callers share it', async t => {
+  const { runtime, memory, events } = await fixture(t, []);
+  let fail;
+  memory.compact = () => memory.compacting ??= new Promise((_resolve, reject) => { fail = reject; });
+  for (let call = 0; call < 5; call++) runtime.scheduleCompaction();
+  fail(new Error('Memory compaction failed: Pi summary failed: model_error (Connection error.)'));
+  await runtime.compaction;
+  assert.equal(events.filter(event => event.type === 'memory' && event.status === 'error').length, 1);
+});
