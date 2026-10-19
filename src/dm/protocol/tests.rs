@@ -221,7 +221,7 @@ fn logins_follow_the_snapshot_rule() {
         "_x",
         &"a".repeat(32),
     ] {
-        assert!(Login::parse(good).is_some(), "{good}");
+        assert!(Login::parse(good).is_ok(), "{good}");
     }
     for bad in [
         "",
@@ -237,7 +237,7 @@ fn logins_follow_the_snapshot_rule() {
         "a:b",
         &"a".repeat(33),
     ] {
-        assert!(Login::parse(bad).is_none(), "{bad:?}");
+        assert!(Login::parse(bad).is_err(), "{bad:?}");
     }
 }
 

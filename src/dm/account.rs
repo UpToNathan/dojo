@@ -265,7 +265,7 @@ mod tests {
                 .unwrap()
                 .to_owned()
         };
-        if let Some(login) = Login::parse(&entry) {
+        if let Ok(login) = Login::parse(&entry) {
             assert_eq!(lookup(&login).map(|found| found.uid), Some(own));
         }
         assert_eq!(lookup(&login("no-such-user-dojo")), None);

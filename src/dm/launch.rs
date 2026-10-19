@@ -128,7 +128,7 @@ pub fn decode_login(datagram: &[u8]) -> Result<Login, DecodeError> {
     match datagram.split_first() {
         Some((&LOGIN, name)) => std::str::from_utf8(name)
             .ok()
-            .and_then(Login::parse)
+            .and_then(|text| Login::parse(text).ok())
             .ok_or(DecodeError::Invalid("login")),
         Some((&tag, _)) => Err(DecodeError::UnknownTag(tag)),
         None => Err(DecodeError::Truncated),

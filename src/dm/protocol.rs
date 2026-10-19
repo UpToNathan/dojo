@@ -35,25 +35,7 @@ pub const MAX_NAME: usize = 128;
 /// PAM_MAX_MSG_SIZE, the same cut `lock::worker::wire` applies.
 pub const MAX_TEXT: usize = 512;
 
-/// A user name the display manager will talk about: `a-z 0-9 _ - .`, 1 to 32 bytes,
-/// not starting with `.` or `-`. This is the only way a login reaches a path or a PAM call.
-#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
-pub struct Login(String);
-
-impl Login {
-    pub fn parse(text: &str) -> Option<Login> {
-        let bytes = text.as_bytes();
-        let allowed = |c: &u8| matches!(c, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-' | b'.');
-        let valid = (1..=MAX_LOGIN).contains(&bytes.len())
-            && !matches!(bytes[0], b'.' | b'-')
-            && bytes.iter().all(allowed);
-        valid.then(|| Login(text.to_owned()))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
+pub use crate::session::snapshot::Login;
 
 /// A desktop entry id such as `niri-uwsm`: a file stem the display manager resolves
 /// against its own session directories. It never names a path.
@@ -323,7 +305,7 @@ fn method_from(byte: u8) -> Result<Method, DecodeError> {
 }
 
 fn login(reader: &mut Reader<'_>) -> Result<Login, DecodeError> {
-    Login::parse(reader.text("login", MAX_LOGIN)?).ok_or(DecodeError::Invalid("login"))
+    Login::parse(reader.text("login", MAX_LOGIN)?).map_err(|_| DecodeError::Invalid("login"))
 }
 
 fn session_id(reader: &mut Reader<'_>) -> Result<SessionId, DecodeError> {
