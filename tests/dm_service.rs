@@ -829,6 +829,23 @@ fn a_greeter_that_asks_and_never_reads_is_dropped_and_the_service_carries_on() {
 }
 
 #[test]
+fn the_display_manager_dumps_no_core_and_cannot_be_inspected() {
+    let bench = Bench::new();
+    let dm = bench.standard_dm();
+    let (_greeter, _) = Greeter::hello(&bench);
+    let pid = dm.child.as_ref().unwrap().id();
+    let limits = fs::read_to_string(format!("/proc/{pid}/limits")).unwrap();
+    let core = limits.lines().find(|l| l.starts_with("Max core file size")).unwrap();
+    assert_eq!(core.split_whitespace().collect::<Vec<_>>()[4..6], ["0", "0"], "{core}");
+    assert_eq!(
+        fs::read(format!("/proc/{pid}/environ")).unwrap_err().kind(),
+        std::io::ErrorKind::PermissionDenied,
+        "a non-dumpable process cannot be inspected by its own user"
+    );
+    assert_eq!(dm.terminate(), Some(0));
+}
+
+#[test]
 fn a_greeter_that_cannot_start_ends_the_service_after_three_tries() {
     let bench = Bench::new();
     let mut dm = bench.dm(&[], &["/bin/false"]);
