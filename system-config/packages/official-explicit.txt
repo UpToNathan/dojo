@@ -28,7 +28,6 @@ libxrandr
 limine
 linux
 linux-firmware
-ly
 mesa
 nano
 neovim

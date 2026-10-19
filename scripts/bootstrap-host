@@ -7,7 +7,8 @@
 #
 #   scripts/bootstrap-host system   # root: system files, NVIDIA driver record
 #   scripts/bootstrap-host user     # user: builds, installers, npm, Home Manager
-#   scripts/bootstrap-host finish   # root: NVIDIA user-space tree, update-nix-gl, ly
+#   scripts/bootstrap-host finish   # root: NVIDIA user-space tree, update-nix-gl, login screen
+#   scripts/bootstrap-host login    # root: enable dojo-dm on tty1 and the rescue getty on tty2
 #   scripts/bootstrap-host all      # the three in order; sudo prompts for root steps
 #   scripts/bootstrap-host check    # does the running session see what the deployment installed?
 #
@@ -57,12 +58,13 @@ phase_user() {
     echo '== build'
     devenv shell -- cargo build --release --locked --manifest-path vendor/niri/Cargo.toml
     devenv shell -- cargo build --release --bin dojo --bin dojo-lock --bin dojo-lock-pam \
-        --bin dojo-agent --bin dojo-computer-recording --bin dojo-computer-verification
+        --bin dojo-dm --bin dojo-dm-pam --bin dojo-greeter --bin dojo-agent --bin dojo-computer-recording --bin dojo-computer-verification
 
     echo '== install'
     install_niri
     devenv shell -- scripts/install-dojo-release.sh
     devenv shell -- scripts/install-helpers.sh
+    devenv shell -- scripts/install-dojo-dm.sh
 
     echo '== CUA driver'
     # build-cua-driver.sh verifies the vendored copy against a pinned upstream checkout in the cache.
@@ -112,8 +114,29 @@ phase_finish() {
     fi
     as_root systemctl daemon-reload
     as_root systemctl enable --now update-nix-gl.service
-    as_root systemctl enable ly@tty2.service
-    echo 'Done. Log in through ly (the "Niri (UWSM)" session) or reboot.'
+    phase_login
+    echo 'Done. Reboot to reach the Dojo login screen and pick the "Niri (UWSM)" session; Ctrl+Alt+F2 is the rescue login.'
+}
+
+# Hands the console to the Dojo login screen: dojo-dm on tty1 and a rescue getty on tty2. Nothing
+# starts now, so the running session is untouched; the switch happens at the next boot. The
+# release must be installed first, or tty1 would have no login at all.
+phase_login() {
+    local release=/usr/local/lib/dojo-dm/current
+    if [[ ! -x $release/dojo-dm ]]; then
+        echo "No display manager release at $release. Run the user phase (scripts/install-dojo-dm.sh) first." >&2
+        return 1
+    fi
+    if ! getent passwd dojo-greeter >/dev/null; then
+        echo 'The dojo-greeter user is missing. Run the system phase (scripts/install-system-config.sh) first.' >&2
+        return 1
+    fi
+    as_root systemctl daemon-reload
+    if systemctl is-enabled --quiet ly@tty2.service 2>/dev/null; then
+        as_root systemctl disable ly@tty2.service
+    fi
+    as_root systemctl disable getty@tty1.service
+    as_root systemctl enable dojo-dm.service getty@tty2.service
 }
 
 # The session bus reads XDG_DATA_DIRS once, when it starts, so a login session that began before
@@ -138,7 +161,8 @@ case ${1:-} in
     system) phase_system ;;
     user) phase_user ;;
     finish) phase_finish ;;
+    login) phase_login ;;
     check) phase_check ;;
     all) phase_system; phase_user; phase_finish ;;
-    *) echo "Usage: $0 system|user|finish|check|all" >&2; exit 2 ;;
+    *) echo "Usage: $0 system|user|finish|login|check|all" >&2; exit 2 ;;
 esac
