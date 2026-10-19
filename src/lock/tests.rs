@@ -2631,3 +2631,23 @@ fn an_unlocking_lock_screen_ignores_the_display_managers_answers() {
     assert_eq!(rig.send(1_060, EventKind::SessionStarted), none());
     assert!(rig.deadline().is_some());
 }
+
+#[test]
+fn a_fingerprint_login_says_nothing_about_the_keyring_it_leaves_locked() {
+    let mut rig = login_screen_with_fingerprint();
+    rig.send(5, look_with("alyssa", true));
+    rig.send(10, pw(1, prompt()));
+    rig.send(500, fp(2, finished(PamOutcome::Success)));
+    for ms in [500, 700, 1_200, 1_500, 1_800, 3_000] {
+        rig.send(ms, EventKind::Timer);
+        let panel = rig.panel(ms);
+        let words = match &panel.line {
+            Some(Line::Hint(text) | Line::Greeting { text, .. } | Line::Farewell { text, .. }) => {
+                text.to_lowercase()
+            }
+            None => String::new(),
+        };
+        assert!(!words.contains("keyring") && !words.contains("secret"), "{ms} ms: {words}");
+        assert!(!panel.chips.user.to_lowercase().contains("keyring"));
+    }
+}
