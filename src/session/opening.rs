@@ -16,6 +16,10 @@
 //! ([`EventKind::Presented`]) and then runs from that frame. A key press cuts it
 //! short instead of cancelling it.
 //!
+//! A login that follows the greeter ([`Entry::AfterGreeter`]) begins under the frame colour the
+//! greeter faded to and fades the closed state in before the greeting, so the swap between two
+//! compositors reads as one dip. The greeter's half of that dip is [`GreeterFade`].
+//!
 //! Every timing the locker's unlock sequence shares with the shell is in the
 //! table below, and `lock::model` takes its numbers from here.
 
@@ -33,6 +37,78 @@ pub const GREETING_HOLD: Duration = Duration::from_millis(650);
 /// locker's greeting then costs 750 ms before the opening, not 950.
 pub const GREETING_HOLD_HANDOFF: Duration = Duration::from_millis(450);
 pub const GREETING_OUT: Duration = Duration::from_millis(150);
+/// The ring of a successful login fills clockwise over this.
+pub const RING_FILL: Duration = Duration::from_millis(300);
+/// The login screen fades to the frame colour over this once the ring is full, and the shell's
+/// opening after it fades the closed state in over the same time.
+pub const HANDOFF_FADE: Duration = Duration::from_millis(200);
+
+/// The greeter's departure after a login succeeds: the ring fills, then the whole scene dips to
+/// the frame colour, which is the colour the compositor swap shows and the shell starts from.
+/// Reduced motion keeps the ring's pause and cuts the dip.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GreeterFade {
+    fill: Duration,
+    fade: Duration,
+}
+
+impl GreeterFade {
+    pub const fn new(reduced_motion: bool) -> GreeterFade {
+        GreeterFade {
+            fill: RING_FILL,
+            fade: if reduced_motion {
+                Duration::ZERO
+            } else {
+                HANDOFF_FADE
+            },
+        }
+    }
+
+    /// When the session may be requested: the scene is fully the frame colour.
+    pub const fn end(self) -> Duration {
+        self.fill.saturating_add(self.fade)
+    }
+
+    /// How much of the scene the frame colour covers `elapsed` after the verdict.
+    pub fn veil(self, elapsed: Duration) -> f32 {
+        if elapsed < self.fill {
+            0.
+        } else if self.fade.is_zero() {
+            1.
+        } else {
+            smooth(ratio(elapsed - self.fill, self.fade))
+        }
+    }
+}
+
+/// How the shell's login opening begins.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Entry {
+    /// No login screen came before: the closed state is the first thing drawn.
+    Cold,
+    /// The greeter handed the screen over, faded to the frame colour: the opening starts from
+    /// that colour and fades the closed state in before anything else.
+    AfterGreeter,
+}
+
+impl Entry {
+    /// The fade from the frame colour to the closed state that comes first.
+    pub const fn lead(self) -> Duration {
+        match self {
+            Entry::Cold => Duration::ZERO,
+            Entry::AfterGreeter => HANDOFF_FADE,
+        }
+    }
+
+    /// How much of the screen the frame colour covers before the opening has started.
+    pub const fn veil_before_start(self) -> f32 {
+        match self {
+            Entry::Cold => 0.,
+            Entry::AfterGreeter => 1.,
+        }
+    }
+}
+
 /// The frame opens out of the closed state. The same movement as a closing, in reverse.
 pub const OPENING: Duration = CLOSING;
 /// With no greeting to fade out, the locker lets its ring, date, hint and chips go over this
@@ -71,15 +147,18 @@ pub const fn greeting_hold(handoff: bool) -> Duration {
 /// Offsets from `begin` at which the greeting changes. The opening starts at `end`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Greeting {
+    start: Duration,
     fade_in: Duration,
     hold: Duration,
     end: Duration,
 }
 
-/// The whole timeline. `greeting` is `None` when no line is shown, in which
-/// case the opening starts at once.
+/// The whole timeline. `lead` is the fade-in from the frame colour that an
+/// [`Entry::AfterGreeter`] start plays first. `greeting` is `None` when no line is
+/// shown, in which case the opening starts as soon as the lead is over.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Timing {
+    lead: Duration,
     greeting: Option<Greeting>,
     opening: Duration,
 }
@@ -87,7 +166,7 @@ struct Timing {
 impl Timing {
     /// When the opening starts.
     fn opening_start(self) -> Duration {
-        self.greeting.map_or(Duration::ZERO, |g| g.end)
+        self.greeting.map_or(self.lead, |g| g.end)
     }
 
     /// When the timeline is over.
@@ -97,17 +176,20 @@ impl Timing {
 }
 
 /// The table. `greeting` says whether a line is shown; `transition` off drops everything.
-const fn timing(greeting: bool, transition: bool) -> Timing {
+const fn timing(entry: Entry, greeting: bool, transition: bool) -> Timing {
     if !transition {
         return Timing {
+            lead: Duration::ZERO,
             greeting: None,
             opening: Duration::ZERO,
         };
     }
+    let lead = entry.lead();
     let greeting = if greeting {
-        let fade_in = GREETING_IN;
+        let fade_in = lead.saturating_add(GREETING_IN);
         let hold = fade_in.saturating_add(GREETING_HOLD);
         Some(Greeting {
+            start: lead,
             fade_in,
             hold,
             end: hold.saturating_add(GREETING_OUT),
@@ -116,6 +198,7 @@ const fn timing(greeting: bool, transition: bool) -> Timing {
         None
     };
     Timing {
+        lead,
         greeting,
         opening: OPENING,
     }
@@ -123,6 +206,8 @@ const fn timing(greeting: bool, transition: bool) -> Timing {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
+    /// The closed state is fading in from the frame colour, after a greeter.
+    FadeIn,
     /// The frame is closed and the greeting is showing.
     Greeting,
     /// The frame is opening.
@@ -164,8 +249,7 @@ pub struct Opening {
     started: Instant,
     /// When the opening was requested. The hard cap counts from here and never moves.
     begun: Instant,
-    /// An opening over the live desktop (unlock), which waits for its first frame
-    /// and is cut short by input.
+    /// An opening over the live desktop (unlock), which is cut short by input.
     live: bool,
     presented: bool,
     /// Timeline time jumped over by input.
@@ -186,17 +270,31 @@ impl Opening {
         greeting: Option<String>,
         now: Instant,
     ) -> (Opening, Vec<Effect>) {
+        Opening::begin_from(occasion, Entry::Cold, settings, greeting, now)
+    }
+
+    /// [`begin`](Self::begin) for a start that has an [`Entry`]. Like an unlock, an opening
+    /// after a greeter holds its first state until its first frame is presented, so the
+    /// fade-in is seen and not spent while the shell was still drawing its first frame.
+    pub fn begin_from(
+        occasion: Occasion,
+        entry: Entry,
+        settings: &SessionSettings,
+        greeting: Option<String>,
+        now: Instant,
+    ) -> (Opening, Vec<Effect>) {
         let style = if settings.reduced_motion {
             Style::Crossfade
         } else {
             Style::Morph
         };
         let playing = settings.transition && occasion.direction() == Direction::Opening;
-        let timing = timing(settings.greeting && greeting.is_some(), playing);
-        let phase = match (playing, timing.greeting) {
-            (false, _) => Phase::Done,
-            (true, Some(_)) => Phase::Greeting,
-            (true, None) => Phase::Opening,
+        let timing = timing(entry, settings.greeting && greeting.is_some(), playing);
+        let phase = match (playing, timing.lead.is_zero(), timing.greeting) {
+            (false, _, _) => Phase::Done,
+            (true, false, _) => Phase::FadeIn,
+            (true, true, Some(_)) => Phase::Greeting,
+            (true, true, None) => Phase::Opening,
         };
         let opening = Opening {
             style,
@@ -205,7 +303,7 @@ impl Opening {
             started: now,
             begun: now,
             live: occasion == Occasion::Unlock,
-            presented: occasion != Occasion::Unlock,
+            presented: occasion != Occasion::Unlock && entry == Entry::Cold,
             skipped: Duration::ZERO,
             phase,
         };
@@ -239,6 +337,7 @@ impl Opening {
     pub fn next_deadline(&self) -> Option<Instant> {
         let boundary = match self.phase {
             Phase::Done => return None,
+            Phase::FadeIn => self.timing.lead,
             Phase::Greeting => self.timing.opening_start(),
             Phase::Opening => self.timing.end(),
         };
@@ -267,16 +366,28 @@ impl Opening {
         1. - transition::progress(into, self.timing.opening)
     }
 
+    /// How much of the screen the frame colour still covers: all of it until the first frame
+    /// is shown, then fading out over the lead. Always 0 for a start with no lead.
+    pub fn veil(&self, now: Instant) -> f32 {
+        if self.timing.lead.is_zero() {
+            return 0.;
+        }
+        if !self.presented {
+            return 1.;
+        }
+        1. - smooth(ratio(self.elapsed(now), self.timing.lead))
+    }
+
     /// Alpha of the greeting line: 0 outside it, 1 through the hold.
     pub fn greeting_alpha(&self, now: Instant) -> f32 {
         let Some(g) = self.timing.greeting else {
             return 0.;
         };
         let elapsed = self.elapsed(now);
-        if elapsed >= g.end {
+        if !self.presented || elapsed >= g.end || elapsed < g.start {
             0.
         } else if elapsed < g.fade_in {
-            smooth(ratio(elapsed, GREETING_IN))
+            smooth(ratio(elapsed - g.start, GREETING_IN))
         } else if elapsed < g.hold {
             1.
         } else {
@@ -289,7 +400,7 @@ impl Opening {
     pub fn animating(&self, now: Instant) -> bool {
         match (self.phase, self.timing.greeting) {
             (Phase::Done, _) => false,
-            (Phase::Opening, _) => true,
+            (Phase::FadeIn | Phase::Opening, _) => true,
             (Phase::Greeting, Some(g)) => !(g.fade_in..g.hold).contains(&self.elapsed(now)),
             (Phase::Greeting, None) => false,
         }
@@ -340,7 +451,7 @@ impl Opening {
     /// short and is never cut; the unlock's, over the live desktop, ends at once.
     fn skip(&mut self, now: Instant) {
         let target = match self.phase {
-            Phase::Greeting => self.timing.opening_start(),
+            Phase::FadeIn | Phase::Greeting => self.timing.opening_start(),
             Phase::Opening if self.live && self.presented => self.timing.end(),
             Phase::Opening | Phase::Done => return,
         };
@@ -359,6 +470,13 @@ impl Opening {
             return;
         }
         let elapsed = self.elapsed(now);
+        if self.phase == Phase::FadeIn && elapsed >= self.timing.lead {
+            self.phase = if self.timing.greeting.is_some() {
+                Phase::Greeting
+            } else {
+                Phase::Opening
+            };
+        }
         if self.phase == Phase::Greeting && elapsed >= self.timing.opening_start() {
             self.phase = Phase::Opening;
         }
@@ -839,5 +957,167 @@ mod tests {
         let t0 = Instant::now();
         let (opening, _) = Opening::begin(Occasion::Login, &on(), None, t0);
         assert!((opening.progress(t0 + ms(45)) - 0.9).abs() < 1e-5);
+    }
+    fn after_greeter(settings: &SessionSettings, line: Option<String>) -> (Opening, Instant) {
+        let t0 = Instant::now();
+        let (opening, _) =
+            Opening::begin_from(Occasion::Login, Entry::AfterGreeter, settings, line, t0);
+        (opening, t0)
+    }
+
+    /// Ticks at every deadline of a presented opening and returns them with the effects.
+    fn run_after_greeter(settings: SessionSettings, line: Option<String>) -> Vec<(u64, Vec<Effect>)> {
+        let (mut opening, t0) = after_greeter(&settings, line);
+        opening.update(event(t0, 0, EventKind::Presented));
+        let mut log = Vec::new();
+        while let Some(at) = opening.next_deadline() {
+            let effects = opening.update(Event {
+                now: at,
+                kind: EventKind::Tick,
+            });
+            log.push((at.duration_since(t0).as_millis() as u64, effects));
+        }
+        log
+    }
+
+    #[test]
+    fn an_opening_after_the_greeter_fades_in_before_everything_else() {
+        let done = vec![Effect::DismissOverlay, Effect::Done];
+        let table = [
+            ("greeting", on(), line(), vec![(200, vec![]), (1150, vec![]), (1600, done.clone())]),
+            ("no line", on(), None, vec![(200, vec![]), (650, done.clone())]),
+            (
+                "reduced motion keeps the timing",
+                SessionSettings {
+                    reduced_motion: true,
+                    ..on()
+                },
+                line(),
+                vec![(200, vec![]), (1150, vec![]), (1600, done.clone())],
+            ),
+        ];
+        for (name, settings, text, expected) in table {
+            assert_eq!(run_after_greeter(settings, text), expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn an_opening_after_the_greeter_starts_from_the_frame_colour_until_its_first_frame() {
+        let (mut opening, t0) = after_greeter(&on(), line());
+        assert_eq!(opening.phase(), Phase::FadeIn);
+        assert!(!opening.presented());
+        for at in [0, 300, 3000] {
+            let now = t0 + ms(at);
+            assert_eq!(opening.veil(now), 1., "{at} ms");
+            assert_eq!(opening.progress(now), 1., "{at} ms");
+            assert_eq!(opening.greeting_alpha(now), 0., "{at} ms");
+            assert_eq!(opening.update(event(t0, at, EventKind::Tick)), [], "{at} ms");
+        }
+        assert_eq!(opening.next_deadline(), Some(t0 + ms(5000)));
+        opening.update(event(t0, 700, EventKind::Presented));
+        assert_eq!(opening.veil(t0 + ms(700)), 1.);
+        assert!((opening.veil(t0 + ms(800)) - 0.5).abs() < 1e-5);
+        assert_eq!(opening.veil(t0 + ms(900)), 0.);
+        assert_eq!(opening.next_deadline(), Some(t0 + ms(900)));
+    }
+
+    #[test]
+    fn the_veil_falls_monotonically_and_the_closed_state_waits_underneath() {
+        let (mut opening, t0) = after_greeter(&on(), line());
+        opening.update(event(t0, 0, EventKind::Presented));
+        let mut previous = 1.;
+        for at in 0..=250 {
+            let now = opening.veil(t0 + ms(at));
+            assert!(now <= previous, "rose at {at} ms");
+            previous = now;
+            assert_eq!(opening.progress(t0 + ms(at)), 1., "{at} ms");
+        }
+        assert_eq!(opening.veil(t0 + ms(200)), 0.);
+        assert_eq!(opening.greeting_alpha(t0 + ms(200)), 0.);
+        assert!((opening.greeting_alpha(t0 + ms(275)) - 0.5).abs() < 1e-5);
+        assert_eq!(opening.greeting_alpha(t0 + ms(600)), 1.);
+        assert_eq!(opening.greeting_alpha(t0 + ms(1150)), 0.);
+        assert!((opening.progress(t0 + ms(1375)) - 0.5).abs() < 1e-5);
+        assert!(opening.animating(t0 + ms(100)));
+        opening.update(event(t0, 400, EventKind::Tick));
+        assert!(!opening.animating(t0 + ms(400)));
+        assert_eq!(opening.next_motion(t0 + ms(400)), Some(t0 + ms(1000)));
+    }
+
+    #[test]
+    fn input_during_the_fade_in_goes_straight_to_the_opening_and_never_cancels() {
+        let (mut opening, t0) = after_greeter(&on(), line());
+        opening.update(event(t0, 0, EventKind::Presented));
+        assert_eq!(opening.update(event(t0, 80, EventKind::Input)), []);
+        assert_eq!(opening.phase(), Phase::Opening);
+        assert_eq!(opening.veil(t0 + ms(80)), 0.);
+        assert_eq!(opening.next_deadline(), Some(t0 + ms(530)));
+        assert_eq!(
+            opening.update(event(t0, 530, EventKind::Tick)),
+            [Effect::DismissOverlay, Effect::Done]
+        );
+    }
+
+    #[test]
+    fn an_opening_after_the_greeter_is_still_capped_when_nothing_is_ever_shown() {
+        let (mut opening, t0) = after_greeter(&on(), line());
+        assert_eq!(
+            opening.update(event(t0, 5000, EventKind::Tick)),
+            [Effect::DismissOverlay, Effect::Done]
+        );
+    }
+
+    #[test]
+    fn without_transition_an_opening_after_the_greeter_is_finished_and_clear() {
+        let off = SessionSettings {
+            transition: false,
+            ..on()
+        };
+        let (opening, t0) = after_greeter(&off, line());
+        assert_eq!(opening.phase(), Phase::Done);
+        assert_eq!(opening.veil(t0), 0.);
+        assert_eq!(opening.progress(t0), 0.);
+    }
+
+    #[test]
+    fn a_cold_login_never_has_a_veil() {
+        let t0 = Instant::now();
+        let (opening, _) = Opening::begin(Occasion::Login, &on(), line(), t0);
+        assert_eq!(opening.veil(t0), 0.);
+        assert_eq!(Entry::Cold.veil_before_start(), 0.);
+        assert_eq!(Entry::AfterGreeter.veil_before_start(), 1.);
+    }
+
+    #[test]
+    fn the_greeter_fills_its_ring_then_dips_to_the_frame_colour() {
+        let fade = GreeterFade::new(false);
+        assert_eq!(fade.end(), ms(500));
+        for at in [0, 150, 299, 300] {
+            assert_eq!(fade.veil(ms(at)), 0., "{at} ms");
+        }
+        assert!((fade.veil(ms(400)) - 0.5).abs() < 1e-5);
+        for at in [500, 9000] {
+            assert_eq!(fade.veil(ms(at)), 1., "{at} ms");
+        }
+        let mut previous = 0.;
+        for at in 0..=600 {
+            let now = fade.veil(ms(at));
+            assert!(now >= previous, "fell at {at} ms");
+            previous = now;
+        }
+    }
+
+    #[test]
+    fn under_reduced_motion_the_greeter_keeps_the_ring_and_cuts_to_the_colour() {
+        let fade = GreeterFade::new(true);
+        assert_eq!(fade.end(), RING_FILL);
+        assert_eq!(fade.veil(ms(299)), 0.);
+        assert_eq!(fade.veil(ms(300)), 1.);
+    }
+
+    #[test]
+    fn the_greeters_dip_and_the_shells_fade_in_take_the_same_time() {
+        assert_eq!(HANDOFF_FADE, Entry::AfterGreeter.lead());
+        assert_eq!(GreeterFade::new(false).end(), RING_FILL + HANDOFF_FADE);
     }
 }
