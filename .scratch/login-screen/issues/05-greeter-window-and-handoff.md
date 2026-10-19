@@ -1,6 +1,6 @@
 # Greeter program, greeting and handoff
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 01, 03
 
 The `dojo-greeter` mode of the lock program: lock windows in the greeter Niri, the protocol client behind the model's effects, the look swap, the greeting, and a last frame that is the closed state the shell's login opening starts from. Greeting and farewell settings come from the snapshot.

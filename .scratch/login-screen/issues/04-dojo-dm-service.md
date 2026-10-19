@@ -1,6 +1,6 @@
 # The dojo-dm service
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 02, 03
 
 The root service: take the VT, start the greeter Niri as `dojo-greeter`, read Wayland session entries, run the session with the right environment, wait, close, snapshot, repeat. Includes the failed-greeter limit and the `tty2` fallback.

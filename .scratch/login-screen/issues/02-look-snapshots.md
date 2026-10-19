@@ -1,6 +1,6 @@
 # Look snapshots
 
-Status: ready-for-agent
+Status: resolved
 
 Pure format and boundary code for the look snapshot in the spec: what is copied, size caps, validation of `palette.json` and the wallpaper, atomic writes under `/var/lib/dojo-dm/users/<login>/`, and a reader for the greeter. The reader of a home directory runs after dropping to the user and refuses symlinks. Reuse `session::host` and `ConfigStore` rather than re-parsing the palette.
 
