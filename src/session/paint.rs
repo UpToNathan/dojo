@@ -607,7 +607,9 @@ fn power_chips(
         .flex()
         .gap(px(place.chip_margin * 0.5))
         .child(clickable(
-            chip_base(place, palette, alpha).child(POWER_GLYPH),
+            chip_base(place, palette, alpha)
+                .text_size(px(place.chip_px * 1.3))
+                .child(POWER_GLYPH),
             ChipClick::Power,
         ));
     if open {

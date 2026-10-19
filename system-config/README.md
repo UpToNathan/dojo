@@ -107,6 +107,18 @@ entered, so the keyring stays locked and the first thing that needs a secret
 asks for the login password. That is why the fingerprint stack has no keyring
 line.
 
+**Fingerprint.** The login screen offers the sensor only for a user whom `dojo-dm`
+reports as having a reader and an enrolled print (its answer to `SelectUser`, from
+fprintd). Without either, as on Jupiter, the screen is password only: no sensor state in the
+dial and no fingerprint worker. The answer is per user, so typing another name arms or
+releases the sensor. A fingerprint login leaves the keyring locked (see Keyring above) and
+the screen says nothing about it.
+
+**Greeter keys.** Tab or a click on the user chip edits the username, Ctrl+Tab or a click on
+the session chip picks the next session, and the power chip (bottom left) or Ctrl+Alt with
+S, H, R or P suspends, hibernates, restarts or shuts down after the farewell. A `fake-pam-stack`
+build of `dojo-greeter` reads `DOJO_DM_SOCKET` and `DOJO_DM_STATE` for a fake display manager.
+
 **Roll back to ly.** The `ly` package stays installed until you remove it.
 Restore its PAM file from history and swap the units:
 
