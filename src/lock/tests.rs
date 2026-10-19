@@ -2466,6 +2466,36 @@ fn a_failed_start_rearms_the_sensor_too_and_a_stale_answer_changes_nothing() {
 }
 
 #[test]
+fn a_reason_told_before_the_lock_lands_is_the_hint_when_it_does() {
+    let (mut rig, _) = Rig::new(login_settings(false));
+    assert_eq!(
+        rig.send(0, EventKind::SessionFailed("The session could not be started".into())),
+        none()
+    );
+    assert_eq!(rig.send(5, EventKind::Locked), ["spawn password 1"]);
+    assert_eq!(rig.hint(10), "The session could not be started");
+    rig.send(20, pw(1, prompt()));
+    assert_eq!(rig.key(100, Key::Char('x')), none());
+    assert_eq!(rig.hint(110), "Type your password");
+}
+
+#[test]
+fn a_reason_told_after_the_lock_is_the_hint_until_a_key_unless_another_stands() {
+    let mut rig = login_prompting();
+    assert_eq!(
+        rig.send(50, EventKind::SessionFailed("That login was refused".into())),
+        none()
+    );
+    assert_eq!(rig.hint(60), "That login was refused");
+    assert_eq!(rig.send(70, EventKind::SessionFailed("again".into())), none());
+    assert_eq!(rig.hint(80), "That login was refused");
+    assert_eq!(rig.key(100, Key::Char('x')), none());
+    assert_eq!(rig.hint(110), "Type your password");
+    // Told once the lock has landed, the reason does not come back by itself.
+    assert_eq!(rig.hint(5_000), "Type your password");
+}
+
+#[test]
 fn the_lock_screen_has_no_handover_and_no_power_chip() {
     let mut rig = locked();
     assert_eq!(rig.send(50, EventKind::SessionStarted), none());

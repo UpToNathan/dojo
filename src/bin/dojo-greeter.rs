@@ -2,8 +2,10 @@
 //! Niri exactly as `dojo-lock` does, draws the lock screen with a user chip and a session chip,
 //! and carries out the model's effects over the display manager's socket.
 //!
-//! Exit status: 0 once the display manager has started the session, leaving the last frame as
-//! the closed state the shell's login opening continues from; 75 when the event loop ends any
+//! Exit status: 0 once the display manager has started the session, or has closed the socket
+//! after `StartSession` to stop the greeter and start it (it never says `SessionStarted` to a
+//! greeter it is about to stop), leaving the last frame as the closed state the shell's login
+//! opening continues from; 75 when the event loop ends any
 //! other way (a lost compositor or display manager); 69 when the display manager cannot be
 //! reached; 78 when it offers nothing to log in to or as; 64 for unknown arguments. Every
 //! non-zero status makes `dojo-dm` start the greeter again.

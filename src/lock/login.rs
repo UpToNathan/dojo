@@ -239,6 +239,8 @@ pub(super) struct LoginState {
     pub(super) swap: Option<Swap>,
     /// The power chip is open and shows the occasions.
     pub(super) power_open: bool,
+    /// Why the previous login screen's session did not start, told before the lock landed.
+    pub(super) refused: Option<String>,
 }
 
 impl LoginState {
@@ -252,6 +254,7 @@ impl LoginState {
             editing: None,
             swap: None,
             power_open: false,
+            refused: None,
         }
     }
 

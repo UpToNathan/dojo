@@ -18,6 +18,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use super::account::{self, Account};
+use super::auth::Rejected;
 use super::config::{Parts, Settings};
 use super::cycle::{Cycle, Input, Order, Phase};
 use super::greeter::{GreeterProcess, Greeters, SESSION_GONE_TIMEOUT, wait_session_gone};
@@ -132,6 +133,9 @@ struct Service {
     connection: Option<Connection>,
     helpers: BTreeMap<u32, HelperProcess>,
     session: Option<SessionRun>,
+    /// Why the last session did not start, when the greeter that asked for it was already gone.
+    /// The next greeter is told right after its `Init`, once.
+    unreported: Option<SessionFailure>,
     last_login: Option<Login>,
     epoch: Instant,
     exit: Option<i32>,
@@ -178,6 +182,7 @@ pub fn run(settings: Settings, parts: Parts) -> i32 {
         connection: None,
         helpers: BTreeMap::new(),
         session: None,
+        unreported: None,
         epoch: Instant::now(),
         exit: None,
     };
@@ -440,10 +445,15 @@ impl Service {
                 let _ = self.lookups.requests.send((login, display_name));
             }
             Request::Power { occasion } => self.power_off(occasion),
-            other => match self.registry.request(other) {
-                Ok(actions) => self.run_actions(actions),
-                Err(rejected) => log(format!("ignored a request: {rejected:?}")),
-            },
+            other => {
+                let cancel = matches!(other, Request::Cancel { .. });
+                match self.registry.request(other) {
+                    Ok(actions) => self.run_actions(actions),
+                    // The attempt is over already: a loser the race killed, a refusal just relayed.
+                    Err(Rejected::Stale) if cancel => {}
+                    Err(rejected) => log(format!("ignored a request: {rejected:?}")),
+                }
+            }
         }
     }
 
@@ -466,6 +476,9 @@ impl Service {
             last_session: session.filter(|id| self.catalog.resolve(id).is_some()),
             sessions: self.catalog.entries(),
         });
+        if let Some(reason) = self.unreported.take() {
+            self.send(&Event::SessionFailed { reason });
+        }
     }
 
     fn send(&self, event: &Event) {
@@ -528,6 +541,9 @@ impl Service {
                     {
                         log(format!("cannot answer the PAM helper: {error}"));
                     }
+                }
+                Action::Relay(Event::SessionFailed { reason }) if self.connection.is_none() => {
+                    self.unreported = Some(reason);
                 }
                 Action::Relay(event) => self.send(&event),
                 Action::StartSession {

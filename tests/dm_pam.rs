@@ -476,7 +476,15 @@ fn accounts_the_display_manager_would_not_start_are_rejected_like_a_failed_login
     }
     let bench = Bench::new(&finger_stack(), &finger_stack());
     for name in ["root", "daemon", "no-such-user-dojo"] {
+        // A password login asks first, so the screen sees what a wrong password looks like.
         let run = bench.spawn(Method::Password);
+        run.login(&Login::parse(name).unwrap());
+        run.expect_report(Report::Prompt { echo: false });
+        run.answer(SECRET);
+        run.expect_report(Report::Finished(PamOutcome::Rejected));
+        assert_eq!(run.next(), None);
+        assert_eq!(run.finish(), Some(0), "{name}");
+        let run = bench.spawn(Method::Fingerprint);
         run.login(&Login::parse(name).unwrap());
         run.expect_report(Report::Finished(PamOutcome::Rejected));
         assert_eq!(run.finish(), Some(0), "{name}");
@@ -562,6 +570,10 @@ fn the_login_services_refuse_the_greeter_user() {
     for method in [Method::Password, Method::Fingerprint] {
         let run = bench.spawn(method);
         run.login(&Login::parse("dojo-greeter").unwrap());
+        if method == Method::Password {
+            run.expect_report(Report::Prompt { echo: false });
+            run.answer(SECRET);
+        }
         run.expect_report(Report::Finished(PamOutcome::Rejected));
         assert_eq!(run.finish(), Some(0));
     }

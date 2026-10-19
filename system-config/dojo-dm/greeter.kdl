@@ -1,6 +1,9 @@
 // The login screen's Niri. Its only client is dojo-greeter; there are no key bindings, so nothing
 // else can be started from the keyboard. @RELEASE@ becomes the installed release directory.
-spawn-sh-at-startup ". @RELEASE@/environment.sh && exec @RELEASE@/dojo-greeter"
+// dojo-dm watches this Niri, not the greeter: a greeter that ends before it ever connects (no
+// socket, a crash at start-up) would otherwise leave a locked black screen until the connect
+// timeout, and the three-failures-in-30-seconds limit would never be reached. So Niri leaves with it.
+spawn-sh-at-startup ". @RELEASE@/environment.sh && @RELEASE@/dojo-greeter; @RELEASE@/niri msg action quit --skip-confirmation"
 
 prefer-no-csd
 screenshot-path null

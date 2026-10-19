@@ -533,6 +533,8 @@ fn failures_races_and_unknown_sessions_leave_the_greeter_usable() {
             other => panic!("unexpected {other:?}"),
         }
     }
+    // The loser of the race is already gone; the greeter's cancel for it is no cause for complaint.
+    greeter.send(Request::Cancel { generation: 4 });
     greeter.send(Request::StartSession { generation: 3 });
     assert!(greeter.closed());
     let env = bench.session_env();
@@ -548,6 +550,60 @@ fn failures_races_and_unknown_sessions_leave_the_greeter_usable() {
             "close_session"
         ],
         "the loser of the race never reached the account phase"
+    );
+    let log = fs::read_to_string(bench.path("dm.log")).unwrap();
+    assert!(
+        !log.contains("ignored a request"),
+        "a cancel for an attempt that is already over is not logged:\n{log}"
+    );
+    assert_eq!(dm.terminate(), Some(0));
+}
+
+#[test]
+fn a_session_that_cannot_be_created_is_told_to_the_next_greeter_once() {
+    let Some(login) = login_or_skip() else { return };
+    let bench = Bench::new();
+    let greeter_command = bench.path("greeter.sh");
+    let dm = bench.dm(
+        &["--session-shell", "/nonexistent/shell"],
+        &[greeter_command.to_str().unwrap()],
+    );
+    let (greeter, _) = Greeter::hello(&bench);
+    greeter.begin(1, Method::Password, &login, "test-desktop");
+    assert_eq!(
+        greeter.report(1, Method::Password),
+        Report::Prompt { echo: false }
+    );
+    greeter.answer(1, SECRET);
+    assert_eq!(
+        greeter.report(1, Method::Password),
+        Report::Finished(PamOutcome::Success)
+    );
+    greeter.send(Request::StartSession { generation: 1 });
+    assert!(greeter.closed(), "the greeter is gone before the session is tried");
+
+    let (again, init) = Greeter::hello(&bench);
+    assert!(matches!(init, Event::Init { .. }));
+    assert_eq!(
+        again.next(),
+        Event::SessionFailed {
+            reason: SessionFailure::SpawnFailed
+        },
+        "the reason follows the fresh Init"
+    );
+    assert!(
+        !bench.path("session.out").exists(),
+        "no session ran"
+    );
+
+    drop(again);
+    let (third, _) = Greeter::hello(&bench);
+    third.send(Request::SelectUser {
+        login: login.clone(),
+    });
+    assert!(
+        matches!(third.next(), Event::User { .. }),
+        "a reason is told once: the next thing the third greeter hears is its own answer"
     );
     assert_eq!(dm.terminate(), Some(0));
 }
