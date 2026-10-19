@@ -28,6 +28,12 @@ const PRESENT: u8 = 1;
 const REJECTED: u8 = 2;
 /// A child that has not finished by now is stuck on a file system and is killed.
 const CHILD_SECONDS: u32 = 15;
+/// What the child may map beyond the address space it inherits at fork. The limit is on
+/// virtual size, which already counts every thread stack and allocator arena of the parent,
+/// so a fixed number would be too small in one process and no bound in another. The
+/// wallpaper decoder is held to 16 MiB; this is for a decoder bug, and is still far below
+/// what it takes to push the machine into swap.
+const CHILD_HEADROOM: u64 = 1 << 30;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Piece {
@@ -192,6 +198,30 @@ fn collect_as(account: &Account, gecos: Option<&str>) -> io::Result<Vec<u8>> {
     }
 }
 
+/// The address-space limit for a process whose `/proc/self/statm` reads `statm`.
+fn address_space_limit(statm: &str, page_size: u64) -> Option<u64> {
+    let pages: u64 = statm.split_whitespace().next()?.parse().ok()?;
+    pages.checked_mul(page_size)?.checked_add(CHILD_HEADROOM)
+}
+
+/// Caps this process's address space, soft and hard, so that a decoder bug in the collector
+/// fails an allocation instead of eating the machine.
+fn bound_address_space() -> io::Result<()> {
+    let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    let limit = std::fs::read_to_string("/proc/self/statm")
+        .ok()
+        .and_then(|statm| address_space_limit(&statm, u64::try_from(page_size).ok()?))
+        .ok_or_else(|| io::Error::other("cannot size the child's address space"))?;
+    let limit = libc::rlimit {
+        rlim_cur: limit,
+        rlim_max: limit,
+    };
+    if unsafe { libc::setrlimit(libc::RLIMIT_AS, &limit) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 /// The forked child. It never returns and never unwinds.
 fn collector_child(write: OwnedFd, account: &Account, gecos: Option<&str>) -> ! {
     // Nothing the parent holds open, the greeter's socket above all, stays in a process
@@ -202,6 +232,7 @@ fn collector_child(write: OwnedFd, account: &Account, gecos: Option<&str>) -> ! 
         libc::alarm(CHILD_SECONDS);
     }
     let result = (|| -> io::Result<()> {
+        bound_address_space()?;
         drop_to(account)?;
         let collector = Collector::open(&account.home, Links::Follow)?;
         let decoded = collector.collect(account.login.clone(), gecos);

@@ -183,6 +183,7 @@ fn a_child_reads_the_home_and_the_parent_stores_what_it_sent() {
     let generation = themes.join("generation-1");
     fs::create_dir(&generation).unwrap();
     fs::write(generation.join("palette.json"), palette_bytes()).unwrap();
+    fs::write(generation.join("lock-wallpaper.png"), png_bytes()).unwrap();
     symlink(&generation, themes.join("current")).unwrap();
     let snapshots = Snapshots::new(state.path().to_owned(), Some(unsafe { libc::getegid() }));
     snapshots.prepare().unwrap();
@@ -191,7 +192,8 @@ fn a_child_reads_the_home_and_the_parent_stores_what_it_sent() {
     let stored = snapshot::load(state.path(), "tester").unwrap();
     assert!(stored.palette.is_some());
     assert_eq!(stored.full_name, Line::parse("Tess Ter"));
-    assert_eq!(stored.wallpaper, None);
+    let wallpaper = stored.wallpaper.as_ref().expect("the child decodes the PNG");
+    assert_eq!((wallpaper.width(), wallpaper.height()), (48, 27));
 
     fs::write(generation.join("palette.json"), b"garbage").unwrap();
     snapshots.refresh(&account, Some("Tess Ter,,,")).unwrap();
@@ -225,4 +227,49 @@ fn a_user_other_than_the_service_cannot_be_read_without_root() {
         drop_to(&account).unwrap_err().kind(),
         io::ErrorKind::PermissionDenied
     );
+}
+
+#[test]
+fn the_limit_is_the_inherited_address_space_plus_the_headroom() {
+    let statm = "1000 400 100 10 0 300 0\n";
+    assert_eq!(address_space_limit(statm, 4096), Some(1000 * 4096 + CHILD_HEADROOM));
+    for bad in ["", "x 1", "-1 1", "99999999999999999999 1"] {
+        assert_eq!(address_space_limit(bad, 4096), None, "{bad:?}");
+    }
+    assert_eq!(address_space_limit("18446744073709551615", 4096), None);
+}
+
+#[test]
+fn a_bounded_child_can_map_a_little_and_not_the_headroom() {
+    let map = |bytes: usize| unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            bytes,
+            libc::PROT_NONE,
+            libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_NORESERVE,
+            -1,
+            0,
+        ) != libc::MAP_FAILED
+    };
+    match unsafe { libc::fork() } {
+        -1 => panic!("fork"),
+        0 => {
+            // A hung child must fail the test rather than stall it.
+            unsafe { libc::alarm(20) };
+            let bounded = bound_address_space().is_ok();
+            let code = match (bounded, map(64 << 20), map(CHILD_HEADROOM as usize + (64 << 20))) {
+                (true, true, false) => 0,
+                (false, _, _) => 1,
+                (_, false, _) => 2,
+                (_, _, true) => 3,
+            };
+            unsafe { libc::_exit(code) }
+        }
+        child => {
+            let mut status = 0;
+            assert_eq!(unsafe { libc::waitpid(child, &mut status, 0) }, child);
+            assert!(libc::WIFEXITED(status), "the child was killed (a hang?)");
+            assert_eq!(libc::WEXITSTATUS(status), 0, "1 unbounded, 2 no room for a decoder, 3 not bounded");
+        }
+    }
 }
