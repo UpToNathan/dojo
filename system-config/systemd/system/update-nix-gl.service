@@ -2,7 +2,7 @@
 Description=Update /run/opengl-driver and fontconfig for Nix-managed GL
 DefaultDependencies=no
 After=local-fs.target
-Before=display-manager.service ly.service
+Before=display-manager.service dojo-dm.service
 
 [Service]
 Type=oneshot

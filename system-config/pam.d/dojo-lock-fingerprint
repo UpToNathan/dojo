@@ -12,7 +12,7 @@
 # as "no fingerprint available" and not restart-loop.
 #
 # Deliberately NO pam_faillock here: a stranger's wrong finger must not lock the owner's account out of
-# ly/sudo/password, and fprintd already bounds retries.  Fingerprint success also should not (and here does
+# dojo-login/sudo/password, and fprintd already bounds retries.  Fingerprint success also should not (and here does
 # not) reset the password failure tally.
 auth     required   pam_fprintd.so timeout=30 max-tries=3
 # Locker only calls pam_authenticate(); account stanza only to keep pam_acct_mgmt harmless if ever called.

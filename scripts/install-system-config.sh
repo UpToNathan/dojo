@@ -23,7 +23,6 @@ if [[ ${1:-} == --chromium-theme-only ]]; then theme_only=true; shift; fi
 config_links=(
     '1password/custom_allowed_browsers|/etc/1password/custom_allowed_browsers'
     'nix/nix.conf|/etc/nix/nix.conf'
-    'pam.d/ly|/etc/pam.d/ly'
     'pam.d/system-local-login|/etc/pam.d/system-local-login'
     'systemd/system/update-nix-gl.service|/etc/systemd/system/update-nix-gl.service'
     'tmpfiles.d/nix-pam-unix-chkpwd.conf|/etc/tmpfiles.d/nix-pam-unix-chkpwd.conf'
@@ -56,6 +55,13 @@ config_copies=(
     'sudoers.d/dojo-chromium-theme-policy|/etc/sudoers.d/dojo-chromium-theme-policy|0440'
     'pam.d/dojo-lock-fingerprint|/etc/pam.d/dojo-lock-fingerprint|0644'
     'pam.d/dojo-lock-password|/etc/pam.d/dojo-lock-password|0644'
+    'pam.d/dojo-login|/etc/pam.d/dojo-login|0644'
+    'pam.d/dojo-login-fingerprint|/etc/pam.d/dojo-login-fingerprint|0644'
+    'pam.d/dojo-greeter|/etc/pam.d/dojo-greeter|0644'
+    'sysusers.d/dojo-greeter.conf|/etc/sysusers.d/dojo-greeter.conf|0644'
+    'tmpfiles.d/dojo-dm.conf|/etc/tmpfiles.d/dojo-dm.conf|0644'
+    'systemd/system/dojo-dm.service|/etc/systemd/system/dojo-dm.service|0644'
+    'systemd/system/getty@tty2.service.d/dojo-rescue.conf|/etc/systemd/system/getty@tty2.service.d/dojo-rescue.conf|0644'
     'wayland-sessions/niri-uwsm.desktop|/usr/share/wayland-sessions/niri-uwsm.desktop|0644'
 )
 
@@ -122,6 +128,9 @@ fi
 
 if ! $theme_only; then
     "$repo_root/system-config/bin/configure-firewalld"
+    # The greeter user and its state directory must exist before dojo-dm.service is enabled.
+    as_root systemd-sysusers /etc/sysusers.d/dojo-greeter.conf
+    as_root systemd-tmpfiles --create /etc/tmpfiles.d/dojo-dm.conf
     as_root systemctl daemon-reload
     as_root udevadm control --reload-rules
     if $laptop; then

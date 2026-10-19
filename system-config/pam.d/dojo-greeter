@@ -1,0 +1,12 @@
+#%PAM-1.0
+# /etc/pam.d/dojo-greeter  -- the greeter's own session, opened by dojo-dm as the unprivileged
+# dojo-greeter user so logind grants the greeter's Niri the seat. Nobody authenticates here: only
+# the root display manager starts this service, and only for dojo-greeter.
+auth       required     pam_permit.so
+
+account    required     pam_permit.so
+
+password   required     pam_deny.so
+
+-session   optional     pam_systemd.so       class=greeter
+session    required     pam_permit.so

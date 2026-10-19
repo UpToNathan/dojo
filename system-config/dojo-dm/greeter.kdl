@@ -1,0 +1,40 @@
+// The login screen's Niri. Its only client is dojo-greeter; there are no key bindings, so nothing
+// else can be started from the keyboard. @RELEASE@ becomes the installed release directory.
+spawn-sh-at-startup ". @RELEASE@/environment.sh && exec @RELEASE@/dojo-greeter"
+
+prefer-no-csd
+screenshot-path null
+
+hotkey-overlay {
+    skip-at-startup
+}
+
+config-notification {
+    disable-failed
+}
+
+xwayland-satellite {
+    off
+}
+
+cursor {
+    hide-when-typing
+    hide-after-inactive-ms 2000
+}
+
+input {
+    touchpad {
+        tap
+    }
+}
+
+layout {
+    background-color "#000000"
+    gaps 0
+    focus-ring {
+        off
+    }
+    border {
+        off
+    }
+}
