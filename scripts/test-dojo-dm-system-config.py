@@ -130,6 +130,18 @@ class Units(unittest.TestCase):
         self.assertEqual((service["TTYPath"], service["StandardInput"]), (["/dev/tty1"], ["tty"]))
         self.assertEqual((service["RuntimeDirectory"], service["StateDirectory"]), (["dojo-dm"], ["dojo-dm"]))
 
+    def test_service_sets_nothing_the_desktop_sessions_would_inherit(self):
+        service = unit_section("dojo-dm.service", "Service")
+        self.assertEqual(service["KeyringMode"], ["private"])
+        inherited = ("NoNewPrivileges", "ProtectSystem", "ProtectHome", "PrivateTmp", "PrivateDevices",
+                     "PrivateMounts", "PrivateNetwork", "CapabilityBoundingSet", "AmbientCapabilities",
+                     "SystemCallFilter", "SystemCallArchitectures", "MemoryDenyWriteExecute",
+                     "RestrictSUIDSGID", "RestrictNamespaces", "RestrictAddressFamilies", "LockPersonality",
+                     "ProtectKernelTunables", "ProtectKernelModules", "ProtectProc", "ProtectClock",
+                     "IPAddressDeny", "UMask", "OOMScoreAdjust", "LimitCORE", "WatchdogSec")
+        for key in inherited:
+            self.assertNotIn(key, service, f"{key} would reach every session this service starts")
+
     def test_service_runs_the_installed_release_without_devenv(self):
         text = (CONFIG / "systemd/system/dojo-dm.service").read_text()
         self.assertEqual(unit_section("dojo-dm.service", "Service")["ExecStart"], ["/usr/local/lib/dojo-dm/current/run"])

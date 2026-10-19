@@ -18,6 +18,14 @@ StandardInput=tty
 TTYReset=yes
 TTYVHangup=yes
 TTYVTDisallocate=yes
+# Nothing else is set on purpose. The greeter's and every user's session are forked from this
+# service's helper, so they inherit its mount namespace, seccomp filters, capability bounding set
+# and no_new_privs: ProtectSystem, ProtectHome, PrivateTmp, PrivateDevices, NoNewPrivileges,
+# CapabilityBoundingSet, SystemCall*, Memory* and Restrict* would all land on the desktop.
+# Cgroup limits such as IPAddressDeny fall away only if pam_systemd moves the session, which it
+# is optional in the stacks. WatchdogSec needs sd_notify in the loop, and a watchdog restart
+# during a session would start a greeter over it.
+KeyringMode=private
 
 [Install]
 Alias=display-manager.service
