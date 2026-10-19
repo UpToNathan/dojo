@@ -1,0 +1,10 @@
+# Installed only on machines with a battery (scripts/install-system-config.sh).
+
+# Battery: power-saver. Mains: balanced. power-profiles-daemon keeps whatever was last chosen, so
+# switch on the plug events only; a manual choice made afterwards stands until the next change.
+SUBSYSTEM=="power_supply", ATTR{type}=="Mains", ATTR{online}=="0", RUN+="/usr/bin/powerprofilesctl set power-saver"
+SUBSYSTEM=="power_supply", ATTR{type}=="Mains", ATTR{online}=="1", RUN+="/usr/bin/powerprofilesctl set balanced"
+
+# Arch Wiki, Laptop: "Hibernate on low battery level". Protects the session rather than saving
+# power: at 5% or less while discharging, hibernate.
+SUBSYSTEM=="power_supply", ATTR{status}=="Discharging", ATTR{capacity}=="[0-5]", RUN+="/usr/bin/systemctl hibernate"

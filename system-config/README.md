@@ -40,6 +40,36 @@ equal the login password, and a fingerprint login or autologin cannot unlock it
 because no password is entered. The Home Manager daemon stays and hands over to
 the one PAM starts.
 
+## Battery
+
+`scripts/install-system-config.sh` installs `laptop/` only where `/sys/class/power_supply/BAT*`
+exists, as root-owned copies (udev rules run programs, so they must not follow a user-writable
+checkout). It follows the Arch Wiki's Power management and Laptop pages, with power-profiles-daemon
+as the only power tool (the wiki says not to combine it with TLP):
+
+| File | What it does |
+| --- | --- |
+| `sysctl.d/90-dojo-power.conf` | NMI watchdog off; disk writeback every 60 s instead of 5 |
+| `NetworkManager/conf.d/90-dojo-wifi-powersave.conf` | Wi-Fi power saving on (`wifi.powersave=3`) |
+| `udev/rules.d/90-dojo-power.rules` | `power-saver` on battery, `balanced` on mains; hibernate at 5% |
+| `tmpfiles.d/90-dojo-battery.conf` | charge between 75% and 80% (ThinkPad thresholds) |
+| `systemd/logind.conf.d/90-dojo-lid.conf` | lid close suspends then hibernates on battery |
+| `systemd/sleep.conf.d/90-dojo-hibernate.conf` | hibernate after 60 minutes of suspend |
+
+The laptop here only supports s2idle sleep, which keeps draining the battery, so the lid action
+ends in hibernation (the resume swapfile is configured; `CanSuspendThenHibernate` answers yes).
+The charge limit trades about a fifth of the capacity for a longer battery life span: write 100
+to `charge_control_end_threshold` to charge fully for a trip, or edit the tmpfiles file.
+
+The idle plan lives in `home-manager.nix` (stasis): on battery the screen dims at 2 minutes, locks at
+5, turns off at 5.5 and suspends-then-hibernates at 15; on AC it locks at 5 and turns off at 10.
+
+Considered and not adopted: PCI runtime power management for every device (the only real devices
+left on are the MediaTek MT7925 Wi-Fi, known to misbehave under runtime PM, the NVMe, and the iGPU;
+the rest are bridges with no driver), changing the ASPM policy (unmeasured, and the same Wi-Fi chip
+is sensitive to it), USB autosuspend (already on for all but one device), TLP, and forcing GPU
+power levels (conflicts with power-profiles-daemon).
+
 ## Lock screen
 
 `pam.d/dojo-lock-fingerprint` and `pam.d/dojo-lock-password` are the two PAM

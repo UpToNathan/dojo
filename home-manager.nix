@@ -312,7 +312,7 @@ in
 
       services.stasis = {
         enable = true;
-        extraPathPackages = [ pkgs.niri ];
+        extraPathPackages = [ pkgs.niri pkgs.brightnessctl ];
         extraConfig = ''
           default:
             enable_loginctl_integration true
@@ -328,17 +328,45 @@ in
               command "${dojoLockNow}"
             end
 
+            # Stasis timeouts are relative to the previous enabled step, so each plan below lists
+            # the delay since the step before it. Totals on battery: dim at 2 minutes, lock at 5,
+            # screen off at 5.5, suspend-then-hibernate at 15 (Arch Wiki, Power management:
+            # lower brightness, then blank the screen, then sleep). On AC the screen only locks
+            # and blanks; nothing suspends.
             ac:
               lock_screen:
                 timeout ${toString dojoLockIdleSeconds}
                 command "${dojoLockNow}"
               end
+
+              dpms:
+                timeout 300
+                command "niri msg action power-off-monitors"
+                resume_command "niri msg action power-on-monitors"
+              end
             end
 
             battery:
+              brightness:
+                timeout 120
+                command "brightnessctl -s set 25%"
+                resume_command "brightnessctl -r"
+              end
+
               lock_screen:
-                timeout ${toString dojoLockIdleSeconds}
+                timeout ${toString (dojoLockIdleSeconds - 120)}
                 command "${dojoLockNow}"
+              end
+
+              dpms:
+                timeout 30
+                command "niri msg action power-off-monitors"
+                resume_command "niri msg action power-on-monitors"
+              end
+
+              suspend:
+                timeout 570
+                command "/usr/bin/systemctl suspend-then-hibernate"
               end
             end
           end

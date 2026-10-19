@@ -59,6 +59,21 @@ config_copies=(
     'wayland-sessions/niri-uwsm.desktop|/usr/share/wayland-sessions/niri-uwsm.desktop|0644'
 )
 
+# Battery settings apply only where there is a battery. Root-owned copies, not symlinks: udev
+# rules run programs as root, so they must not follow a user-writable checkout.
+laptop=false
+if compgen -G '/sys/class/power_supply/BAT*' >/dev/null; then laptop=true; fi
+if $laptop && ! $theme_only; then
+    config_copies+=(
+        'laptop/sysctl.d/90-dojo-power.conf|/etc/sysctl.d/90-dojo-power.conf|0644'
+        'laptop/NetworkManager/conf.d/90-dojo-wifi-powersave.conf|/etc/NetworkManager/conf.d/90-dojo-wifi-powersave.conf|0644'
+        'laptop/udev/rules.d/90-dojo-power.rules|/etc/udev/rules.d/90-dojo-power.rules|0644'
+        'laptop/tmpfiles.d/90-dojo-battery.conf|/etc/tmpfiles.d/90-dojo-battery.conf|0644'
+        'laptop/systemd/logind.conf.d/90-dojo-lid.conf|/etc/systemd/logind.conf.d/90-dojo-lid.conf|0644'
+        'laptop/systemd/sleep.conf.d/90-dojo-hibernate.conf|/etc/systemd/sleep.conf.d/90-dojo-hibernate.conf|0644'
+    )
+fi
+
 for config_copy in "${config_copies[@]}"; do
     source_relative=${config_copy%%|*}
     remainder=${config_copy#*|}
@@ -109,4 +124,13 @@ if ! $theme_only; then
     "$repo_root/system-config/bin/configure-firewalld"
     as_root systemctl daemon-reload
     as_root udevadm control --reload-rules
+    if $laptop; then
+        as_root sysctl --system >/dev/null
+        as_root systemd-tmpfiles --create /etc/tmpfiles.d/90-dojo-battery.conf
+        as_root udevadm trigger --subsystem-match=power_supply --action=change
+        if as_root systemctl is-active --quiet NetworkManager.service; then
+            as_root nmcli general reload conf
+        fi
+        printf 'Battery settings installed. The lid action in logind takes effect at the next boot.\n'
+    fi
 fi
