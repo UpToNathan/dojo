@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Makes the GNOME keyring unlock with the ly password login, so Dojo's stored
-# credentials are available without a dialog.
+# Makes the GNOME keyring unlock with the Dojo login screen's password login, so
+# Dojo's stored credentials are available without a dialog.
 #
-# ly's PAM stack already lists pam_gnome_keyring.so, marked optional with a
-# leading "-", so a missing module is skipped silently. The Home Manager daemon
+# The dojo-login PAM stack already lists pam_gnome_keyring.so, marked optional
+# with a leading "-", so a missing module is skipped silently. The Home Manager daemon
 # lives in the Nix store, and a Nix-built PAM module must not be loaded into
 # the host's login process, so the Arch package supplies the module. The module
 # only ever unlocks a keyring named "login", so an existing default keyring
@@ -22,8 +22,8 @@ if [[ ! -e $module ]]; then
     sudo pacman -S --needed gnome-keyring
 fi
 [[ -e $module ]] || { printf '%s is still missing after installing gnome-keyring.\n' "$module" >&2; exit 1; }
-grep -q '^-\?session.*pam_gnome_keyring.so.*auto_start' /etc/pam.d/ly ||
-    { printf '/etc/pam.d/ly does not start the keyring on login; add pam_gnome_keyring.so there first.\n' >&2; exit 1; }
+grep -q '^-\?session.*pam_gnome_keyring.so.*auto_start' /etc/pam.d/dojo-login ||
+    { printf '/etc/pam.d/dojo-login does not start the keyring on login; run scripts/install-system-config.sh first.\n' >&2; exit 1; }
 
 default_name=$(cat "$keyrings/default" 2>/dev/null || true)
 if [[ -e $keyrings/login.keyring ]]; then

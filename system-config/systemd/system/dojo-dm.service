@@ -1,0 +1,24 @@
+[Unit]
+Description=Dojo display manager
+After=systemd-user-sessions.service plymouth-quit-wait.service systemd-logind.service getty@tty1.service
+Conflicts=getty@tty1.service
+# A greeter that cannot start leaves tty2 (getty@tty2.service) as the console.
+StartLimitIntervalSec=30
+StartLimitBurst=3
+
+[Service]
+ExecStart=/usr/local/lib/dojo-dm/current/run
+Restart=always
+RestartSec=1
+RuntimeDirectory=dojo-dm
+RuntimeDirectoryMode=0755
+StateDirectory=dojo-dm
+TTYPath=/dev/tty1
+StandardInput=tty
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+
+[Install]
+Alias=display-manager.service
+WantedBy=multi-user.target

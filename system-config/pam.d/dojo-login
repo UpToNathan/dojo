@@ -1,0 +1,18 @@
+#%PAM-1.0
+# /etc/pam.d/dojo-login  -- password ONLY; the display manager (dojo-dm-pam) opens the user's session with it.
+#
+# The login stack tries a fingerprint first, and a fingerprint success ends the auth phase before
+# pam_gnome_keyring sees a password, so the keyring would stay locked. Fingerprint logins go through
+# dojo-login-fingerprint instead (no keyring unlock, by design); sudo keeps its fingerprint option
+# through system-local-login.
+auth       include      system-login
+-auth      optional     pam_gnome_keyring.so
+
+account    include      login
+
+password   include      login
+-password  optional     pam_gnome_keyring.so use_authtok
+
+-session   optional     pam_systemd.so       class=user
+session    include      login
+-session   optional     pam_gnome_keyring.so auto_start

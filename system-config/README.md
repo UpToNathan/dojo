@@ -27,18 +27,99 @@ files stay outside version control. `pam.d/system-local-login` adds fingerprint
 authentication before the normal system-login stack. `nix/nix.conf` contains a
 public Cachix signing key, not a secret.
 
-`pam.d/ly` is the ly login stack. Stock ly lists `pam_gnome_keyring.so` as
-optional with a leading `-`, so it is skipped unless the module exists, and it
-reaches `system-local-login`, whose `sufficient pam_fprintd.so` ends the auth
-phase on a fingerprint before the keyring sees a password. The tracked copy
-authenticates with the password only. The Arch `gnome-keyring` package provides
-`/usr/lib/security/pam_gnome_keyring.so`, and the module only unlocks a keyring
-named `login`. `scripts/enable-keyring-login-unlock.sh` installs the package and
-renames an existing default keyring to `login`, keeping a backup;
-`scripts/install-system-config.sh` links the ly stack. The keyring password has to
-equal the login password, and a fingerprint login or autologin cannot unlock it
-because no password is entered. The Home Manager daemon stays and hands over to
-the one PAM starts.
+`pam.d/dojo-login` is the display manager's password login stack. Stock PAM
+logins list `pam_gnome_keyring.so` as optional with a leading `-`, so it is
+skipped unless the module exists, and they reach `system-local-login`, whose
+`sufficient pam_fprintd.so` ends the auth phase on a fingerprint before the
+keyring sees a password. The tracked copy authenticates with the password only.
+The Arch `gnome-keyring` package provides `/usr/lib/security/pam_gnome_keyring.so`,
+and the module only unlocks a keyring named `login`.
+`scripts/enable-keyring-login-unlock.sh` installs the package and renames an
+existing default keyring to `login`, keeping a backup;
+`scripts/install-system-config.sh` installs the stack. The keyring password has
+to equal the login password, and a fingerprint login or autologin cannot unlock
+it because no password is entered. The Home Manager daemon stays and hands over
+to the one PAM starts.
+
+ly was the display manager until the login screen replaced it. The tracked
+`pam.d/ly` is gone and nothing here installs, enables or removes the `ly`
+package; see "Login screen" below for how to go back.
+
+## Login screen
+
+`dojo-dm` replaces ly (ADR 0003): a root service on `tty1` that runs the login
+screen, authenticates through PAM and starts the chosen session. What
+is installed where:
+
+| Source | Installed as | By |
+| --- | --- | --- |
+| `pam.d/dojo-login` | `/etc/pam.d/dojo-login`, password only, unlocks the keyring | `install-system-config.sh` |
+| `pam.d/dojo-login-fingerprint` | `/etc/pam.d/dojo-login-fingerprint`, fingerprint only, no keyring, no faillock | `install-system-config.sh` |
+| `pam.d/dojo-greeter` | `/etc/pam.d/dojo-greeter`, the greeter's own session (class greeter) | `install-system-config.sh` |
+| `sysusers.d/dojo-greeter.conf` | `/etc/sysusers.d/`, the `dojo-greeter` system user | `install-system-config.sh`, which runs `systemd-sysusers` |
+| `tmpfiles.d/dojo-dm.conf` | `/etc/tmpfiles.d/`, `/var/lib/dojo-dm/users` (root and `dojo-greeter` only) for look snapshots | `install-system-config.sh` |
+| `systemd/system/dojo-dm.service` | `/etc/systemd/system/` | `install-system-config.sh` |
+| `systemd/system/getty@tty2.service.d/dojo-rescue.conf` | `/etc/systemd/system/getty@tty2.service.d/` | `install-system-config.sh` |
+| `dojo-dm/greeter.kdl` | `/usr/local/lib/dojo-dm/<release>/greeter.kdl` | `scripts/install-dojo-dm.sh` |
+| `dojo-dm`, `dojo-dm-pam`, `dojo-greeter`, the Niri fork | `/usr/local/lib/dojo-dm/<release>/` plus a `current` link | `scripts/install-dojo-dm.sh` |
+
+All of these are root-owned copies, never symlinks into this checkout or a
+home directory, because root and the greeter execute them. A release
+directory holds the four binaries, `run` (a three-line wrapper that sources
+`environment.sh` and execs `dojo-dm`), `environment.sh` and `greeter.kdl`.
+`environment.sh` is written from the installed Niri fork's and desktop's
+`environment.sh` (library paths, which must be `/nix/store` paths) and
+`roots/` holds GC roots for those store paths, so nothing depends on devenv at
+runtime. `dojo-greeter` joins no device groups: its greeter session lets logind
+give its compositor the GPU and input devices. If a host proves otherwise, add
+the group in `sysusers.d/dojo-greeter.conf`.
+
+Install on a fresh host with `scripts/bootstrap-host all`. On a host that
+already runs ly, once the three binaries build:
+
+```sh
+scripts/install-system-config.sh
+devenv shell -- cargo build --release --bin dojo-dm --bin dojo-dm-pam --bin dojo-greeter
+devenv shell -- scripts/install-dojo-dm.sh
+scripts/bootstrap-host login
+```
+
+`install-dojo-dm.sh` is idempotent. It refuses to install if `dojo-dm-pam
+--check` fails under the host loader, backs up a replaced release or `current`
+link with a timestamp, keeps `previous` pointing at the last release, and prunes
+to the newest four. `bootstrap-host login` enables `dojo-dm.service` (which is
+`display-manager.service`) and `getty@tty2.service`, and disables `ly@tty2` and
+`getty@tty1`. It starts nothing: the login screen replaces the console at the
+next boot, so the running session is untouched. Refresh the inventory
+afterwards with `dojo-update --only inventory`.
+
+`pam.d/dojo-login` and `dojo-login-fingerprint` both end in `session include login`.
+Neither has been exercised against the real PAM stack or logind yet.
+
+**Rescue path.** `tty2` is a plain `getty`. If the greeter breaks, `dojo-dm`
+stops after three starts in 30 seconds, `tty1` stays blank and Ctrl+Alt+F2 is a
+working text login. From there: `journalctl -u dojo-dm -b`, then fix and
+`sudo systemctl restart dojo-dm`, or roll back (below).
+
+**Keyring.** A password login unlocks the GNOME keyring through
+`pam_gnome_keyring` in `dojo-login`. A fingerprint login cannot: no password is
+entered, so the keyring stays locked and the first thing that needs a secret
+asks for the login password. That is why the fingerprint stack has no keyring
+line.
+
+**Roll back to ly.** The `ly` package stays installed until you remove it.
+Restore its PAM file from history and swap the units:
+
+```sh
+sudo rm -f /etc/pam.d/ly   # a link into this checkout that no longer resolves
+git show "$(git log -n1 --format=%H -- system-config/pam.d/ly)^:system-config/pam.d/ly" | sudo tee /etc/pam.d/ly >/dev/null
+sudo systemctl disable dojo-dm.service getty@tty2.service
+sudo systemctl enable ly@tty2.service getty@tty1.service
+```
+
+Once the login screen has proved
+itself, `sudo pacman -Rns ly` removes the package; until then the next
+`capture-system-packages.py` run lists it again.
 
 ## Battery
 

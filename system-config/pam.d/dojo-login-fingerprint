@@ -1,0 +1,21 @@
+#%PAM-1.0
+# /etc/pam.d/dojo-login-fingerprint  -- fingerprint ONLY (never falls through to a password prompt).
+#
+# Races the password service in a separate dojo-dm-pam process (ADR 0002); the first to succeed logs in.
+#   timeout=30   a finite value so the helper re-arms and re-claims the sensor on a schedule dojo-dm
+#                controls; timeout=-1 would hold the sensor claimed for the whole login screen.
+#   max-tries=3  after 3 no-matches pam_fprintd returns PAM_MAXTRIES, the only brute-force limit on
+#                this path, so keep it finite.
+#
+# Deliberately NO pam_faillock: a stranger's wrong finger must not lock the owner's password out, and
+# fprintd already bounds retries.
+# Deliberately NO pam_gnome_keyring: no password is entered, so the keyring stays locked after a
+# fingerprint login and the login password unlocks it later.
+auth       required     pam_fprintd.so timeout=30 max-tries=3
+
+account    include      login
+
+password   required     pam_deny.so
+
+-session   optional     pam_systemd.so       class=user
+session    include      login

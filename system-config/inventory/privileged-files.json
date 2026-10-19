@@ -526,27 +526,6 @@
       "gid": 0,
       "installation": "symlink",
       "mode": "0777",
-      "package": "ly",
-      "path": "/etc/pam.d/ly",
-      "source": "system-config/pam.d/ly",
-      "source_link_matches": true,
-      "type": "symlink",
-      "uid": 0
-    },
-    {
-      "classification": "unowned-local",
-      "gid": 0,
-      "mode": "0644",
-      "path": "/etc/pam.d/ly.orig",
-      "type": "file",
-      "uid": 0
-    },
-    {
-      "backup_status": "modified",
-      "classification": "repo-managed",
-      "gid": 0,
-      "installation": "symlink",
-      "mode": "0777",
       "package": "pambase",
       "path": "/etc/pam.d/system-local-login",
       "source": "system-config/pam.d/system-local-login",
@@ -670,14 +649,6 @@
       "gid": 0,
       "mode": "0777",
       "path": "/etc/systemd/system/multi-user.target.wants/firewalld.service",
-      "type": "symlink",
-      "uid": 0
-    },
-    {
-      "classification": "unowned-local",
-      "gid": 0,
-      "mode": "0777",
-      "path": "/etc/systemd/system/multi-user.target.wants/ly@tty2.service",
       "type": "symlink",
       "uid": 0
     },
