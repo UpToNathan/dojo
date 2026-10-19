@@ -1,15 +1,15 @@
 [Unit]
 Description=Dojo voice and prewarmed local transcription
+# Started and stopped by dojo-voice-mic.service, so it exists only while a microphone does.
 PartOf=graphical-session.target
 After=graphical-session.target
 
 [Service]
 Type=simple
+# A start with no microphone is skipped, not failed.
+ExecCondition=@DOJO_ROOT@/tools/speech/dojo-mic-present
 WorkingDirectory=@DOJO_ROOT@
 # The wrapper loads the installed environment itself, so there is no devenv shell to evaluate first.
 ExecStart=@DOJO_ROOT@/tools/speech/dojo-voice --serve
 Restart=on-failure
 RestartSec=3
-
-[Install]
-WantedBy=graphical-session.target

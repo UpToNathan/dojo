@@ -72,3 +72,16 @@ On Arch, run `scripts/setup-audio.sh` to install PipeWire, its ALSA and PulseAud
 compatibility layers, and WirePlumber. The devenv environment uses the Nix
 PipeWire ALSA plugin with the host ALSA configuration, so capture follows the
 system default source without mixing host and Nix C libraries.
+
+## Microphone presence
+
+The voice service, with its prewarmed transcription model, runs only while a microphone can
+record. `dojo-voice-mic.service` watches PipeWire (`pactl subscribe`) and starts or stops
+`dojo-voice.service` as `tools/speech/dojo-mic-present` changes its answer: output monitors and
+sources whose active port is reported "not available" (an unplugged jack) do not count; sources
+without ports, such as USB headsets, do. The service's `ExecCondition` runs the same check.
+With no microphone the voice keybindings print "No microphone is available" and start nothing,
+and the model picker has no service to reach.
+
+A Bluetooth headset only has a microphone while it is in its headset (HFP) profile; in the
+music profile it counts as no microphone.

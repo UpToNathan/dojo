@@ -581,18 +581,36 @@ export async function serve(service = new VoiceService()) {
   } catch (error) { await shutdown(); throw error; }
 }
 
+const micCheck = join(root, 'tools/speech/dojo-mic-present');
+// The unit (and its ExecCondition) already refuses to run without one; this keeps a keypress from
+// starting a detached service the unit would not have allowed.
+export const microphoneAvailable = () => new Promise(resolve => {
+  const child = spawn(micCheck, [], { stdio: 'ignore' });
+  child.once('error', () => resolve(true));
+  child.once('exit', code => resolve(code === 0));
+});
+
 async function request(command) {
   try { return JSON.parse(await socketRequest(socketPath, command)); }
   catch (error) {
     if (!['ENOENT', 'ECONNREFUSED'].includes(error.code)) throw error;
     if (command.action === 'trace') return { error: 'Dojo voice service is not running. No trace was exported.' };
     if (['cancel', 'finish'].includes(command.action)) return {};
-    await mkdir(dataDir, { recursive: true, mode: 0o700 });
-    const log = await open(join(dataDir, 'voice.log'), 'a', 0o600);
-    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), '--serve'], {
-      detached: true, stdio: ['ignore', log.fd, log.fd], env: process.env,
+    if (!await microphoneAvailable()) return { error: 'No microphone is available, so the voice service is not running. Connect one to use voice.' };
+    // Through the unit when there is one, so the mic watcher can also stop this instance.
+    const viaUnit = await new Promise(resolve => {
+      const child = spawn('systemctl', ['--user', 'start', 'dojo-voice.service'], { stdio: 'ignore' });
+      child.once('error', () => resolve(false));
+      child.once('exit', code => resolve(code === 0));
     });
-    child.unref(); await log.close();
+    if (!viaUnit) {
+      await mkdir(dataDir, { recursive: true, mode: 0o700 });
+      const log = await open(join(dataDir, 'voice.log'), 'a', 0o600);
+      const child = spawn(process.execPath, [fileURLToPath(import.meta.url), '--serve'], {
+        detached: true, stdio: ['ignore', log.fd, log.fd], env: process.env,
+      });
+      child.unref(); await log.close();
+    }
     for (let attempt = 0; attempt < 50; attempt++) {
       await new Promise(resolve => setTimeout(resolve, 100));
       try { return JSON.parse(await socketRequest(socketPath, command)); }

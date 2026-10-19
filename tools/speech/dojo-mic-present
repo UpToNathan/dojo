@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Exits 0 when a microphone can record now, 1 when none can. A source counts unless it is a
+# monitor of an output or its active port is reported "not available" (an unplugged jack).
+# Sources with no ports, such as USB and Bluetooth headsets, count while they exist.
+# With a file argument the `pactl list sources` text is read from it, for tests.
+set -euo pipefail
+list() { if [[ -n ${1:-} ]]; then cat -- "$1"; else pactl list sources; fi; }
+list "${1:-}" | awk '
+function finish() {
+  if (name != "" && name !~ /\.monitor$/ && !monitor && (active == "" || !(active in missing))) found = 1
+  name = ""; active = ""; monitor = 0; delete missing
+}
+/^Source #/ { finish() }
+/^[[:space:]]+Name: / { name = $2 }
+/^[[:space:]]+Monitor of Sink: / { if ($0 !~ /n\/a/) monitor = 1 }
+/^[[:space:]]+Active Port: / { active = $3 }
+/^\t\t[^ \t].*: .*not available\)/ { split($1, parts, ":"); missing[parts[1]] = 1 }
+END { finish(); exit(found ? 0 : 1) }
+'
