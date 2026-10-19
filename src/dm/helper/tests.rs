@@ -409,3 +409,58 @@ fn test_builds_accept_a_private_confdir_and_shell_before_the_service() {
     assert_eq!(parse(&["--pam-confdir", "dojo-login"]), None);
     assert_eq!(parse(&["--other", "x", "dojo-login"]), None);
 }
+
+/// The parent a session's double-forked daemon ends up with once the session has exited,
+/// with this process standing in for the helper as a child subreaper.
+#[cfg(feature = "fake-pam-stack")]
+fn parent_of_orphan(own_orphans: bool) -> i32 {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+    static SUBREAPER: Mutex<()> = Mutex::new(());
+    let _flag = SUBREAPER.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) };
+
+    let directory = tempfile::tempdir().unwrap();
+    let report = directory.path().join("parent");
+    let script = format!(
+        "me=$$\n\
+         ( while :; do read -r _ _ _ parent _ < /proc/self/stat; \
+           [ \"$parent\" != \"$me\" ] && break; sleep 0.01; done; \
+           echo \"$parent\" > '{0}.tmp'; mv '{0}.tmp' '{0}' ) &\n",
+        report.display()
+    );
+    let uid = unsafe { libc::geteuid() };
+    let plan = SessionPlan {
+        shell: "/bin/sh".into(),
+        arguments: vec!["-c".into(), script.into()],
+        environment: vec![("PATH".into(), "/usr/bin".into())],
+        home: "/".into(),
+        uid,
+        gid: unsafe { libc::getegid() },
+        account: c"test".into(),
+        own_orphans,
+    };
+    let mut launcher = ForkLauncher {
+        child: None,
+        core: libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        },
+    };
+    launcher.spawn(&plan).unwrap();
+    launcher.wait();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !report.exists() {
+        assert!(Instant::now() < deadline, "the orphan never reported");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    std::fs::read_to_string(&report).unwrap().trim().parse().unwrap()
+}
+
+#[cfg(feature = "fake-pam-stack")]
+#[test]
+fn the_greeters_orphans_are_reparented_to_the_helper_and_a_users_are_not() {
+    let helper = std::process::id() as i32;
+    assert_eq!(parent_of_orphan(true), helper);
+    assert_ne!(parent_of_orphan(false), helper);
+}

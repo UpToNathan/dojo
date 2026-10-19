@@ -302,7 +302,9 @@ impl Service {
                         queue.extend(self.cycle.on(Input::GreeterFailed { at: self.now() }));
                     }
                 }
-                Order::StopGreeter => self.stop_greeter(),
+                Order::StopGreeter => {
+                    self.stop_greeter();
+                }
                 Order::Snapshot => self.snapshot_current(),
                 Order::Exit(code) => self.finish(code),
             }
@@ -322,12 +324,15 @@ impl Service {
     }
 
     /// Stops the greeter and its connection and waits until its logind session is gone.
-    fn stop_greeter(&mut self) {
+    /// `false` when something of the greeter is still running afterwards.
+    fn stop_greeter(&mut self) -> bool {
         self.connection = None;
         let actions = self.registry.greeter_gone();
+        let mut clean = true;
         if let Some(mut greeter) = self.greeter.take() {
             if !greeter.process.stop() {
                 log("some of the greeter's processes survived");
+                clean = false;
             }
             drop(greeter);
             if !wait_session_gone(
@@ -339,6 +344,7 @@ impl Service {
             }
         }
         self.run_actions(actions);
+        clean
     }
 
     /// The greeter went away or never came: a failed start unless a session took over.
@@ -636,20 +642,29 @@ impl Service {
         self.last_login = Some(login);
         self.apply(Input::SessionStarting);
         self.refresh_snapshot(&account, gecos.as_deref());
-        self.stop_greeter();
+        if !self.stop_greeter() {
+            // The greeter user's code may still be running; the user's session, and the
+            // password that unlocked it, must not start beside it.
+            log("not starting the session: the greeter left processes behind");
+            return self.abandon_start(generation, SessionFailure::Refused);
+        }
         let sent = self
             .helpers
             .get(&generation)
             .map(|helper| helper.start(&start));
         if !matches!(sent, Some(Ok(()))) {
             log("cannot send the session to its helper");
-            self.session = None;
-            self.apply(Input::SessionOver);
-            return self
-                .registry
-                .refuse_start(generation, SessionFailure::SpawnFailed);
+            return self.abandon_start(generation, SessionFailure::SpawnFailed);
         }
         Vec::new()
+    }
+
+    /// The session was announced and the greeter is gone, but it will not start: a fresh
+    /// greeter takes over and learns why once it connects.
+    fn abandon_start(&mut self, generation: u32, reason: SessionFailure) -> Vec<Action> {
+        self.session = None;
+        self.apply(Input::SessionOver);
+        self.registry.refuse_start(generation, reason)
     }
 
     fn refresh_snapshot(&self, account: &Account, gecos: Option<&str>) {

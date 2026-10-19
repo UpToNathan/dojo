@@ -83,6 +83,10 @@ pub struct SessionPlan {
     pub uid: u32,
     pub gid: u32,
     pub account: std::ffi::CString,
+    /// The helper stays the child subreaper, so processes the session orphans (a
+    /// double-forked daemon) are reparented to it and stay in the tree the display manager
+    /// stops. Only the greeter's session needs that; a user's orphans belong to init.
+    pub own_orphans: bool,
 }
 
 /// The login shell runs `exec <Exec>`: the shell's profile sets up the user's environment,
@@ -130,6 +134,7 @@ pub fn plan(
         uid: account.uid,
         gid: account.gid,
         account: account.name.clone(),
+        own_orphans: account.is_greeter(),
     }
 }
 
@@ -241,6 +246,13 @@ mod tests {
         );
         assert_eq!(env(&plan, "XDG_VTNR").as_deref(), Some("1"));
         assert_eq!(env(&plan, "SHELL").as_deref(), Some("/bin/sh"));
+    }
+
+    #[test]
+    fn only_the_greeters_session_leaves_its_orphans_to_the_helper() {
+        let start = start();
+        assert!(plan(&greeter(), &start, vec![], None).own_orphans);
+        assert!(!plan(&account(), &start, vec![], None).own_orphans);
     }
 
     #[test]

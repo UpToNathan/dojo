@@ -126,6 +126,7 @@ impl Greeters for PamGreeters {
                     return Ok(Box::new(PamGreeter {
                         helper,
                         over: false,
+                        uid: self.uid,
                     }));
                 }
                 Step::Failed => return Err(io::Error::other(format!("greeter helper: {event:?}"))),
@@ -137,6 +138,7 @@ impl Greeters for PamGreeters {
 struct PamGreeter {
     helper: HelperProcess,
     over: bool,
+    uid: u32,
 }
 
 impl PamGreeter {
@@ -165,7 +167,9 @@ impl GreeterProcess for PamGreeter {
     }
 
     /// Asks the greeter's tree to stop and lets the helper close the PAM session, which is
-    /// what ends the logind session. What is still alive after the timeout is killed.
+    /// what ends the logind session. What is still alive after the timeout is killed, and
+    /// then so is anything else that runs as the greeter's user: a daemon that forked twice
+    /// and called `setsid` is in no tree the helper can snapshot.
     fn stop(&mut self) -> bool {
         if !self.over {
             self.helper.terminate_session();
@@ -176,8 +180,75 @@ impl GreeterProcess for PamGreeter {
         }
         // Ended is sent just before the helper's last PAM call; give it the moment to exit.
         self.helper.wait_for_exit(Duration::from_secs(1));
-        self.helper.kill().is_empty()
+        let helper_gone = self.helper.kill().is_empty();
+        evict(self.uid).is_empty() && helper_gone
     }
+}
+
+const EVICT_ROUNDS: u32 = 40;
+const EVICT_PAUSE: Duration = Duration::from_millis(50);
+
+/// The real uid in a `/proc/<pid>/status`, or `None` for a zombie or a dead process, which
+/// hold nothing and cannot be killed any deader.
+fn live_owner(status: &str) -> Option<u32> {
+    let mut owner = None;
+    for line in status.lines() {
+        if let Some(state) = line.strip_prefix("State:") {
+            if state.trim_start().starts_with(['Z', 'X', 'x']) {
+                return None;
+            }
+        } else if let Some(ids) = line.strip_prefix("Uid:") {
+            owner = ids.split_whitespace().next()?.parse().ok();
+        }
+    }
+    owner
+}
+
+fn processes_of(uid: u32) -> Vec<i32> {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| entry.file_name().to_str()?.parse::<i32>().ok())
+        .filter(|pid| {
+            std::fs::read_to_string(format!("/proc/{pid}/status"))
+                .ok()
+                .and_then(|status| live_owner(&status))
+                == Some(uid)
+        })
+        .collect()
+}
+
+/// SIGKILLs every process of `uid` until none is left or the rounds run out, and returns
+/// the pids still alive. Never touches root's processes.
+pub fn evict(uid: u32) -> Vec<i32> {
+    if uid == 0 {
+        return Vec::new();
+    }
+    evict_with(
+        || processes_of(uid),
+        |pid| unsafe {
+            libc::kill(pid, libc::SIGKILL);
+        },
+        std::thread::sleep,
+    )
+}
+
+fn evict_with(
+    mut living: impl FnMut() -> Vec<i32>,
+    mut kill: impl FnMut(i32),
+    mut pause: impl FnMut(Duration),
+) -> Vec<i32> {
+    for _ in 0..EVICT_ROUNDS {
+        let found = living();
+        if found.is_empty() {
+            return found;
+        }
+        found.into_iter().for_each(&mut kill);
+        pause(EVICT_PAUSE);
+    }
+    living()
 }
 
 /// Waits for `fd` to become readable. `false` at the deadline.
@@ -281,6 +352,63 @@ mod tests {
                 "{event:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_status_file_names_its_owner_unless_the_process_is_a_zombie() {
+        let status = |state: &str| {
+            format!("Name:\tsleep\nState:\t{state}\nPid:\t7\nUid:\t975\t975\t975\t975\nGid:\t975\t975\t975\t975\n")
+        };
+        assert_eq!(live_owner(&status("S (sleeping)")), Some(975));
+        assert_eq!(live_owner(&status("R (running)")), Some(975));
+        assert_eq!(live_owner(&status("Z (zombie)")), None);
+        assert_eq!(live_owner(&status("X (dead)")), None);
+        assert_eq!(live_owner("Name:\tx\nState:\tS (sleeping)\n"), None);
+        assert_eq!(live_owner("Uid:\tnope\n"), None);
+    }
+
+    #[test]
+    fn this_process_is_found_among_its_own_users_processes() {
+        let me = std::process::id() as i32;
+        let uid = unsafe { libc::getuid() };
+        assert!(processes_of(uid).contains(&me));
+        assert!(!processes_of(uid.wrapping_add(1_000_000)).contains(&me));
+    }
+
+    #[test]
+    fn leftovers_are_killed_round_after_round_until_none_is_left() {
+        let mut alive = vec![40, 41, 42];
+        let mut killed = Vec::new();
+        let mut pauses = 0;
+        let table = std::cell::RefCell::new(&mut alive);
+        let left = evict_with(
+            || table.borrow().clone(),
+            |pid| {
+                killed.push(pid);
+                // 41 forks a replacement the first time it is killed; 42 takes two rounds.
+                let mut alive = table.borrow_mut();
+                match pid {
+                    41 if !killed[..killed.len() - 1].contains(&41) => {
+                        alive.retain(|&p| p != 41);
+                        alive.push(43);
+                    }
+                    42 if killed.iter().filter(|&&p| p == 42).count() < 2 => {}
+                    _ => alive.retain(|&p| p != pid),
+                }
+            },
+            |_| pauses += 1,
+        );
+        assert!(left.is_empty());
+        assert_eq!(killed, [40, 41, 42, 42, 43]);
+        assert_eq!(pauses, 2);
+    }
+
+    #[test]
+    fn a_process_that_will_not_die_is_reported_after_the_rounds() {
+        let mut pauses = 0;
+        let left = evict_with(|| vec![9], |_| {}, |_| pauses += 1);
+        assert_eq!(left, [9]);
+        assert_eq!(pauses, EVICT_ROUNDS);
     }
 
     struct Gone {

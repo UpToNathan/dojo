@@ -608,6 +608,58 @@ fn a_session_that_cannot_be_created_is_told_to_the_next_greeter_once() {
     assert_eq!(dm.terminate(), Some(0));
 }
 
+impl Greeter {
+    /// A password login that succeeds, up to the point where the session would be started.
+    fn authenticate(&self, generation: u32, login: &Login) {
+        self.begin(generation, Method::Password, login, "test-desktop");
+        assert_eq!(
+            self.report(generation, Method::Password),
+            Report::Prompt { echo: false }
+        );
+        self.answer(generation, SECRET);
+        assert_eq!(
+            self.report(generation, Method::Password),
+            Report::Finished(PamOutcome::Success)
+        );
+    }
+}
+
+#[test]
+fn a_greeter_that_leaves_processes_behind_never_hands_over_to_a_session() {
+    let Some(login) = login_or_skip() else { return };
+    let bench = Bench::new();
+    let survivor = bench.path("survivor");
+    fs::write(&survivor, "").unwrap();
+    let greeter_command = bench.path("greeter.sh");
+    let dm = bench.dm(
+        &["--greeter-survivor", survivor.to_str().unwrap()],
+        &[greeter_command.to_str().unwrap()],
+    );
+    let (greeter, _) = Greeter::hello(&bench);
+    greeter.authenticate(1, &login);
+    greeter.send(Request::StartSession { generation: 1 });
+    assert!(greeter.closed());
+
+    let (again, init) = Greeter::hello(&bench);
+    assert!(matches!(init, Event::Init { .. }));
+    assert_eq!(
+        again.next(),
+        Event::SessionFailed {
+            reason: SessionFailure::Refused
+        },
+        "the fresh greeter is told the session was refused"
+    );
+    assert!(!bench.path("session.out").exists(), "no session ran");
+    assert_eq!(bench.phases(), ["account"], "no PAM session was opened");
+
+    fs::remove_file(&survivor).unwrap();
+    again.authenticate(2, &login);
+    again.send(Request::StartSession { generation: 2 });
+    assert!(again.closed());
+    assert_eq!(bench.session_env()["USER"], login.as_str());
+    assert_eq!(dm.terminate(), Some(0));
+}
+
 #[test]
 fn users_fingerprints_and_power_are_answered_and_requests_before_hello_are_ignored() {
     let Some(login) = login_or_skip() else { return };

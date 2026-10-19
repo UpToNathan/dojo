@@ -29,6 +29,8 @@ pub struct Options {
     pub session_shell: Option<PathBuf>,
     pub vt: u8,
     pub power_log: Option<PathBuf>,
+    /// While this file exists the fake greeter reports that its processes survived being stopped.
+    pub greeter_survivor: Option<PathBuf>,
     pub fingerprints: Vec<String>,
     pub greeter: Vec<OsString>,
 }
@@ -45,6 +47,7 @@ pub fn parse(arguments: Vec<OsString>) -> Result<Options, Unusable> {
         session_shell: None,
         vt: 1,
         power_log: None,
+        greeter_survivor: None,
         fingerprints: Vec::new(),
         greeter: Vec::new(),
     };
@@ -76,6 +79,7 @@ pub fn parse(arguments: Vec<OsString>) -> Result<Options, Unusable> {
             "--session-shell" => options.session_shell = Some(value.into()),
             "--vt" => options.vt = text()?.parse().map_err(|_| bad("--vt"))?,
             "--power-log" => options.power_log = Some(value.into()),
+            "--greeter-survivor" => options.greeter_survivor = Some(value.into()),
             "--fingerprint" => options.fingerprints.push(text()?),
             other => return Err(bad(&format!("unknown {other}"))),
         }
@@ -110,7 +114,10 @@ pub fn build(arguments: Vec<OsString>) -> Result<(Settings, Parts), Unusable> {
     };
     let parts = Parts {
         console: Box::new(FakeConsole(Vt::new(options.vt).expect("checked"))),
-        greeters: Box::new(CommandGreeters(options.greeter)),
+        greeters: Box::new(CommandGreeters {
+            command: options.greeter,
+            survivor: options.greeter_survivor,
+        }),
         power: Box::new(PowerLog(options.power_log)),
         seat: Box::new(NoSessions),
         fingerprints: Box::new(Enrolled(options.fingerprints)),
@@ -163,7 +170,10 @@ impl Fingerprints for Enrolled {
 
 /// A command that stands in for the greeter's session. Whoever connects to the socket as
 /// this user is the greeter; the command only has to stay alive until it is stopped.
-struct CommandGreeters(Vec<OsString>);
+struct CommandGreeters {
+    command: Vec<OsString>,
+    survivor: Option<PathBuf>,
+}
 
 impl Greeters for CommandGreeters {
     fn peer_uid(&self) -> u32 {
@@ -171,9 +181,9 @@ impl Greeters for CommandGreeters {
     }
 
     fn launch(&mut self, _vt: Vt) -> io::Result<Box<dyn GreeterProcess>> {
-        let mut command = Command::new(&self.0[0]);
+        let mut command = Command::new(&self.command[0]);
         command
-            .args(&self.0[1..])
+            .args(&self.command[1..])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -196,13 +206,18 @@ impl Greeters for CommandGreeters {
             return Err(io::Error::last_os_error());
         }
         let pidfd = unsafe { OwnedFd::from_raw_fd(fd as i32) };
-        Ok(Box::new(CommandGreeter { child, pidfd }))
+        Ok(Box::new(CommandGreeter {
+            child,
+            pidfd,
+            survivor: self.survivor.clone(),
+        }))
     }
 }
 
 struct CommandGreeter {
     child: Child,
     pidfd: OwnedFd,
+    survivor: Option<PathBuf>,
 }
 
 impl GreeterProcess for CommandGreeter {
@@ -221,7 +236,8 @@ impl GreeterProcess for CommandGreeter {
             let _ = child.try_wait();
         });
         let _ = self.child.wait();
-        survivors.is_empty()
+        let sticky = self.survivor.as_ref().is_some_and(|marker| marker.exists());
+        survivors.is_empty() && !sticky
     }
 }
 

@@ -376,11 +376,14 @@ impl Launcher for ForkLauncher {
             .args(&plan.arguments)
             .env_clear()
             .envs(plan.environment.iter().map(|(k, v)| (k, v)));
-        // The session outlives the display manager's interest in the helper, and its
-        // own orphans belong to init, not to this process.
+        // The session outlives the display manager's interest in the helper. A user's
+        // orphans belong to init, not to this process; the greeter's stay here, where the
+        // display manager's tree snapshot finds them when it stops the greeter.
         unsafe {
             libc::prctl(libc::PR_SET_PDEATHSIG, 0, 0, 0, 0);
-            libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 0, 0, 0, 0);
+            if !plan.own_orphans {
+                libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 0, 0, 0, 0);
+            }
             command.pre_exec(move || {
                 if libc::setsid() < 0 {
                     return Err(io::Error::last_os_error());
