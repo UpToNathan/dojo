@@ -47,6 +47,7 @@ fn main() -> ExitCode {
         controls_width: SHELL_CONTROLS_WIDTH,
         lock_age_origin: marker.as_ref().and_then(lifecycle::Marker::read),
         farewell: host::take_farewell(session.farewell),
+        login: None,
     };
     ExitCode::from(app::run(app::Options {
         settings,

@@ -267,6 +267,8 @@ impl Locker {
                 self.queue.push_back(EventKind::ShellOverlay(parked));
             }
             Effect::CloseShellSurfaces => host::close_shell_surfaces(),
+            // Login mode only; this program never builds a login model.
+            Effect::SwapLook(_) => {}
             Effect::Unlock => {
                 if !self.locked {
                     eprintln!("dojo-lock: refusing to unlock a session that was never locked");

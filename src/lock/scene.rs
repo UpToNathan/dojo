@@ -3,6 +3,7 @@
 
 use gpui::{Pixels, Size, px};
 
+use super::login::SwapPhase;
 use super::model::{
     FAREWELL, FAREWELL_HOLD, FAREWELL_IN, FAREWELL_OUT, Fingerprint, GREETING_IN, GREETING_OUT,
     LockModel, Locked, MotionKind, Now, OPENING, OutputId, PasswordFlow, PauseEnd, RELEASE, REVEAL,
@@ -29,6 +30,19 @@ pub struct Scene {
     pub role: Role,
     /// True only while a bounded motion or the unlock sequence runs.
     pub animating: bool,
+    /// Which user's look to paint, on the login screen. `None` on the lock screen, which has one look.
+    pub look: Option<LookMix>,
+}
+
+/// The login screen's look: `login`'s, or a cross-fade into it from `from`.
+#[derive(Clone, PartialEq, Debug)]
+pub struct LookMix {
+    /// The account whose snapshot is the target of the paint.
+    pub login: String,
+    /// The account fading out, while `mix` is below 1.
+    pub from: Option<String>,
+    /// 0 paints `from` (or `login` alone when there is no `from`), 1 paints `login`.
+    pub mix: f32,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -96,6 +110,23 @@ pub struct Chips {
     pub battery: Option<String>,
     pub network: Option<String>,
     pub lock_age: Option<String>,
+    /// The session chip and the username editor. `None` on the lock screen.
+    pub login: Option<LoginChips>,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct LoginChips {
+    /// The selected session's name.
+    pub session: String,
+    /// The user chip is being edited: it shows the text typed so far.
+    pub editing: Option<NameEdit>,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct NameEdit {
+    pub text: String,
+    /// The last key or Enter was refused by the name rules.
+    pub refused: bool,
 }
 
 /// The inactive outputs' clock: present but quiet.
@@ -108,6 +139,7 @@ const HINT_RESTING: &str = "Touch the sensor, or just start typing";
 const HINT_TYPING: &str = "The sensor still works";
 const HINT_WRONG: &str = "That wasn't it. Try again.";
 const HINT_PASSWORD_ONLY: &str = "Start typing to unlock";
+const HINT_LOGIN_PASSWORD: &str = "Type your password";
 const HINT_PAUSED_SENSOR: &str = "Password paused. The sensor still works";
 const HINT_PAUSED: &str = "Password paused";
 const HINT_BROKEN: &str = "Press Enter to try again";
@@ -243,7 +275,9 @@ impl LockModel {
         let fading = self.farewell(now).is_some() && !self.settings.reduced_motion;
         let reveal = self.reveal(now);
         let revealing = reveal < 1. && matches!(self.stage, Stage::Locked(_));
+        let look = self.look(now);
         let animating = opening
+            || look.as_ref().is_some_and(|look| look.from.is_some())
             || matches!(role, Role::Active(_))
                 && (unlocking
                     || fading
@@ -270,6 +304,35 @@ impl LockModel {
             },
             role,
             animating,
+            look,
+        })
+    }
+
+    /// The look to paint on the login screen. The old one stays until the edge has the new one.
+    fn look(&self, now: Now) -> Option<LookMix> {
+        let login = self.login.as_ref()?;
+        let to = |user: &str| LookMix {
+            login: user.to_owned(),
+            from: None,
+            mix: 1.,
+        };
+        Some(match &login.swap {
+            None => to(login.user.as_str()),
+            Some(swap) => match swap.phase {
+                SwapPhase::Loading => to(swap.from.as_str()),
+                SwapPhase::Fading { since } => {
+                    let elapsed = now.mono.saturating_duration_since(since);
+                    if elapsed >= REVEAL {
+                        to(login.user.as_str())
+                    } else {
+                        LookMix {
+                            from: Some(swap.from.as_str().to_owned()),
+                            mix: smoothstep(elapsed.as_secs_f32() / REVEAL.as_secs_f32()),
+                            ..to(login.user.as_str())
+                        }
+                    }
+                }
+            },
         })
     }
 
@@ -286,7 +349,7 @@ impl LockModel {
             _ => None,
         };
         let armed = match &self.stage {
-            Stage::Requested { .. } => true,
+            Stage::Requested { .. } => self.fingerprint_wanted(),
             Stage::Locked(locked) => locked.fingerprint.armed(),
             Stage::Unlocking(_) | Stage::Exiting => false,
         };
@@ -310,7 +373,12 @@ impl LockModel {
             }
         } else {
             Ring {
-                tone: if armed { Tone::Normal } else { Tone::Muted },
+                // Without the fingerprint method the ring says nothing about a sensor.
+                tone: if armed || !self.fingerprint_wanted() {
+                    Tone::Normal
+                } else {
+                    Tone::Muted
+                },
                 fill: 0.,
                 flash: 0.,
             }
@@ -329,7 +397,16 @@ impl LockModel {
                 user: self.settings.user.clone(),
                 battery: self.chips.battery.clone(),
                 network: self.chips.network.clone(),
-                lock_age: since_unix.map(|since| lock_age(since, now.unix)),
+                lock_age: since_unix
+                    .filter(|_| self.login.is_none())
+                    .map(|since| lock_age(since, now.unix)),
+                login: self.login.as_ref().map(|login| LoginChips {
+                    session: login.session().to_owned(),
+                    editing: login.editing.as_ref().map(|buffer| NameEdit {
+                        text: buffer.text().to_owned(),
+                        refused: buffer.refused(),
+                    }),
+                }),
             },
         })
     }
@@ -430,6 +507,7 @@ impl LockModel {
         match (armed, typing) {
             (true, true) => hint(HINT_TYPING),
             (true, false) => hint(HINT_RESTING),
+            (false, _) if self.login.is_some() => hint(HINT_LOGIN_PASSWORD),
             (false, _) => hint(HINT_PASSWORD_ONLY),
         }
     }
@@ -449,5 +527,6 @@ fn dark(viewport: Size<Pixels>, style: Style) -> Scene {
         quiet: 1.,
         role: Role::Passive,
         animating: false,
+        look: None,
     }
 }
