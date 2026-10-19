@@ -54,15 +54,17 @@ use crate::config::{ThemeColors, parse_session_settings};
 
 /// Largest `palette.json`.
 pub const PALETTE_CAP: u64 = 64 * 1024;
-/// Largest wallpaper PNG.
-pub const WALLPAPER_CAP: u64 = 16 * 1024 * 1024;
+/// Largest wallpaper PNG. The theme's blurred render is a few hundred kilobytes at most.
+pub const WALLPAPER_CAP: u64 = 4 * 1024 * 1024;
 /// Largest `session.toml`, and largest `config.toml` the collector will parse.
 pub const SETTINGS_CAP: u64 = 16 * 1024;
 /// Largest `identity` or greeting file.
 pub const TEXT_CAP: u64 = 1024;
-/// Widest and tallest accepted wallpaper. The theme renders 480 pixels wide, so
-/// this leaves room while bounding what the greeter decodes.
-pub const WALLPAPER_MAX_SIDE: u32 = 4096;
+/// Widest accepted wallpaper. The theme renders `lock_wallpaper::WIDTH` (480) pixels wide.
+pub const WALLPAPER_MAX_WIDTH: u32 = 512;
+/// Tallest accepted wallpaper: a render keeps its source's aspect ratio, so this is a
+/// portrait of one to four. Together the limits bound what the greeter decodes to 4 MiB.
+pub const WALLPAPER_MAX_HEIGHT: u32 = 2048;
 
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 
@@ -189,8 +191,9 @@ impl Wallpaper {
             image::ImageReader::with_format(Cursor::new(&bytes), image::ImageFormat::Png)
                 .into_dimensions()?;
         anyhow::ensure!(
-            (1..=WALLPAPER_MAX_SIDE).contains(&width) && (1..=WALLPAPER_MAX_SIDE).contains(&height),
-            "wallpaper is {width}x{height}, larger than {WALLPAPER_MAX_SIDE}"
+            (1..=WALLPAPER_MAX_WIDTH).contains(&width)
+                && (1..=WALLPAPER_MAX_HEIGHT).contains(&height),
+            "wallpaper is {width}x{height}, larger than {WALLPAPER_MAX_WIDTH}x{WALLPAPER_MAX_HEIGHT}"
         );
         Ok(Wallpaper(bytes))
     }
@@ -1004,13 +1007,35 @@ mod tests {
     }
 
     #[test]
+    fn what_the_theme_renders_fits_the_wallpaper_limits() {
+        use crate::extraction::Rgb;
+        use crate::theme::lock_wallpaper;
+        assert!(lock_wallpaper::WIDTH <= WALLPAPER_MAX_WIDTH);
+        for (width, height) in [(1920, 1080), (3440, 1440), (2160, 3840)] {
+            let source = image::DynamicImage::ImageRgba8(image::RgbaImage::from_fn(
+                width,
+                height,
+                |x, y| image::Rgba([(x * 7) as u8, (y * 13) as u8, (x ^ y) as u8, 255]),
+            ));
+            let png = lock_wallpaper::encode(
+                &lock_wallpaper::blur(&source).scrimmed(Rgb(0xa9, 0xb1, 0xd6)),
+            )
+            .unwrap();
+            assert!(png.len() as u64 <= WALLPAPER_CAP, "{width}x{height}");
+            assert!(Wallpaper::parse(png).is_ok(), "{width}x{height}");
+        }
+    }
+
+    #[test]
     fn wallpapers_must_be_pngs_of_a_sane_size() {
         assert!(Wallpaper::parse(png_bytes(480, 270)).is_ok());
         assert!(Wallpaper::parse(b"GIF89a".to_vec()).is_err());
         assert!(Wallpaper::parse(PNG_SIGNATURE.to_vec()).is_err());
         let truncated = png_bytes(16, 16)[..20].to_vec();
         assert!(Wallpaper::parse(truncated).is_err());
-        assert!(Wallpaper::parse(png_bytes(WALLPAPER_MAX_SIDE + 1, 1)).is_err());
+        assert!(Wallpaper::parse(png_bytes(WALLPAPER_MAX_WIDTH + 1, 270)).is_err());
+        assert!(Wallpaper::parse(png_bytes(480, WALLPAPER_MAX_HEIGHT + 1)).is_err());
+        assert!(Wallpaper::parse(png_bytes(WALLPAPER_MAX_WIDTH, WALLPAPER_MAX_HEIGHT)).is_ok());
         let mut jpeg = Vec::new();
         image::RgbImage::new(8, 8)
             .write_to(&mut Cursor::new(&mut jpeg), image::ImageFormat::Jpeg)

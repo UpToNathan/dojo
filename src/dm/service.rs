@@ -477,6 +477,10 @@ impl Service {
         }
         self.catalog = catalog;
         let Remembered { login, session } = memory::load(&self.settings.state);
+        // The greeter draws the preselected user's look from their snapshot first thing. If
+        // the greeter before this one died, that look may be why, and the user stays
+        // selectable by name, so it is not offered again until a session has started.
+        let login = login.filter(|_| !self.cycle.greeter_failed_recently());
         self.send(&Event::Init {
             last_login: login,
             last_session: session.filter(|id| self.catalog.resolve(id).is_some()),

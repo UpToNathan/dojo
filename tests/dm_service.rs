@@ -560,6 +560,36 @@ fn failures_races_and_unknown_sessions_leave_the_greeter_usable() {
 }
 
 #[test]
+fn a_greeter_that_died_is_not_followed_by_one_that_starts_from_the_same_users_look() {
+    let Some(login) = login_or_skip() else { return };
+    let bench = Bench::new();
+    fs::write(bench.path("state/last-user"), format!("{}\n", login.as_str())).unwrap();
+    let dm = bench.standard_dm();
+
+    let (first, init) = Greeter::hello(&bench);
+    assert!(matches!(init, Event::Init { last_login: Some(ref l), .. } if *l == login));
+    bench.wait_for("the greeter command to run", || bench.path("greeter.pid").exists());
+    let pid: i32 = fs::read_to_string(bench.path("greeter.pid")).unwrap().trim().parse().unwrap();
+    assert_eq!(unsafe { libc::kill(pid, libc::SIGKILL) }, 0);
+    assert!(first.closed());
+
+    let (second, init) = Greeter::hello(&bench);
+    assert!(
+        matches!(init, Event::Init { last_login: None, .. }),
+        "after a crash the next greeter is not handed the last user: {init:?}"
+    );
+    second.authenticate(1, &login);
+    second.send(Request::StartSession { generation: 1 });
+    assert!(second.closed());
+    let (_third, init) = Greeter::hello(&bench);
+    assert!(
+        matches!(init, Event::Init { last_login: Some(ref l), .. } if *l == login),
+        "a session that started brings the last user back: {init:?}"
+    );
+    assert_eq!(dm.terminate(), Some(0));
+}
+
+#[test]
 fn a_session_that_cannot_be_created_is_told_to_the_next_greeter_once() {
     let Some(login) = login_or_skip() else { return };
     let bench = Bench::new();

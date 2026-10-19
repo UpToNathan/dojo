@@ -37,6 +37,10 @@ impl FailureWindow {
     pub fn clear(&mut self) {
         self.failures.clear();
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.failures.is_empty()
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -87,6 +91,12 @@ impl Cycle {
 
     pub fn phase(&self) -> Phase {
         self.phase
+    }
+
+    /// A greeter failed since the last session was handed over. The next greeter is not
+    /// shown what the last one may have died of.
+    pub fn greeter_failed_recently(&self) -> bool {
+        !self.failures.is_empty()
     }
 
     pub fn on(&mut self, input: Input) -> Vec<Order> {
@@ -192,6 +202,16 @@ mod tests {
         assert_eq!(cycle.on(at(4)), [Order::LaunchGreeter]);
         assert_eq!(cycle.on(at(5)), [Order::LaunchGreeter]);
         assert_eq!(cycle.on(at(6)), [Order::Exit(EXIT_GREETER_UNAVAILABLE)]);
+    }
+
+    #[test]
+    fn a_failed_greeter_is_remembered_until_a_session_takes_over() {
+        let (mut cycle, _) = Cycle::start();
+        assert!(!cycle.greeter_failed_recently());
+        cycle.on(at(1));
+        assert!(cycle.greeter_failed_recently());
+        cycle.on(Input::SessionStarting);
+        assert!(!cycle.greeter_failed_recently());
     }
 
     #[test]
