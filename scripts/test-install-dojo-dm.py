@@ -177,7 +177,8 @@ class InstallerTests(unittest.TestCase):
         self.assertNotIn("@RELEASE@", text)
         self.assertIn(
             f'spawn-sh-at-startup ". /usr/local/lib/dojo-dm/{release.name}/environment.sh'
-            f' && exec /usr/local/lib/dojo-dm/{release.name}/dojo-greeter"',
+            f' && /usr/local/lib/dojo-dm/{release.name}/dojo-greeter;'
+            f' /usr/local/lib/dojo-dm/{release.name}/niri msg action quit --skip-confirmation"',
             text,
         )
 
