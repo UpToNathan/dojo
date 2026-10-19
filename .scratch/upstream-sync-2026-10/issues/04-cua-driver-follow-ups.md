@@ -24,6 +24,14 @@ Follow-ups the bump surfaced:
 - `check_permissions` accepts `prompt` (`1ff756bd7`).
 - Parity rows stay unverified; do not mark any verified without evidence.
 
+## Progress, 2026-10-18
+
+The bump is merged (`4e5e602e1b`, ledger refreshed in `2776c84a85`). The ledger now has an optional
+per-record `upstream_revision`: 36 records the review did not cover stay on `88aff7e5` (private driver
+extraction 22, cursor-motion 6, provenance snapshots 5, dojo-cua-primitives 2, dojo-agent-setup 1);
+the four reviewed sources are re-pinned to `afed1fcb`. Driver and `dojo-agent` rebuilt together on
+venus and Jupiter (driver pin `afed1fcb`, `dojo-voice` ready). The follow-up bullets above are still open.
+
 ## Acceptance
 
 Ledger, copy, parity and catalog gates green; `dojo-agent` and the driver pins match; a smoke test of
