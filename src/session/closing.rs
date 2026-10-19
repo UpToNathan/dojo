@@ -12,13 +12,19 @@
 //! can never delay or lose them.
 //!
 //! A lock has no farewell here: the locker plays it (see `session::handoff`).
+//!
+//! A closing can also be a farewell only: [`Closing::farewell_only`] plays the
+//! same picture for an occasion whose action something else performs (logind
+//! after the power key, `systemctl poweroff`), and its effects never include a
+//! [`Effect::Run`]. A sleeping closing, farewell or not, starts the locker when a
+//! lock is asked for, so lock-before-suspend works behind it.
 
 use std::time::{Duration, Instant};
 
-use super::action::Action;
+use super::action::{Action, Departure};
 use super::settings::SessionSettings;
 use super::transition::{self, Style};
-use super::{Direction, Occasion};
+use super::Occasion;
 
 /// The frame closes in over the workspace.
 pub const CLOSING: Duration = Duration::from_millis(450);
@@ -155,18 +161,23 @@ enum Locker {
 }
 
 /// What the closing is for. A lock starts the locker and waits for the
-/// compositor; everything else has one action to run.
+/// compositor; most others have one action to run; a farewell only plays.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Goal {
     Lock(Locker),
     Run(Action),
+    /// Play the closing and leave the action to whatever started the occasion.
+    Farewell,
     /// An opening occasion: there is nothing to close.
     Nothing,
 }
 
 #[derive(Clone, Debug)]
 pub struct Closing {
+    occasion: Occasion,
     goal: Goal,
+    /// A lock was asked for during a sleeping closing, and the locker has been started.
+    locker_asked: bool,
     style: Style,
     farewell: Option<String>,
     timing: Timing,
@@ -181,9 +192,9 @@ pub struct Closing {
 }
 
 impl Closing {
-    /// Starts a closing. `farewell` is the line to show, if any; the
-    /// `farewell` switch, the short closings of suspend and hibernate, and the
-    /// `transition` switch can all drop it.
+    /// Starts a closing for the occasion's own action. `farewell` is the line to
+    /// show, if any; the `farewell` switch, the short closings of suspend and
+    /// hibernate, and the `transition` switch can all drop it.
     ///
     /// With `transition` off there is no animation: the action is issued here
     /// together with `Done`, no cover is wanted and no `DismissOverlay` is sent.
@@ -194,11 +205,51 @@ impl Closing {
         farewell: Option<String>,
         now: Instant,
     ) -> (Closing, Vec<Effect>) {
-        let goal = match (occasion.direction(), occasion.action()) {
-            (Direction::Closing, Some(Action::StartLocker)) => Goal::Lock(Locker::Waiting),
-            (Direction::Closing, Some(action)) => Goal::Run(action),
-            _ => Goal::Nothing,
+        match Departure::of(occasion) {
+            Some(departure) => Closing::depart(departure, settings, farewell, now),
+            None => Closing::start(occasion, Goal::Nothing, settings, farewell, now),
+        }
+    }
+
+    /// Like [`Closing::begin`], for a departure that may end in a different action
+    /// than its occasion's own.
+    pub fn depart(
+        departure: Departure,
+        settings: &SessionSettings,
+        farewell: Option<String>,
+        now: Instant,
+    ) -> (Closing, Vec<Effect>) {
+        let goal = match departure.action() {
+            Action::StartLocker => Goal::Lock(Locker::Waiting),
+            action => Goal::Run(action),
         };
+        Closing::start(departure.occasion(), goal, settings, farewell, now)
+    }
+
+    /// Plays the closing and the farewell and performs nothing. For an occasion
+    /// that something else carries out, such as logind after the power key. A
+    /// lock, which starts the locker itself, and an opening occasion have no
+    /// farewell-only closing and return a finished machine.
+    pub fn farewell_only(
+        occasion: Occasion,
+        settings: &SessionSettings,
+        farewell: Option<String>,
+        now: Instant,
+    ) -> (Closing, Vec<Effect>) {
+        let goal = match Departure::of(occasion).map(Departure::action) {
+            Some(Action::StartLocker) | None => Goal::Nothing,
+            Some(_) => Goal::Farewell,
+        };
+        Closing::start(occasion, goal, settings, farewell, now)
+    }
+
+    fn start(
+        occasion: Occasion,
+        goal: Goal,
+        settings: &SessionSettings,
+        farewell: Option<String>,
+        now: Instant,
+    ) -> (Closing, Vec<Effect>) {
         let style = if settings.reduced_motion {
             Style::Crossfade
         } else {
@@ -206,7 +257,9 @@ impl Closing {
         };
         let timing = timing(occasion, settings.farewell && farewell.is_some());
         let mut closing = Closing {
+            occasion,
             goal,
+            locker_asked: false,
             style,
             farewell: farewell.filter(|_| timing.farewell.is_some()),
             timing,
@@ -219,7 +272,7 @@ impl Closing {
         let launch = match goal {
             Goal::Lock(_) if !settings.transition => vec![Effect::StartLocker],
             Goal::Run(action) if !settings.transition => vec![Effect::Run(action)],
-            Goal::Lock(_) | Goal::Run(_) | Goal::Nothing => vec![],
+            Goal::Lock(_) | Goal::Run(_) | Goal::Farewell | Goal::Nothing => vec![],
         };
         if !settings.transition || goal == Goal::Nothing {
             closing.timing = Timing {
@@ -235,6 +288,24 @@ impl Closing {
 
     pub fn phase(&self) -> Phase {
         self.phase
+    }
+
+    /// The picture has played out. Only the cover is left, which holds the closed
+    /// frame until the machine goes down or the hard cap removes it.
+    pub fn timeline_over(&self) -> bool {
+        matches!(self.phase, Phase::Covering | Phase::Done)
+    }
+
+    /// A lock was asked for while this closing is on screen. The frame is already
+    /// closed or closing, so a sleeping closing only needs the locker, once; any
+    /// other closing ignores the request, as it always has.
+    pub fn lock_requested(&mut self) -> Vec<Effect> {
+        let sleeping = self.occasion.sleeps() && matches!(self.goal, Goal::Run(_) | Goal::Farewell);
+        if !sleeping || self.locker_asked || self.phase == Phase::Done {
+            return vec![];
+        }
+        self.locker_asked = true;
+        vec![Effect::StartLocker]
     }
 
     pub fn style(&self) -> Style {
@@ -256,7 +327,7 @@ impl Closing {
         let locker = match self.goal {
             Goal::Lock(Locker::Waiting) => Some(self.on_timeline(self.locker_start())),
             Goal::Lock(Locker::Started(at)) => Some(self.watchdog_at(at)),
-            Goal::Lock(Locker::Retried) | Goal::Run(_) | Goal::Nothing => None,
+            Goal::Lock(Locker::Retried) | Goal::Run(_) | Goal::Farewell | Goal::Nothing => None,
         };
         [boundary, locker, Some(self.begun + HARD_CAP)]
             .into_iter()
@@ -382,8 +453,11 @@ impl Closing {
     /// The compositor locked the session: the lock screen is showing, so the
     /// cover has nothing left to hide. It goes at once, in any phase.
     fn confirm(&mut self, out: &mut Vec<Effect>) {
-        if matches!(self.goal, Goal::Lock(_)) {
-            self.finish(out);
+        match self.goal {
+            Goal::Lock(_) => self.finish(out),
+            Goal::Farewell if self.locker_asked => self.finish(out),
+            Goal::Run(_) if self.locker_asked => self.expire(out),
+            Goal::Run(_) | Goal::Farewell | Goal::Nothing => {}
         }
     }
 
@@ -478,7 +552,15 @@ mod tests {
         inputs: &[(u64, EventKind)],
     ) -> Vec<(u64, Effect)> {
         let t0 = Instant::now();
-        let (mut closing, first) = Closing::begin(occasion, &settings, farewell, t0);
+        drive(t0, Closing::begin(occasion, &settings, farewell, t0), inputs)
+    }
+
+    /// The same as [`play`], for a closing that is already begun.
+    fn drive(
+        t0: Instant,
+        (mut closing, first): (Closing, Vec<Effect>),
+        inputs: &[(u64, EventKind)],
+    ) -> Vec<(u64, Effect)> {
         let mut log: Vec<_> = first.into_iter().map(|e| (0, e)).collect();
         let mut pending: Vec<_> = inputs.to_vec();
         pending.sort_by_key(|(at, _)| *at);
@@ -1121,5 +1203,186 @@ mod tests {
         let (closing, _) = Closing::begin(Occasion::Shutdown, &off, line(), t0);
         assert!(!closing.animating(t0));
         assert_eq!(closing.next_motion(t0), None);
+    }
+
+    fn farewell_log(occasion: Occasion, settings: SessionSettings, inputs: &[(u64, EventKind)]) -> Vec<(u64, Effect)> {
+        let t0 = Instant::now();
+        drive(t0, Closing::farewell_only(occasion, &settings, line(), t0), inputs)
+    }
+
+    #[test]
+    fn a_farewell_only_closing_plays_the_same_picture_and_never_runs_an_action() {
+        for occasion in [
+            Occasion::Logout,
+            Occasion::Restart,
+            Occasion::Shutdown,
+            Occasion::Suspend,
+            Occasion::Hibernate,
+        ] {
+            assert_eq!(farewell_log(occasion, on(), &[]), CAP, "{occasion:?}");
+            let t0 = Instant::now();
+            let (own, _) = Closing::begin(occasion, &on(), line(), t0);
+            let (only, _) = Closing::farewell_only(occasion, &on(), line(), t0);
+            assert_eq!(only.next_deadline(), own.next_deadline(), "{occasion:?}");
+            assert_eq!(only.farewell(), own.farewell(), "{occasion:?}");
+            for at in [0, 100, 300, 700, 1000] {
+                assert_eq!(only.progress(t0 + ms(at)), own.progress(t0 + ms(at)), "{occasion:?}");
+                assert_eq!(
+                    only.farewell_alpha(t0 + ms(at)),
+                    own.farewell_alpha(t0 + ms(at)),
+                    "{occasion:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_farewell_only_closing_ends_its_timeline_when_the_action_would_have_run() {
+        let table = [
+            (Occasion::Shutdown, 1125),
+            (Occasion::Restart, 1125),
+            (Occasion::Logout, 1125),
+            (Occasion::Suspend, 150),
+            (Occasion::Hibernate, 150),
+        ];
+        for (occasion, end) in table {
+            let t0 = Instant::now();
+            let (mut closing, _) = Closing::farewell_only(occasion, &on(), line(), t0);
+            assert!(!closing.timeline_over(), "{occasion:?}");
+            assert!(closing.update(event(t0, end - 1, EventKind::Tick)).is_empty());
+            assert!(!closing.timeline_over(), "{occasion:?}");
+            assert!(closing.update(event(t0, end, EventKind::Tick)).is_empty());
+            assert!(closing.timeline_over(), "{occasion:?}");
+            assert_eq!(closing.phase(), Phase::Covering, "{occasion:?}");
+        }
+    }
+
+    #[test]
+    fn the_timeline_of_an_acting_closing_is_over_once_the_action_has_run() {
+        let t0 = Instant::now();
+        let (mut closing, _) = Closing::begin(Occasion::Shutdown, &on(), line(), t0);
+        assert!(!closing.timeline_over());
+        assert_eq!(
+            closing.update(event(t0, 1125, EventKind::Tick)),
+            [Effect::Run(Action::Shutdown)]
+        );
+        assert!(closing.timeline_over());
+    }
+
+    #[test]
+    fn a_farewell_only_closing_survives_input_stalls_and_the_cap_without_an_action() {
+        let off = SessionSettings {
+            transition: false,
+            ..on()
+        };
+        assert_eq!(farewell_log(Occasion::Shutdown, off, &[]), [(0, Effect::Done)]);
+        assert_eq!(
+            farewell_log(
+                Occasion::Shutdown,
+                on(),
+                &[(100, EventKind::Input), (200, EventKind::Input), (900, EventKind::Input)]
+            ),
+            CAP
+        );
+        let t0 = Instant::now();
+        let (mut stalled, _) = Closing::farewell_only(Occasion::Restart, &on(), line(), t0);
+        assert_eq!(
+            stalled.update(event(t0, 7000, EventKind::Tick)),
+            [Effect::DismissOverlay, Effect::Done]
+        );
+        assert!(stalled.timeline_over());
+    }
+
+    #[test]
+    fn a_farewell_only_closing_ignores_a_lock_confirmation_and_the_locker_unless_asked() {
+        let t0 = Instant::now();
+        let (mut closing, _) = Closing::farewell_only(Occasion::Shutdown, &on(), line(), t0);
+        assert!(closing.update(event(t0, 100, EventKind::LockConfirmed)).is_empty());
+        assert_eq!(closing.phase(), Phase::Closing);
+        assert!(closing.lock_requested().is_empty());
+    }
+
+    #[test]
+    fn locks_and_openings_have_no_farewell_only_closing() {
+        for occasion in [Occasion::Lock, Occasion::Unlock, Occasion::Login] {
+            assert_eq!(farewell_log(occasion, on(), &[]), [(0, Effect::Done)], "{occasion:?}");
+        }
+    }
+
+    #[test]
+    fn a_sleeping_closing_starts_the_locker_once_when_a_lock_is_asked_for() {
+        for occasion in [Occasion::Suspend, Occasion::Hibernate] {
+            let t0 = Instant::now();
+            let (mut farewell, _) = Closing::farewell_only(occasion, &on(), line(), t0);
+            assert_eq!(farewell.lock_requested(), [Effect::StartLocker], "{occasion:?}");
+            assert!(farewell.lock_requested().is_empty(), "{occasion:?}");
+            let (mut acting, _) = Closing::begin(occasion, &on(), line(), t0);
+            acting.update(event(t0, 150, EventKind::Tick));
+            assert_eq!(acting.lock_requested(), [Effect::StartLocker], "{occasion:?}");
+            assert!(acting.lock_requested().is_empty(), "{occasion:?}");
+        }
+    }
+
+    #[test]
+    fn other_closings_ignore_a_lock_request() {
+        for occasion in [Occasion::Logout, Occasion::Restart, Occasion::Shutdown, Occasion::Lock] {
+            let t0 = Instant::now();
+            let (mut acting, _) = Closing::begin(occasion, &on(), line(), t0);
+            assert!(acting.lock_requested().is_empty(), "{occasion:?}");
+        }
+        let t0 = Instant::now();
+        let off = SessionSettings {
+            transition: false,
+            ..on()
+        };
+        let (mut done, _) = Closing::begin(Occasion::Suspend, &off, line(), t0);
+        assert!(done.lock_requested().is_empty());
+    }
+
+    #[test]
+    fn a_confirmed_lock_drops_a_sleeping_closing_without_losing_its_action() {
+        let t0 = Instant::now();
+        let (mut closing, _) = Closing::begin(Occasion::Suspend, &on(), None, t0);
+        closing.lock_requested();
+        assert_eq!(
+            closing.update(event(t0, 100, EventKind::LockConfirmed)),
+            [Effect::Run(Action::Suspend), Effect::DismissOverlay, Effect::Done]
+        );
+        let (mut after, _) = Closing::begin(Occasion::Suspend, &on(), None, t0);
+        after.update(event(t0, 150, EventKind::Tick));
+        after.lock_requested();
+        assert_eq!(
+            after.update(event(t0, 300, EventKind::LockConfirmed)),
+            [Effect::DismissOverlay, Effect::Done]
+        );
+        let (mut farewell, _) = Closing::farewell_only(Occasion::Hibernate, &on(), None, t0);
+        farewell.lock_requested();
+        assert_eq!(
+            farewell.update(event(t0, 100, EventKind::LockConfirmed)),
+            [Effect::DismissOverlay, Effect::Done]
+        );
+        let (mut unasked, _) = Closing::begin(Occasion::Suspend, &on(), None, t0);
+        assert!(unasked.update(event(t0, 100, EventKind::LockConfirmed)).is_empty());
+    }
+
+    #[test]
+    fn a_departure_with_another_action_runs_that_action_on_its_occasions_timeline() {
+        let t0 = Instant::now();
+        let departure = Departure::parse("suspend-then-hibernate").unwrap();
+        assert_eq!(
+            drive(t0, Closing::depart(departure, &on(), line(), t0), &[]),
+            then_cap(vec![(150, Effect::Run(Action::SuspendThenHibernate))])
+        );
+    }
+
+    #[test]
+    fn the_recording_runner_sees_a_farewell_only_closing_do_nothing_and_a_departure_once() {
+        let mut runner = RecordingRunner::new();
+        for (_, effect) in farewell_log(Occasion::Shutdown, on(), &[]) {
+            if let Some(action) = effect.action() {
+                runner.run(action).unwrap();
+            }
+        }
+        assert!(runner.actions.is_empty());
     }
 }

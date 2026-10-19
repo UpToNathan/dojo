@@ -5,10 +5,19 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, bail};
 use async_channel::Sender;
+
+/// How long a farewell request waits for the closing's timeline to end. Its caller
+/// holds a logind delay inhibitor (5 s by default), so this stays well under that.
+pub const FAREWELL_WAIT: Duration = Duration::from_millis(2500);
+
+/// Whether the shell has a closing whose timeline is still playing, or a farewell
+/// request it has not yet looked at. The shell clears it; a farewell request sets it
+/// before queueing and waits for it to clear.
+pub static CLOSING_PLAYING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LauncherNavigation {
@@ -34,7 +43,10 @@ pub enum ControlCommand {
     Terminal,
     TerminalClosed,
     /// Close the frame for an occasion, then run its action.
-    Leave(crate::session::Occasion),
+    Leave(crate::session::action::Departure),
+    /// Close the frame for an occasion whose action something else performs, and
+    /// reply once the closing has played out.
+    Farewell(crate::session::Occasion),
     Speech(crate::speech::SpeechEvent),
 }
 
@@ -44,7 +56,8 @@ impl ControlCommand {
             Self::Speech(event) => {
                 return serde_json::to_string(event).expect("speech events serialize");
             }
-            Self::Leave(occasion) => return format!("leave {}", occasion.key()),
+            Self::Leave(departure) => return format!("leave {}", departure.word()),
+            Self::Farewell(occasion) => return format!("farewell {}", occasion.key()),
             Self::Toggle => "toggle",
             Self::Enable => "enable",
             Self::Disable => "disable",
@@ -83,15 +96,19 @@ impl ControlCommand {
             "models" => Some(Self::Models),
             "terminal" => Some(Self::Terminal),
             "terminal-closed" => Some(Self::TerminalClosed),
-            _ => value
-                .strip_prefix("leave ")
-                .map(|word| crate::session::Occasion::parse_closing(word).map(Self::Leave))
-                .unwrap_or_else(|| {
-                    serde_json::from_str::<crate::speech::SpeechEvent>(value)
-                        .ok()
-                        .filter(|event| event.validate().is_ok())
-                        .map(Self::Speech)
-                }),
+            _ => {
+                use crate::session::action::Departure;
+                if let Some(word) = value.strip_prefix("leave ") {
+                    return Departure::parse(word).map(Self::Leave);
+                }
+                if let Some(word) = value.strip_prefix("farewell ") {
+                    return Departure::parse_farewell(word).map(Self::Farewell);
+                }
+                serde_json::from_str::<crate::speech::SpeechEvent>(value)
+                    .ok()
+                    .filter(|event| event.validate().is_ok())
+                    .map(Self::Speech)
+            }
         }
     }
 }
@@ -117,11 +134,21 @@ pub fn send(command: &ControlCommand) -> anyhow::Result<bool> {
     stream.set_write_timeout(Some(Duration::from_secs(1)))?;
     writeln!(stream, "{}", command.as_str()).context("sending Dojo control command")?;
     let mut reply = String::new();
-    BufReader::new(stream)
+    let mut reader = BufReader::new(stream);
+    reader
         .read_line(&mut reply)
         .context("reading Dojo control response")?;
     if reply.trim() != "queued" {
         bail!("Dojo rejected control command: {}", reply.trim());
+    }
+    if matches!(command, ControlCommand::Farewell(_)) {
+        reader
+            .get_ref()
+            .set_read_timeout(Some(FAREWELL_WAIT + Duration::from_millis(500)))?;
+        reply.clear();
+        if reader.read_line(&mut reply).is_err() || reply.trim() != "settled" {
+            eprintln!("Dojo did not report the farewell finished; continuing");
+        }
     }
     Ok(true)
 }
@@ -169,7 +196,7 @@ impl ControlServer {
                         if thread_shutdown.load(Ordering::Relaxed) {
                             break;
                         }
-                        handle_client(stream, &sender);
+                        handle_client(stream, &sender, &CLOSING_PLAYING);
                     }
                     Err(error) => {
                         eprintln!("Dojo control socket failed: {error}");
@@ -208,20 +235,41 @@ impl Drop for ControlServer {
     }
 }
 
-fn handle_client(mut stream: UnixStream, sender: &Sender<ControlCommand>) {
+/// Blocks until `playing` clears or `bound` passes, whichever is first.
+fn wait_until_settled(playing: &AtomicBool, bound: Duration) {
+    let deadline = Instant::now() + bound;
+    while playing.load(Ordering::Acquire) && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn handle_client(
+    mut stream: UnixStream,
+    sender: &Sender<ControlCommand>,
+    playing: &'static AtomicBool,
+) {
     if let Err(error) = stream.set_read_timeout(Some(Duration::from_secs(1))) {
         eprintln!("Failed to set Dojo control timeout: {error}");
         return;
     }
     let mut command = String::new();
     let result = BufReader::new((&mut stream).take(16_385)).read_line(&mut command);
+    let mut farewell = false;
     let response = match result {
         Ok(_) if command.len() <= 16_384 && command.ends_with('\n') => {
             match ControlCommand::parse(command.trim()) {
                 Some(command) => {
+                    farewell = matches!(command, ControlCommand::Farewell(_));
+                    if farewell {
+                        playing.store(true, Ordering::Release);
+                    }
                     if sender.try_send(command).is_ok() {
                         "queued\n"
                     } else {
+                        if farewell {
+                            playing.store(false, Ordering::Release);
+                            farewell = false;
+                        }
                         "stopping\n"
                     }
                 }
@@ -236,6 +284,13 @@ fn handle_client(mut stream: UnixStream, sender: &Sender<ControlCommand>) {
     };
     if let Err(error) = stream.write_all(response.as_bytes()) {
         eprintln!("Failed to reply to Dojo control client: {error}");
+        return;
+    }
+    if farewell {
+        thread::spawn(move || {
+            wait_until_settled(playing, FAREWELL_WAIT);
+            let _ = stream.write_all(b"settled\n");
+        });
     }
 }
 
@@ -264,7 +319,7 @@ mod tests {
             let (sender, receiver) = async_channel::bounded(1);
             let (server, mut client) = UnixStream::pair()?;
             client.write_all(format!("{token}\n").as_bytes())?;
-            handle_client(server, &sender);
+            handle_client(server, &sender, &CLOSING_PLAYING);
             assert_eq!(receiver.try_recv()?, expected);
             let mut response = String::new();
             BufReader::new(client).read_line(&mut response)?;
@@ -282,7 +337,7 @@ mod tests {
         let (sender, receiver) = async_channel::bounded(1);
         let (server, mut client) = UnixStream::pair()?;
         client.write_all(b"displays\n")?;
-        handle_client(server, &sender);
+        handle_client(server, &sender, &CLOSING_PLAYING);
         assert_eq!(receiver.try_recv()?, ControlCommand::Displays);
         let mut response = String::new();
         BufReader::new(client).read_line(&mut response)?;
@@ -295,7 +350,7 @@ mod tests {
         let (sender, receiver) = async_channel::bounded(1);
         let (server, mut client) = UnixStream::pair()?;
         client.write_all(b"{\"event\":\"response\",\"value\":\"Opened your bill.\"}\n")?;
-        handle_client(server, &sender);
+        handle_client(server, &sender, &CLOSING_PLAYING);
         assert_eq!(
             receiver.try_recv()?,
             ControlCommand::Speech(crate::speech::SpeechEvent::Response(
@@ -316,7 +371,7 @@ mod tests {
         let (sender, receiver) = async_channel::bounded(1);
         let (server, mut client) = UnixStream::pair()?;
         client.write_all(b"launcher\n")?;
-        handle_client(server, &sender);
+        handle_client(server, &sender, &CLOSING_PLAYING);
         assert_eq!(receiver.try_recv()?, ControlCommand::Launcher);
         let mut response = String::new();
         BufReader::new(client).read_line(&mut response)?;
@@ -325,35 +380,139 @@ mod tests {
     }
 
     #[test]
-    fn leave_names_exactly_the_closing_occasions() -> anyhow::Result<()> {
+    fn leave_names_exactly_the_closing_departures() -> anyhow::Result<()> {
         use crate::session::Occasion;
-        for occasion in [
-            Occasion::Lock,
-            Occasion::Logout,
-            Occasion::Suspend,
-            Occasion::Hibernate,
-            Occasion::Restart,
-            Occasion::Shutdown,
+        use crate::session::action::{Action, Departure};
+        for word in [
+            "lock",
+            "logout",
+            "suspend",
+            "suspend-then-hibernate",
+            "hibernate",
+            "restart",
+            "shutdown",
         ] {
-            let command = ControlCommand::Leave(occasion);
+            let command = ControlCommand::Leave(Departure::parse(word).unwrap());
+            assert_eq!(command.as_str(), format!("leave {word}"));
             assert_eq!(ControlCommand::parse(&command.as_str()), Some(command));
         }
         assert_eq!(
             ControlCommand::parse("leave shutdown"),
-            Some(ControlCommand::Leave(Occasion::Shutdown))
+            Some(ControlCommand::Leave(
+                Departure::of(Occasion::Shutdown).unwrap()
+            ))
         );
+        let Some(ControlCommand::Leave(departure)) =
+            ControlCommand::parse("leave suspend-then-hibernate")
+        else {
+            panic!("suspend-then-hibernate is a departure");
+        };
+        assert_eq!(departure.occasion(), Occasion::Suspend);
+        assert_eq!(departure.action(), Action::SuspendThenHibernate);
         for invalid in ["leave", "leave ", "leave unlock", "leave login", "leave reboot", "leave  lock", "leave Lock"] {
             assert!(ControlCommand::parse(invalid).is_none(), "{invalid:?}");
         }
         let (sender, receiver) = async_channel::bounded(1);
         let (server, mut client) = UnixStream::pair()?;
         client.write_all(b"leave lock\n")?;
-        handle_client(server, &sender);
-        assert_eq!(receiver.try_recv()?, ControlCommand::Leave(Occasion::Lock));
+        handle_client(server, &sender, &CLOSING_PLAYING);
+        assert_eq!(
+            receiver.try_recv()?,
+            ControlCommand::Leave(Departure::of(Occasion::Lock).unwrap())
+        );
         let mut response = String::new();
         BufReader::new(client).read_line(&mut response)?;
         assert_eq!(response, "queued\n");
         Ok(())
+    }
+
+    #[test]
+    fn farewell_names_exactly_the_occasions_that_end_the_session_or_the_machine() {
+        use crate::session::Occasion;
+        for occasion in [
+            Occasion::Logout,
+            Occasion::Suspend,
+            Occasion::Hibernate,
+            Occasion::Restart,
+            Occasion::Shutdown,
+        ] {
+            let command = ControlCommand::Farewell(occasion);
+            assert_eq!(command.as_str(), format!("farewell {}", occasion.key()));
+            assert_eq!(ControlCommand::parse(&command.as_str()), Some(command));
+        }
+        for invalid in [
+            "farewell",
+            "farewell ",
+            "farewell lock",
+            "farewell unlock",
+            "farewell login",
+            "farewell suspend-then-hibernate",
+            "farewell  shutdown",
+            "farewell Shutdown",
+            "farewell reboot",
+        ] {
+            assert!(ControlCommand::parse(invalid).is_none(), "{invalid:?}");
+        }
+    }
+
+    #[test]
+    fn a_farewell_is_acknowledged_at_once_and_settled_when_the_closing_has_played() -> anyhow::Result<()> {
+        static PLAYING: AtomicBool = AtomicBool::new(false);
+        let (sender, receiver) = async_channel::bounded(1);
+        let (server, client) = UnixStream::pair()?;
+        let mut writer = client.try_clone()?;
+        writer.write_all(b"farewell shutdown\n")?;
+        handle_client(server, &sender, &PLAYING);
+        assert_eq!(
+            receiver.try_recv()?,
+            ControlCommand::Farewell(crate::session::Occasion::Shutdown)
+        );
+        assert!(PLAYING.load(Ordering::Acquire), "set before the shell looks at it");
+        let mut reader = BufReader::new(client);
+        let mut line = String::new();
+        reader.read_line(&mut line)?;
+        assert_eq!(line, "queued\n");
+        reader.get_ref().set_read_timeout(Some(Duration::from_millis(100)))?;
+        line.clear();
+        assert!(reader.read_line(&mut line).is_err(), "not settled while playing");
+        PLAYING.store(false, Ordering::Release);
+        reader.get_ref().set_read_timeout(Some(Duration::from_secs(2)))?;
+        reader.read_line(&mut line)?;
+        assert_eq!(line, "settled\n");
+        Ok(())
+    }
+
+    #[test]
+    fn a_farewell_to_a_stopping_shell_leaves_nothing_playing() -> anyhow::Result<()> {
+        static PLAYING: AtomicBool = AtomicBool::new(false);
+        let (sender, receiver) = async_channel::bounded(1);
+        drop(receiver);
+        let (server, mut client) = UnixStream::pair()?;
+        client.write_all(b"farewell restart\n")?;
+        handle_client(server, &sender, &PLAYING);
+        let mut response = String::new();
+        BufReader::new(client).read_line(&mut response)?;
+        assert_eq!(response, "stopping\n");
+        assert!(!PLAYING.load(Ordering::Acquire));
+        Ok(())
+    }
+
+    #[test]
+    fn waiting_for_a_closing_is_bounded() {
+        let playing = AtomicBool::new(true);
+        let started = Instant::now();
+        wait_until_settled(&playing, Duration::from_millis(60));
+        assert!(started.elapsed() >= Duration::from_millis(60));
+        assert!(started.elapsed() < Duration::from_secs(2));
+        playing.store(false, Ordering::Release);
+        let started = Instant::now();
+        wait_until_settled(&playing, Duration::from_secs(5));
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn the_farewell_wait_stays_well_under_loginds_inhibit_delay() {
+        assert!(FAREWELL_WAIT + Duration::from_millis(500) <= Duration::from_secs(3));
     }
 
     #[test]
@@ -378,7 +537,7 @@ mod tests {
         let (sender, receiver) = async_channel::bounded(1);
         let (server, mut client) = UnixStream::pair()?;
         client.write_all(b"launcher-activate\n")?;
-        handle_client(server, &sender);
+        handle_client(server, &sender, &CLOSING_PLAYING);
         assert_eq!(
             receiver.try_recv()?,
             ControlCommand::LauncherNavigation(LauncherNavigation::Activate)
