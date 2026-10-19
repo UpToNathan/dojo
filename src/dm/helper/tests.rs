@@ -1,5 +1,6 @@
 use super::*;
 use crate::dm::protocol::{Login, SessionId};
+use crate::lock::pam::Method;
 use crate::lock::worker::libpam::PAM_CONV_ERR;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -171,6 +172,46 @@ fn run(
     }
 }
 
+#[test]
+fn the_greeter_session_is_class_greeter_and_runs_the_given_command() {
+    let log: Log = Rc::default();
+    let mut pam = FakePam::new(&log);
+    let mut peer = FakePeer {
+        log: log.clone(),
+        wait: Some(Waited::Start(Box::new(Start {
+            exec: "exec /usr/local/lib/dojo-dm/r/niri".into(),
+            desktop: SessionId::parse("dojo-greeter").unwrap(),
+            desktop_names: vec![],
+            vtnr: 1,
+            tty: "tty1".into(),
+        }))),
+        send_fails: false,
+    };
+    let mut launcher = FakeLauncher {
+        log: log.clone(),
+        fails: false,
+        plans: vec![],
+    };
+    let greeter = Account {
+        login: Login::parse("dojo-greeter").unwrap(),
+        name: c"dojo-greeter".into(),
+        uid: 975,
+        gid: 975,
+        home: "/".into(),
+        shell: "/bin/sh".into(),
+    };
+    assert_eq!(
+        serve(&mut pam, &mut peer, &mut launcher, &greeter, None),
+        Exit::Clean
+    );
+    assert!(log.borrow().contains(&"putenv XDG_SESSION_CLASS=greeter".to_owned()));
+    assert_eq!(launcher.plans[0].shell, PathBuf::from("/bin/sh"));
+    assert_eq!(
+        launcher.plans[0].arguments,
+        ["-c", "exec /usr/local/lib/dojo-dm/r/niri"].map(OsString::from)
+    );
+}
+
 fn go() -> Waited {
     Waited::Start(Box::new(start()))
 }
@@ -308,17 +349,19 @@ fn a_session_that_cannot_be_spawned_is_closed_again() {
     );
 }
 
-fn parse(arguments: &[&str]) -> Option<Method> {
-    parse_arguments(arguments.iter().map(Into::into).collect()).map(|invocation| invocation.method)
+fn parse(arguments: &[&str]) -> Option<Service> {
+    parse_arguments(arguments.iter().map(Into::into).collect()).map(|invocation| invocation.service)
 }
 
 #[test]
-fn argv_is_exactly_one_login_service() {
-    assert_eq!(parse(&["dojo-login"]), Some(Method::Password));
+fn argv_is_exactly_one_known_service() {
+    assert_eq!(parse(&["dojo-login"]), Some(Service::Login(Method::Password)));
     assert_eq!(
         parse(&["dojo-login-fingerprint"]),
-        Some(Method::Fingerprint)
+        Some(Service::Login(Method::Fingerprint))
     );
+    assert_eq!(parse(&["dojo-greeter"]), Some(Service::Greeter));
+    assert_eq!(parse(&["dojo-greeter", "dojo-greeter"]), None);
     assert_eq!(parse(&[]), None);
     assert_eq!(parse(&["dojo-lock-password"]), None);
     assert_eq!(parse(&["sudo"]), None);
@@ -354,7 +397,7 @@ fn test_builds_accept_a_private_confdir_and_shell_before_the_service() {
             "/bin/sh",
             "dojo-login"
         ]),
-        Some(Method::Password)
+        Some(Service::Login(Method::Password))
     );
     assert_eq!(parse(&["dojo-login", "--pam-confdir", "/tmp/x"]), None);
     assert_eq!(parse(&["--pam-confdir", "dojo-login"]), None);

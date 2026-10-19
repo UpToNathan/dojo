@@ -3,7 +3,7 @@
 
 pub(crate) mod helper;
 pub(crate) mod libpam;
-mod reaper;
+pub(crate) mod reaper;
 pub(crate) mod wire;
 
 use std::ffi::OsString;

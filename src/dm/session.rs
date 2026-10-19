@@ -6,18 +6,47 @@ use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
 
-use super::account::Account;
+use super::account::{Account, GREETER_LOGIN};
 use super::launch::Start;
+use crate::lock::pam::Method;
 
 pub const SEAT: &str = "seat0";
 pub const SESSION_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/bin";
 
+/// The PAM service a `dojo-dm-pam` process runs: one of the two login methods, or the
+/// greeter's own session, which no user ever authenticates against.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Service {
+    Login(Method),
+    Greeter,
+}
+
+impl Service {
+    pub const GREETER: &'static str = GREETER_LOGIN;
+
+    pub fn from_name(name: &str) -> Option<Service> {
+        if name == Self::GREETER {
+            return Some(Service::Greeter);
+        }
+        Method::from_login_service(name).map(Service::Login)
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Service::Login(method) => method.login_service(),
+            Service::Greeter => Self::GREETER,
+        }
+    }
+}
+
 /// `pam_systemd` reads the session's type, class, desktop, seat and VT from the PAM
-/// environment, so these go in before `pam_open_session`.
-pub fn pam_variables(start: &Start) -> Vec<(&'static str, String)> {
+/// environment, and the environment wins over the module's `class=` argument, so these
+/// go in before `pam_open_session`.
+pub fn pam_variables(account: &Account, start: &Start) -> Vec<(&'static str, String)> {
+    let class = if account.is_greeter() { "greeter" } else { "user" };
     vec![
         ("XDG_SESSION_TYPE", "wayland".into()),
-        ("XDG_SESSION_CLASS", "user".into()),
+        ("XDG_SESSION_CLASS", class.into()),
         ("XDG_SESSION_DESKTOP", start.desktop.as_str().into()),
         ("XDG_SEAT", SEAT.into()),
         ("XDG_VTNR", start.vtnr.to_string()),
@@ -53,7 +82,8 @@ pub struct SessionPlan {
 }
 
 /// The login shell runs `exec <Exec>`: the shell's profile sets up the user's environment,
-/// then the shell is replaced by the session. The environment is built from nothing:
+/// then the shell is replaced by the session. The greeter has no profile: `/bin/sh` runs the
+/// display manager's own command line as given. The environment is built from nothing:
 /// the account, the session, then whatever PAM added, which wins.
 pub fn plan(
     account: &Account,
@@ -74,7 +104,7 @@ pub fn plan(
         "XDG_CURRENT_DESKTOP",
         start.desktop_names.join(":").as_ref(),
     );
-    for (name, value) in pam_variables(start) {
+    for (name, value) in pam_variables(account, start) {
         set(name, value.as_ref());
     }
     environment.extend(pam_environment);
@@ -82,11 +112,15 @@ pub fn plan(
     environment.retain(|name, _| !name.is_empty() && !name.as_bytes().contains(&b'='));
     SessionPlan {
         shell: shell.unwrap_or_else(|| account.shell.clone()),
-        arguments: vec![
-            "-l".into(),
-            "-c".into(),
-            format!("exec {}", start.exec).into(),
-        ],
+        arguments: if account.is_greeter() {
+            vec!["-c".into(), start.exec.clone().into()]
+        } else {
+            vec![
+                "-l".into(),
+                "-c".into(),
+                format!("exec {}", start.exec).into(),
+            ]
+        },
         environment: environment.into_iter().collect(),
         home: account.home.clone(),
         uid: account.uid,
@@ -131,7 +165,7 @@ mod tests {
     #[test]
     fn pam_sees_the_session_identity_before_it_opens() {
         assert_eq!(
-            pam_variables(&start()),
+            pam_variables(&account(), &start()),
             [
                 ("XDG_SESSION_TYPE", "wayland".to_owned()),
                 ("XDG_SESSION_CLASS", "user".to_owned()),
@@ -140,6 +174,52 @@ mod tests {
                 ("XDG_VTNR", "1".to_owned()),
             ]
         );
+    }
+
+    fn greeter() -> Account {
+        Account {
+            login: Login::parse("dojo-greeter").unwrap(),
+            name: c"dojo-greeter".into(),
+            uid: 975,
+            gid: 975,
+            home: "/".into(),
+            shell: "/bin/sh".into(),
+        }
+    }
+
+    #[test]
+    fn services_name_the_pam_stacks_and_nothing_else() {
+        for (name, service) in [
+            ("dojo-login", Service::Login(Method::Password)),
+            ("dojo-login-fingerprint", Service::Login(Method::Fingerprint)),
+            ("dojo-greeter", Service::Greeter),
+        ] {
+            assert_eq!(Service::from_name(name), Some(service));
+            assert_eq!(service.name(), name);
+        }
+        for stranger in ["dojo-lock-password", "system-auth", "", "dojo-greeter ", "sudo"] {
+            assert_eq!(Service::from_name(stranger), None, "{stranger:?}");
+        }
+    }
+
+    #[test]
+    fn the_greeter_opens_a_greeter_class_session_and_runs_its_command_line_directly() {
+        let mut start = start();
+        start.exec = ". /usr/local/lib/dojo-dm/r/environment.sh && exec /usr/local/lib/dojo-dm/r/niri".into();
+        start.desktop = SessionId::parse("dojo-greeter").unwrap();
+        start.desktop_names.clear();
+        let class = pam_variables(&greeter(), &start)
+            .into_iter()
+            .find(|(name, _)| *name == "XDG_SESSION_CLASS")
+            .map(|(_, value)| value);
+        assert_eq!(class.as_deref(), Some("greeter"));
+        let plan = plan(&greeter(), &start, vec![], None);
+        assert_eq!(plan.shell, PathBuf::from("/bin/sh"));
+        assert_eq!(plan.arguments, [OsString::from("-c"), start.exec.clone().into()]);
+        assert_eq!(env(&plan, "XDG_SESSION_CLASS").as_deref(), Some("greeter"));
+        assert_eq!(env(&plan, "XDG_SESSION_DESKTOP").as_deref(), Some("dojo-greeter"));
+        assert_eq!(env(&plan, "XDG_VTNR").as_deref(), Some("1"));
+        assert_eq!(env(&plan, "SHELL").as_deref(), Some("/bin/sh"));
     }
 
     #[test]

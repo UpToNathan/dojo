@@ -22,9 +22,8 @@ use zeroize::Zeroizing;
 use super::account::{self, Account};
 use super::launch::{self, SessionEvent, Start};
 use super::protocol::SessionFailure;
-use super::session::{self, SessionPlan};
+use super::session::{self, Service, SessionPlan};
 use super::stack::Pam;
-use crate::lock::pam::Method;
 use crate::lock::worker::helper::{
     Conversation, EXIT_SOFTWARE, EXIT_UNAVAILABLE, EXIT_USAGE, converse, prepare_process,
     run_check, take_socket,
@@ -102,7 +101,7 @@ pub fn serve(
         }
     };
 
-    let Some(environment) = open_session(pam, &start) else {
+    let Some(environment) = open_session(pam, account, &start) else {
         let _ = peer.session(SessionEvent::Failed(SessionFailure::Refused));
         pam.end(PAM_SUCCESS);
         return Exit::Clean;
@@ -126,12 +125,16 @@ pub fn serve(
 
 /// Credentials, then the identity `pam_systemd` reads, then the session. Undoes the
 /// credentials when the session does not open.
-fn open_session(pam: &mut impl Pam, start: &Start) -> Option<Vec<(OsString, OsString)>> {
+fn open_session(
+    pam: &mut impl Pam,
+    account: &Account,
+    start: &Start,
+) -> Option<Vec<(OsString, OsString)>> {
     if pam.establish_credentials() != PAM_SUCCESS {
         return None;
     }
     let mut code = pam.set_tty(&start.tty);
-    for (name, value) in session::pam_variables(start) {
+    for (name, value) in session::pam_variables(account, start) {
         if code != PAM_SUCCESS {
             break;
         }
@@ -148,7 +151,7 @@ fn open_session(pam: &mut impl Pam, start: &Start) -> Option<Vec<(OsString, OsSt
 }
 
 struct Invocation {
-    method: Method,
+    service: Service,
     #[cfg(feature = "fake-pam-stack")]
     confdir: Option<CString>,
     #[cfg(feature = "fake-pam-stack")]
@@ -160,7 +163,8 @@ enum Mode {
     Serve(Invocation),
 }
 
-/// `--check` is accepted only alone; everything else is the service name.
+/// `--check` is accepted only alone; everything else is the service name:
+/// `dojo-login`, `dojo-login-fingerprint` or the greeter's `dojo-greeter`.
 /// Test builds also accept `--pam-confdir DIR` and `--session-shell PATH` before it.
 fn parse_command(arguments: Vec<OsString>) -> Option<Mode> {
     if arguments.len() == 1 && arguments[0] == "--check" {
@@ -177,7 +181,7 @@ fn parse_arguments(arguments: Vec<OsString>) -> Option<Invocation> {
     let (service, options) = arguments.split_last()?;
     #[allow(unused_mut)]
     let mut invocation = Invocation {
-        method: Method::from_login_service(service)?,
+        service: Service::from_name(service)?,
         #[cfg(feature = "fake-pam-stack")]
         confdir: None,
         #[cfg(feature = "fake-pam-stack")]
@@ -234,20 +238,22 @@ pub fn run_helper() -> ! {
     let mut peer = SocketPeer {
         conversation: &conversation,
     };
-    let account = account::Account::validate(
-        &login,
-        account::lookup(&login),
-        &account::read_shells(),
-        account::is_executable_file,
-    );
+    let account = match invocation.service {
+        Service::Login(_) => account::Account::validate(
+            &login,
+            account::lookup(&login),
+            &account::read_shells(),
+            account::is_executable_file,
+        ),
+        Service::Greeter => account::Account::validate_greeter(&login, account::lookup(&login)),
+    };
     let Ok(account) = account else {
         // Unknown, system and shell-less accounts look like a failed login.
         let sent = peer.finished(PAM_AUTH_ERR);
         std::process::exit(if sent.is_ok() { 0 } else { EXIT_SOFTWARE });
     };
 
-    let service =
-        CString::new(invocation.method.login_service()).expect("service names have no NUL");
+    let service = CString::new(invocation.service.name()).expect("service names have no NUL");
     let conv = PamConv {
         conv: converse,
         appdata_ptr: (&conversation as *const Conversation).cast_mut().cast(),

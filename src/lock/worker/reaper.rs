@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 const WAIT: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) struct Process {
+pub(crate) struct Process {
     pub pid: i32,
     pub parent: i32,
     pub session: i32,
@@ -16,7 +16,7 @@ pub(super) struct Process {
 }
 
 /// One /proc/<pid>/stat line. `None` for zombies and dead entries, which hold nothing.
-pub(super) fn parse_stat(line: &str) -> Option<Process> {
+pub(crate) fn parse_stat(line: &str) -> Option<Process> {
     let (head, rest) = line.rsplit_once(')')?;
     let pid = head.split_once(" (")?.0.trim().parse().ok()?;
     let fields: Vec<&str> = rest.split_whitespace().collect();
@@ -32,7 +32,7 @@ pub(super) fn parse_stat(line: &str) -> Option<Process> {
     })
 }
 
-pub(super) fn read_table() -> Vec<Process> {
+pub(crate) fn read_table() -> Vec<Process> {
     let Ok(entries) = std::fs::read_dir("/proc") else {
         return Vec::new();
     };
@@ -53,7 +53,7 @@ pub(super) fn read_table() -> Vec<Process> {
 /// session. A session id is only ever the pid of its leader, and the kernel does
 /// not reuse a pid while a session carries it, so the session test cannot catch
 /// a stranger.
-pub(super) fn tree(table: &[Process], root: i32) -> Vec<Process> {
+pub(crate) fn tree(table: &[Process], root: i32) -> Vec<Process> {
     let mut members: BTreeSet<i32> = table
         .iter()
         .filter(|process| process.pid == root || process.session == root)
@@ -77,7 +77,7 @@ pub(super) fn tree(table: &[Process], root: i32) -> Vec<Process> {
         .collect()
 }
 
-pub(super) fn alive(victims: &[Process]) -> Vec<Process> {
+pub(crate) fn alive(victims: &[Process]) -> Vec<Process> {
     let table = read_table();
     victims
         .iter()
@@ -88,7 +88,7 @@ pub(super) fn alive(victims: &[Process]) -> Vec<Process> {
 
 /// SIGTERM, then SIGKILL, each with a bounded wait. `reap` collects the direct
 /// child so it does not linger as a zombie. Returns what is still alive.
-pub(super) fn kill(victims: &[Process], mut reap: impl FnMut()) -> Vec<Process> {
+pub(crate) fn kill(victims: &[Process], mut reap: impl FnMut()) -> Vec<Process> {
     for signal in [libc::SIGTERM, libc::SIGKILL] {
         let living = alive(victims);
         if living.is_empty() {
