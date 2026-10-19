@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use dojo::dm::client::{Client, Incoming};
 use dojo::dm::edge::{Answer, Bridge, Step, user_look};
-use dojo::dm::protocol::{Login as Account, Request};
+use dojo::dm::protocol::{Event, Login as Account, Request};
 use dojo::lock::edge::{self, Ctx, Host};
 use dojo::lock::{Effect, EventKind, ExitReason, Login, LockModel, Settings};
 use dojo::session::host::local_hour;
@@ -182,6 +182,9 @@ impl Greeter {
         let mut events = Vec::new();
         match input {
             Input::Dm(Incoming::Event(event)) => {
+                if let Event::SessionFailed { reason } = &event {
+                    log(&format!("event=dm-session-failed reason={reason:?}"));
+                }
                 let steps = self.bridge.borrow_mut().event(event);
                 match steps {
                     Ok(steps) => self.steps(steps, &mut events, cx),
@@ -193,6 +196,12 @@ impl Greeter {
             }
             Input::Dm(Incoming::Malformed(error)) => {
                 eprintln!("{NAME}: the display manager sent {error}");
+                cx.quit();
+            }
+            Input::Dm(Incoming::Closed(_)) if self.bridge.borrow().handed_over() => {
+                // It stops the greeter to start the session, so SessionStarted never comes.
+                log("event=handed-over");
+                edge::exit_cleanly();
                 cx.quit();
             }
             Input::Dm(Incoming::Closed(error)) => {

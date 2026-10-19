@@ -54,6 +54,9 @@ pub struct Bridge {
     local: BTreeSet<u32>,
     /// The user whose `User` reply the greeter is waiting for.
     asked: Option<String>,
+    /// `StartSession` has been sent. The display manager stops the greeter to start the session, so
+    /// from here a closed socket is the hand-over and not a lost display manager.
+    handed_over: bool,
 }
 
 impl Bridge {
@@ -62,7 +65,13 @@ impl Bridge {
             sessions,
             local: BTreeSet::new(),
             asked: None,
+            handed_over: false,
         }
+    }
+
+    /// Whether the session was asked for, and not refused since.
+    pub fn handed_over(&self) -> bool {
+        self.handed_over
     }
 
     /// The request that asks about the screen's first user. `SwapLook` asks about every later one.
@@ -104,9 +113,12 @@ impl Bridge {
                 })]
             }
             Effect::SwapLook(user) => self.swap(&user),
-            Effect::Unlock { by } => vec![Step::Send(Request::StartSession {
-                generation: by.generation,
-            })],
+            Effect::Unlock { by } => {
+                self.handed_over = true;
+                vec![Step::Send(Request::StartSession {
+                    generation: by.generation,
+                })]
+            }
             Effect::Power(leave) => vec![Step::Send(Request::Power {
                 occasion: power_occasion(leave),
             })],
@@ -184,9 +196,12 @@ impl Bridge {
                 report,
             ))],
             Event::SessionStarted => vec![Step::Model(EventKind::SessionStarted)],
-            Event::SessionFailed { reason } => vec![Step::Model(EventKind::SessionFailed(
-                failure_text(reason).to_owned(),
-            ))],
+            Event::SessionFailed { reason } => {
+                self.handed_over = false;
+                vec![Step::Model(EventKind::SessionFailed(
+                    failure_text(reason).to_owned(),
+                ))]
+            }
         })
     }
 }

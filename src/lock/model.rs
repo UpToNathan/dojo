@@ -766,7 +766,8 @@ impl LockModel {
             since: farewell_from,
         });
         let since_unix = self.settings.lock_age_origin.unwrap_or(now.unix);
-        self.arm(now.mono, since_unix, typed, farewell, None, fx);
+        let failure = self.login.as_mut().and_then(|login| login.refused.take());
+        self.arm(now.mono, since_unix, typed, farewell, failure, fx);
     }
 
     /// Becomes the locked screen: a password worker, and a fingerprint worker where the method
@@ -1326,19 +1327,31 @@ impl LockModel {
     /// The session did not start, or could not have: ask for the password again, with the reason
     /// as the hint. The display manager may say so while the greeting still plays, when the
     /// helper dies after the verdict, and then there is nothing left to wait for.
+    ///
+    /// A start that failed after the display manager had already stopped the previous greeter is
+    /// told to the next one right after its `Init`: the reason waits for the lock if the lock has
+    /// not landed, and shows as the hint if no other reason is on the screen.
     fn session_failed(&mut self, text: String, now: Now, fx: &mut Vec<Effect>) {
-        if let Stage::Unlocking(Unlocking {
-            phase: UnlockPhase::Handover { started: true },
-            ..
-        }) = &self.stage
-        {
+        let Some(login) = &mut self.login else {
             return;
-        }
-        if let Stage::Unlocking(unlocking) = &self.stage
-            && self.login.is_some()
-        {
-            let since_unix = unlocking.since_unix;
-            self.rearm(now.mono, since_unix, Some(text), fx);
+        };
+        match &mut self.stage {
+            Stage::Unlocking(Unlocking {
+                phase: UnlockPhase::Handover { started: true },
+                ..
+            })
+            | Stage::Departing(_)
+            | Stage::Exiting => {}
+            Stage::Unlocking(unlocking) => {
+                let since_unix = unlocking.since_unix;
+                self.rearm(now.mono, since_unix, Some(text), fx);
+            }
+            Stage::Requested { .. } => login.refused = Some(text),
+            Stage::Locked(locked) => {
+                if locked.failure.is_none() {
+                    locked.failure = Some(text);
+                }
+            }
         }
     }
 

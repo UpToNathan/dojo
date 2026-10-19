@@ -291,6 +291,25 @@ fn every_failure_to_start_a_session_has_its_own_hint() {
 }
 
 #[test]
+fn a_closed_socket_is_the_handover_only_between_start_session_and_its_failure() {
+    let mut bridge = bridge();
+    assert!(!bridge.handed_over());
+    bridge.effect(
+        Effect::Unlock {
+            by: worker(Method::Password, 2),
+        },
+        None,
+    );
+    assert!(bridge.handed_over());
+    bridge
+        .event(Event::SessionFailed {
+            reason: SessionFailure::Refused,
+        })
+        .unwrap();
+    assert!(!bridge.handed_over(), "a refused start leaves the greeter in charge");
+}
+
+#[test]
 fn a_second_init_is_a_violation() {
     let mut bridge = bridge();
     assert_eq!(
