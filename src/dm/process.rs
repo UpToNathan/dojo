@@ -103,7 +103,10 @@ impl HelperProcess {
                     rlim_cur: 0,
                     rlim_max: 0,
                 };
+                let mut unblocked: libc::sigset_t = std::mem::zeroed();
+                libc::sigemptyset(&mut unblocked);
                 if moved < 0
+                    || libc::sigprocmask(libc::SIG_SETMASK, &unblocked, std::ptr::null_mut()) < 0
                     || libc::setsid() < 0
                     || libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0) < 0
                     || libc::setrlimit(libc::RLIMIT_CORE, &no_core) < 0
@@ -177,11 +180,14 @@ impl HelperProcess {
     /// session once its child is gone.
     pub fn terminate_session(&mut self) {
         let root = self.child.id() as i32;
-        for process in reaper::tree(&reaper::read_table(), root) {
+        let tree = reaper::tree(&reaper::read_table(), root);
+        for process in &tree {
             if process.pid != root {
                 unsafe { libc::kill(process.pid, libc::SIGTERM) };
             }
         }
+        // Remembered for a later `kill`, which must sweep what this tree leaves behind.
+        self.victims.get_or_insert(tree);
     }
 
     /// Kills the helper and every descendant, snapshotted before any signal, and returns
@@ -211,26 +217,6 @@ impl Drop for HelperProcess {
     fn drop(&mut self) {
         self.kill();
     }
-}
-
-/// Which pids of `victims` are still in `table`; here for the greeter's own process
-/// handle, which has no helper but needs the same check.
-pub fn survivors(victims: &[Process]) -> Vec<u32> {
-    reaper::alive(victims)
-        .iter()
-        .map(|process| process.pid as u32)
-        .collect()
-}
-
-pub fn tree_of(root: u32) -> Vec<Process> {
-    reaper::tree(&reaper::read_table(), root as i32)
-}
-
-pub fn kill_tree(victims: &[Process], reap: impl FnMut()) -> Vec<u32> {
-    reaper::kill(victims, reap)
-        .iter()
-        .map(|process| process.pid as u32)
-        .collect()
 }
 
 #[cfg(test)]

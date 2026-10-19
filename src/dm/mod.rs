@@ -7,15 +7,19 @@
 
 pub mod account;
 pub mod auth;
+pub mod config;
 pub mod cycle;
 mod codec;
+pub mod greeter;
 pub mod helper;
+pub mod host;
 pub mod launch;
 pub mod look;
 pub mod memory;
 pub mod process;
 pub mod protocol;
 pub mod registry;
+pub mod service;
 pub mod session;
 pub mod sessions;
 pub mod stack;
