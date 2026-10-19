@@ -8,8 +8,10 @@
 pub mod account;
 pub mod auth;
 mod codec;
+pub mod helper;
 pub mod launch;
 pub mod protocol;
 pub mod session;
+pub mod stack;
 
 pub use codec::DecodeError;
