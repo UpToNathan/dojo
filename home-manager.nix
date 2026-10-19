@@ -408,6 +408,32 @@ in
         StartupNotify=false
         X-GNOME-Autostart-enabled=true
       '';
+      xdg.configFile."autostart/1password.desktop".text = ''
+        [Desktop Entry]
+        Name=1Password
+        Comment=Password manager and secure wallet
+        Exec=${onepasswordAutostart}
+        Icon=1password
+        Terminal=false
+        Type=Application
+        StartupNotify=false
+        X-GNOME-Autostart-enabled=true
+      '';
+      # The tailscale package comes from the system (see system-config); TryExec skips the
+      # entry on a host without it.
+      xdg.configFile."autostart/tailscale-systray.desktop".text = ''
+        [Desktop Entry]
+        Name=Tailscale System Tray
+        Comment=Tailscale system tray applet for managing Tailscale
+        Exec=/usr/bin/tailscale systray
+        TryExec=/usr/bin/tailscale
+        Icon=tailscale
+        Terminal=false
+        Type=Application
+        NoDisplay=true
+        StartupNotify=false
+        X-GNOME-Autostart-enabled=true
+      '';
       systemd.user.packages = with pkgs; [
         xdg-desktop-portal
         xdg-desktop-portal-gtk
