@@ -4,6 +4,7 @@ pub mod config;
 pub mod control;
 pub mod design;
 pub mod displays;
+pub mod dm;
 pub mod extraction;
 pub mod geometry;
 pub mod lock;

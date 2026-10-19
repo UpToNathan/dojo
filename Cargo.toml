@@ -53,7 +53,7 @@ zeroize = "=1.9.1"
 blocking = "=1.6.2"
 
 [features]
-# Lets dojo-lock-pam read service files from a private directory. Tests only; never in a release build.
+# Lets dojo-lock-pam and dojo-dm-pam read service files from a private directory. Tests only; never in a release build.
 fake-pam-stack = []
 # Compiles session::action::RecordingRunner so tests and the nested Niri can record actions. Never in a release build.
 record-session-actions = []
@@ -95,6 +95,11 @@ path = "tools/accessibility/gpui_fixture.rs"
 [[test]]
 name = "lock_worker"
 path = "tests/lock_worker.rs"
+required-features = ["fake-pam-stack"]
+
+[[test]]
+name = "dm_pam"
+path = "tests/dm_pam.rs"
 required-features = ["fake-pam-stack"]
 
 [profile.dev.package.sha2]
