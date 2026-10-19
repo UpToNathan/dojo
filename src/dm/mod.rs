@@ -7,11 +7,16 @@
 
 pub mod account;
 pub mod auth;
+pub mod cycle;
 mod codec;
 pub mod helper;
 pub mod launch;
+pub mod memory;
 pub mod protocol;
+pub mod registry;
 pub mod session;
+pub mod sessions;
 pub mod stack;
+pub mod vt;
 
 pub use codec::DecodeError;
