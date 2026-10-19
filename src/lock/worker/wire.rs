@@ -19,17 +19,17 @@ const ANSWER: u8 = b'A';
 /// PAM_MAX_MSG_SIZE. Longer text from a module is cut.
 const MAX_TEXT: usize = 512;
 /// The largest datagram in either direction: a tag plus a full password or text.
-pub(super) const MAX_DATAGRAM: usize = 1 + if Password::CAPACITY > MAX_TEXT {
+pub(crate) const MAX_DATAGRAM: usize = 1 + if Password::CAPACITY > MAX_TEXT {
     Password::CAPACITY
 } else {
     MAX_TEXT
 };
 
-pub(super) fn prompt(echo: bool) -> [u8; 2] {
+pub(crate) fn prompt(echo: bool) -> [u8; 2] {
     [PROMPT, echo as u8]
 }
 
-pub(super) fn text(style: MessageStyle, text: &[u8]) -> Vec<u8> {
+pub(crate) fn text(style: MessageStyle, text: &[u8]) -> Vec<u8> {
     let tag = match style {
         MessageStyle::Info => INFO,
         MessageStyle::Error => ERROR,
@@ -41,13 +41,13 @@ pub(super) fn text(style: MessageStyle, text: &[u8]) -> Vec<u8> {
     datagram
 }
 
-pub(super) fn done(code: i32) -> [u8; 5] {
+pub(crate) fn done(code: i32) -> [u8; 5] {
     let [a, b, c, d] = code.to_ne_bytes();
     [DONE, a, b, c, d]
 }
 
 /// Parent side. `None` for anything the worker must never send.
-pub(super) fn decode_report(datagram: &[u8]) -> Option<Report> {
+pub(crate) fn decode_report(datagram: &[u8]) -> Option<Report> {
     let (&tag, body) = datagram.split_first()?;
     let style = match (tag, body) {
         (PROMPT, [0]) => return Some(Report::Prompt { echo: false }),
@@ -66,7 +66,7 @@ pub(super) fn decode_report(datagram: &[u8]) -> Option<Report> {
     )))
 }
 
-pub(super) fn send(socket: BorrowedFd<'_>, datagram: &[u8]) -> io::Result<()> {
+pub(crate) fn send(socket: BorrowedFd<'_>, datagram: &[u8]) -> io::Result<()> {
     let sent = retry(|| unsafe {
         libc::send(
             socket.as_raw_fd(),
@@ -83,7 +83,7 @@ pub(super) fn send(socket: BorrowedFd<'_>, datagram: &[u8]) -> io::Result<()> {
 }
 
 /// One datagram, gathered straight from the password's buffer so no copy is made.
-pub(super) fn send_answer(socket: BorrowedFd<'_>, password: &Password) -> io::Result<()> {
+pub(crate) fn send_answer(socket: BorrowedFd<'_>, password: &Password) -> io::Result<()> {
     let secret = password.expose();
     let mut parts = [
         libc::iovec {
@@ -107,7 +107,7 @@ pub(super) fn send_answer(socket: BorrowedFd<'_>, password: &Password) -> io::Re
 }
 
 /// Reads one datagram into `buffer`. Ok(0) is end of stream; an oversized datagram is an error.
-pub(super) fn receive(socket: BorrowedFd<'_>, buffer: &mut [u8]) -> io::Result<usize> {
+pub(crate) fn receive(socket: BorrowedFd<'_>, buffer: &mut [u8]) -> io::Result<usize> {
     let length = retry(|| unsafe {
         libc::recv(
             socket.as_raw_fd(),
@@ -126,7 +126,7 @@ pub(super) fn receive(socket: BorrowedFd<'_>, buffer: &mut [u8]) -> io::Result<u
 }
 
 /// Worker side: the password as received, in a heap buffer that never moves and is zeroed on drop.
-pub(super) struct Answer {
+pub(crate) struct Answer {
     buffer: Box<[u8; MAX_DATAGRAM]>,
     length: usize,
 }

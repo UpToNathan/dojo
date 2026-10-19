@@ -1,10 +1,10 @@
 //! PAM workers as separate processes: spawn, answer, kill, and a report channel.
 //! Mechanism only; deciding which worker should run is the caller's job.
 
-mod helper;
+pub(crate) mod helper;
 pub(crate) mod libpam;
 mod reaper;
-mod wire;
+pub(crate) mod wire;
 
 use std::ffi::OsString;
 use std::fmt;
@@ -29,7 +29,7 @@ pub use helper::run_helper;
 const HOST_LOADER: &str = "/usr/lib64/ld-linux-x86-64.so.2";
 const HOST_LIBRARIES: &str = "/usr/lib";
 const WORKER_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/bin";
-const WORKER_FD: i32 = 3;
+pub(crate) const WORKER_FD: i32 = 3;
 
 /// How to start the `dojo-lock-pam` helper.
 #[derive(Clone, Debug)]

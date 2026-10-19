@@ -1,6 +1,7 @@
 //! The `dojo-lock-pam` process: one PAM conversation for the current user,
 //! spoken over the socket on fd 3.
 
+use std::cell::Cell;
 use std::ffi::{CStr, CString, c_int, c_void};
 use std::os::fd::{AsFd, BorrowedFd, FromRawFd, OwnedFd};
 
@@ -9,9 +10,9 @@ use super::{WORKER_FD, wire};
 use crate::lock::pam::{MessageStyle, Method};
 use crate::lock::secret::protect_process;
 
-const EXIT_USAGE: i32 = 64;
-const EXIT_UNAVAILABLE: i32 = 69;
-const EXIT_SOFTWARE: i32 = 70;
+pub(crate) const EXIT_USAGE: i32 = 64;
+pub(crate) const EXIT_UNAVAILABLE: i32 = 69;
+pub(crate) const EXIT_SOFTWARE: i32 = 70;
 
 struct Invocation {
     method: Method,
@@ -29,22 +30,9 @@ enum Command {
 pub fn run_helper() -> ! {
     let command = parse_command(std::env::args_os().skip(1).collect());
     if let Some(Command::Check) = command {
-        let (report, code) = check_report(LibPam::open().map(drop));
-        match code {
-            0 => println!("{report}"),
-            _ => eprintln!("{report}"),
-        }
-        std::process::exit(code);
+        run_check();
     }
-    protect_process();
-    unsafe {
-        libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0);
-        // Orphans of PAM children reparent here, so the parent's tree snapshot still sees them.
-        libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0);
-        if libc::getppid() == 1 {
-            libc::_exit(EXIT_UNAVAILABLE);
-        }
-    }
+    prepare_process();
     let Some(Command::Authenticate(invocation)) = command else {
         std::process::exit(EXIT_USAGE);
     };
@@ -59,9 +47,7 @@ pub fn run_helper() -> ! {
     };
 
     let service = CString::new(invocation.method.service()).expect("service names have no NUL");
-    let conversation = Conversation {
-        socket: socket.as_fd(),
-    };
+    let conversation = Conversation::new(socket.as_fd());
     let conv = PamConv {
         conv: converse,
         appdata_ptr: (&conversation as *const Conversation).cast_mut().cast(),
@@ -76,6 +62,29 @@ pub fn run_helper() -> ! {
     match wire::send(socket.as_fd(), &wire::done(code)) {
         Ok(()) => std::process::exit(0),
         Err(_) => std::process::exit(EXIT_SOFTWARE),
+    }
+}
+
+/// `--check`: load libpam, resolve every symbol a helper uses, report, exit.
+pub(crate) fn run_check() -> ! {
+    let (report, code) = check_report(LibPam::open().map(drop));
+    match code {
+        0 => println!("{report}"),
+        _ => eprintln!("{report}"),
+    }
+    std::process::exit(code);
+}
+
+/// Hardening both helpers apply before they hold a secret: no dumps, no ptrace, die with the
+/// parent, and own the orphans of PAM children so the parent's tree snapshot sees them.
+pub(crate) fn prepare_process() {
+    protect_process();
+    unsafe {
+        libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0);
+        libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0);
+        if libc::getppid() == 1 {
+            libc::_exit(EXIT_UNAVAILABLE);
+        }
     }
 }
 
@@ -117,7 +126,7 @@ fn parse_arguments(arguments: Vec<std::ffi::OsString>) -> Option<Invocation> {
 }
 
 /// fd 3 must be the parent's SEQPACKET socket. It is made close-on-exec so PAM children never see it.
-fn take_socket() -> Option<OwnedFd> {
+pub(crate) fn take_socket() -> Option<OwnedFd> {
     let mut kind: c_int = 0;
     let mut length = size_of::<c_int>() as libc::socklen_t;
     let rc = unsafe {
@@ -158,14 +167,31 @@ fn current_user() -> Option<CString> {
     Some(unsafe { CStr::from_ptr(entry.pw_name) }.to_owned())
 }
 
-struct Conversation<'a> {
-    socket: BorrowedFd<'a>,
+pub(crate) struct Conversation<'a> {
+    pub(crate) socket: BorrowedFd<'a>,
+    quiet: Cell<bool>,
 }
 
-impl Conversation<'_> {
+impl<'a> Conversation<'a> {
+    pub(crate) fn new(socket: BorrowedFd<'a>) -> Self {
+        Conversation {
+            socket,
+            quiet: Cell::new(false),
+        }
+    }
+
+    /// After the result is sent nothing more may cross the socket from PAM: prompts fail
+    /// and messages are dropped.
+    pub(crate) fn silence(&self) {
+        self.quiet.set(true);
+    }
+
     /// Asks the parent, then hands PAM a malloc'd NUL-terminated copy, which PAM owns.
     /// The received buffer is zeroed when `answer` drops at the end of this call.
     fn prompt(&self, echo: bool) -> Option<*mut libc::c_char> {
+        if self.quiet.get() {
+            return None;
+        }
         wire::send(self.socket, &wire::prompt(echo)).ok()?;
         let answer = wire::Answer::receive(self.socket).ok()?;
         let secret = answer.secret();
@@ -181,11 +207,14 @@ impl Conversation<'_> {
     }
 
     fn tell(&self, style: MessageStyle, text: &[u8]) -> Option<()> {
+        if self.quiet.get() {
+            return Some(());
+        }
         wire::send(self.socket, &wire::text(style, text)).ok()
     }
 }
 
-unsafe extern "C" fn converse(
+pub(crate) unsafe extern "C" fn converse(
     count: c_int,
     messages: *mut *const PamMessage,
     out: *mut *mut PamResponse,

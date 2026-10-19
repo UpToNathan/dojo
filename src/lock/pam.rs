@@ -27,6 +27,20 @@ impl Method {
             .into_iter()
             .find(|method| method.service() == name)
     }
+
+    /// The same method as a login: the display manager's PAM service files.
+    pub const fn login_service(self) -> &'static str {
+        match self {
+            Method::Fingerprint => "dojo-login-fingerprint",
+            Method::Password => "dojo-login",
+        }
+    }
+
+    pub fn from_login_service(name: &str) -> Option<Method> {
+        Method::ALL
+            .into_iter()
+            .find(|method| method.login_service() == name)
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -211,6 +225,23 @@ mod tests {
         );
         assert_eq!(Method::from_service("system-auth"), None);
         assert_eq!(Method::from_service("../dojo-lock-password"), None);
+    }
+
+    #[test]
+    fn login_services_round_trip_and_stay_apart_from_lock_services() {
+        for method in Method::ALL {
+            assert_eq!(
+                Method::from_login_service(method.login_service()),
+                Some(method)
+            );
+            assert_eq!(Method::from_login_service(method.service()), None);
+            assert_eq!(Method::from_service(method.login_service()), None);
+        }
+        assert_eq!(Method::Password.login_service(), "dojo-login");
+        assert_eq!(
+            Method::Fingerprint.login_service(),
+            "dojo-login-fingerprint"
+        );
     }
 
     #[test]
