@@ -703,6 +703,9 @@ in
 	settings.input.focus-follows-mouse = {};
 	# Niri hardcodes the power key to suspend, ahead of any bind, unless this is set.
 	settings.input.disable-power-key-handling = {};
+	# Niri's hotkey overlay is drawn over everything at every session start. It would be the first
+	# thing seen after the login screen's fade, ahead of the shell's own first frame.
+	settings.hotkey-overlay.skip-at-startup = {};
 	enableDefaultConfig = true;
 	settings.binds."Mod+T" = {
 	  _props.hotkey-overlay-title = "Open a Terminal: kitty";

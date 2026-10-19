@@ -15,6 +15,10 @@ RuntimeDirectoryMode=0755
 StateDirectory=dojo-dm
 TTYPath=/dev/tty1
 StandardInput=tty
+# The hand-over timeline (`dojo-dm: event=...`) is read from the journal; a tty on standard input
+# must not take standard output with it.
+StandardOutput=journal
+StandardError=journal
 TTYReset=yes
 TTYVHangup=yes
 TTYVTDisallocate=yes
