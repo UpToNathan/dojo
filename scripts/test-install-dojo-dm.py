@@ -147,6 +147,29 @@ class InstallerTests(unittest.TestCase):
             sorted(f"{STORE.rsplit('/', 1)[1]}-{suffix}" for suffix in ("fake", "mesa", "pipewire", "wayland")),
         )
 
+    def test_the_vulkan_driver_is_pinned_like_the_locker(self):
+        icds = Path(self.temporary.name) / "icd.d"
+        icds.mkdir()
+
+        def pinned(*names):
+            for name in names:
+                (icds / name).write_text("{}")
+            result = self.fixture.run(DOJO_DM_ICD_DIR=str(icds))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return [
+                line
+                for line in (self.fixture.release() / "environment.sh").read_text().splitlines()
+                if line.startswith("export VK_DRIVER_FILES=")
+            ]
+
+        self.assertEqual(pinned(), [])
+        self.assertEqual(
+            pinned("radeon_icd.x86_64.json"), [f"export VK_DRIVER_FILES={icds}/radeon_icd.x86_64.json"]
+        )
+        self.assertEqual(
+            pinned("nvidia_icd.json"), [f"export VK_DRIVER_FILES={icds}/nvidia_icd.json"]
+        )
+
     def test_greeter_config_names_this_release(self):
         self.assertEqual(self.fixture.run().returncode, 0)
         release = self.fixture.release()
@@ -178,7 +201,7 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("already installed", result.stdout)
         self.assertEqual(release, self.fixture.release())
         self.assertEqual(before, {path: path.stat().st_mtime_ns for path in release.iterdir() if path.name != "roots"})
-        self.assertEqual(sorted(path.name for path in self.fixture.lib.iterdir()), ["current", release.name])
+        self.assertEqual(sorted(path.name for path in self.fixture.lib.iterdir()), sorted(["current", release.name]))
 
     def test_new_binaries_make_a_new_release_and_keep_the_old_one_reachable(self):
         self.assertEqual(self.fixture.run().returncode, 0)

@@ -560,7 +560,9 @@ fn panel_elements(
     if let Some(age) = &chips.lock_age {
         children.push(chip(age).left(margin).bottom(margin));
     }
-    children.push(chip(AGENT_INPUT_NOTICE).right(margin).bottom(margin));
+    if chips.login.is_none() {
+        children.push(chip(AGENT_INPUT_NOTICE).right(margin).bottom(margin));
+    }
     children
 }
 

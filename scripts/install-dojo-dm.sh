@@ -91,6 +91,14 @@ if [[ -n $glibc_tunables && ! $glibc_tunables =~ ^[A-Za-z0-9_.=:-]+$ ]]; then
     fail "Refusing GLIBC_TUNABLES value from $desktop_dir/environment.sh."
 fi
 
+# Pin the Vulkan driver like dojo-lock.service does: enumerating every driver makes the greeter
+# start about five times slower. NVIDIA wins when present, else the radeon driver, else no pin.
+icd_dir=${DOJO_DM_ICD_DIR:-/run/opengl-driver/share/vulkan/icd.d}
+vulkan_driver=
+for icd in nvidia_icd.json radeon_icd.x86_64.json; do
+    if [[ -f $icd_dir/$icd ]]; then vulkan_driver=$icd_dir/$icd; break; fi
+done
+
 # One read of each source, so the hash describes exactly what gets installed.
 for name in dojo-dm dojo-dm-pam dojo-greeter; do
     cp -- "$binary_dir/$name" "$stage/$name"
@@ -109,6 +117,7 @@ chmod 0755 "$stage/run"
 {
     printf 'export LD_LIBRARY_PATH=%q\n' "$library_path"
     [[ -z $glibc_tunables ]] || printf 'export GLIBC_TUNABLES=%q\n' "$glibc_tunables"
+    [[ -z $vulkan_driver ]] || printf 'export VK_DRIVER_FILES=%q\n' "$vulkan_driver"
 } > "$stage/environment.sh"
 chmod 0644 "$stage/environment.sh"
 
