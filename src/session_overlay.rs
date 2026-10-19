@@ -556,6 +556,9 @@ fn park(active: &mut Active, cx: &mut App) {
             settings: SessionSettings::default(),
             line: None,
             opening: None,
+            entry: opening::Entry::Cold,
+            wallpaper_ready: true,
+            waiting: None,
             style: active.closing.style(),
             shell_clock: active.shell_clock.clone(),
             dial_clock: active.dial_clock.clone(),
@@ -771,8 +774,18 @@ impl Global for OpeningOverlay {}
 struct OpeningActive {
     settings: SessionSettings,
     line: Option<String>,
-    /// `None` while the shell is still starting: the closed state, with no greeting.
+    /// `None` while the shell is still starting: the closed state, with no greeting, or the frame
+    /// colour alone after a greeter.
     opening: Option<Opening>,
+    /// How this login begins: after the greeter it starts from the frame colour it faded to.
+    entry: opening::Entry,
+    /// The lock wallpaper has been decoded, or has failed to be. An opening after a greeter
+    /// starts from the frame colour and waits for this, so the closed state never appears
+    /// without its wallpaper and pops in.
+    wallpaper_ready: bool,
+    /// `start_login` came before the wallpaper was ready: the opening begins when it is, or at
+    /// the cap if decoding hangs.
+    waiting: Option<Task<()>>,
     style: Style,
     shell_clock: String,
     dial_clock: String,
@@ -831,10 +844,20 @@ pub fn clear_overlay_ready() {
 /// into the shell. Any failure means a normal start with no animation.
 pub fn begin_login(cx: &mut App) {
     clear_overlay_ready();
-    let start = login::detect(std::env::var_os("XDG_RUNTIME_DIR"));
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR");
+    // Consumed on every start, so a marker a restart left behind cannot colour a later login.
+    let after_greeter = login::after_greeter_path_from(runtime.clone())
+        .is_some_and(|marker| login::consume_after_greeter(&marker));
+    let start = login::detect(runtime);
     if !start.is_login() {
         return;
     }
+    let entry = if after_greeter {
+        crate::startup::mark("login-after-greeter");
+        opening::Entry::AfterGreeter
+    } else {
+        opening::Entry::Cold
+    };
     let settings = session_settings();
     if !settings.transition {
         return;
@@ -864,6 +887,9 @@ pub fn begin_login(cx: &mut App) {
             settings,
             line,
             opening: None,
+            entry,
+            wallpaper_ready: false,
+            waiting: None,
             style: if settings.reduced_motion {
                 Style::Crossfade
             } else {
@@ -885,8 +911,12 @@ pub fn begin_login(cx: &mut App) {
     });
 }
 
+/// How long an opening after a greeter waits for the wallpaper before it starts without it.
+const WALLPAPER_WAIT: std::time::Duration = std::time::Duration::from_millis(1500);
+
 /// Last thing in the shell's start-up: the greeting starts when everything else
 /// is up, so start-up work cannot eat it. Does nothing when no login is covered.
+/// After a greeter the opening also waits for the wallpaper, behind the frame colour.
 pub fn start_login(cx: &mut App) {
     if !cx.has_global::<OpeningOverlay>() {
         return;
@@ -895,24 +925,52 @@ pub fn start_login(cx: &mut App) {
         let Some(active) = overlay.active.as_mut() else {
             return;
         };
-        let (opening, effects) = Opening::begin(
-            Occasion::Login,
-            &active.settings,
-            active.line.clone(),
-            Instant::now(),
-        );
-        if let Some(line) = opening.greeting() {
-            store_line(Occasion::Login, line.to_owned());
-        }
-        active.opening = Some(opening);
-        if finish_opening(overlay, &effects, cx) {
+        if active.entry == opening::Entry::AfterGreeter && !active.wallpaper_ready {
+            active.waiting = Some(cx.spawn(async move |cx| {
+                cx.background_executor().timer(WALLPAPER_WAIT).await;
+                cx.update(|cx| begin_opening(cx));
+            }));
             return;
         }
-        if let Some(active) = overlay.active.as_mut() {
-            arm_opening(active, cx);
-            refresh(&active.windows, cx);
-        }
+        begin_opening_of(overlay, cx);
     });
+}
+
+fn begin_opening(cx: &mut App) {
+    if !cx.has_global::<OpeningOverlay>() {
+        return;
+    }
+    cx.update_global::<OpeningOverlay, _>(begin_opening_of);
+}
+
+/// Starts the login opening once, whichever of the wallpaper, the cap or the end of start-up asks first.
+fn begin_opening_of(overlay: &mut OpeningOverlay, cx: &mut App) {
+    let Some(active) = overlay.active.as_mut() else {
+        return;
+    };
+    active.waiting = None;
+    if active.opening.is_some() {
+        return;
+    }
+    crate::startup::mark("login-opening-begin");
+    let (opening, effects) = Opening::begin_from(
+        Occasion::Login,
+        active.entry,
+        &active.settings,
+        active.line.clone(),
+        Instant::now(),
+    );
+    if let Some(line) = opening.greeting() {
+        store_line(Occasion::Login, line.to_owned());
+    }
+    active.opening = Some(opening);
+    if finish_opening(overlay, &effects, cx) {
+        return;
+    }
+    if let Some(active) = overlay.active.as_mut() {
+        arm_opening(active, cx);
+        refresh(&active.windows, cx);
+    }
 }
 
 fn refresh(windows: &[WindowHandle<ClosingView>], cx: &mut App) {
@@ -1018,15 +1076,24 @@ fn arm_opening(active: &mut OpeningActive, cx: &mut App) {
     });
 }
 
+/// The login's decode finished (`image` is `None` when there is no wallpaper) or a closing's
+/// outlasted it. Either way an opening that was waiting for the wallpaper starts now.
 fn set_opening_wallpaper(image: Option<std::sync::Arc<gpui::RenderImage>>, cx: &mut App) {
-    if image.is_none() || !cx.has_global::<OpeningOverlay>() {
+    if !cx.has_global::<OpeningOverlay>() {
         return;
     }
     cx.update_global::<OpeningOverlay, _>(|overlay, cx| {
         let Some(active) = overlay.active.as_mut() else {
             return;
         };
-        active.look = Rc::new(Look::new(active.colors, active.error, image));
+        if image.is_some() {
+            active.look = Rc::new(Look::new(active.colors, active.error, image));
+        }
+        active.wallpaper_ready = true;
+        crate::startup::mark("login-wallpaper-ready");
+        if active.waiting.is_some() {
+            return begin_opening_of(overlay, cx);
+        }
         refresh(&active.windows, cx);
     });
 }
@@ -1034,6 +1101,10 @@ fn set_opening_wallpaper(image: Option<std::sync::Arc<gpui::RenderImage>>, cx: &
 /// The login opening at one instant, drawn by the same painter as a closing run backwards.
 fn opening_frame(active: &OpeningActive, window: &mut Window) -> Vec<gpui::AnyElement> {
     let now = Instant::now();
+    let veil = match &active.opening {
+        Some(opening) => opening.veil(now),
+        None => active.entry.veil_before_start(),
+    };
     let (progress, greeting) = match &active.opening {
         Some(opening) => {
             if opening.animating(now) {
@@ -1055,7 +1126,7 @@ fn opening_frame(active: &OpeningActive, window: &mut Window) -> Vec<gpui::AnyEl
     } else if active.parked {
         trace_parked();
     }
-    paint::closing(
+    let mut children = paint::closing(
         &pose,
         progress,
         &active.shell_clock,
@@ -1063,7 +1134,9 @@ fn opening_frame(active: &OpeningActive, window: &mut Window) -> Vec<gpui::AnyEl
         greeting,
         &active.look,
         viewport,
-    )
+    );
+    children.extend(paint::veil(active.look.palette.background, veil));
+    children
 }
 
 struct ClosingView {

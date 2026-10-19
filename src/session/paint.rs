@@ -403,6 +403,19 @@ pub fn closing(
     children
 }
 
+/// A layer of `colour` at `strength` over the whole surface, above everything else, or nothing
+/// when it would not show. The login screen dips to the frame colour with it as the session
+/// starts, and the shell's opening after it fades back out of it.
+pub fn veil(colour: Rgba, strength: f32) -> Option<AnyElement> {
+    (strength > 0.).then(|| {
+        div()
+            .absolute()
+            .size_full()
+            .bg(colour.opacity(strength))
+            .into_any_element()
+    })
+}
+
 /// The canvas under the text: frame, wallpaper, ring and pill.
 fn shapes(pose: Pose, scale: f32, panel: Option<Panel>, over: Over, look: Rc<Look>) -> AnyElement {
     canvas(
