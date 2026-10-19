@@ -2,8 +2,12 @@
 
 These files are the maintained sources for custom files installed under `/etc`
 and `/usr/local` on the host. Run `scripts/install-system-config.sh` from the
-repository root to make the system paths symlink to these files; existing files
-are preserved as timestamped backups before replacement.
+repository root to install them as root-owned copies; existing files are preserved
+as timestamped backups before replacement. They are copies, never symlinks into the
+checkout, because root reads and runs them (PAM stacks, units, tmpfiles, udev rules,
+`update-nix-gl`), and a link would let any process of the checkout's owner rewrite
+them. Re-run the installer after editing one. Hosts installed before this change have
+symlinks; the next run backs them up and replaces them.
 
 That installer also copies `bin/dojo-chromium-theme-policy` and its narrowly
 scoped sudoers rule into place; the installer fills the rule's `@USER@` with the
