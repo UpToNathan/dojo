@@ -307,9 +307,25 @@ impl Dock {
         if expanded {
             tile = tile.child(
                 div()
-                    .text_size(px(10.))
-                    .text_color(colors.foreground_muted.rgb())
-                    .child(device.address.clone()),
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap(px(12.))
+                    .child(
+                        div()
+                            .text_size(px(10.))
+                            .text_color(colors.foreground_muted.rgb())
+                            .child(device.address.clone()),
+                    )
+                    .when(device.paired || device.connected, |row| {
+                        row.child(self.action_button(
+                            &format!("bluetooth-forget-{}", device.address),
+                            "Forget",
+                            Action::Forget(device.id.clone()),
+                            pending.is_none(),
+                            cx,
+                        ))
+                    }),
             );
         }
         if pending.is_some_and(|label| label == "Pairing…") {
@@ -568,7 +584,7 @@ impl Render for Dock {
                         .child(if snapshot.scanning {
                             "Stop searching"
                         } else {
-                            "＋ Find a device"
+                            "\u{f0415} Find a device"
                         })
                         .on_mouse_down(
                             MouseButton::Left,

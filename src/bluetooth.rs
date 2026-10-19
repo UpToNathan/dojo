@@ -8,7 +8,7 @@ use std::time::Duration;
 use anyhow::{Context as _, bail};
 use futures_lite::StreamExt;
 use tokio::sync::{oneshot, watch};
-use zbus::zvariant::{OwnedObjectPath, OwnedValue};
+use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue};
 use zbus::{Connection, MessageStream, Proxy, interface};
 
 const AGENT_PATH: &str = "/org/dojo/BluetoothAgent";
@@ -125,6 +125,8 @@ pub enum Action {
     Connect(DeviceId, bool),
     Pair(DeviceId),
     Cancel(DeviceId),
+    /// Removes the device and its pairing from the adapter; it has to be paired again.
+    Forget(DeviceId),
     Answer(u64, Option<String>),
 }
 enum Event {
@@ -568,6 +570,18 @@ async fn execute(connection: Connection, action: Action) -> anyhow::Result<()> {
                 Proxy::new(&connection, BLUEZ, id.path.as_str(), "org.bluez.Device1").await?;
             proxy.call::<_, _, ()>("CancelPairing", &()).await?;
         }
+        Action::Forget(id) => {
+            // BlueZ removes a device through its adapter, which is the parent object path.
+            let adapter = id
+                .path
+                .rsplit_once('/')
+                .map(|(adapter, _)| adapter)
+                .context("Bluetooth device path has no adapter")?;
+            Proxy::new(&connection, BLUEZ, adapter, "org.bluez.Adapter1")
+                .await?
+                .call::<_, _, ()>("RemoveDevice", &(ObjectPath::try_from(id.path.as_str())?,))
+                .await?;
+        }
         Action::Answer(..) => unreachable!(),
     }
     Ok(())
@@ -731,7 +745,7 @@ async fn run(
                     refresh_now = true;
                     match action {
                         Action::Power(id, _) => { snapshot.power_pending.remove(&id); }
-                        Action::Connect(id, _) | Action::Pair(id) | Action::Cancel(id) => { snapshot.pending.remove(&id); if allowed.lock().unwrap().as_ref() == Some(&id) { *allowed.lock().unwrap() = None; snapshot.prompt = None; waiter = None; } }
+                        Action::Connect(id, _) | Action::Pair(id) | Action::Cancel(id) | Action::Forget(id) => { snapshot.pending.remove(&id); if allowed.lock().unwrap().as_ref() == Some(&id) { *allowed.lock().unwrap() = None; snapshot.prompt = None; waiter = None; } }
                         Action::Answer(..) => {}
                     }
                     if let Err(error) = result { snapshot.error = Some(error); }
@@ -761,7 +775,7 @@ async fn run(
                         }
                     }
                     Event::Action(action) => {
-                        let valid = match &action { Action::Power(id, _) => id.epoch == epoch && snapshot.adapters.iter().any(|a| &a.id == id), Action::Connect(id, _) | Action::Pair(id) | Action::Cancel(id) => id.epoch == epoch && snapshot.devices.iter().any(|d| &d.id == id), Action::Answer(..) => false };
+                        let valid = match &action { Action::Power(id, _) => id.epoch == epoch && snapshot.adapters.iter().any(|a| &a.id == id), Action::Connect(id, _) | Action::Pair(id) | Action::Cancel(id) | Action::Forget(id) => id.epoch == epoch && snapshot.devices.iter().any(|d| &d.id == id), Action::Answer(..) => false };
                         if !valid { snapshot.error = Some("Device changed; choose it again".into()); continue; }
                         match &action {
                             Action::Power(id, _) => { if !snapshot.power_pending.insert(id.clone()) { continue; } }
@@ -779,6 +793,7 @@ async fn run(
                                 }
                                 snapshot.pending.insert(id.clone(), "Canceling…".into());
                             }
+                            Action::Forget(id) => { if snapshot.pending.contains_key(id) { continue; } snapshot.pending.insert(id.clone(), "Forgetting…".into()); }
                             Action::Answer(..) => unreachable!(),
                         }
                         snapshot.error = None;

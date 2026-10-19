@@ -72,6 +72,7 @@ struct FakeState {
     agent: Mutex<Option<(String, OwnedObjectPath)>>,
     pairing_mode: AtomicUsize,
     answers: Mutex<Vec<String>>,
+    removed: Mutex<Vec<String>>,
 }
 struct FakeManager(Arc<FakeState>);
 #[interface(name = "org.bluez.AgentManager1")]
@@ -110,6 +111,9 @@ impl FakeAdapter {
     }
     fn start_discovery(&self) {
         self.0.scans.fetch_add(1, Ordering::SeqCst);
+    }
+    fn remove_device(&self, device: OwnedObjectPath) {
+        self.0.removed.lock().unwrap().push(device.to_string());
     }
     fn stop_discovery(&self) {
         assert!(
@@ -540,6 +544,16 @@ async fn real_dbus_discovery_connections_pairing_and_restart() {
     assert!(failed.error.as_ref().unwrap().contains("Connection denied"));
     assert!(!failed.devices[0].connected);
     state.fail_connect.store(false, Ordering::SeqCst);
+    controller.submit(Action::Forget(device.clone())).unwrap();
+    wait(&controller, |s| {
+        s.pending.is_empty() && !state.removed.lock().unwrap().is_empty()
+    })
+    .await;
+    assert_eq!(
+        *state.removed.lock().unwrap(),
+        ["/org/bluez/hci0/dev_01_02_03_04_05_06"],
+        "forgetting asks the adapter to remove exactly this device"
+    );
     for (mode, answer, expected) in [
         (0, "", "confirmed"),
         (1, "1234", "1234"),
