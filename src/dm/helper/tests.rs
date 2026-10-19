@@ -456,6 +456,7 @@ fn parent_of_orphan(own_orphans: bool) -> i32 {
         gid: unsafe { libc::getegid() },
         account: c"test".into(),
         own_orphans,
+        marker_runtime: None,
     };
     let mut launcher = ForkLauncher { child: None };
     launcher.spawn(&plan).unwrap();
@@ -574,6 +575,7 @@ fn the_session_inherits_no_descriptor_above_stderr() {
         gid: unsafe { libc::getegid() },
         account: c"test".into(),
         own_orphans: false,
+        marker_runtime: None,
     };
     let mut launcher = ForkLauncher { child: None };
     launcher.spawn(&plan).unwrap();
@@ -585,4 +587,36 @@ fn the_session_inherits_no_descriptor_above_stderr() {
     let seen = std::fs::read_to_string(&report).unwrap();
     let seen: Vec<i32> = seen.lines().filter_map(|line| line.parse().ok()).collect();
     assert!(!seen.contains(&leaked), "descriptor {leaked} leaked into {seen:?}");
+}
+
+#[cfg(feature = "fake-pam-stack")]
+#[test]
+fn the_session_finds_the_after_greeter_marker_already_made_when_it_starts() {
+    let _flag = SUBREAPER.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let runtime = tempfile::tempdir().unwrap();
+    let report = runtime.path().join("seen");
+    let script = format!(
+        "[ -f '{0}/dojo/after-greeter' ] && echo present > '{1}' || echo absent > '{1}'",
+        runtime.path().display(),
+        report.display()
+    );
+    let plan = |marker: bool| SessionPlan {
+        shell: "/bin/sh".into(),
+        arguments: vec!["-c".into(), script.clone().into()],
+        environment: vec![("PATH".into(), "/usr/bin".into())],
+        home: "/".into(),
+        uid: unsafe { libc::geteuid() },
+        gid: unsafe { libc::getegid() },
+        account: c"test".into(),
+        own_orphans: false,
+        marker_runtime: marker.then(|| {
+            std::ffi::CString::new(runtime.path().as_os_str().as_encoded_bytes()).unwrap()
+        }),
+    };
+    for (marker, expected) in [(false, "absent"), (true, "present")] {
+        let mut launcher = ForkLauncher { child: None };
+        launcher.spawn(&plan(marker)).unwrap();
+        launcher.wait();
+        assert_eq!(std::fs::read_to_string(&report).unwrap().trim(), expected);
+    }
 }

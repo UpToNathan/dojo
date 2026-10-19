@@ -25,6 +25,7 @@ pub mod host;
 pub mod launch;
 pub mod look;
 pub mod lookups;
+pub mod marker;
 pub mod memory;
 pub mod process;
 pub mod protocol;

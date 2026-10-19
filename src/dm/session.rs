@@ -87,6 +87,10 @@ pub struct SessionPlan {
     /// double-forked daemon) are reparented to it and stay in the tree the display manager
     /// stops. Only the greeter's session needs that; a user's orphans belong to init.
     pub own_orphans: bool,
+    /// The user's `XDG_RUNTIME_DIR`, where the child leaves the marker that tells the shell it
+    /// follows the login screen. Only a user's session gets one, and only when PAM named an
+    /// absolute directory.
+    pub marker_runtime: Option<std::ffi::CString>,
 }
 
 /// The login shell runs `exec <Exec>`: the shell's profile sets up the user's environment,
@@ -116,6 +120,15 @@ pub fn plan(
         set(name, value.as_ref());
     }
     environment.extend(pam_environment);
+    let marker_runtime = (!account.is_greeter())
+        .then(|| {
+            let runtime = environment.get(OsStr::new("XDG_RUNTIME_DIR"))?;
+            runtime
+                .as_bytes()
+                .starts_with(b"/")
+                .then(|| std::ffi::CString::new(runtime.as_bytes()).ok())?
+        })
+        .flatten();
     // The kernel and PAM may not set the empty name; nothing may set a name that is not a name.
     environment.retain(|name, _| !name.is_empty() && !name.as_bytes().contains(&b'='));
     SessionPlan {
@@ -135,6 +148,7 @@ pub fn plan(
         gid: account.gid,
         account: account.name.clone(),
         own_orphans: account.is_greeter(),
+        marker_runtime,
     }
 }
 
@@ -326,5 +340,21 @@ mod tests {
         bare.desktop_names.clear();
         let plan = plan(&account(), &bare, vec![], None);
         assert_eq!(env(&plan, "XDG_CURRENT_DESKTOP").as_deref(), Some(""));
+    }
+
+    #[test]
+    fn a_users_plan_names_the_runtime_directory_pam_set_for_the_marker() {
+        let runtime = |value: &str| vec![("XDG_RUNTIME_DIR".into(), value.into())];
+        let marker = |account: &Account, environment| {
+            plan(account, &start(), environment, None).marker_runtime
+        };
+        assert_eq!(
+            marker(&account(), runtime("/run/user/1000")),
+            Some(c"/run/user/1000".into())
+        );
+        assert_eq!(marker(&account(), runtime("run/user/1000")), None);
+        assert_eq!(marker(&account(), runtime("")), None);
+        assert_eq!(marker(&account(), vec![]), None);
+        assert_eq!(marker(&greeter(), runtime("/run/user/975")), None);
     }
 }

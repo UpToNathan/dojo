@@ -48,6 +48,24 @@ pub fn marker_path_from(xdg_runtime_dir: Option<OsString>) -> Option<PathBuf> {
         .then(|| runtime.join("dojo/session-started"))
 }
 
+/// `$XDG_RUNTIME_DIR/dojo/after-greeter`, which the display manager's session helper leaves
+/// right before it starts the session (`dm::marker`). A relative `XDG_RUNTIME_DIR` is ignored.
+pub fn after_greeter_path_from(xdg_runtime_dir: Option<OsString>) -> Option<PathBuf> {
+    let runtime = PathBuf::from(xdg_runtime_dir?);
+    runtime
+        .is_absolute()
+        .then(|| runtime.join("dojo/after-greeter"))
+}
+
+/// Deletes the after-greeter marker and says whether it was there. Always deletes, so a marker
+/// the shell did not take as a login (a restart, a second session) cannot colour a later start.
+/// Only a regular file counts: a symlink or directory is removed or left alone, never followed.
+pub fn consume_after_greeter(marker: &Path) -> bool {
+    let regular = std::fs::symlink_metadata(marker).is_ok_and(|meta| meta.file_type().is_file());
+    let removed = std::fs::remove_file(marker).is_ok();
+    regular && removed
+}
+
 /// Creates the marker unless it exists, atomically: a temporary file in the
 /// same directory is hard-linked into place, so two shells racing for the login
 /// cannot both win and a reader never sees a half-written marker.
@@ -175,5 +193,51 @@ mod tests {
         assert!(!fresh_boot_from(""));
         assert!(!fresh_boot_from("soon"));
         assert!(!fresh_boot_from("-1.0 0"));
+    }
+
+    #[test]
+    fn the_after_greeter_marker_is_consumed_once() {
+        let runtime = tempfile::tempdir().unwrap();
+        let marker = after_greeter_path_from(Some(runtime.path().into())).unwrap();
+        assert_eq!(marker, runtime.path().join("dojo/after-greeter"));
+        assert!(!consume_after_greeter(&marker));
+        std::fs::create_dir(runtime.path().join("dojo")).unwrap();
+        std::fs::write(&marker, "").unwrap();
+        assert!(consume_after_greeter(&marker));
+        assert!(!marker.exists());
+        assert!(!consume_after_greeter(&marker));
+    }
+
+    #[test]
+    fn a_relative_runtime_directory_has_no_after_greeter_marker() {
+        assert_eq!(after_greeter_path_from(Some("run/user/1".into())), None);
+        assert_eq!(after_greeter_path_from(None), None);
+    }
+
+    #[test]
+    fn a_symlink_or_directory_is_not_a_marker_and_its_target_survives() {
+        let runtime = tempfile::tempdir().unwrap();
+        std::fs::create_dir(runtime.path().join("dojo")).unwrap();
+        let marker = runtime.path().join("dojo/after-greeter");
+        let target = runtime.path().join("target");
+        std::fs::write(&target, "keep").unwrap();
+        std::os::unix::fs::symlink(&target, &marker).unwrap();
+        assert!(!consume_after_greeter(&marker));
+        assert!(!marker.exists());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep");
+        std::fs::create_dir(&marker).unwrap();
+        assert!(!consume_after_greeter(&marker));
+        assert!(marker.is_dir());
+    }
+
+    #[test]
+    fn the_marker_the_display_manager_leaves_is_the_one_the_shell_consumes() {
+        let runtime = tempfile::tempdir().unwrap();
+        let path = std::ffi::CString::new(runtime.path().to_str().unwrap()).unwrap();
+        crate::dm::marker::create(&path).unwrap();
+        let marker = after_greeter_path_from(Some(runtime.path().into())).unwrap();
+        assert!(consume_after_greeter(&marker));
+        assert!(!consume_after_greeter(&marker));
+        assert_eq!(detect(Some(runtime.path().into())), Start::Login);
     }
 }

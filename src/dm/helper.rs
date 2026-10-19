@@ -437,6 +437,7 @@ impl Launcher for ForkLauncher {
         let home = CString::new(plan.home.as_os_str().as_encoded_bytes())
             .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
         let account = plan.account.clone();
+        let marker_runtime = plan.marker_runtime.clone();
         let (uid, gid) = (plan.uid, plan.gid);
         let mut held = libc::rlimit {
             rlim_cur: 0,
@@ -475,6 +476,10 @@ impl Launcher for ForkLauncher {
                 }
                 if libc::chdir(home.as_ptr()) < 0 {
                     return Err(io::Error::last_os_error());
+                }
+                // A session without the marker only loses the shell's hand-over fade.
+                if let Some(runtime) = &marker_runtime {
+                    let _ = super::marker::create(runtime);
                 }
                 Ok(())
             });
