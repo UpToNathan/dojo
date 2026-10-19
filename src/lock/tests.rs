@@ -24,6 +24,7 @@ fn settings() -> Settings {
         controls_width: 300.,
         lock_age_origin: None,
         farewell: None,
+        login: None,
     }
 }
 
@@ -127,6 +128,7 @@ fn show(fx: &[Effect]) -> Vec<String> {
             Effect::SampleChips => "sample chips".into(),
             Effect::ProbeShellOverlay => "probe shell overlay".into(),
             Effect::CloseShellSurfaces => "close shell surfaces".into(),
+            Effect::SwapLook(user) => format!("swap look {user}"),
             Effect::Unlock => "unlock".into(),
             Effect::Exit(reason) => format!("exit {reason:?}"),
         })
@@ -1425,4 +1427,736 @@ fn a_reduced_motion_handoff_keeps_the_parts_until_the_unlock() {
     };
     assert_eq!((layout.ring, layout.text), (1., 1.));
     assert_eq!(rig.send(1_750, EventKind::Timer), ["unlock", "exit Unlocked"]);
+}
+
+// Login mode: the same reducer with a user chip, a session chip and a handoff to the shell.
+
+const SESSIONS: [&str; 3] = ["Niri (UWSM)", "Niri", "GNOME"];
+
+fn login_settings(fingerprint: bool) -> Settings {
+    Settings {
+        user: "Alyssa Duarte".into(),
+        login: Some(
+            Login::new(
+                "alyssa",
+                SESSIONS.iter().map(|s| s.to_string()).collect(),
+                "Niri",
+            )
+            .unwrap()
+            .with_fingerprint(fingerprint),
+        ),
+        ..settings()
+    }
+}
+
+/// A login screen locked at 0 ms. Without the fingerprint method only password worker 1 runs.
+fn login_screen() -> Rig {
+    let (mut rig, fx) = Rig::new(login_settings(false));
+    assert_eq!(fx, ["close shell surfaces", "sample chips"]);
+    assert_eq!(rig.send(0, EventKind::Locked), ["spawn password 1"]);
+    rig
+}
+
+fn login_screen_with_fingerprint() -> Rig {
+    let (mut rig, _) = Rig::new(login_settings(true));
+    assert_eq!(
+        rig.send(0, EventKind::Locked),
+        ["spawn password 1", "spawn fingerprint 2"]
+    );
+    rig
+}
+
+fn login_prompting() -> Rig {
+    let mut rig = login_screen();
+    assert_eq!(rig.send(10, pw(1, prompt())), none());
+    rig
+}
+
+fn login_chips(rig: &Rig, ms: u64) -> LoginChips {
+    rig.panel(ms).chips.login.expect("login chips")
+}
+
+fn editing(rig: &Rig, ms: u64) -> Option<NameEdit> {
+    login_chips(rig, ms).editing
+}
+
+fn type_name(rig: &mut Rig, ms: u64, name: &str) {
+    for c in name.chars() {
+        assert_eq!(rig.key(ms, Key::Char(c)), none());
+    }
+}
+
+fn look(login: &str, display: Option<&str>) -> EventKind {
+    EventKind::LookReady(UserLook {
+        login: login.into(),
+        display: display.map(Into::into),
+        greeting: Some(GreetingSet {
+            short: format!("Quick, {login}"),
+            normal: format!("Hello, {login}"),
+            long: format!("Long, {login}"),
+        }),
+    })
+}
+
+fn look_mix(rig: &Rig, ms: u64) -> LookMix {
+    rig.scene(OUT, ms).look.expect("login look")
+}
+
+#[test]
+fn the_login_screen_carries_the_user_its_display_name_and_the_selected_session() {
+    let rig = login_screen();
+    let panel = rig.panel(0);
+    assert_eq!(panel.chips.user, "Alyssa Duarte");
+    assert_eq!(panel.chips.lock_age, None);
+    assert_eq!(
+        panel.chips.login,
+        Some(LoginChips {
+            session: "Niri".into(),
+            editing: None
+        })
+    );
+    assert_eq!(
+        rig.lock.choice(),
+        Some(Choice {
+            login: "alyssa",
+            session: "Niri"
+        })
+    );
+    assert_eq!(
+        rig.scene(OUT, 0).look,
+        Some(LookMix {
+            login: "alyssa".into(),
+            from: None,
+            mix: 1.
+        })
+    );
+}
+
+#[test]
+fn login_settings_reject_a_bad_user_and_an_empty_session_list_and_default_the_selection() {
+    let sessions = || SESSIONS.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    assert_eq!(
+        Login::new("", sessions(), "Niri"),
+        Err(LoginError::User(NameError::Empty))
+    );
+    assert_eq!(
+        Login::new("a b", sessions(), "Niri"),
+        Err(LoginError::User(NameError::Forbidden))
+    );
+    assert_eq!(
+        Login::new("alyssa", vec![], ""),
+        Err(LoginError::NoSessions)
+    );
+    let (rig, _) = Rig::new(Settings {
+        login: Some(Login::new("alyssa", sessions(), "Sway").unwrap()),
+        ..settings()
+    });
+    assert_eq!(rig.lock.choice().unwrap().session, "Niri (UWSM)");
+}
+
+#[test]
+fn usernames_are_validated_at_the_boundary() {
+    assert!(Username::parse("alyssa").is_ok());
+    assert!(Username::parse(&"a".repeat(MAX_LOGIN_BYTES)).is_ok());
+    assert_eq!(Username::parse(""), Err(NameError::Empty));
+    assert_eq!(
+        Username::parse(&"a".repeat(MAX_LOGIN_BYTES + 1)),
+        Err(NameError::TooLong)
+    );
+    // Bytes, not characters.
+    assert_eq!(
+        Username::parse(&"é".repeat(MAX_LOGIN_BYTES / 2 + 1)),
+        Err(NameError::TooLong)
+    );
+    for bad in ["a b", " a", "a\t", "a\nb", "a\0", "a\u{1b}", "a\u{a0}b"] {
+        assert_eq!(Username::parse(bad), Err(NameError::Forbidden), "{bad:?}");
+    }
+}
+
+#[test]
+fn tab_edits_the_name_and_enter_commits_it_with_a_new_password_worker() {
+    let mut rig = login_prompting();
+    assert_eq!(rig.key(100, Key::Tab), none());
+    assert_eq!(
+        editing(&rig, 100),
+        Some(NameEdit {
+            text: String::new(),
+            refused: false
+        })
+    );
+    type_name(&mut rig, 200, "bob");
+    assert_eq!(editing(&rig, 200).unwrap().text, "bob");
+    assert_eq!(rig.panel(200).chips.user, "Alyssa Duarte");
+    assert_eq!(
+        rig.key(300, Key::Enter),
+        ["swap look bob", "kill password 1", "spawn password 2"]
+    );
+    assert_eq!(editing(&rig, 300), None);
+    assert_eq!(rig.panel(300).chips.user, "bob");
+    assert_eq!(rig.lock.choice().unwrap().login, "bob");
+    // The new worker is a new generation: the old one's reports are stale.
+    assert_eq!(rig.send(400, pw(1, finished(PamOutcome::Success))), none());
+    assert_eq!(rig.send(410, pw(2, prompt())), none());
+    rig.type_text(500, "secret");
+    assert_eq!(rig.key(600, Key::Enter), ["answer password 2 with 6 chars"]);
+}
+
+#[test]
+fn a_click_on_the_user_chip_edits_the_name_like_tab() {
+    let mut rig = login_prompting();
+    assert_eq!(rig.send(100, EventKind::UserChip(OUT)), none());
+    assert!(editing(&rig, 100).is_some());
+    type_name(&mut rig, 150, "bob");
+    // A second click while editing changes nothing.
+    assert_eq!(rig.send(160, EventKind::UserChip(OUT)), none());
+    assert_eq!(editing(&rig, 160).unwrap().text, "bob");
+    assert_eq!(
+        rig.key(200, Key::Enter),
+        ["swap look bob", "kill password 1", "spawn password 2"]
+    );
+}
+
+#[test]
+fn escape_cancels_the_edit_and_leaves_the_user_workers_and_look_alone() {
+    let mut rig = login_prompting();
+    rig.key(100, Key::Tab);
+    type_name(&mut rig, 150, "bob");
+    assert_eq!(rig.key(200, Key::Escape), none());
+    assert_eq!(editing(&rig, 200), None);
+    assert_eq!(rig.panel(200).chips.user, "Alyssa Duarte");
+    assert_eq!(rig.lock.choice().unwrap().login, "alyssa");
+    assert_eq!(look_mix(&rig, 200).login, "alyssa");
+    // The worker still answers for the old user.
+    rig.type_text(300, "pw");
+    assert_eq!(rig.key(400, Key::Enter), ["answer password 1 with 2 chars"]);
+}
+
+#[test]
+fn committing_the_same_name_changes_nothing() {
+    let mut rig = login_prompting();
+    rig.key(100, Key::Tab);
+    type_name(&mut rig, 150, "alyssa");
+    assert_eq!(rig.key(200, Key::Enter), none());
+    assert_eq!(editing(&rig, 200), None);
+    assert_eq!(look_mix(&rig, 200).from, None);
+}
+
+#[test]
+fn the_name_editor_refuses_empty_long_whitespace_and_control_input() {
+    let mut rig = login_prompting();
+    rig.key(100, Key::Tab);
+    assert_eq!(rig.key(110, Key::Enter), none());
+    assert_eq!(
+        editing(&rig, 110),
+        Some(NameEdit {
+            text: String::new(),
+            refused: true
+        })
+    );
+    for c in [' ', '\t', '\n', '\u{7}', '\u{a0}'] {
+        assert_eq!(rig.key(120, Key::Char(c)), none());
+        assert_eq!(
+            editing(&rig, 120),
+            Some(NameEdit {
+                text: String::new(),
+                refused: true
+            })
+        );
+    }
+    type_name(&mut rig, 130, "a");
+    assert!(!editing(&rig, 130).unwrap().refused);
+    type_name(&mut rig, 140, &"b".repeat(MAX_LOGIN_BYTES - 1));
+    assert_eq!(editing(&rig, 140).unwrap().text.len(), MAX_LOGIN_BYTES);
+    assert!(!editing(&rig, 140).unwrap().refused);
+    assert_eq!(rig.key(150, Key::Char('c')), none());
+    let edit = editing(&rig, 150).unwrap();
+    assert_eq!((edit.text.len(), edit.refused), (MAX_LOGIN_BYTES, true));
+    // A multi-byte character that would cross the limit is refused whole.
+    rig.key(160, Key::Backspace);
+    assert!(!editing(&rig, 160).unwrap().refused);
+    assert_eq!(rig.key(170, Key::Char('é')), none());
+    assert_eq!(editing(&rig, 170).unwrap().text.len(), MAX_LOGIN_BYTES - 1);
+    assert!(editing(&rig, 170).unwrap().refused);
+    // Nothing was committed and no worker was touched; ClearLine empties the editor.
+    assert_eq!(rig.key(180, Key::ClearLine), none());
+    assert_eq!(editing(&rig, 180).unwrap().text, "");
+    assert_eq!(rig.lock.choice().unwrap().login, "alyssa");
+}
+
+#[test]
+fn committing_drops_the_password_typed_for_the_old_user() {
+    let mut rig = login_prompting();
+    rig.type_text(100, "hunter2");
+    assert_eq!(rig.pill(100).unwrap().dots, 7);
+    rig.key(200, Key::Tab);
+    type_name(&mut rig, 250, "bob");
+    assert_eq!(
+        rig.key(300, Key::Enter),
+        ["swap look bob", "kill password 1", "spawn password 2"]
+    );
+    assert_eq!(rig.pill(300), None);
+    // Enter before the new prompt submits nothing.
+    assert_eq!(rig.key(310, Key::Enter), none());
+    assert_eq!(rig.send(320, pw(2, prompt())), none());
+}
+
+#[test]
+fn a_commit_before_the_lock_lands_swaps_the_look_and_starts_the_new_users_worker_on_lock() {
+    let (mut rig, _) = Rig::new(login_settings(false));
+    rig.type_text(10, "old");
+    rig.key(20, Key::Tab);
+    type_name(&mut rig, 30, "bob");
+    assert_eq!(rig.key(40, Key::Enter), ["swap look bob"]);
+    assert_eq!(rig.send(50, EventKind::Locked), ["spawn password 1"]);
+    assert_eq!(rig.pill(60), None);
+}
+
+#[test]
+fn keys_outside_editing_reach_the_password_pill_and_keys_while_editing_do_not() {
+    let mut rig = login_prompting();
+    rig.type_text(100, "ab");
+    assert_eq!(rig.pill(100).unwrap().dots, 2);
+    rig.key(150, Key::Tab);
+    type_name(&mut rig, 200, "xyz");
+    assert_eq!(rig.pill(200).unwrap().dots, 2);
+    assert_eq!(editing(&rig, 200).unwrap().text, "xyz");
+    rig.key(250, Key::Escape);
+    rig.key(260, Key::Char('c'));
+    assert_eq!(rig.pill(300).unwrap().dots, 3);
+    assert_eq!(rig.key(400, Key::Enter), ["answer password 1 with 3 chars"]);
+}
+
+#[test]
+fn the_first_key_on_a_fresh_login_screen_grows_the_pill_as_on_the_lock_screen() {
+    let mut rig = login_prompting();
+    assert_eq!(rig.pill(0), None);
+    assert_eq!(rig.panel(0).dial.scale, 1.);
+    rig.type_text(100, "p");
+    assert_eq!(rig.pill(100).unwrap().dots, 1);
+    assert!(rig.scene(OUT, 150).animating);
+    assert_eq!(rig.panel(400).dial.scale, 0.72);
+}
+
+#[test]
+fn the_session_key_and_chip_cycle_the_selection_and_emit_nothing() {
+    let mut rig = login_prompting();
+    rig.type_text(50, "pw");
+    assert_eq!(rig.key(100, Key::NextSession), none());
+    assert_eq!(login_chips(&rig, 100).session, "GNOME");
+    assert_eq!(rig.send(110, EventKind::SessionChip(OUT)), none());
+    assert_eq!(login_chips(&rig, 110).session, "Niri (UWSM)");
+    assert_eq!(rig.key(120, Key::NextSession), none());
+    assert_eq!(rig.lock.choice().unwrap().session, "Niri");
+    // The typed password, the user and the look are untouched.
+    assert_eq!(rig.pill(120).unwrap().dots, 2);
+    assert_eq!(rig.lock.choice().unwrap().login, "alyssa");
+    assert_eq!(look_mix(&rig, 120).from, None);
+    assert_eq!(rig.key(200, Key::Enter), ["answer password 1 with 2 chars"]);
+}
+
+#[test]
+fn the_session_key_is_not_a_password_character_while_editing_the_name() {
+    let mut rig = login_prompting();
+    rig.key(100, Key::Tab);
+    assert_eq!(rig.key(110, Key::NextSession), none());
+    assert_eq!(login_chips(&rig, 110).session, "Niri");
+    assert_eq!(editing(&rig, 110).unwrap().text, "");
+}
+
+#[test]
+fn the_lock_screen_ignores_login_keys_and_chip_clicks_and_has_no_login_scene() {
+    let mut rig = prompting();
+    let before = rig.scene(OUT, 100);
+    assert_eq!(before.look, None);
+    assert_eq!(rig.panel(100).chips.login, None);
+    assert_eq!(rig.lock.choice(), None);
+    assert_eq!(rig.key(100, Key::Tab), none());
+    assert_eq!(rig.key(100, Key::NextSession), none());
+    assert_eq!(rig.send(100, EventKind::UserChip(OUT)), none());
+    assert_eq!(rig.send(100, EventKind::SessionChip(OUT)), none());
+    assert_eq!(rig.send(100, look("bob", Some("Bob"))), none());
+    assert_eq!(rig.scene(OUT, 100), before);
+    assert_eq!(rig.panel(100).chips.user, "alyssa");
+}
+
+#[test]
+fn the_hint_asks_for_the_password_when_it_is_the_only_method() {
+    let mut rig = login_prompting();
+    assert_eq!(rig.hint(0), "Type your password");
+    rig.type_text(100, "p");
+    assert_eq!(rig.hint(100), "Type your password");
+    rig.key(150, Key::Enter);
+    rig.send(2_000, pw(1, finished(PamOutcome::Rejected)));
+    assert_eq!(rig.hint(2_100), "That wasn't it. Try again.");
+}
+
+#[test]
+fn without_the_fingerprint_method_no_sensor_is_spawned_armed_or_shown() {
+    let mut rig = login_prompting();
+    assert_eq!(rig.panel(0).dial.ring.tone, Tone::Normal);
+    // Display off and the next activity touch no sensor.
+    assert_eq!(rig.send(36_000, EventKind::Timer), ["display off"]);
+    assert_eq!(rig.key(40_000, Key::Char('a')), none());
+    // A stale fingerprint report is ignored: there is no worker.
+    assert_eq!(
+        rig.send(40_100, fp(2, hint("Place your finger", true))),
+        none()
+    );
+    assert_eq!(rig.hint(40_100), "Type your password");
+}
+
+#[test]
+fn with_the_fingerprint_method_both_workers_race_as_on_the_lock_screen() {
+    let mut rig = login_screen_with_fingerprint();
+    rig.send(10, pw(1, prompt()));
+    assert_eq!(rig.hint(10), "Touch the sensor, or just start typing");
+    assert_eq!(rig.panel(10).dial.ring.tone, Tone::Normal);
+    assert_eq!(
+        rig.send(500, fp(2, finished(PamOutcome::Success))),
+        ["kill password 1"]
+    );
+}
+
+#[test]
+fn a_fingerprint_that_is_unavailable_for_the_user_leaves_the_password_hint() {
+    let mut rig = login_screen_with_fingerprint();
+    rig.send(10, pw(1, prompt()));
+    rig.send(20, fp(2, finished(PamOutcome::Unavailable)));
+    assert_eq!(rig.hint(20), "Type your password");
+    assert_eq!(rig.panel(20).dial.ring.tone, Tone::Muted);
+}
+
+#[test]
+fn committing_a_user_restarts_the_fingerprint_worker_for_that_user() {
+    let mut rig = login_screen_with_fingerprint();
+    rig.send(10, pw(1, prompt()));
+    rig.send(20, fp(2, finished(PamOutcome::Unavailable)));
+    rig.key(100, Key::Tab);
+    type_name(&mut rig, 110, "bob");
+    assert_eq!(
+        rig.key(200, Key::Enter),
+        [
+            "swap look bob",
+            "kill password 1",
+            "spawn password 3",
+            "spawn fingerprint 4"
+        ]
+    );
+    assert_eq!(rig.send(210, fp(2, finished(PamOutcome::Success))), none());
+    assert_eq!(
+        rig.send(300, fp(4, finished(PamOutcome::Success))),
+        ["kill password 3"]
+    );
+}
+
+#[test]
+fn editing_the_user_is_refused_while_an_answer_is_being_checked() {
+    let mut rig = login_prompting();
+    rig.type_text(100, "pw");
+    rig.key(150, Key::Enter);
+    assert_eq!(rig.key(200, Key::Tab), none());
+    assert_eq!(rig.send(210, EventKind::UserChip(OUT)), none());
+    assert_eq!(editing(&rig, 210), None);
+    assert_eq!(rig.key(220, Key::Char('x')), none());
+    assert_eq!(rig.pill(220).unwrap().dots, 2);
+}
+
+#[test]
+fn a_password_pause_belongs_to_the_old_user_and_ends_when_the_user_changes() {
+    let mut rig = login_prompting();
+    rig.send(
+        20,
+        pw(
+            1,
+            Report::Notice(Notice::PasswordPaused {
+                remaining: Duration::from_secs(600),
+            }),
+        ),
+    );
+    assert!(rig.pill(30).unwrap().dashed);
+    rig.key(100, Key::Tab);
+    type_name(&mut rig, 110, "bob");
+    assert_eq!(
+        rig.key(200, Key::Enter),
+        ["swap look bob", "spawn password 2"]
+    );
+    assert!(rig.pill(210).is_none());
+}
+
+#[test]
+fn a_login_success_is_the_unlock_sequence_with_the_shell_drawing_the_opening() {
+    let mut rig = login_prompting();
+    rig.type_text(100, "hunter2");
+    rig.key(200, Key::Enter);
+    // No fingerprint worker to kill and no overlay to ask about.
+    assert_eq!(rig.send(1_000, pw(1, finished(PamOutcome::Success))), none());
+    assert_eq!(rig.deadline(), Some(1_300));
+    assert!(rig.panel(1_150).dial.ring.fill > 0.);
+    assert_eq!(rig.send(1_300, EventKind::Timer), none());
+    assert_eq!(rig.panel(1_300).chips.lock_age, None);
+    assert_eq!(
+        rig.panel(1_500).line,
+        Some(Line::Greeting {
+            text: "Welcome back, Alyssa".into(),
+            alpha: 1.
+        })
+    );
+    // 150 in, 450 hold and 150 out: the shorter hold, since the shell opens.
+    assert_eq!(rig.deadline(), Some(1_750));
+    assert_eq!(rig.send(1_749, EventKind::Timer), none());
+    assert_eq!(rig.send(1_750, EventKind::Timer), ["unlock", "exit Unlocked"]);
+    assert_eq!(
+        rig.scene(OUT, 1_750).pose,
+        Pose::Moving(shell_layout(size(px(1920.), px(1080.)), 300.))
+    );
+}
+
+#[test]
+fn the_login_greeting_ends_with_the_parts_gone_on_the_closed_disc() {
+    let mut rig = login_prompting();
+    rig.send(1_000, pw(1, finished(PamOutcome::Success)));
+    rig.send(1_300, EventKind::Timer);
+    let closed = Pose::Moving(dial_layout(size(px(1920.), px(1080.))));
+    assert_eq!(rig.scene(OUT, 1_300).pose, closed);
+    let Pose::Moving(layout) = rig.scene(OUT, 1_675).pose else {
+        panic!("morph")
+    };
+    assert!(layout.ring < 1. && layout.ring > 0.);
+    assert_eq!(layout.opening, dial_layout(size(px(1920.), px(1080.))).opening);
+    // The host's answer, if one ever arrives, changes nothing.
+    assert_eq!(rig.send(1_400, EventKind::ShellOverlay(false)), none());
+    assert_eq!(rig.deadline(), Some(1_750));
+}
+
+#[test]
+fn a_key_during_the_login_greeting_skips_it_and_never_cancels_the_login() {
+    let mut rig = login_prompting();
+    rig.send(1_000, pw(1, finished(PamOutcome::Success)));
+    assert_eq!(rig.key(1_100, Key::Char('q')), none());
+    assert_eq!(rig.panel(1_100).line, None);
+    assert_eq!(rig.key(1_120, Key::Tab), none());
+    assert_eq!(rig.key(1_130, Key::NextSession), none());
+    assert_eq!(rig.send(1_140, EventKind::UserChip(OUT)), none());
+    assert_eq!(editing(&rig, 1_140), None);
+    assert_eq!(rig.lock.choice().unwrap().session, "Niri");
+    assert_eq!(rig.deadline(), Some(1_250));
+    assert_eq!(rig.send(1_250, EventKind::Timer), ["unlock", "exit Unlocked"]);
+}
+
+#[test]
+fn a_login_without_a_greeting_releases_the_parts_then_unlocks() {
+    let mut rig = login_screen();
+    rig.send(10, EventKind::LookReady(UserLook {
+        login: "alyssa".into(),
+        display: None,
+        greeting: None,
+    }));
+    rig.send(1_000, pw(1, finished(PamOutcome::Success)));
+    assert_eq!(rig.panel(1_000).line, None);
+    assert_eq!(rig.deadline(), Some(1_300));
+    rig.send(1_300, EventKind::Timer);
+    assert_eq!(rig.deadline(), Some(1_450));
+    assert_eq!(rig.send(1_450, EventKind::Timer), ["unlock", "exit Unlocked"]);
+}
+
+#[test]
+fn a_fingerprint_login_hands_the_opening_to_the_shell_too() {
+    let mut rig = login_screen_with_fingerprint();
+    assert_eq!(
+        rig.send(1_000, fp(2, finished(PamOutcome::Success))),
+        ["kill password 1"]
+    );
+    rig.send(1_300, EventKind::Timer);
+    assert_eq!(rig.deadline(), Some(1_750));
+}
+
+#[test]
+fn an_editor_open_when_the_verdict_arrives_is_dropped() {
+    let mut rig = login_prompting();
+    rig.type_text(100, "pw");
+    rig.key(150, Key::Enter);
+    rig.send(160, pw(1, prompt()));
+    rig.key(200, Key::Tab);
+    assert_eq!(editing(&rig, 200).map(|e| e.text), Some(String::new()));
+    rig.send(300, pw(1, finished(PamOutcome::Success)));
+    assert_eq!(editing(&rig, 310), None);
+}
+
+#[test]
+fn a_look_swap_waits_for_the_edge_then_cross_fades_over_the_reveal() {
+    let mut rig = login_prompting();
+    rig.key(100, Key::Tab);
+    type_name(&mut rig, 110, "bob");
+    rig.key(200, Key::Enter);
+    // Until the edge has the look, the old one stays and nothing animates.
+    assert_eq!(
+        look_mix(&rig, 300),
+        LookMix {
+            login: "alyssa".into(),
+            from: None,
+            mix: 1.
+        }
+    );
+    assert!(!rig.scene(OUT, 300).animating);
+    assert_eq!(rig.send(1_000, look("bob", Some("Bob Builder"))), none());
+    assert_eq!(rig.panel(1_000).chips.user, "Bob Builder");
+    let start = look_mix(&rig, 1_000);
+    assert_eq!(
+        (start.login.as_str(), start.from.as_deref(), start.mix),
+        ("bob", Some("alyssa"), 0.)
+    );
+    assert!(rig.scene(OUT, 1_000).animating);
+    assert!(rig.scene(SIDE, 1_000).animating);
+    let middle = look_mix(&rig, 1_125);
+    assert!((middle.mix - 0.5).abs() < 1e-5);
+    assert!(rig.scene(OUT, 1_125).animating);
+    assert_eq!(rig.deadline(), Some(1_250));
+    let done = look_mix(&rig, 1_250);
+    assert_eq!(
+        done,
+        LookMix {
+            login: "bob".into(),
+            from: None,
+            mix: 1.
+        }
+    );
+    assert!(!rig.scene(OUT, 1_250).animating);
+    assert_eq!(rig.send(1_250, EventKind::Timer), none());
+    // Only the power timeline is left: settling 5 s after the last key.
+    assert_eq!(rig.deadline(), Some(5_200));
+}
+
+#[test]
+fn a_settled_login_screen_draws_no_frame_for_the_passing_time() {
+    let mut rig = login_prompting();
+    rig.key(100, Key::Tab);
+    type_name(&mut rig, 110, "bob");
+    rig.key(200, Key::Enter);
+    rig.send(300, look("bob", None));
+    rig.send(550, EventKind::Timer);
+    assert_eq!(rig.scene(OUT, 600), rig.scene(OUT, 2_000));
+    assert_eq!(rig.scene(SIDE, 600), rig.scene(SIDE, 2_000));
+}
+
+#[test]
+fn reduced_motion_cuts_the_look_swap() {
+    let (mut rig, _) = Rig::new(Settings {
+        reduced_motion: true,
+        ..login_settings(false)
+    });
+    rig.send(0, EventKind::Locked);
+    rig.send(10, pw(1, prompt()));
+    rig.key(100, Key::Tab);
+    type_name(&mut rig, 110, "bob");
+    rig.key(200, Key::Enter);
+    assert_eq!(look_mix(&rig, 250).login, "alyssa");
+    rig.send(300, look("bob", Some("Bob")));
+    assert_eq!(
+        look_mix(&rig, 300),
+        LookMix {
+            login: "bob".into(),
+            from: None,
+            mix: 1.
+        }
+    );
+    assert!(!rig.scene(OUT, 300).animating);
+    // No fade deadline: only the power timeline, 5 s after the last key.
+    assert_eq!(rig.deadline(), Some(5_200));
+}
+
+#[test]
+fn a_look_for_another_user_is_stale_and_ignored() {
+    let mut rig = login_prompting();
+    rig.key(100, Key::Tab);
+    type_name(&mut rig, 110, "bob");
+    rig.key(200, Key::Enter);
+    assert_eq!(rig.send(300, look("alyssa", Some("Alyssa"))), none());
+    assert_eq!(rig.panel(300).chips.user, "bob");
+    assert_eq!(look_mix(&rig, 300).login, "alyssa");
+    assert!(!rig.scene(OUT, 300).animating);
+}
+
+#[test]
+fn a_second_commit_before_the_first_look_arrives_fades_from_what_was_on_screen() {
+    let mut rig = login_prompting();
+    rig.key(100, Key::Tab);
+    type_name(&mut rig, 110, "bob");
+    rig.key(200, Key::Enter);
+    rig.key(300, Key::Tab);
+    type_name(&mut rig, 310, "carol");
+    assert_eq!(
+        rig.key(400, Key::Enter),
+        ["swap look carol", "kill password 2", "spawn password 3"]
+    );
+    rig.send(450, look("bob", None));
+    assert_eq!(look_mix(&rig, 450).login, "alyssa");
+    rig.send(500, look("carol", None));
+    let start = look_mix(&rig, 500);
+    assert_eq!(
+        (start.login.as_str(), start.from.as_deref()),
+        ("carol", Some("alyssa"))
+    );
+}
+
+#[test]
+fn a_user_with_no_look_keeps_the_typed_name_and_the_same_hint_and_skips_the_greeting() {
+    let mut rig = login_prompting();
+    let hint_before = rig.hint(0);
+    rig.key(100, Key::Tab);
+    type_name(&mut rig, 110, "ghost");
+    rig.key(200, Key::Enter);
+    rig.send(
+        300,
+        EventKind::LookReady(UserLook {
+            login: "ghost".into(),
+            display: None,
+            greeting: None,
+        }),
+    );
+    assert_eq!(rig.panel(300).chips.user, "ghost");
+    assert_eq!(rig.hint(300), hint_before);
+    rig.send(310, pw(2, prompt()));
+    rig.type_text(400, "pw");
+    rig.key(500, Key::Enter);
+    rig.send(1_000, pw(2, finished(PamOutcome::Success)));
+    assert_eq!(rig.panel(1_000).line, None);
+}
+
+#[test]
+fn the_old_users_greeting_never_greets_the_new_user() {
+    let mut rig = login_prompting();
+    rig.key(100, Key::Tab);
+    type_name(&mut rig, 110, "bob");
+    rig.key(200, Key::Enter);
+    rig.send(210, pw(2, prompt()));
+    // Authenticated before the look arrived: no greeting rather than Alyssa's.
+    rig.send(300, pw(2, finished(PamOutcome::Success)));
+    assert_eq!(rig.panel(300).line, None);
+
+    let mut rig = login_prompting();
+    rig.key(100, Key::Tab);
+    type_name(&mut rig, 110, "bob");
+    rig.key(200, Key::Enter);
+    rig.send(250, look("bob", Some("Bob")));
+    rig.send(260, pw(2, prompt()));
+    rig.send(1_000, pw(2, finished(PamOutcome::Success)));
+    rig.send(1_300, EventKind::Timer);
+    assert_eq!(
+        rig.panel(1_500).line,
+        Some(Line::Greeting {
+            text: "Hello, bob".into(),
+            alpha: 1.
+        })
+    );
+}
+
+#[test]
+fn the_login_greeting_pool_is_selectable_for_the_login_occasion() {
+    let base = crate::session::message::Context {
+        hour: 9,
+        fresh_boot: true,
+        ..Default::default()
+    };
+    let set = GreetingSet::choose_for(crate::session::Occasion::Login, &base, "Alyssa");
+    assert!(set.normal.contains("Alyssa"));
 }

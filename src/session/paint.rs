@@ -462,7 +462,16 @@ fn panel_elements(
     };
     let margin = px(place.chip_margin);
     let chips = &panel.chips;
-    children.push(chip(&chips.user).left(margin).top(margin));
+    let user = match chips.login.as_ref().and_then(|login| login.editing.as_ref()) {
+        Some(edit) if edit.text.is_empty() => format!("{}  ›", chips.user),
+        Some(edit) => format!("{}▏", edit.text),
+        None => chips.user.clone(),
+    };
+    children.push(chip(&user).left(margin).top(margin));
+    if let Some(login) = &chips.login {
+        let below = margin + px(place.chip_height + place.chip_margin * 0.5);
+        children.push(chip(&login.session).left(margin).top(below));
+    }
     let status: Vec<&str> = [chips.network.as_deref(), chips.battery.as_deref()]
         .into_iter()
         .flatten()
