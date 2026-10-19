@@ -8,7 +8,7 @@ use std::sync::Arc;
 use gpui::RenderImage;
 
 /// Used when the theme's `palette.json` has no readable `error` colour.
-const FALLBACK_ERROR: u32 = 0xf7768e;
+pub const FALLBACK_ERROR: u32 = 0xf7768e;
 
 fn theme_file(name: &str) -> Option<PathBuf> {
     Some(

@@ -68,12 +68,12 @@ pub fn run(options: Options) -> u8 {
             greeting_stored: false,
         };
         let locker = edge::start(cx, Box::new(lock), model, effects);
-        edge::pump(cx, &locker, received, |(id, report)| {
+        edge::pump(cx, &locker, received, |(id, report), _| {
             log(&format!(
                 "event=report method={:?} generation={} report={report:?}",
                 id.method, id.generation
             ));
-            EventKind::Worker(id, report)
+            vec![EventKind::Worker(id, report)]
         });
     });
     edge::exit_status()

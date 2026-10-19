@@ -151,18 +151,20 @@ pub fn start(
     locker
 }
 
-/// Feeds `locker` from a channel for as long as it stays open.
+/// Feeds `locker` from a channel for as long as it stays open. `events` turns one item into the
+/// model's events, and may act on the application itself (to quit, say) on the way.
 pub fn pump<T: 'static>(
     cx: &mut App,
     locker: &Entity<Locker>,
     received: async_channel::Receiver<T>,
-    event: impl Fn(T) -> EventKind + 'static,
+    events: impl Fn(T, &mut App) -> Vec<EventKind> + 'static,
 ) {
     let locker = locker.clone();
     cx.spawn(async move |cx| {
         while let Ok(item) = received.recv().await {
-            let kind = event(item);
-            locker.update(cx, |locker, cx| locker.dispatch(kind, cx));
+            for kind in cx.update(|cx| events(item, cx)) {
+                locker.update(cx, |locker, cx| locker.dispatch(kind, cx));
+            }
         }
     })
     .detach();

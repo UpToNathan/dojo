@@ -124,7 +124,7 @@ pub struct Event {
     pub kind: EventKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum EventKind {
     /// The compositor confirmed the lock.
     Locked,
