@@ -989,14 +989,19 @@ fn the_pause_countdown_wakes_exactly_when_its_minute_changes() {
     assert_eq!(last.deadline(), Some(39_000));
 }
 
-/// The dial as the shell's closing ends: the disc and the time, none of the lock screen's own parts.
-/// The dial the login screen leaves for the shell: closed, with the ring and text gone.
-fn handed_over() -> Layout {
+/// The dial the login screen leaves for a power action: closed, with the ring and text gone.
+fn released() -> Layout {
     Layout {
         ring: 0.,
         text: 0.,
         ..dial_layout(size(px(1920.), px(1080.)))
     }
+}
+
+/// The dial the login screen holds under the frame colour while the session starts: the closed
+/// state with every one of its parts, because the whole scene fades together.
+fn handed_over() -> Layout {
+    dial_layout(size(px(1920.), px(1080.)))
 }
 
 fn closed_dial() -> Layout {
@@ -1500,11 +1505,6 @@ fn look(login: &str, display: Option<&str>) -> EventKind {
     EventKind::LookReady(UserLook {
         login: login.into(),
         display: display.map(Into::into),
-        greeting: Some(GreetingSet {
-            short: format!("Quick, {login}"),
-            normal: format!("Hello, {login}"),
-            long: format!("Long, {login}"),
-        }),
         farewells: None,
         fingerprint: false,
     })
@@ -1943,50 +1943,57 @@ fn a_password_pause_belongs_to_the_old_user_and_ends_when_the_user_changes() {
 }
 
 #[test]
-fn a_login_success_is_the_unlock_sequence_with_the_shell_drawing_the_opening() {
+fn a_login_success_fills_the_ring_then_dips_to_the_frame_colour_and_asks_for_the_session() {
     let mut rig = login_prompting();
     rig.type_text(100, "hunter2");
     rig.key(200, Key::Enter);
-    // No fingerprint worker to kill and no overlay to ask about.
+    // No fingerprint worker to kill, no overlay to ask about and no greeting to play.
     assert_eq!(rig.send(1_000, pw(1, finished(PamOutcome::Success))), none());
+    assert_eq!(rig.panel(1_000).line, None);
+    // The ring's motion ends first, then the fade.
     assert_eq!(rig.deadline(), Some(1_300));
     assert!(rig.panel(1_150).dial.ring.fill > 0.);
+    // The ring fills for 300 ms with the scene whole, then the whole scene fades over 200.
+    for ms in [1_000, 1_150, 1_300] {
+        assert_eq!(rig.scene(OUT, ms).veil, 0., "{ms} ms");
+    }
+    assert!((rig.scene(OUT, 1_400).veil - 0.5).abs() < 1e-5);
+    assert!(rig.scene(OUT, 1_400).animating);
     assert_eq!(rig.send(1_300, EventKind::Timer), none());
-    assert_eq!(rig.panel(1_300).chips.lock_age, None);
-    assert_eq!(
-        rig.panel(1_500).line,
-        Some(Line::Greeting {
-            text: "Welcome back, Alyssa".into(),
-            alpha: 1.
-        })
-    );
-    // 150 in, 450 hold and 150 out: the shorter hold, since the shell opens.
-    assert_eq!(rig.deadline(), Some(1_750));
-    assert_eq!(rig.send(1_749, EventKind::Timer), none());
-    assert_eq!(rig.send(1_750, EventKind::Timer), ["unlock"]);
-    // The closed state, its parts gone, stays up while the display manager starts the session.
-    assert_eq!(rig.scene(OUT, 1_750).pose, Pose::Moving(handed_over()));
+    assert_eq!(rig.deadline(), Some(1_500));
+    assert_eq!(rig.send(1_499, EventKind::Timer), none());
+    assert_eq!(rig.send(1_500, EventKind::Timer), ["unlock"]);
+    // The frame colour stays up, still, while the display manager starts the session.
+    let held = rig.scene(OUT, 1_500);
+    assert_eq!(held.veil, 1.);
+    assert!(!held.animating);
+    assert_eq!(held.pose, Pose::Moving(handed_over()));
+    assert_eq!(rig.deadline(), None);
 }
 
 #[test]
-fn the_login_greeting_ends_with_the_parts_gone_on_the_closed_disc() {
+fn every_output_dips_not_only_the_active_one() {
     let mut rig = login_prompting();
     rig.send(1_000, pw(1, finished(PamOutcome::Success)));
-    rig.send(1_300, EventKind::Timer);
-    let closed = Pose::Moving(dial_layout(size(px(1920.), px(1080.))));
-    assert_eq!(rig.scene(OUT, 1_300).pose, closed);
-    let Pose::Moving(layout) = rig.scene(OUT, 1_675).pose else {
-        panic!("morph")
-    };
-    assert!(layout.ring < 1. && layout.ring > 0.);
-    assert_eq!(layout.opening, dial_layout(size(px(1920.), px(1080.))).opening);
-    // The host's answer, if one ever arrives, changes nothing.
-    assert_eq!(rig.send(1_400, EventKind::ShellOverlay(false)), none());
-    assert_eq!(rig.deadline(), Some(1_750));
+    let side = |ms| rig.scene(SIDE, ms);
+    assert!(matches!(side(1_400).role, Role::Passive));
+    assert!((side(1_400).veil - 0.5).abs() < 1e-5);
+    assert!(side(1_400).animating, "a passive output must keep asking for frames while it fades");
+    assert_eq!(side(1_500).veil, 1.);
+    assert!(!side(1_500).animating);
 }
 
 #[test]
-fn a_key_during_the_login_greeting_skips_it_and_never_cancels_the_login() {
+fn the_login_screen_plays_no_greeting_even_when_one_is_set() {
+    let mut rig = login_prompting();
+    rig.send(1_000, pw(1, finished(PamOutcome::Success)));
+    for ms in [1_000, 1_100, 1_300, 1_450, 1_500] {
+        assert_eq!(rig.panel(ms).line, None, "{ms} ms");
+    }
+}
+
+#[test]
+fn a_key_during_the_fade_changes_nothing_and_never_cancels_the_login() {
     let mut rig = login_prompting();
     rig.send(1_000, pw(1, finished(PamOutcome::Success)));
     assert_eq!(rig.key(1_100, Key::Char('q')), none());
@@ -1996,37 +2003,40 @@ fn a_key_during_the_login_greeting_skips_it_and_never_cancels_the_login() {
     assert_eq!(rig.send(1_140, EventKind::UserChip(OUT)), none());
     assert_eq!(editing(&rig, 1_140), None);
     assert_eq!(rig.lock.choice().unwrap().session, "Niri");
-    assert_eq!(rig.deadline(), Some(1_250));
-    assert_eq!(rig.send(1_250, EventKind::Timer), ["unlock"]);
-}
-
-#[test]
-fn a_login_without_a_greeting_releases_the_parts_then_unlocks() {
-    let mut rig = login_screen();
-    rig.send(10, EventKind::LookReady(UserLook {
-        login: "alyssa".into(),
-        display: None,
-        greeting: None,
-        farewells: None,
-        fingerprint: false,
-    }));
-    rig.send(1_000, pw(1, finished(PamOutcome::Success)));
-    assert_eq!(rig.panel(1_000).line, None);
+    assert_eq!(rig.send(1_150, EventKind::Pointer(OUT)), none());
     assert_eq!(rig.deadline(), Some(1_300));
-    rig.send(1_300, EventKind::Timer);
-    assert_eq!(rig.deadline(), Some(1_450));
-    assert_eq!(rig.send(1_450, EventKind::Timer), ["unlock"]);
+    assert_eq!(rig.send(1_300, EventKind::Timer), none());
+    assert_eq!(rig.deadline(), Some(1_500));
+    assert_eq!(rig.send(1_500, EventKind::Timer), ["unlock"]);
 }
 
 #[test]
-fn a_fingerprint_login_hands_the_opening_to_the_shell_too() {
+fn under_reduced_motion_the_ring_is_shown_full_then_the_screen_cuts_to_the_frame_colour() {
+    let (mut rig, _) = Rig::new(Settings {
+        reduced_motion: true,
+        ..login_settings(false)
+    });
+    rig.send(0, EventKind::Locked);
+    rig.send(10, pw(1, prompt()));
+    rig.send(1_000, pw(1, finished(PamOutcome::Success)));
+    assert_eq!(rig.panel(1_000).dial.ring.fill, 1.);
+    assert_eq!(rig.deadline(), Some(1_300));
+    assert_eq!(rig.scene(OUT, 1_299).veil, 0.);
+    assert_eq!(rig.send(1_300, EventKind::Timer), ["unlock"]);
+    assert_eq!(rig.scene(OUT, 1_300).veil, 1.);
+}
+
+#[test]
+fn a_fingerprint_login_dips_to_the_frame_colour_too() {
     let mut rig = login_screen_with_fingerprint();
     assert_eq!(
         rig.send(1_000, fp(2, finished(PamOutcome::Success))),
         ["kill password 1"]
     );
+    assert_eq!(rig.deadline(), Some(1_300));
     rig.send(1_300, EventKind::Timer);
-    assert_eq!(rig.deadline(), Some(1_750));
+    assert_eq!(rig.deadline(), Some(1_500));
+    assert_eq!(rig.send(1_500, EventKind::Timer), ["unlock"]);
 }
 
 #[test]
@@ -2169,7 +2179,6 @@ fn a_user_with_no_look_keeps_the_typed_name_and_the_same_hint_and_skips_the_gree
         EventKind::LookReady(UserLook {
             login: "ghost".into(),
             display: None,
-            greeting: None,
             farewells: None,
             fingerprint: false,
         }),
@@ -2181,45 +2190,6 @@ fn a_user_with_no_look_keeps_the_typed_name_and_the_same_hint_and_skips_the_gree
     rig.key(500, Key::Enter);
     rig.send(1_000, pw(2, finished(PamOutcome::Success)));
     assert_eq!(rig.panel(1_000).line, None);
-}
-
-#[test]
-fn the_old_users_greeting_never_greets_the_new_user() {
-    let mut rig = login_prompting();
-    rig.key(100, Key::Tab);
-    type_name(&mut rig, 110, "bob");
-    rig.key(200, Key::Enter);
-    rig.send(210, pw(2, prompt()));
-    // Authenticated before the look arrived: no greeting rather than Alyssa's.
-    rig.send(300, pw(2, finished(PamOutcome::Success)));
-    assert_eq!(rig.panel(300).line, None);
-
-    let mut rig = login_prompting();
-    rig.key(100, Key::Tab);
-    type_name(&mut rig, 110, "bob");
-    rig.key(200, Key::Enter);
-    rig.send(250, look("bob", Some("Bob")));
-    rig.send(260, pw(2, prompt()));
-    rig.send(1_000, pw(2, finished(PamOutcome::Success)));
-    rig.send(1_300, EventKind::Timer);
-    assert_eq!(
-        rig.panel(1_500).line,
-        Some(Line::Greeting {
-            text: "Hello, bob".into(),
-            alpha: 1.
-        })
-    );
-}
-
-#[test]
-fn the_login_greeting_pool_is_selectable_for_the_login_occasion() {
-    let base = crate::session::message::Context {
-        hour: 9,
-        fresh_boot: true,
-        ..Default::default()
-    };
-    let set = GreetingSet::choose_for(crate::session::Occasion::Login, &base, "Alyssa");
-    assert!(set.normal.contains("Alyssa"));
 }
 
 fn unlocked_by(fx: &[Effect]) -> Option<WorkerId> {
@@ -2344,8 +2314,7 @@ fn the_login_unlock_names_the_conversation_that_won() {
     let fx = raw(&mut rig, 20, fp(2, finished(PamOutcome::Success)));
     assert_eq!(unlocked_by(&fx), None);
     assert_eq!(show(&fx), ["kill password 1"]);
-    rig.send(320, EventKind::Timer);
-    let fx = raw(&mut rig, 770, EventKind::Timer);
+    let fx = raw(&mut rig, 520, EventKind::Timer);
     assert_eq!(
         unlocked_by(&fx),
         Some(WorkerId {
@@ -2355,7 +2324,7 @@ fn the_login_unlock_names_the_conversation_that_won() {
     );
 }
 
-/// Authenticated at 1 000 ms with no greeting to wait for, and handed over at 1 450 ms.
+/// Authenticated at 1 000 ms, faded to the frame colour and handed over at 1 500 ms.
 fn handed_over_screen(fingerprint: bool) -> Rig {
     let mut rig = if fingerprint {
         login_screen_with_fingerprint()
@@ -2367,15 +2336,13 @@ fn handed_over_screen(fingerprint: bool) -> Rig {
         EventKind::LookReady(UserLook {
             login: "alyssa".into(),
             display: None,
-            greeting: None,
             farewells: None,
             fingerprint,
         }),
     );
     rig.send(10, pw(1, prompt()));
     rig.send(1_000, pw(1, finished(PamOutcome::Success)));
-    rig.send(1_300, EventKind::Timer);
-    assert_eq!(rig.send(1_450, EventKind::Timer), ["unlock"]);
+    assert_eq!(rig.send(1_500, EventKind::Timer), ["unlock"]);
     rig
 }
 
@@ -2383,9 +2350,10 @@ fn handed_over_screen(fingerprint: bool) -> Rig {
 fn the_handover_holds_one_still_closed_frame_until_the_display_manager_answers() {
     let mut rig = handed_over_screen(false);
     assert_eq!(rig.deadline(), None);
-    for ms in [1_450, 2_000, 60_000] {
+    for ms in [1_500, 2_000, 60_000] {
         let scene = rig.scene(OUT, ms);
         assert!(!scene.animating, "{ms} ms");
+        assert_eq!(scene.veil, 1., "{ms} ms");
         assert_eq!(scene.pose, Pose::Moving(handed_over()), "{ms} ms");
         assert_eq!(scene.dim, 1.);
     }
@@ -2409,7 +2377,8 @@ fn a_session_that_does_not_start_asks_for_the_password_again_with_the_reason() {
         ["spawn password 2"]
     );
     assert_eq!(rig.hint(3_000), "The session could not start");
-    // The parts fade back in over the dial the handover left.
+    // The screen is not veiled any more, and the parts fade in over the dial.
+    assert_eq!(rig.scene(OUT, 3_000).veil, 0.);
     let Pose::Moving(layout) = rig.scene(OUT, 3_000).pose else {
         panic!("morph")
     };
@@ -2427,23 +2396,22 @@ fn a_session_that_does_not_start_asks_for_the_password_again_with_the_reason() {
     assert_eq!(rig.pill(3_400).unwrap().dots, 1);
     assert_eq!(rig.key(3_500, Key::Enter), ["answer password 2 with 1 chars"]);
     rig.send(3_600, pw(2, finished(PamOutcome::Success)));
-    rig.send(3_900, EventKind::Timer);
-    rig.send(4_050, EventKind::Timer);
-    assert_eq!(rig.send(4_100, EventKind::SessionStarted), ["exit Unlocked"]);
+    assert_eq!(rig.send(4_100, EventKind::Timer), ["unlock"]);
+    assert_eq!(rig.send(4_200, EventKind::SessionStarted), ["exit Unlocked"]);
 }
 
 #[test]
 fn a_helper_that_dies_after_the_verdict_asks_for_the_password_again_at_once() {
     let mut rig = login_prompting();
     rig.send(1_000, pw(1, finished(PamOutcome::Success)));
-    assert_eq!(rig.panel(1_100).line.is_some(), true);
-    // The greeting is still playing when the display manager says the start cannot happen.
+    assert_eq!(rig.scene(OUT, 1_100).veil, 0.);
+    // The ring is still filling when the display manager says the start cannot happen.
     assert_eq!(
         rig.send(1_100, EventKind::SessionFailed("The login stopped unexpectedly".into())),
         ["spawn password 2"]
     );
     assert_eq!(rig.hint(1_100), "The login stopped unexpectedly");
-    // Nothing of the abandoned greeting is left to unlock.
+    // Nothing of the abandoned fade is left to unlock.
     assert_eq!(rig.send(1_300, EventKind::Timer), none());
     assert_eq!(rig.send(2_000, EventKind::Timer), none());
     assert_eq!(rig.send(2_100, EventKind::SessionStarted), none());
@@ -2520,7 +2488,7 @@ fn a_shutdown_fades_the_parts_plays_the_farewell_then_hands_the_occasion_over() 
     };
     assert!(layout.ring > 0. && layout.ring < 1., "{}", layout.ring);
     assert_eq!(rig.scene(OUT, 175).pose, rig.scene(OUT, 175).pose);
-    assert_eq!(rig.scene(OUT, 250).pose, Pose::Moving(handed_over()));
+    assert_eq!(rig.scene(OUT, 250).pose, Pose::Moving(released()));
     assert_eq!(farewell_line(&rig, 250), Some(("Goodnight, Alyssa".into(), 0.)));
     assert_eq!(farewell_line(&rig, 700), Some(("Goodnight, Alyssa".into(), 1.)));
     assert!(rig.scene(OUT, 700).animating);
@@ -2529,7 +2497,7 @@ fn a_shutdown_fades_the_parts_plays_the_farewell_then_hands_the_occasion_over() 
     assert_eq!(rig.send(1_150, EventKind::Timer), ["power Shutdown"]);
     assert_eq!(rig.panel(1_150).line, None);
     assert!(!rig.scene(OUT, 1_150).animating);
-    assert_eq!(rig.scene(OUT, 1_150).pose, Pose::Moving(handed_over()));
+    assert_eq!(rig.scene(OUT, 1_150).pose, Pose::Moving(released()));
     assert_eq!(rig.deadline(), Some(16_150));
     // Once is enough.
     assert_eq!(rig.send(1_200, EventKind::Timer), none());

@@ -34,6 +34,9 @@ pub struct Scene {
     pub animating: bool,
     /// Which user's look to paint, on the login screen. `None` on the lock screen, which has one look.
     pub look: Option<LookMix>,
+    /// How much of the scene the look's frame colour covers: the login screen's dip as it hands
+    /// the screen to the session. 0 everywhere else.
+    pub veil: f32,
 }
 
 /// The login screen's look: `login`'s, or a cross-fade into it from `from`.
@@ -227,7 +230,7 @@ impl LockModel {
                     UnlockPhase::Greeting { since, .. } => release(*since + greeting(true) - RELEASE),
                     UnlockPhase::Release { since } => release(*since),
                     UnlockPhase::Handover { .. } => 0.,
-                    UnlockPhase::Opening { .. } => 1.,
+                    UnlockPhase::Opening { .. } | UnlockPhase::Fade { .. } => 1.,
                 }
             }
             _ => 1.,
@@ -275,6 +278,7 @@ impl LockModel {
             Stage::Unlocking(unlocking) => match unlocking.phase {
                 UnlockPhase::Greeting { .. }
                 | UnlockPhase::Release { .. }
+                | UnlockPhase::Fade { .. }
                 | UnlockPhase::Handover { .. } => 1.,
                 UnlockPhase::Opening { since } => {
                     1. - transition::progress(now.mono.saturating_duration_since(since), OPENING)
@@ -309,7 +313,9 @@ impl LockModel {
         let reveal = self.reveal(now);
         let revealing = reveal < 1. && matches!(self.stage, Stage::Locked(_));
         let look = self.look(now);
+        let veil = self.veil(now);
         let animating = opening
+            || (veil > 0. && veil < 1.)
             || look.as_ref().is_some_and(|look| look.from.is_some())
             || matches!(role, Role::Active(_))
                 && (unlocking
@@ -338,7 +344,23 @@ impl LockModel {
             role,
             animating,
             look,
+            veil,
         })
+    }
+
+    /// The login screen's dip to the frame colour: rising through the fade, held until the
+    /// session has started. A screen that rearms after a failed start is not veiled.
+    fn veil(&self, now: Now) -> f32 {
+        match &self.stage {
+            Stage::Unlocking(unlocking) => match unlocking.phase {
+                UnlockPhase::Fade { since } => self
+                    .greeter_fade()
+                    .veil(now.mono.saturating_duration_since(since)),
+                UnlockPhase::Handover { .. } => 1.,
+                _ => 0.,
+            },
+            _ => 0.,
+        }
     }
 
     /// The look to paint on the login screen. The old one stays until the edge has the new one.
@@ -517,6 +539,7 @@ impl LockModel {
                     }),
                     UnlockPhase::Opening { .. }
                     | UnlockPhase::Release { .. }
+                    | UnlockPhase::Fade { .. }
                     | UnlockPhase::Handover { .. } => None,
                 };
             }
@@ -573,5 +596,6 @@ fn dark(viewport: Size<Pixels>, style: Style) -> Scene {
         role: Role::Passive,
         animating: false,
         look: None,
+        veil: 0.,
     }
 }

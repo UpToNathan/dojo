@@ -73,18 +73,12 @@ impl GreetingSet {
     /// The lock-length thresholds stay in `session::message`: `ZERO` falls in
     /// the short bucket, `MAX` in the long one, and no length in neither.
     pub fn choose(base: &message::Context, name: &str) -> GreetingSet {
-        Self::choose_for(Occasion::Unlock, base, name)
-    }
-
-    /// `choose` for another occasion's pool: `Occasion::Login` for the login screen, which
-    /// plays only `normal` because no lock length exists there.
-    pub fn choose_for(occasion: Occasion, base: &message::Context, name: &str) -> GreetingSet {
         let with = |locked_for| {
             let context = message::Context {
                 locked_for,
                 ..base.clone()
             };
-            message::select(occasion, &context, name)
+            message::select(Occasion::Unlock, &context, name)
         };
         GreetingSet {
             short: with(Some(Duration::ZERO)),
@@ -232,7 +226,7 @@ pub enum ExitReason {
 const DIAL_SHRINK: Duration = Duration::from_millis(200);
 const SHAKE: Duration = Duration::from_millis(400);
 const RING_FLASH: Duration = Duration::from_millis(300);
-const RING_FILL: Duration = Duration::from_millis(300);
+const RING_FILL: Duration = opening::RING_FILL;
 /// The unlock timeline is `session::opening`'s table; the locker only reads it.
 pub(super) const GREETING_IN: Duration = opening::GREETING_IN;
 pub(super) const GREETING_OUT: Duration = opening::GREETING_OUT;
@@ -422,7 +416,11 @@ pub(super) enum UnlockPhase {
     /// No greeting (or it has been skipped) and the shell opens: the ring, date,
     /// hint and chips fade out over `RELEASE`, leaving the closed disc.
     Release { since: Instant },
-    /// The login screen only: the parts are gone and the display manager is starting the
+    /// The login screen only: the ring fills and the whole scene dips to the frame colour
+    /// (`opening::GreeterFade`), after which the session is requested. No greeting plays: the
+    /// shell's login opening has the one.
+    Fade { since: Instant },
+    /// The login screen only: the scene is the frame colour and the display manager is starting the
     /// session. The closed state waits as it is, and nothing animates until the answer comes.
     Handover { started: bool },
 }
@@ -705,6 +703,9 @@ impl LockModel {
                     }
                     UnlockPhase::Opening { since } => Some(since + OPENING),
                     UnlockPhase::Release { since } => Some(since + RELEASE),
+                    UnlockPhase::Fade { since } => {
+                        Some(since + self.greeter_fade().end())
+                    }
                     UnlockPhase::Handover { .. } => None,
                 },
                 None,
@@ -918,6 +919,9 @@ impl LockModel {
                 finished |= match unlocking.phase {
                     UnlockPhase::Opening { since } => since + OPENING <= now,
                     UnlockPhase::Release { since } => since + RELEASE <= now,
+                    UnlockPhase::Fade { since } => {
+                        since + opening::GreeterFade::new(self.settings.reduced_motion).end() <= now
+                    }
                     UnlockPhase::Greeting { .. } | UnlockPhase::Handover { .. } => false,
                 };
                 if finished {
@@ -1192,6 +1196,10 @@ impl LockModel {
         unlocking.hand_to_shell(parked);
     }
 
+    pub(super) fn greeter_fade(&self) -> opening::GreeterFade {
+        opening::GreeterFade::new(self.settings.reduced_motion)
+    }
+
     /// Whether the fingerprint method exists: always on the lock screen, by setting on the login screen.
     pub(super) fn fingerprint_wanted(&self) -> bool {
         self.login.as_ref().is_none_or(|login| login.fingerprint)
@@ -1394,8 +1402,6 @@ impl LockModel {
         login.commit(user.clone());
         login.fingerprint = false;
         self.settings.user = user.as_str().to_owned();
-        // The old user's greeting must never greet the new one.
-        self.settings.greeting = None;
         fx.push(Effect::SwapLook(user));
         match &mut self.stage {
             Stage::Requested { typed } => *typed = Typed::Editing(Password::new()),
@@ -1435,7 +1441,6 @@ impl LockModel {
         login.farewells = look.farewells;
         login.look_ready(now, reduced_motion);
         self.settings.user = look.display.unwrap_or(look.login);
-        self.settings.greeting = look.greeting;
         let wanted = self.fingerprint_wanted();
         if let Stage::Locked(locked) = &mut self.stage {
             match (&locked.fingerprint, wanted) {
@@ -1479,23 +1484,21 @@ impl LockModel {
         let locked_for =
             Duration::from_secs(now.unix.saturating_sub(locked.since_unix).max(0) as u64);
         let phase = match &self.settings.greeting {
+            _ if login => UnlockPhase::Fade { since: now.mono },
             Some(set) => UnlockPhase::Greeting {
                 since: now.mono,
-                // A login has no lock length, so only the plain line applies.
-                text: if login { &set.normal } else { set.pick(locked_for) }.to_owned(),
+                text: set.pick(locked_for).to_owned(),
             },
             None => UnlockPhase::Opening { since: now.mono },
         };
-        let mut unlocking = Unlocking {
+        let unlocking = Unlocking {
             since_unix: locked.since_unix,
             by,
             phase,
             shell_opens: false,
         };
-        // The shell always draws the login opening, so there is nothing to ask.
-        if login {
-            unlocking.hand_to_shell(true);
-        } else {
+        // The shell always draws the login opening, after the compositor swap this fade hides.
+        if !login {
             fx.push(Effect::ProbeShellOverlay);
         }
         self.stage = Stage::Unlocking(unlocking);

@@ -235,6 +235,15 @@ impl Render for LockView {
                     .into_any_element(),
             );
         }
+        if scene.veil > 0. {
+            children.push(
+                div()
+                    .absolute()
+                    .size_full()
+                    .bg(look.palette.background.opacity(scene.veil))
+                    .into_any_element(),
+            );
+        }
         if scene.dim < 1. {
             children.push(
                 div()

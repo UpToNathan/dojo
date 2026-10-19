@@ -14,11 +14,10 @@ use super::protocol::{
 };
 use crate::lock::pam::{Method, PamOutcome, Report, WorkerId};
 use crate::lock::{
-    Choice, Effect, EventKind, FarewellSet, GreetingSet, Leave, UserLook, Username,
+    Choice, Effect, EventKind, FarewellSet, Leave, UserLook, Username,
 };
 use crate::session::message;
 use crate::session::snapshot;
-use crate::session::Occasion;
 
 /// What the display manager said about the user the screen asked for.
 #[derive(Clone, PartialEq, Debug)]
@@ -278,9 +277,10 @@ pub fn palette(snapshot: Option<&snapshot::Look>) -> (crate::config::ThemeColors
 }
 
 /// What the model needs to know about `answer`'s user. `base` carries the clock, whether the
-/// machine just booted and a seed; its `previous` is replaced by the user's own last greeting.
+/// machine just booted and a seed. The login screen plays no greeting: the shell's login opening
+/// has the one.
 ///
-/// A user with no snapshot gets the neutral look: their typed name, no greeting and no farewell.
+/// A user with no snapshot gets the neutral look: their typed name and no farewell.
 pub fn user_look(
     answer: &Answer,
     snapshot: Option<&snapshot::Look>,
@@ -290,29 +290,18 @@ pub fn user_look(
         return UserLook {
             login: answer.login.clone(),
             display: answer.display_name.clone(),
-            greeting: None,
             farewells: None,
             fingerprint: answer.fingerprint,
         };
     };
     let settings = snapshot.settings_or_default();
     let name = snapshot.display_name();
-    let context = message::Context {
-        previous: snapshot
-            .last_greeting
-            .as_ref()
-            .map(|line| line.as_str().to_owned()),
-        ..base.clone()
-    };
     UserLook {
         login: answer.login.clone(),
         display: answer
             .display_name
             .clone()
             .or_else(|| snapshot.full_name.as_ref().map(|name| name.as_str().to_owned())),
-        greeting: settings
-            .greeting
-            .then(|| GreetingSet::choose_for(Occasion::Login, &context, &name)),
         farewells: settings.farewell.then(|| FarewellSet::choose(base, &name)),
         fingerprint: answer.fingerprint,
     }

@@ -5,7 +5,7 @@
 use std::fmt;
 use std::time::Instant;
 
-use super::model::{GreetingSet, Key};
+use super::model::Key;
 use crate::session::Occasion;
 use crate::session::message;
 
@@ -171,8 +171,6 @@ pub struct UserLook {
     pub login: String,
     /// The name for the user chip. `None`: no look snapshot, so the chip keeps the login.
     pub display: Option<String>,
-    /// The greetings for this user, chosen for `Occasion::Login`. `None` skips the greeting.
-    pub greeting: Option<GreetingSet>,
     /// The farewells for the power occasions. `None` plays none.
     pub farewells: Option<FarewellSet>,
     /// Whether this user has an enrolled print on a reader that exists: the display manager's

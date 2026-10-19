@@ -382,14 +382,12 @@ fn answer(display_name: Option<&str>, fingerprint: bool) -> Answer {
 }
 
 #[test]
-fn a_snapshot_gives_the_users_palette_name_greeting_and_farewells() {
+fn a_snapshot_gives_the_users_palette_name_and_farewells() {
     let look = snapshot_of("alyssa");
     let user = user_look(&answer(None, true), Some(&look), &base());
     assert_eq!(user.login, "alyssa");
     assert_eq!(user.display.as_deref(), Some("Alyssa Park"));
     assert!(user.fingerprint);
-    let greeting = user.greeting.expect("greetings are on by default");
-    assert!(!greeting.normal.is_empty());
     let farewells = user.farewells.expect("farewells are on by default");
     assert!(!farewells.shutdown.is_empty() && !farewells.restart.is_empty());
     let (colors, error) = palette(Some(&look));
@@ -405,7 +403,7 @@ fn the_display_managers_name_wins_over_the_snapshots() {
 }
 
 #[test]
-fn the_snapshots_settings_switch_the_greeting_and_the_farewells_off() {
+fn the_snapshots_settings_switch_the_farewells_off() {
     let mut look = snapshot_of("alyssa");
     look.settings = Some(crate::session::settings::SessionSettings {
         greeting: false,
@@ -413,27 +411,8 @@ fn the_snapshots_settings_switch_the_greeting_and_the_farewells_off() {
         ..Default::default()
     });
     let user = user_look(&answer(None, false), Some(&look), &base());
-    assert_eq!((user.greeting, user.farewells), (None, None));
+    assert_eq!(user.farewells, None);
     assert!(!user.fingerprint);
-}
-
-#[test]
-fn the_greeting_never_repeats_the_users_last_one() {
-    let mut look = snapshot_of("alyssa");
-    // Whatever was shown last is the line this user's next login screen avoids.
-    let first = user_look(&answer(None, false), Some(&look), &base())
-        .greeting
-        .unwrap()
-        .normal;
-    look.last_greeting = Line::parse(&first);
-    for seed in 0..64 {
-        let context = message::Context { seed, ..base() };
-        let next = user_look(&answer(None, false), Some(&look), &context)
-            .greeting
-            .unwrap()
-            .normal;
-        assert_ne!(next, first, "seed {seed}");
-    }
 }
 
 #[test]
@@ -444,7 +423,6 @@ fn a_user_with_no_snapshot_gets_the_default_theme_and_the_neutral_look() {
         UserLook {
             login: "alyssa".into(),
             display: Some("Alyssa".into()),
-            greeting: None,
             farewells: None,
             fingerprint: true,
         }
