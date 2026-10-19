@@ -24,6 +24,8 @@ pub struct Entry {
     pub gid: u32,
     pub home: PathBuf,
     pub shell: PathBuf,
+    /// The GECOS field, whose first comma part is the full name.
+    pub gecos: Option<String>,
 }
 
 /// An account the display manager has agreed to start a session for.
@@ -185,6 +187,7 @@ pub fn lookup(login: &Login) -> Option<Entry> {
         shell: PathBuf::from(std::ffi::OsStr::from_bytes(
             field(entry.pw_shell).unwrap_or(b""),
         )),
+        gecos: field(entry.pw_gecos).and_then(|bytes| String::from_utf8(bytes.to_vec()).ok()),
     })
 }
 
@@ -203,6 +206,7 @@ mod tests {
             gid: 1000,
             home: format!("/home/{name}").into(),
             shell: shell.into(),
+            gecos: None,
         }
     }
 

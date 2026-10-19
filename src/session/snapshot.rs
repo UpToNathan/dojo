@@ -598,6 +598,12 @@ fn sync_directory(path: &Path) -> io::Result<()> {
 ///
 /// There must be one writer per login at a time.
 pub fn store(root: &Path, look: &Look) -> io::Result<()> {
+    store_shared(root, look, None)
+}
+
+/// [`store`], with the snapshot's group set to `group` before it replaces the old one,
+/// so a reader in that group never sees a half-shared snapshot.
+pub fn store_shared(root: &Path, look: &Look, group: Option<u32>) -> io::Result<()> {
     let users = root.join("users");
     if !users.is_dir() {
         DirBuilder::new()
@@ -617,6 +623,12 @@ pub fn store(root: &Path, look: &Look) -> io::Result<()> {
     directory_mode(staging.path())?;
     for (file, bytes) in look.encode() {
         write_file(&staging.path().join(file.name()), &bytes)?;
+    }
+    if let Some(group) = group {
+        std::os::unix::fs::chown(staging.path(), None, Some(group))?;
+        for (file, _) in look.encode() {
+            std::os::unix::fs::chown(staging.path().join(file.name()), None, Some(group))?;
+        }
     }
     sync_directory(staging.path())?;
 
