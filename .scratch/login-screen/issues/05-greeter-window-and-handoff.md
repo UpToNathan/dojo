@@ -8,7 +8,7 @@ The `dojo-greeter` mode of the lock program: lock windows in the greeter Niri, t
 ## Acceptance
 
 - Entering `nathan` shows nathan's palette, wallpaper and name.
-- A successful login plays the greeting and then hands over; a refused or dead `dojo-dm` leaves the greeter restartable.
+- A successful login fades to the frame colour and then hands over (the greeting is the shell's, after the swap); a refused or dead `dojo-dm` leaves the greeter restartable.
 - A screenshot of the login screen and the lock screen differ only in the two chips and the hint.
 
 ## Progress
