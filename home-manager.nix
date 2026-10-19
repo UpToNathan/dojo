@@ -164,15 +164,21 @@ in
             ${pkgs.procps}/bin/pkill -u "$UID" -x vigiland
           else
             # Niri ignores vigiland's idle inhibitor (its surface is never shown), so hold
-            # stasis's timers directly and release them when vigiland exits, however it ends.
+            # stasis's timers directly. A stasis restart (a deployment, a crash) forgets a manual
+            # pause, so keep asserting it while vigiland runs and release it when vigiland exits,
+            # however it ends.
             (
-              ${inputs.stasis.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/stasis pause
               ${pkgs.systemd}/bin/systemd-inhibit \
                 --what=handle-lid-switch \
                 --mode=block \
                 --who=Vigiland \
                 --why='Vigiland is keeping the machine awake' \
-                ${inputs.vigiland.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/vigiland
+                ${inputs.vigiland.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/vigiland &
+              holder=$!
+              while kill -0 "$holder" 2>/dev/null; do
+                ${inputs.stasis.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/stasis pause
+                sleep 20
+              done
               ${inputs.stasis.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/stasis resume
             ) >/dev/null 2>&1 </dev/null &
           fi
