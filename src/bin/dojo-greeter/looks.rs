@@ -8,9 +8,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use dojo::dm::edge::{self, Answer};
-use dojo::session::host::wallpaper_from_png;
 use dojo::session::paint::Look;
-use dojo::session::snapshot;
+use dojo::session::snapshot::{self, Wallpaper};
 use gpui::RenderImage;
 
 /// Where `dojo-dm` keeps its look snapshots. Test builds may point it elsewhere with `DOJO_DM_STATE`.
@@ -24,7 +23,7 @@ pub fn state_directory() -> PathBuf {
     std::env::var_os("DOJO_DM_STATE").map_or_else(|| PathBuf::from("/var/lib/dojo-dm"), PathBuf::from)
 }
 
-/// A user's snapshot, read and decoded off the UI thread. `Answer` is carried along so the
+/// A user's snapshot, read off the UI thread. `Answer` is carried along so the
 /// reply that asked for it can be finished when it lands.
 pub struct Loaded {
     pub answer: Answer,
@@ -32,14 +31,26 @@ pub struct Loaded {
     pub wallpaper: Option<Arc<RenderImage>>,
 }
 
-/// Reads `answer`'s snapshot from `root` and decodes its wallpaper. A missing, invalid or
+/// The snapshot's pixels are already BGRA, which is what a `RenderImage` wants, so they go
+/// into a frame as they are.
+fn render(wallpaper: &Wallpaper) -> Arc<RenderImage> {
+    let pixels = image::RgbaImage::from_raw(
+        wallpaper.width(),
+        wallpaper.height(),
+        wallpaper.bgra().to_vec(),
+    )
+    .expect("a Wallpaper holds exactly width * height * 4 bytes");
+    Arc::new(RenderImage::new(vec![image::Frame::new(pixels)]))
+}
+
+/// Reads `answer`'s snapshot from `root` and builds its wallpaper. A missing, invalid or
 /// partly invalid snapshot is `None`, which paints the default theme.
 pub fn load(root: &Path, answer: Answer) -> Loaded {
     let snapshot = snapshot::load(root, &answer.login);
     let wallpaper = snapshot
         .as_ref()
         .and_then(|look| look.wallpaper.as_ref())
-        .and_then(|wallpaper| wallpaper_from_png(wallpaper.as_bytes()));
+        .map(render);
     Loaded {
         answer,
         snapshot,
@@ -127,20 +138,35 @@ mod tests {
         let mut look = snapshot::Look::empty(Login::parse(name).unwrap());
         look.full_name = Line::parse("Alyssa Park");
         look.palette = Some(Palette::parse(serde_json::to_vec(&preset.palette).unwrap()).unwrap());
-        look.wallpaper = Some(Wallpaper::parse(png()).unwrap());
+        look.wallpaper = Some(Wallpaper::from_png(&png()).unwrap());
         look.settings = Some(SessionSettings::default());
         snapshot::store(root, &look).unwrap();
         look
     }
 
     #[test]
-    fn a_stored_snapshot_loads_with_its_wallpaper_decoded() {
+    fn a_stored_snapshot_loads_with_its_wallpaper_built() {
         let root = tempfile::tempdir().unwrap();
         let expected = stored(root.path(), "alyssa");
         let loaded = load(root.path(), answer("alyssa"));
         assert_eq!(loaded.snapshot, Some(expected));
-        let image = loaded.wallpaper.expect("the wallpaper decodes");
+        let image = loaded.wallpaper.expect("the wallpaper is built");
         assert_eq!(image.size(0).width.0, 48);
+    }
+
+    #[test]
+    fn the_snapshots_pixels_reach_the_render_image_in_bgra_order() {
+        let mut source = image::RgbaImage::new(2, 1);
+        source.put_pixel(0, 0, image::Rgba([10, 20, 30, 255]));
+        source.put_pixel(1, 0, image::Rgba([200, 100, 50, 128]));
+        let mut bytes = Vec::new();
+        source
+            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        let wallpaper = Wallpaper::from_png(&bytes).unwrap();
+        let image = render(&wallpaper);
+        assert_eq!(image.size(0).width.0, 2);
+        assert_eq!(image.as_bytes(0).unwrap(), [30, 20, 10, 255, 50, 100, 200, 128]);
     }
 
     #[test]

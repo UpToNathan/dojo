@@ -40,7 +40,7 @@
 
 use std::fmt;
 use std::fs::{self, DirBuilder, OpenOptions};
-use std::io::{self, Cursor, Read as _, Write as _};
+use std::io::{self, Read as _, Write as _};
 use std::os::fd::OwnedFd;
 use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
 use std::path::Path;
@@ -54,8 +54,15 @@ use crate::config::{ThemeColors, parse_session_settings};
 
 /// Largest `palette.json`.
 pub const PALETTE_CAP: u64 = 64 * 1024;
-/// Largest wallpaper PNG. The theme's blurred render is a few hundred kilobytes at most.
-pub const WALLPAPER_CAP: u64 = 4 * 1024 * 1024;
+/// Largest `lock-wallpaper.png` the collector reads. The theme's blurred render is a few
+/// hundred kilobytes at most.
+pub const WALLPAPER_SOURCE_CAP: u64 = 4 * 1024 * 1024;
+/// Largest `lock-wallpaper.raw`: the header plus 4 bytes for each pixel at the dimension caps.
+pub const WALLPAPER_CAP: u64 =
+    wallpaper::HEADER_LEN as u64 + WALLPAPER_MAX_WIDTH as u64 * WALLPAPER_MAX_HEIGHT as u64 * 4;
+/// Most the collector's PNG decoder may allocate. The largest picture it accepts decodes to
+/// 8 MiB (16-bit RGBA at the dimension caps); the rest is room for the decoder's row buffers.
+pub const WALLPAPER_DECODE_ALLOC: u64 = 16 * 1024 * 1024;
 /// Largest `session.toml`, and largest `config.toml` the collector will parse.
 pub const SETTINGS_CAP: u64 = 16 * 1024;
 /// Largest `identity` or greeting file.
@@ -63,10 +70,11 @@ pub const TEXT_CAP: u64 = 1024;
 /// Widest accepted wallpaper. The theme renders `lock_wallpaper::WIDTH` (480) pixels wide.
 pub const WALLPAPER_MAX_WIDTH: u32 = 512;
 /// Tallest accepted wallpaper: a render keeps its source's aspect ratio, so this is a
-/// portrait of one to four. Together the limits bound what the greeter decodes to 4 MiB.
+/// portrait of one to four. Together the limits bound the pixels to 4 MiB.
 pub const WALLPAPER_MAX_HEIGHT: u32 = 2048;
 
-const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
+mod wallpaper;
+pub use wallpaper::Wallpaper;
 
 /// A user name that is safe as one path component and as a file name.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -179,30 +187,6 @@ impl Palette {
     }
 }
 
-/// A PNG whose header decodes to a sane size. Only the header is read here; the
-/// greeter decodes the pixels.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Wallpaper(Vec<u8>);
-
-impl Wallpaper {
-    pub fn parse(bytes: Vec<u8>) -> anyhow::Result<Wallpaper> {
-        anyhow::ensure!(bytes.starts_with(PNG_SIGNATURE), "not a PNG");
-        let (width, height) =
-            image::ImageReader::with_format(Cursor::new(&bytes), image::ImageFormat::Png)
-                .into_dimensions()?;
-        anyhow::ensure!(
-            (1..=WALLPAPER_MAX_WIDTH).contains(&width)
-                && (1..=WALLPAPER_MAX_HEIGHT).contains(&height),
-            "wallpaper is {width}x{height}, larger than {WALLPAPER_MAX_WIDTH}x{WALLPAPER_MAX_HEIGHT}"
-        );
-        Ok(Wallpaper(bytes))
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.0
-    }
-}
-
 /// The five files of a snapshot. The table is the layout: name, size cap and
 /// where the collector finds the original in a home directory.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -226,19 +210,29 @@ impl File {
     pub fn name(self) -> &'static str {
         match self {
             File::Palette => "palette.json",
-            File::Wallpaper => crate::theme::lock_wallpaper::FILE_NAME,
+            File::Wallpaper => "lock-wallpaper.raw",
             File::Settings => "session.toml",
             File::Identity => "identity",
             File::Greeting => "greeting-unlock",
         }
     }
 
+    /// The largest the snapshot file may be.
     pub fn cap(self) -> u64 {
         match self {
             File::Palette => PALETTE_CAP,
             File::Wallpaper => WALLPAPER_CAP,
             File::Settings => SETTINGS_CAP,
             File::Identity | File::Greeting => TEXT_CAP,
+        }
+    }
+
+    /// The largest the original under a home directory may be. It differs from [`File::cap`]
+    /// for the wallpaper only: the user's PNG is read, the snapshot holds raw pixels.
+    pub fn source_cap(self) -> u64 {
+        match self {
+            File::Wallpaper => WALLPAPER_SOURCE_CAP,
+            other => other.cap(),
         }
     }
 
@@ -302,7 +296,7 @@ impl Look {
             ),
             (
                 File::Wallpaper,
-                self.wallpaper.as_ref().map(|w| w.0.clone()),
+                self.wallpaper.as_ref().map(Wallpaper::encode),
             ),
             (
                 File::Settings,
@@ -454,6 +448,8 @@ pub enum ReadError {
     TooLarge(u64),
     NotRegular,
     Symlink,
+    /// The original was read but is not a wallpaper the collector will decode.
+    Undecodable(String),
     Io(io::Error),
 }
 
@@ -463,6 +459,7 @@ impl fmt::Display for ReadError {
             ReadError::TooLarge(cap) => write!(f, "larger than {cap} bytes"),
             ReadError::NotRegular => f.write_str("not a regular file"),
             ReadError::Symlink => f.write_str("a symbolic link is in the way"),
+            ReadError::Undecodable(reason) => f.write_str(reason),
             ReadError::Io(error) => write!(f, "{error}"),
         }
     }
@@ -558,15 +555,21 @@ impl Collector {
     }
 
     /// Each piece is collected on its own. A missing `config.toml` means the
-    /// default settings, as it does for the shell and the locker.
+    /// default settings, as it does for the shell and the locker. The wallpaper is
+    /// decoded here, in the user's process, and handed on as raw pixels.
     pub fn collect(&self, login: Login, gecos: Option<&str>) -> Decoded {
         let mut decoded = Look::decode(login, |file| {
             let Some(path) = file.home_path() else {
                 return Ok(None);
             };
-            let bytes = self.home.read(path, file.cap())?;
+            let bytes = self.home.read(path, file.source_cap())?;
             Ok(match (file, bytes) {
                 (File::Settings, None) => Some(Vec::new()),
+                (File::Wallpaper, Some(png)) => Some(
+                    Wallpaper::from_png(&png)
+                        .map_err(|error| ReadError::Undecodable(format!("{error:#}")))?
+                        .encode(),
+                ),
                 (_, bytes) => bytes,
             })
         });
@@ -680,6 +683,7 @@ pub fn load(root: &Path, login: &str) -> Option<Look> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
     use std::os::unix::fs::symlink;
 
     use super::*;
@@ -706,7 +710,7 @@ mod tests {
             login: login("alyssa"),
             full_name: Line::parse("Alyssa Park"),
             palette: Some(Palette::parse(palette_bytes()).unwrap()),
-            wallpaper: Some(Wallpaper::parse(png_bytes(48, 27)).unwrap()),
+            wallpaper: Some(Wallpaper::from_png(&png_bytes(48, 27)).unwrap()),
             settings: Some(SessionSettings {
                 transition: false,
                 greeting: true,
@@ -767,7 +771,7 @@ mod tests {
             [
                 "greeting-unlock",
                 "identity",
-                "lock-wallpaper.png",
+                "lock-wallpaper.raw",
                 "palette.json",
                 "session.toml"
             ]
@@ -858,9 +862,12 @@ mod tests {
             data: "/h/.local/share".into(),
             root: "/h/.local/state/dojo/themes".into(),
         };
-        for file in [File::Palette, File::Wallpaper] {
+        for (file, name) in [
+            (File::Palette, File::Palette.name()),
+            (File::Wallpaper, crate::theme::lock_wallpaper::FILE_NAME),
+        ] {
             assert_eq!(
-                theme.root.join("current").join(file.name()),
+                theme.root.join("current").join(name),
                 Path::new("/h").join(file.home_path().unwrap())
             );
         }
@@ -921,7 +928,7 @@ mod tests {
             File::Settings => b"[session]\n".to_vec(),
             File::Identity | File::Greeting => b"x".to_vec(),
         };
-        bytes.resize(file.cap() as usize + 1, filler);
+        bytes.resize(file.source_cap() as usize + 1, filler);
         fs::write(target, bytes).unwrap();
     }
 
@@ -1017,30 +1024,51 @@ mod tests {
                 height,
                 |x, y| image::Rgba([(x * 7) as u8, (y * 13) as u8, (x ^ y) as u8, 255]),
             ));
-            let png = lock_wallpaper::encode(
-                &lock_wallpaper::blur(&source).scrimmed(Rgb(0xa9, 0xb1, 0xd6)),
-            )
-            .unwrap();
-            assert!(png.len() as u64 <= WALLPAPER_CAP, "{width}x{height}");
-            assert!(Wallpaper::parse(png).is_ok(), "{width}x{height}");
+            let rendered = lock_wallpaper::blur(&source).scrimmed(Rgb(0xa9, 0xb1, 0xd6));
+            let png = lock_wallpaper::encode(&rendered).unwrap();
+            assert!(png.len() as u64 <= WALLPAPER_SOURCE_CAP, "{width}x{height}");
+
+            let dir = tempfile::tempdir().unwrap();
+            home(dir.path());
+            fs::write(dir.path().join(File::Wallpaper.home_path().unwrap()), png).unwrap();
+            let decoded = collect(dir.path(), Links::Refuse);
+            assert!(decoded.rejected.is_empty(), "{width}x{height}: {:?}", decoded.rejected);
+            let wallpaper = decoded.look.wallpaper.expect("the render is collected");
+            assert_eq!(wallpaper.width(), lock_wallpaper::WIDTH, "{width}x{height}");
+            assert!(wallpaper.encode().len() as u64 <= WALLPAPER_CAP, "{width}x{height}");
         }
     }
 
     #[test]
-    fn wallpapers_must_be_pngs_of_a_sane_size() {
-        assert!(Wallpaper::parse(png_bytes(480, 270)).is_ok());
-        assert!(Wallpaper::parse(b"GIF89a".to_vec()).is_err());
-        assert!(Wallpaper::parse(PNG_SIGNATURE.to_vec()).is_err());
-        let truncated = png_bytes(16, 16)[..20].to_vec();
-        assert!(Wallpaper::parse(truncated).is_err());
-        assert!(Wallpaper::parse(png_bytes(WALLPAPER_MAX_WIDTH + 1, 270)).is_err());
-        assert!(Wallpaper::parse(png_bytes(480, WALLPAPER_MAX_HEIGHT + 1)).is_err());
-        assert!(Wallpaper::parse(png_bytes(WALLPAPER_MAX_WIDTH, WALLPAPER_MAX_HEIGHT)).is_ok());
-        let mut jpeg = Vec::new();
-        image::RgbImage::new(8, 8)
-            .write_to(&mut Cursor::new(&mut jpeg), image::ImageFormat::Jpeg)
-            .unwrap();
-        assert!(Wallpaper::parse(jpeg).is_err());
+    fn the_collector_stores_the_wallpaper_as_raw_pixels_and_the_greeter_side_reads_them_back() {
+        let dir = tempfile::tempdir().unwrap();
+        home(dir.path());
+        let decoded = collect(dir.path(), Links::Refuse);
+        let root = tempfile::tempdir().unwrap();
+        store(root.path(), &decoded.look).unwrap();
+        let raw = fs::read(root.path().join("users/alyssa/lock-wallpaper.raw")).unwrap();
+        assert_eq!(&raw[..4], b"DJWP");
+        assert_eq!(raw.len(), 12 + 48 * 27 * 4);
+        assert_eq!(load(root.path(), "alyssa"), Some(decoded.look));
+    }
+
+    #[test]
+    fn a_wallpaper_the_decoder_refuses_is_rejected_as_that_piece_and_the_previous_one_kept() {
+        let previous = full_look();
+        for png in [
+            b"not a png".to_vec(),
+            png_bytes(16, 16)[..40].to_vec(),
+            png_bytes(WALLPAPER_MAX_WIDTH + 1, 270),
+            png_bytes(480, WALLPAPER_MAX_HEIGHT + 1),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            home(dir.path());
+            fs::write(dir.path().join(File::Wallpaper.home_path().unwrap()), png).unwrap();
+            let decoded = collect(dir.path(), Links::Refuse);
+            assert_eq!(rejected_files(&decoded), [File::Wallpaper]);
+            assert!(decoded.look.palette.is_some());
+            assert_eq!(decoded.merged_over(Some(&previous)).wallpaper, previous.wallpaper);
+        }
     }
 
     #[test]

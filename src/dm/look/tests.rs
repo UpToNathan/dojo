@@ -43,7 +43,7 @@ fn full_look() -> Look {
         login: login("alyssa"),
         full_name: Line::parse("Alyssa Park"),
         palette: Some(Palette::parse(palette_bytes()).unwrap()),
-        wallpaper: Some(Wallpaper::parse(png_bytes()).unwrap()),
+        wallpaper: Some(Wallpaper::from_png(&png_bytes()).unwrap()),
         settings: Some(SessionSettings::default()),
         last_greeting: Line::parse("Welcome back"),
     }
