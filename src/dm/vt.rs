@@ -17,9 +17,14 @@ impl Vt {
 
     /// `/dev/tty3` or `tty3`.
     pub fn from_tty_name(name: &str) -> Option<Vt> {
-        let digits = name.strip_prefix("/dev/").unwrap_or(name).strip_prefix("tty")?;
+        let digits = name
+            .strip_prefix("/dev/")
+            .unwrap_or(name)
+            .strip_prefix("tty")?;
         let plain = (1..=2).contains(&digits.len()) && digits.bytes().all(|c| c.is_ascii_digit());
-        plain.then(|| digits.parse().ok().and_then(Vt::new)).flatten()
+        plain
+            .then(|| digits.parse().ok().and_then(Vt::new))
+            .flatten()
     }
 
     pub fn number(self) -> u8 {
@@ -91,8 +96,18 @@ mod tests {
         assert_eq!(Vt::from_tty_name("/dev/tty1").map(Vt::number), Some(1));
         assert_eq!(Vt::from_tty_name("tty12").map(Vt::number), Some(12));
         for bad in [
-            "", "tty", "tty0", "tty64", "tty123", "ttyS0", "/dev/pts/3", "/dev/tty1/x", "/dev/ttyX",
-            "../tty1", "tty-1", "tty+1",
+            "",
+            "tty",
+            "tty0",
+            "tty64",
+            "tty123",
+            "ttyS0",
+            "/dev/pts/3",
+            "/dev/tty1/x",
+            "/dev/ttyX",
+            "../tty1",
+            "tty-1",
+            "tty+1",
         ] {
             assert_eq!(Vt::from_tty_name(bad), None, "{bad:?}");
         }

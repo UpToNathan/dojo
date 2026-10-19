@@ -778,6 +778,27 @@ mod tests {
     }
 
     #[test]
+    fn a_shared_store_gives_the_whole_snapshot_the_group_before_it_appears() {
+        use std::os::unix::fs::MetadataExt as _;
+        let own = unsafe { libc::getegid() };
+        let mut groups = [0 as libc::gid_t; 64];
+        let count = unsafe { libc::getgroups(64, groups.as_mut_ptr()) }.max(0) as usize;
+        let group = groups[..count]
+            .iter()
+            .copied()
+            .find(|g| *g != own)
+            .unwrap_or(own);
+        let root = tempfile::tempdir().unwrap();
+        store_shared(root.path(), &full_look(), Some(group)).unwrap();
+        let directory = root.path().join("users/alyssa");
+        assert_eq!(fs::metadata(&directory).unwrap().gid(), group);
+        for entry in fs::read_dir(&directory).unwrap() {
+            assert_eq!(fs::metadata(entry.unwrap().path()).unwrap().gid(), group);
+        }
+        assert_eq!(load(root.path(), "alyssa"), Some(full_look()));
+    }
+
+    #[test]
     fn the_palette_gives_the_lock_screen_its_colours_and_error_red() {
         let preset = &crate::theme::presets().unwrap()[0].palette;
         let palette = Palette::parse(palette_bytes()).unwrap();

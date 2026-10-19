@@ -78,7 +78,11 @@ fn both_methods_run_side_by_side_and_answers_find_their_generation() {
     );
     assert_eq!(
         registry.helper(1, report(Report::Notice(Notice::PasswordLocked))),
-        [relayed(1, Method::Fingerprint, Report::Notice(Notice::PasswordLocked))]
+        [relayed(
+            1,
+            Method::Fingerprint,
+            Report::Notice(Notice::PasswordLocked)
+        )]
     );
     assert_eq!(
         registry.request(Request::Answer {
@@ -97,7 +101,11 @@ fn the_first_success_wins_and_kills_the_loser_after_relaying_the_result() {
     assert_eq!(
         registry.helper(1, success()),
         [
-            relayed(1, Method::Fingerprint, Report::Finished(PamOutcome::Success)),
+            relayed(
+                1,
+                Method::Fingerprint,
+                Report::Finished(PamOutcome::Success)
+            ),
             kill(2)
         ]
     );
@@ -127,7 +135,9 @@ fn a_rejected_attempt_is_closed_and_the_method_can_begin_again() {
     assert!(registry.is_empty());
     assert!(registry.request(begin(2, Method::Password)).is_ok());
     assert_eq!(
-        registry.request(begin(1, Method::Password)).map(|a| a.len()),
+        registry
+            .request(begin(1, Method::Password))
+            .map(|a| a.len()),
         Ok(2),
         "a generation whose attempt is gone can begin again, replacing the method's live attempt"
     );
@@ -215,7 +225,9 @@ fn an_unresolvable_session_is_refused_and_the_helper_killed() {
     let mut registry = Registry::new();
     registry.request(begin(1, Method::Password)).unwrap();
     registry.helper(1, success());
-    registry.request(Request::StartSession { generation: 1 }).unwrap();
+    registry
+        .request(Request::StartSession { generation: 1 })
+        .unwrap();
     assert_eq!(
         registry.refuse_start(1, SessionFailure::UnknownSession),
         [
@@ -235,7 +247,9 @@ fn a_session_runs_and_ends_through_the_winners_helper() {
     let mut registry = Registry::new();
     registry.request(begin(1, Method::Password)).unwrap();
     registry.helper(1, success());
-    registry.request(Request::StartSession { generation: 1 }).unwrap();
+    registry
+        .request(Request::StartSession { generation: 1 })
+        .unwrap();
     assert_eq!(
         registry.helper(1, HelperEvent::Session(SessionEvent::Started)),
         [Action::Relay(Event::SessionStarted)]
@@ -287,11 +301,17 @@ fn losing_the_greeter_ends_attempts_still_proving_identity_but_not_a_starting_se
 
     registry.request(begin(3, Method::Password)).unwrap();
     registry.helper(3, success());
-    assert_eq!(registry.greeter_gone(), [kill(3)], "authenticated, not yet starting");
+    assert_eq!(
+        registry.greeter_gone(),
+        [kill(3)],
+        "authenticated, not yet starting"
+    );
 
     registry.request(begin(4, Method::Password)).unwrap();
     registry.helper(4, success());
-    registry.request(Request::StartSession { generation: 4 }).unwrap();
+    registry
+        .request(Request::StartSession { generation: 4 })
+        .unwrap();
     assert_eq!(registry.greeter_gone(), []);
     assert_eq!(registry.winner().unwrap().generation, 4);
     assert_eq!(registry.shutdown(), [kill(4)]);

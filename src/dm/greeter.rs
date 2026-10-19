@@ -66,10 +66,9 @@ pub enum Step {
 /// Anything else, a prompt included, means the greeter's PAM stack is not what it should be.
 pub fn advance(state: Handshake, event: &HelperEvent) -> Step {
     match (state, event) {
-        (
-            Handshake::Authenticating,
-            HelperEvent::Report(Report::Finished(PamOutcome::Success)),
-        ) => Step::SendStart,
+        (Handshake::Authenticating, HelperEvent::Report(Report::Finished(PamOutcome::Success))) => {
+            Step::SendStart
+        }
         (Handshake::Starting, HelperEvent::Session(SessionEvent::Started)) => Step::Running,
         _ => Step::Failed,
     }
@@ -123,7 +122,12 @@ impl Greeters for PamGreeters {
                     helper.start(&start)?;
                     state = Handshake::Starting;
                 }
-                Step::Running => return Ok(Box::new(PamGreeter { helper, over: false })),
+                Step::Running => {
+                    return Ok(Box::new(PamGreeter {
+                        helper,
+                        over: false,
+                    }));
+                }
                 Step::Failed => return Err(io::Error::other(format!("greeter helper: {event:?}"))),
             }
         }
@@ -169,8 +173,9 @@ impl GreeterProcess for PamGreeter {
             while !self.over && wait_readable(self.helper.socket(), deadline) {
                 self.drain();
             }
-            self.helper.wait_for_exit(Duration::from_secs(1));
         }
+        // Ended is sent just before the helper's last PAM call; give it the moment to exit.
+        self.helper.wait_for_exit(Duration::from_secs(1));
         self.helper.kill().is_empty()
     }
 }
@@ -241,8 +246,15 @@ mod tests {
 
     #[test]
     fn every_other_step_fails_the_start() {
-        for outcome in [PamOutcome::Rejected, PamOutcome::Unavailable, PamOutcome::MaxTries] {
-            assert_eq!(advance(Handshake::Authenticating, &finished(outcome)), Step::Failed);
+        for outcome in [
+            PamOutcome::Rejected,
+            PamOutcome::Unavailable,
+            PamOutcome::MaxTries,
+        ] {
+            assert_eq!(
+                advance(Handshake::Authenticating, &finished(outcome)),
+                Step::Failed
+            );
         }
         for event in [
             HelperEvent::Report(Report::Prompt { echo: false }),
@@ -250,7 +262,11 @@ mod tests {
             HelperEvent::Session(SessionEvent::Started),
             HelperEvent::Session(SessionEvent::Ended),
         ] {
-            assert_eq!(advance(Handshake::Authenticating, &event), Step::Failed, "{event:?}");
+            assert_eq!(
+                advance(Handshake::Authenticating, &event),
+                Step::Failed,
+                "{event:?}"
+            );
         }
         for event in [
             finished(PamOutcome::Success),
@@ -259,7 +275,11 @@ mod tests {
                 crate::dm::protocol::SessionFailure::SpawnFailed,
             )),
         ] {
-            assert_eq!(advance(Handshake::Starting, &event), Step::Failed, "{event:?}");
+            assert_eq!(
+                advance(Handshake::Starting, &event),
+                Step::Failed,
+                "{event:?}"
+            );
         }
     }
 

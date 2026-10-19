@@ -199,13 +199,15 @@ impl Registry {
                 Effect::Answer(secret) => actions.push(Action::Answer { generation, secret }),
                 Effect::Relay(event) => actions.push(Action::Relay(event)),
                 Effect::StartSession(session) => {
-                    actions.push(Action::StartSession { generation, session });
+                    actions.push(Action::StartSession {
+                        generation,
+                        session,
+                    });
                 }
                 Effect::Close => actions.extend(self.remove(generation)),
             }
         }
-        let won = self.winner.is_none()
-            && self.phase(generation) == Some(Phase::Authenticated);
+        let won = self.winner.is_none() && self.phase(generation) == Some(Phase::Authenticated);
         if won {
             self.winner = Some(generation);
             let losers: Vec<u32> = self

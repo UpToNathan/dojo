@@ -43,7 +43,11 @@ impl Service {
 /// environment, and the environment wins over the module's `class=` argument, so these
 /// go in before `pam_open_session`.
 pub fn pam_variables(account: &Account, start: &Start) -> Vec<(&'static str, String)> {
-    let class = if account.is_greeter() { "greeter" } else { "user" };
+    let class = if account.is_greeter() {
+        "greeter"
+    } else {
+        "user"
+    };
     vec![
         ("XDG_SESSION_TYPE", "wayland".into()),
         ("XDG_SESSION_CLASS", class.into()),
@@ -191,13 +195,22 @@ mod tests {
     fn services_name_the_pam_stacks_and_nothing_else() {
         for (name, service) in [
             ("dojo-login", Service::Login(Method::Password)),
-            ("dojo-login-fingerprint", Service::Login(Method::Fingerprint)),
+            (
+                "dojo-login-fingerprint",
+                Service::Login(Method::Fingerprint),
+            ),
             ("dojo-greeter", Service::Greeter),
         ] {
             assert_eq!(Service::from_name(name), Some(service));
             assert_eq!(service.name(), name);
         }
-        for stranger in ["dojo-lock-password", "system-auth", "", "dojo-greeter ", "sudo"] {
+        for stranger in [
+            "dojo-lock-password",
+            "system-auth",
+            "",
+            "dojo-greeter ",
+            "sudo",
+        ] {
             assert_eq!(Service::from_name(stranger), None, "{stranger:?}");
         }
     }
@@ -205,7 +218,9 @@ mod tests {
     #[test]
     fn the_greeter_opens_a_greeter_class_session_and_runs_its_command_line_directly() {
         let mut start = start();
-        start.exec = ". /usr/local/lib/dojo-dm/r/environment.sh && exec /usr/local/lib/dojo-dm/r/niri".into();
+        start.exec =
+            ". /usr/local/lib/dojo-dm/r/environment.sh && exec /usr/local/lib/dojo-dm/r/niri"
+                .into();
         start.desktop = SessionId::parse("dojo-greeter").unwrap();
         start.desktop_names.clear();
         let class = pam_variables(&greeter(), &start)
@@ -215,9 +230,15 @@ mod tests {
         assert_eq!(class.as_deref(), Some("greeter"));
         let plan = plan(&greeter(), &start, vec![], None);
         assert_eq!(plan.shell, PathBuf::from("/bin/sh"));
-        assert_eq!(plan.arguments, [OsString::from("-c"), start.exec.clone().into()]);
+        assert_eq!(
+            plan.arguments,
+            [OsString::from("-c"), start.exec.clone().into()]
+        );
         assert_eq!(env(&plan, "XDG_SESSION_CLASS").as_deref(), Some("greeter"));
-        assert_eq!(env(&plan, "XDG_SESSION_DESKTOP").as_deref(), Some("dojo-greeter"));
+        assert_eq!(
+            env(&plan, "XDG_SESSION_DESKTOP").as_deref(),
+            Some("dojo-greeter")
+        );
         assert_eq!(env(&plan, "XDG_VTNR").as_deref(), Some("1"));
         assert_eq!(env(&plan, "SHELL").as_deref(), Some("/bin/sh"));
     }

@@ -157,7 +157,11 @@ mod tests {
         let (mut cycle, _) = Cycle::start();
         assert_eq!(cycle.on(at(0)), [Order::LaunchGreeter]);
         assert_eq!(cycle.on(at(15)), [Order::LaunchGreeter]);
-        assert_eq!(cycle.on(at(30)), [Order::LaunchGreeter], "the first has aged out");
+        assert_eq!(
+            cycle.on(at(30)),
+            [Order::LaunchGreeter],
+            "the first has aged out"
+        );
         assert_eq!(cycle.on(at(45)), [Order::LaunchGreeter]);
         assert_eq!(cycle.on(at(59)), [Order::Exit(EXIT_GREETER_UNAVAILABLE)]);
     }
@@ -176,7 +180,11 @@ mod tests {
         cycle.on(at(2));
         assert_eq!(cycle.on(Input::SessionStarting), []);
         assert_eq!(cycle.phase(), Phase::Session);
-        assert_eq!(cycle.on(at(3)), [], "a dead greeter does not matter during a session");
+        assert_eq!(
+            cycle.on(at(3)),
+            [],
+            "a dead greeter does not matter during a session"
+        );
         assert_eq!(
             cycle.on(Input::SessionOver),
             [Order::Snapshot, Order::LaunchGreeter]
@@ -200,7 +208,10 @@ mod tests {
     fn terminate_during_a_session_leaves_the_session_alone() {
         let (mut cycle, _) = Cycle::start();
         cycle.on(Input::SessionStarting);
-        assert_eq!(cycle.on(Input::Terminate), [Order::Snapshot, Order::Exit(0)]);
+        assert_eq!(
+            cycle.on(Input::Terminate),
+            [Order::Snapshot, Order::Exit(0)]
+        );
         assert_eq!(cycle.phase(), Phase::Stopped);
     }
 

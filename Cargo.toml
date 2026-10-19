@@ -102,6 +102,11 @@ name = "dm_pam"
 path = "tests/dm_pam.rs"
 required-features = ["fake-pam-stack"]
 
+[[test]]
+name = "dm_service"
+path = "tests/dm_service.rs"
+required-features = ["fake-pam-stack"]
+
 [profile.dev.package.sha2]
 opt-level = 3
 

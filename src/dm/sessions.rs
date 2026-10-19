@@ -143,7 +143,11 @@ pub fn parse(text: &str) -> Result<Parsed, Rejection> {
             Some(_) => return Err(Rejection::Invalid("Hidden")),
         }
     }
-    if keys.kind.as_deref().is_some_and(|kind| kind != "Application") {
+    if keys
+        .kind
+        .as_deref()
+        .is_some_and(|kind| kind != "Application")
+    {
         return Err(Rejection::Invalid("Type"));
     }
     let name = clean_name(keys.name.ok_or(Rejection::Missing("Name"))?)?;
@@ -153,9 +157,10 @@ pub fn parse(text: &str) -> Result<Parsed, Rejection> {
         None => Vec::new(),
     };
     let try_exec = keys.try_exec.filter(|value| !value.is_empty());
-    if try_exec.as_ref().is_some_and(|value| {
-        value.chars().any(char::is_control) || value.len() > MAX_EXEC
-    }) {
+    if try_exec
+        .as_ref()
+        .is_some_and(|value| value.chars().any(char::is_control) || value.len() > MAX_EXEC)
+    {
         return Err(Rejection::Invalid("TryExec"));
     }
     Ok(Parsed {
@@ -167,10 +172,18 @@ pub fn parse(text: &str) -> Result<Parsed, Rejection> {
 }
 
 fn known_key(key: &str) -> &'static str {
-    ["Name", "Exec", "TryExec", "DesktopNames", "Hidden", "NoDisplay", "Type"]
-        .into_iter()
-        .find(|known| *known == key)
-        .unwrap_or("key")
+    [
+        "Name",
+        "Exec",
+        "TryExec",
+        "DesktopNames",
+        "Hidden",
+        "NoDisplay",
+        "Type",
+    ]
+    .into_iter()
+    .find(|known| *known == key)
+    .unwrap_or("key")
 }
 
 fn clean_name(raw: String) -> Result<String, Rejection> {
@@ -385,7 +398,9 @@ impl Catalog {
                 }
             };
             if let Some(program) = &parsed.try_exec
-                && !try_exec_candidates(program).iter().any(|path| available(path))
+                && !try_exec_candidates(program)
+                    .iter()
+                    .any(|path| available(path))
             {
                 note(&file, &format!("{program} is not installed"));
                 continue;

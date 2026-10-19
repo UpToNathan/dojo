@@ -151,7 +151,10 @@ mod tests {
     fn only_a_binary_in_an_installed_release_is_at_home() {
         let release = Release::of_executable(Path::new("/usr/local/lib/dojo-dm/0123abcd/dojo-dm"));
         let release = release.unwrap();
-        assert_eq!(release.helper(), Path::new("/usr/local/lib/dojo-dm/0123abcd/dojo-dm-pam"));
+        assert_eq!(
+            release.helper(),
+            Path::new("/usr/local/lib/dojo-dm/0123abcd/dojo-dm-pam")
+        );
         for elsewhere in [
             "/home/nathan/Dojo/target/release/dojo-dm",
             "/usr/local/lib/dojo-dm/dojo-dm",
@@ -163,13 +166,18 @@ mod tests {
             "dojo-dm",
             "/",
         ] {
-            assert_eq!(Release::of_executable(Path::new(elsewhere)), None, "{elsewhere}");
+            assert_eq!(
+                Release::of_executable(Path::new(elsewhere)),
+                None,
+                "{elsewhere}"
+            );
         }
     }
 
     #[test]
     fn the_greeter_runs_the_releases_niri_with_the_releases_config_after_its_environment() {
-        let release = Release::of_executable(Path::new("/usr/local/lib/dojo-dm/r1/dojo-dm")).unwrap();
+        let release =
+            Release::of_executable(Path::new("/usr/local/lib/dojo-dm/r1/dojo-dm")).unwrap();
         assert_eq!(
             release.greeter_command(),
             ". '/usr/local/lib/dojo-dm/r1/environment.sh' && exec '/usr/local/lib/dojo-dm/r1/niri' \

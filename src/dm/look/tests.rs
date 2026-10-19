@@ -17,7 +17,10 @@ fn palette_bytes() -> Vec<u8> {
 fn png_bytes() -> Vec<u8> {
     let mut bytes = Vec::new();
     image::RgbaImage::new(48, 27)
-        .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
         .unwrap();
     bytes
 }
@@ -53,7 +56,12 @@ fn pieces_cross_the_pipe_without_the_identity() {
     let files: Vec<File> = pieces.iter().map(|(file, _)| *file).collect();
     assert_eq!(
         files,
-        [File::Palette, File::Wallpaper, File::Settings, File::Greeting]
+        [
+            File::Palette,
+            File::Wallpaper,
+            File::Settings,
+            File::Greeting
+        ]
     );
     let look = assemble(login("alyssa"), Some("Alyssa Park,,,"), &pieces, None);
     assert_eq!(look, full_look());
@@ -76,8 +84,14 @@ fn a_piece_the_parent_rejects_keeps_the_previous_one() {
     ];
     let previous = full_look();
     let look = assemble(login("alyssa"), None, &pieces, Some(&previous));
-    assert_eq!(look.palette, previous.palette, "invalid bytes keep the old palette");
-    assert_eq!(look.wallpaper, previous.wallpaper, "a rejected file keeps the old wallpaper");
+    assert_eq!(
+        look.palette, previous.palette,
+        "invalid bytes keep the old palette"
+    );
+    assert_eq!(
+        look.wallpaper, previous.wallpaper,
+        "a rejected file keeps the old wallpaper"
+    );
     assert_eq!(look.settings, None, "an absent file is gone");
     assert_eq!(look.last_greeting, Line::parse("Hello again"));
 }
@@ -94,12 +108,28 @@ fn the_child_cannot_smuggle_an_identity_a_repeat_or_an_oversize_piece() {
     assert_eq!(decode_pieces(b""), Some(vec![]));
     let twice = [record(0, PRESENT, b"{}"), record(0, PRESENT, b"{}")].concat();
     assert_eq!(decode_pieces(&twice), None, "a repeated file");
-    assert_eq!(decode_pieces(&record(3, PRESENT, b"Mallory")), None, "identity");
-    assert_eq!(decode_pieces(&record(9, PRESENT, b"x")), None, "unknown file");
+    assert_eq!(
+        decode_pieces(&record(3, PRESENT, b"Mallory")),
+        None,
+        "identity"
+    );
+    assert_eq!(
+        decode_pieces(&record(9, PRESENT, b"x")),
+        None,
+        "unknown file"
+    );
     assert_eq!(decode_pieces(&record(0, 7, b"x")), None, "unknown status");
-    assert_eq!(decode_pieces(&record(0, REJECTED, b"x")), None, "a rejection with bytes");
+    assert_eq!(
+        decode_pieces(&record(0, REJECTED, b"x")),
+        None,
+        "a rejection with bytes"
+    );
     let big = vec![0u8; (snapshot::PALETTE_CAP + 1) as usize];
-    assert_eq!(decode_pieces(&record(0, PRESENT, &big)), None, "over the cap");
+    assert_eq!(
+        decode_pieces(&record(0, PRESENT, &big)),
+        None,
+        "over the cap"
+    );
     let mut cut = record(0, PRESENT, b"abcdef");
     cut.truncate(cut.len() - 1);
     assert_eq!(decode_pieces(&cut), None, "a cut record");
@@ -166,7 +196,10 @@ fn a_child_reads_the_home_and_the_parent_stores_what_it_sent() {
     fs::write(generation.join("palette.json"), b"garbage").unwrap();
     snapshots.refresh(&account, Some("Tess Ter,,,")).unwrap();
     let kept = snapshot::load(state.path(), "tester").unwrap();
-    assert_eq!(kept.palette, stored.palette, "an invalid palette keeps the last good one");
+    assert_eq!(
+        kept.palette, stored.palette,
+        "an invalid palette keeps the last good one"
+    );
 }
 
 #[cfg(feature = "fake-pam-stack")]

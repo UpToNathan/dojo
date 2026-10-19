@@ -154,7 +154,10 @@ pub fn run(settings: Settings, parts: Parts) -> i32 {
     };
     let snapshots = Snapshots::new(settings.state.clone(), parts.greeter_group);
     if let Err(error) = snapshots.prepare() {
-        log(format!("cannot prepare {}: {error}", settings.state.display()));
+        log(format!(
+            "cannot prepare {}: {error}",
+            settings.state.display()
+        ));
     }
     let (cycle, orders) = Cycle::start();
     let mut service = Service {
@@ -375,7 +378,8 @@ impl Service {
                 return;
             }
             let socket = unsafe { OwnedFd::from_raw_fd(fd) };
-            let from_greeter = protocol::peer_uid(socket.as_fd()).ok() == Some(self.greeters.peer_uid());
+            let from_greeter =
+                protocol::peer_uid(socket.as_fd()).ok() == Some(self.greeters.peer_uid());
             let free = self.greeter.is_some() && self.connection.is_none();
             if !from_greeter || !free {
                 log("refused a connection");
@@ -450,7 +454,10 @@ impl Service {
             |path| account::is_executable_file(path),
         );
         for entry in skipped {
-            log(format!("session entry {} left out: {}", entry.file, entry.reason));
+            log(format!(
+                "session entry {} left out: {}",
+                entry.file, entry.reason
+            ));
         }
         self.catalog = catalog;
         let Remembered { login, session } = memory::load(&self.settings.state);
@@ -595,10 +602,14 @@ impl Service {
             return Vec::new();
         };
         let Some(session) = self.catalog.resolve(id).cloned() else {
-            return self.registry.refuse_start(generation, SessionFailure::UnknownSession);
+            return self
+                .registry
+                .refuse_start(generation, SessionFailure::UnknownSession);
         };
         let Some((account, gecos)) = lookup_account(&login) else {
-            return self.registry.refuse_start(generation, SessionFailure::Refused);
+            return self
+                .registry
+                .refuse_start(generation, SessionFailure::Refused);
         };
         let start = session.start(&self.console.vt());
         self.session = Some(SessionRun {
@@ -618,14 +629,19 @@ impl Service {
             log("cannot send the session to its helper");
             self.session = None;
             self.apply(Input::SessionOver);
-            return self.registry.refuse_start(generation, SessionFailure::SpawnFailed);
+            return self
+                .registry
+                .refuse_start(generation, SessionFailure::SpawnFailed);
         }
         Vec::new()
     }
 
     fn refresh_snapshot(&self, account: &Account, gecos: Option<&str>) {
         if let Err(error) = self.snapshots.refresh(account, gecos) {
-            log(format!("look snapshot of {}: {error}", account.login.as_str()));
+            log(format!(
+                "look snapshot of {}: {error}",
+                account.login.as_str()
+            ));
         }
     }
 

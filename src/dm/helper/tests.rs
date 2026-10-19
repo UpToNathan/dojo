@@ -204,7 +204,10 @@ fn the_greeter_session_is_class_greeter_and_runs_the_given_command() {
         serve(&mut pam, &mut peer, &mut launcher, &greeter, None),
         Exit::Clean
     );
-    assert!(log.borrow().contains(&"putenv XDG_SESSION_CLASS=greeter".to_owned()));
+    assert!(
+        log.borrow()
+            .contains(&"putenv XDG_SESSION_CLASS=greeter".to_owned())
+    );
     assert_eq!(launcher.plans[0].shell, PathBuf::from("/bin/sh"));
     assert_eq!(
         launcher.plans[0].arguments,
@@ -355,7 +358,10 @@ fn parse(arguments: &[&str]) -> Option<Service> {
 
 #[test]
 fn argv_is_exactly_one_known_service() {
-    assert_eq!(parse(&["dojo-login"]), Some(Service::Login(Method::Password)));
+    assert_eq!(
+        parse(&["dojo-login"]),
+        Some(Service::Login(Method::Password))
+    );
     assert_eq!(
         parse(&["dojo-login-fingerprint"]),
         Some(Service::Login(Method::Fingerprint))

@@ -78,7 +78,7 @@ fn test_login() -> Option<Login> {
         return None;
     }
     let name = unsafe { CStr::from_ptr((*passwd).pw_name) }.to_str().ok()?;
-    let login = Login::parse(name)?;
+    let login = Login::parse(name).ok()?;
     let entry = dojo::dm::account::lookup(&login)?;
     dojo::dm::account::Account::validate(
         &login,
@@ -145,6 +145,10 @@ impl Bench {
     }
 
     fn spawn_with(&self, method: Method, extra: &[&str]) -> Run {
+        self.spawn_service(method.login_service(), extra)
+    }
+
+    fn spawn_service(&self, service: &str, extra: &[&str]) -> Run {
         let (parent, child_end) = socketpair();
         let child_fd = child_end.as_raw_fd();
         let timeout = libc::timeval {
@@ -169,7 +173,7 @@ impl Bench {
             .arg("--session-shell")
             .arg(self.path("shell.sh"))
             .args(extra)
-            .arg(method.login_service())
+            .arg(service)
             .env_clear()
             .env("LC_MESSAGES", "C.UTF-8")
             .env("PATH", "/usr/local/sbin:/usr/local/bin:/usr/bin")
@@ -530,6 +534,38 @@ fn a_session_that_cannot_be_executed_is_reported_and_the_pam_session_is_closed()
     assert_eq!(phases.len(), 3, "{phases:?}");
     assert!(phases[1].starts_with("open_session"));
     assert_eq!(phases[2], "close_session");
+}
+
+#[test]
+fn the_greeter_service_refuses_every_user_but_the_greeter() {
+    let Some(login) = login_or_skip() else { return };
+    let bench = Bench::new(&finger_stack(), &password_stack());
+    for name in [login.as_str(), "root"] {
+        let run = bench.spawn_service("dojo-greeter", &[]);
+        run.login(&Login::parse(name).unwrap());
+        run.expect_report(Report::Finished(PamOutcome::Rejected));
+        assert_eq!(run.finish(), Some(0), "{name}");
+    }
+    assert_eq!(
+        bench.phases(),
+        Vec::<String>::new(),
+        "PAM never ran for them"
+    );
+}
+
+#[test]
+fn the_login_services_refuse_the_greeter_user() {
+    if login_or_skip().is_none() {
+        return;
+    }
+    let bench = Bench::new(&finger_stack(), &finger_stack());
+    for method in [Method::Password, Method::Fingerprint] {
+        let run = bench.spawn(method);
+        run.login(&Login::parse("dojo-greeter").unwrap());
+        run.expect_report(Report::Finished(PamOutcome::Rejected));
+        assert_eq!(run.finish(), Some(0));
+    }
+    assert_eq!(bench.phases(), Vec::<String>::new());
 }
 
 #[test]

@@ -20,11 +20,10 @@ use crate::session::snapshot::{
 };
 
 /// Everything a well-behaved child can send: the five caps plus record headers.
-pub const MAX_PIPE_BYTES: usize = (snapshot::PALETTE_CAP
-    + snapshot::WALLPAPER_CAP
-    + snapshot::SETTINGS_CAP
-    + 2 * TEXT_CAP) as usize
-    + 64;
+pub const MAX_PIPE_BYTES: usize =
+    (snapshot::PALETTE_CAP + snapshot::WALLPAPER_CAP + snapshot::SETTINGS_CAP + 2 * TEXT_CAP)
+        as usize
+        + 64;
 const PRESENT: u8 = 1;
 const REJECTED: u8 = 2;
 /// A child that has not finished by now is stuck on a file system and is killed.
@@ -99,7 +98,9 @@ pub fn assemble(
             Some((_, Piece::Rejected)) => Err(ReadError::NotRegular),
         }
     });
-    decoded.rejected.retain(|problem| problem.file != File::Identity);
+    decoded
+        .rejected
+        .retain(|problem| problem.file != File::Identity);
     let name = gecos.and_then(snapshot::full_name);
     let mut look = decoded.merged_over(previous);
     look.full_name = name;
@@ -127,7 +128,10 @@ impl Snapshots {
         use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
         let users = self.root.join("users");
         if !users.is_dir() {
-            std::fs::DirBuilder::new().recursive(true).mode(0o750).create(&users)?;
+            std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o750)
+                .create(&users)?;
             std::fs::set_permissions(&users, std::fs::Permissions::from_mode(0o750))?;
         }
         if let Some(group) = self.group {
@@ -237,7 +241,10 @@ fn read_child(child: libc::pid_t, read: OwnedFd, write: OwnedFd) -> io::Result<V
             Ok(count) => {
                 bytes.extend_from_slice(&chunk[..count]);
                 if bytes.len() > MAX_PIPE_BYTES {
-                    break Err(io::Error::new(io::ErrorKind::InvalidData, "snapshot too large"));
+                    break Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "snapshot too large",
+                    ));
                 }
             }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}

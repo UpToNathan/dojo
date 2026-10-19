@@ -229,7 +229,10 @@ mod tests {
         let spec = HelperSpec::new("/usr/local/lib/dojo-dm/r/dojo-dm-pam".into());
         for (service, name) in [
             (Service::Login(Method::Password), "dojo-login"),
-            (Service::Login(Method::Fingerprint), "dojo-login-fingerprint"),
+            (
+                Service::Login(Method::Fingerprint),
+                "dojo-login-fingerprint",
+            ),
             (Service::Greeter, "dojo-greeter"),
         ] {
             assert_eq!(
@@ -253,7 +256,14 @@ mod tests {
         spec.session_shell = Some("/s".into());
         assert_eq!(
             spec.arguments(Service::Greeter)[3..],
-            ["--pam-confdir", "/c", "--session-shell", "/s", "dojo-greeter"].map(OsString::from)
+            [
+                "--pam-confdir",
+                "/c",
+                "--session-shell",
+                "/s",
+                "dojo-greeter"
+            ]
+            .map(OsString::from)
         );
     }
 }

@@ -304,7 +304,11 @@ mod tests {
         assert!(account.is_greeter());
         assert_eq!(account.shell, Path::new("/bin/sh"));
         assert_eq!((account.uid, account.gid), (975, 1000));
-        assert!(!check(Some(entry("nathan", 1000, "/bin/bash"))).unwrap().is_greeter());
+        assert!(
+            !check(Some(entry("nathan", 1000, "/bin/bash")))
+                .unwrap()
+                .is_greeter()
+        );
     }
 
     #[test]

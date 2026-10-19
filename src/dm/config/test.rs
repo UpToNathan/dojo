@@ -55,8 +55,15 @@ pub fn parse(arguments: Vec<OsString>) -> Result<Options, Unusable> {
             options.greeter = arguments.by_ref().collect();
             break;
         }
-        let value = arguments.next().ok_or_else(|| bad(&format!("{flag} needs a value")))?;
-        let text = || value.to_str().map(str::to_owned).ok_or_else(|| bad("not UTF-8"));
+        let value = arguments
+            .next()
+            .ok_or_else(|| bad(&format!("{flag} needs a value")))?;
+        let text = || {
+            value
+                .to_str()
+                .map(str::to_owned)
+                .ok_or_else(|| bad("not UTF-8"))
+        };
         match flag.as_str() {
             "--socket" => options.socket = value.into(),
             "--state" => options.state = value.into(),
@@ -82,7 +89,9 @@ pub fn parse(arguments: Vec<OsString>) -> Result<Options, Unusable> {
     .iter()
     .all(|path| !path.as_os_str().is_empty());
     if !present || options.greeter.is_empty() || Vt::new(options.vt).is_none() {
-        return Err(bad("--socket, --state, --sessions, --helper and --greeter-command are required"));
+        return Err(bad(
+            "--socket, --state, --sessions, --helper and --greeter-command are required",
+        ));
     }
     Ok(options)
 }
@@ -227,9 +236,26 @@ mod tests {
     #[test]
     fn the_required_options_and_the_greeter_command_are_parsed() {
         let options = parse(args(&[
-            "--socket", "/s", "--state", "/st", "--sessions", "/se", "--helper", "/h", "--vt",
-            "3", "--fingerprint", "alyssa", "--fingerprint", "bob", "--pam-confdir", "/c",
-            "--greeter-command", "sleep", "--vt", "600",
+            "--socket",
+            "/s",
+            "--state",
+            "/st",
+            "--sessions",
+            "/se",
+            "--helper",
+            "/h",
+            "--vt",
+            "3",
+            "--fingerprint",
+            "alyssa",
+            "--fingerprint",
+            "bob",
+            "--pam-confdir",
+            "/c",
+            "--greeter-command",
+            "sleep",
+            "--vt",
+            "600",
         ]))
         .unwrap();
         assert_eq!(options.vt, 3);
@@ -243,7 +269,16 @@ mod tests {
         assert!(parse(args(&[])).is_err());
         assert!(parse(args(&["--socket", "/s"])).is_err());
         assert!(parse(args(&["--bogus", "x"])).is_err());
-        let complete = ["--socket", "/s", "--state", "/t", "--sessions", "/e", "--helper", "/h"];
+        let complete = [
+            "--socket",
+            "/s",
+            "--state",
+            "/t",
+            "--sessions",
+            "/e",
+            "--helper",
+            "/h",
+        ];
         let mut without_command = args(&complete);
         assert!(parse(without_command.clone()).is_err());
         without_command.extend(args(&["--vt", "0", "--greeter-command", "x"]));
