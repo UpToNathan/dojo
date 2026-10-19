@@ -8,12 +8,16 @@
 //! built on the lock screen's `lock::worker` conversation machinery and libpam loader.
 //! [`service`] is `dojo-dm` itself; [`process`], [`greeter`], [`vt`], [`host`] and [`look`]
 //! are the thin parts that touch the machine, each behind a seam the tests replace.
+//! [`client`] and [`edge`] are `dojo-greeter`'s end of the socket: its connection, and the
+//! pure bridge between the lock model and the protocol.
 
 pub mod account;
 pub mod auth;
+pub mod client;
 mod codec;
 pub mod config;
 pub mod cycle;
+pub mod edge;
 pub mod greeter;
 pub mod helper;
 pub mod host;

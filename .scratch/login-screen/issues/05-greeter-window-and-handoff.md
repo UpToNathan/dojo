@@ -11,4 +11,17 @@ The `dojo-greeter` mode of the lock program: lock windows in the greeter Niri, t
 - A successful login plays the greeting and then hands over; a refused or dead `dojo-dm` leaves the greeter restartable.
 - A screenshot of the login screen and the lock screen differ only in the two chips and the hint.
 
+## Progress
+
+Built on branch `greeter`. Unit and socketpair tests pass; a nested-Niri smoke against a fake display manager passed (`tools/agent-input/run-greeter.py`). Nothing has run on a real boot.
+
+- [x] `dojo-greeter` is the lock program in login mode. The lock edge moved into `dojo::lock::edge` behind a `Host`; `dojo-lock` and `dojo-greeter` are the two hosts. The window kind, frames, timer and keys are shared.
+- [x] `dm::client` connects to `/run/dojo-dm/greeter.sock` (`DOJO_DM_SOCKET` and `DOJO_DM_STATE` in `fake-pam-stack` builds only), sends `Hello`, reads `Init` and reads events on a thread. A server that is not root, a datagram that does not decode, a second `Init` and a closed socket end the greeter non-zero.
+- [x] `dm::greeter::Bridge` maps effects to requests (`Spawn` to `Begin`, `Answer`, `Kill` to `Cancel`, `Unlock` to `StartSession`, `Power`, `SwapLook` to `SelectUser`) and events to the model's. A reply for a user who has since changed is dropped. A name outside the protocol's login rules never leaves the greeter: it prompts and refuses, as any unknown name does.
+- [x] Looks come from `snapshot::load(/var/lib/dojo-dm, login)` on a loader thread, with the default theme and no greeting for a user with no snapshot. A home directory is never read.
+- [x] Handover: the model waits in a still closed frame (0.00% CPU) for `SessionStarted`, then exits 0. `SessionFailed` asks for the password again with the reason as the hint.
+- [x] Tab, Ctrl+Tab and chip clicks edit the user and cycle the session; the power chip and Ctrl+Alt+S/H/R/P play the occasion's farewell, then send `Power`.
+- [x] The session chip restarts the live conversations, because `Begin` carries the session and `StartSession` does not.
+- [ ] A real boot: the greeter in its own Niri on `tty1`, and the last frame handing over to the shell's login opening.
+
 ## Comments

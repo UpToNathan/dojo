@@ -10,17 +10,32 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    AnyElement, BorderStyle, Bounds, Corners, Div, FontWeight, PathBuilder, Pixels, Point,
-    RenderImage, Rgba, Size, Window, canvas, div, fill, point, prelude::*, px, size,
+    AnyElement, App, BorderStyle, Bounds, Corners, Div, FontWeight, MouseButton, PathBuilder,
+    Pixels, Point, RenderImage, Rgba, Size, Window, canvas, div, fill, point, prelude::*, px,
+    size,
 };
 
 use crate::config::ThemeColors;
 use crate::design::{paint_desktop_frame, paint_frame_shadow, shell_clock_element};
 use crate::geometry::TOP_BAR_CLOCK_PX;
-use crate::lock::{Line, Panel, Pill, Ring, Role, Scene, Tone};
+use crate::lock::{Leave, Line, Panel, Pill, Ring, Role, Scene, Tone};
 use crate::session::transition::{self, Layout, Pose, Style};
 
 const AGENT_INPUT_NOTICE: &str = "Agent input stopped while locked";
+/// The power chip's glyph, from the same symbol font as the battery and network chips.
+const POWER_GLYPH: &str = "\u{f011}";
+
+/// A click on one of the login screen's chips.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ChipClick {
+    User,
+    Session,
+    Power,
+    Leave(Leave),
+}
+
+/// Receives a click on a login chip. The lock screen has none and passes `None`.
+pub type OnChip = Rc<dyn Fn(ChipClick, &mut Window, &mut App)>;
 
 /// How much of the live desktop the closing's transparent overlay has covered.
 /// The locker's surface is opaque, so it always draws [`Over::CLOSED`].
@@ -100,6 +115,34 @@ impl Look {
             colors,
             wallpaper,
         }
+    }
+}
+
+/// How the login screen draws a look swap `mix` of the way from one user's look to the next.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Fade {
+    /// Paint the new look; before the middle the old one is still the picture.
+    pub incoming: bool,
+    /// How much of the picture the veil hides: 1 at the middle, 0 at both ends.
+    pub veil: f32,
+    pub colour: Rgba,
+}
+
+/// GPUI cannot fade an image, so a swap dips instead: the old look is veiled until it is hidden,
+/// and the new one is uncovered from the veil. The veil's colour moves from one background to the
+/// other, so it is whole at the middle where the picture changes.
+pub fn fade(mix: f32, from: Rgba, to: Rgba) -> Fade {
+    let mix = mix.clamp(0., 1.);
+    let lerp = |a: f32, b: f32| a + (b - a) * mix;
+    Fade {
+        incoming: mix >= 0.5,
+        veil: 1. - (2. * mix - 1.).abs(),
+        colour: Rgba {
+            r: lerp(from.r, to.r),
+            g: lerp(from.g, to.g),
+            b: lerp(from.b, to.b),
+            a: 1.,
+        },
     }
 }
 
@@ -229,7 +272,12 @@ pub fn pill_bounds(place: &PanelPlace, pill: &Pill) -> Bounds<Pixels> {
 
 /// Everything `scene` shows, bottom to top. The caller adds input handling and
 /// any dimming above it.
-pub fn scene(scene: &Scene, look: &Rc<Look>, viewport: Size<Pixels>) -> Vec<AnyElement> {
+pub fn scene(
+    scene: &Scene,
+    look: &Rc<Look>,
+    viewport: Size<Pixels>,
+    on_chip: Option<&OnChip>,
+) -> Vec<AnyElement> {
     let palette = &look.palette;
     let panel = match &scene.role {
         Role::Active(panel) => Some(panel),
@@ -251,8 +299,16 @@ pub fn scene(scene: &Scene, look: &Rc<Look>, viewport: Size<Pixels>) -> Vec<AnyE
     if let Some(panel) = panel {
         let (dial_layout, dial_weight) = dial_part(&scene.pose);
         children.extend(
-            panel_elements(panel, &dial_layout, dial_weight, scale, viewport, palette)
-                .into_iter()
+            panel_elements(
+                panel,
+                &dial_layout,
+                dial_weight,
+                scale,
+                viewport,
+                palette,
+                on_chip,
+            )
+            .into_iter()
                 .map(IntoElement::into_any_element),
         );
     }
@@ -400,12 +456,26 @@ fn panel_elements(
     scale: f32,
     viewport: Size<Pixels>,
     palette: &Palette,
+    on_chip: Option<&OnChip>,
 ) -> Vec<Div> {
     let place = place_panel(viewport);
     let alpha = layout.text * weight;
     let dial = place_dial(layout, scale);
     let mut children = Vec::new();
+    // A farewell is its own picture, as in the shell's closing: it does not wait for the
+    // parts to be there, because the login screen plays it after they have gone.
+    let farewell = match &panel.line {
+        Some(Line::Farewell { text, alpha: shown }) if *shown > 0. => Some(message_line(
+            text,
+            place.line_centre_y,
+            (place.text_px * 1.3).round(),
+            palette.foreground.opacity(*shown),
+            place.width,
+        )),
+        _ => None,
+    };
     if alpha <= 0. {
+        children.extend(farewell);
         return children;
     }
     let date_y = f32::from(dial.disc.center().y) + f32::from(dial.radius) * 0.5;
@@ -437,40 +507,48 @@ fn panel_elements(
             palette.muted.opacity(alpha),
             place.width,
         )),
-        Some(Line::Greeting { text, alpha: shown } | Line::Farewell { text, alpha: shown }) => children.push(message_line(
+        Some(Line::Greeting { text, alpha: shown }) => children.push(message_line(
             text,
             place.line_centre_y,
             (place.text_px * 1.3).round(),
             palette.foreground.opacity(alpha * shown),
             place.width,
         )),
+        Some(Line::Farewell { .. }) => children.extend(farewell),
         None => {}
     }
     let chip = |text: &str| {
-        div()
+        chip_base(&place, palette, alpha)
             .absolute()
-            .h(px(place.chip_height))
-            .px(px(place.chip_height * 0.5))
-            .flex()
-            .items_center()
-            .gap(px(place.chip_height * 0.4))
-            .rounded_full()
-            .bg(palette.background.opacity(0.62 * alpha))
-            .text_size(px(place.chip_px))
-            .text_color(palette.muted.opacity(alpha))
             .child(text.to_owned())
     };
+    let clickable = |chip: Div, click: ChipClick| clickable(chip, click, on_chip);
     let margin = px(place.chip_margin);
     let chips = &panel.chips;
-    let user = match chips.login.as_ref().and_then(|login| login.editing.as_ref()) {
+    let editing = chips.login.as_ref().and_then(|login| login.editing.as_ref());
+    let user = match editing {
         Some(edit) if edit.text.is_empty() => format!("{}  ›", chips.user),
         Some(edit) => format!("{}▏", edit.text),
         None => chips.user.clone(),
     };
-    children.push(chip(&user).left(margin).top(margin));
+    let mut user_chip = chip(&user).left(margin).top(margin);
+    if editing.is_some_and(|edit| edit.refused) {
+        user_chip = user_chip.text_color(palette.error.opacity(alpha));
+    }
+    children.push(clickable(user_chip, ChipClick::User));
     if let Some(login) = &chips.login {
         let below = margin + px(place.chip_height + place.chip_margin * 0.5);
-        children.push(chip(&login.session).left(margin).top(below));
+        children.push(clickable(
+            chip(&login.session).left(margin).top(below),
+            ChipClick::Session,
+        ));
+        children.push(power_chips(
+            login.power_open,
+            &place,
+            palette,
+            alpha,
+            on_chip,
+        ));
     }
     let status: Vec<&str> = [chips.network.as_deref(), chips.battery.as_deref()]
         .into_iter()
@@ -484,6 +562,65 @@ fn panel_elements(
     }
     children.push(chip(AGENT_INPUT_NOTICE).right(margin).bottom(margin));
     children
+}
+
+/// `chip`, answering a left click with `click` when the caller listens for clicks.
+fn clickable(chip: Div, click: ChipClick, on_chip: Option<&OnChip>) -> Div {
+    let Some(handler) = on_chip else {
+        return chip;
+    };
+    let handler = handler.clone();
+    chip.cursor_pointer()
+        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+            cx.stop_propagation();
+            handler(click, window, cx);
+        })
+}
+
+/// A corner chip's look, not yet placed: the lock screen's and the login screen's share it.
+fn chip_base(place: &PanelPlace, palette: &Palette, alpha: f32) -> Div {
+    div()
+        .h(px(place.chip_height))
+        .px(px(place.chip_height * 0.5))
+        .flex()
+        .items_center()
+        .gap(px(place.chip_height * 0.4))
+        .rounded_full()
+        .bg(palette.background.opacity(0.62 * alpha))
+        .text_size(px(place.chip_px))
+        .text_color(palette.muted.opacity(alpha))
+}
+
+/// The power chip in the bottom-left corner. Open, it is followed by one chip per occasion.
+fn power_chips(
+    open: bool,
+    place: &PanelPlace,
+    palette: &Palette,
+    alpha: f32,
+    on_chip: Option<&OnChip>,
+) -> Div {
+    let clickable = |chip: Div, click: ChipClick| clickable(chip, click, on_chip);
+    let mut row = div()
+        .absolute()
+        .left(px(place.chip_margin))
+        .bottom(px(place.chip_margin))
+        .flex()
+        .gap(px(place.chip_margin * 0.5))
+        .child(clickable(
+            chip_base(place, palette, alpha)
+                .text_size(px(place.chip_px * 1.3))
+                .child(POWER_GLYPH),
+            ChipClick::Power,
+        ));
+    if open {
+        for leave in Leave::ALL {
+            row = row.child(clickable(
+                chip_base(place, palette, alpha).child(leave.label()),
+                ChipClick::Leave(leave),
+            ));
+        }
+    }
+    row
 }
 
 /// One full-width line of text centred on `centre_y`: a hint, a greeting, a farewell or the date.
@@ -761,6 +898,24 @@ mod tests {
     fn assert_near(a: Point<Pixels>, b: Point<Pixels>) {
         let gap = f32::from(a.x - b.x).abs() + f32::from(a.y - b.y).abs();
         assert!(gap < 0.01, "{a:?} is not {b:?}");
+    }
+
+    #[test]
+    fn a_look_swap_dips_to_a_veil_that_is_whole_where_the_picture_changes() {
+        let (dark, light) = (gpui::rgb(0x101010), gpui::rgb(0xf0f0f0));
+        let at = |mix| fade(mix, dark, light);
+        assert_eq!((at(0.).incoming, at(0.).veil, at(0.).colour), (false, 0., dark));
+        assert_eq!((at(1.).incoming, at(1.).veil, at(1.).colour), (true, 0., light));
+        assert_eq!(at(0.25).veil, 0.5);
+        assert!(!at(0.25).incoming && at(0.75).incoming);
+        // Both pictures meet the same opaque veil at the middle.
+        let middle = at(0.5);
+        assert_eq!((middle.incoming, middle.veil), (true, 1.));
+        assert_eq!(at(0.499).veil, 0.998);
+        assert!((middle.colour.r - 0.5 * (dark.r + light.r)).abs() < 1e-6);
+        // Out-of-range input stays on the ends.
+        assert_eq!(at(-3.).veil, 0.);
+        assert_eq!(at(9.).colour, light);
     }
 
     #[test]

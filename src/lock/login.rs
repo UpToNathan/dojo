@@ -6,6 +6,8 @@ use std::fmt;
 use std::time::Instant;
 
 use super::model::{GreetingSet, Key};
+use crate::session::Occasion;
+use crate::session::message;
 
 /// The longest account name accepted, in bytes (the Linux `useradd` limit).
 pub const MAX_LOGIN_BYTES: usize = 32;
@@ -91,11 +93,76 @@ impl Login {
     }
 }
 
-/// What a successful login starts: read it when `Effect::Unlock` arrives.
+/// What a login starts: the committed account and the selected session, which `index` places in
+/// the list the screen was built with. The edge reads it when it starts a PAM conversation.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Choice<'a> {
     pub login: &'a str,
     pub session: &'a str,
+    pub index: usize,
+}
+
+/// A way to end the machine's uptime that the login screen offers. A logout needs a session.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Leave {
+    Suspend,
+    Hibernate,
+    Restart,
+    Shutdown,
+}
+
+impl Leave {
+    pub const ALL: [Leave; 4] = [
+        Leave::Suspend,
+        Leave::Hibernate,
+        Leave::Restart,
+        Leave::Shutdown,
+    ];
+
+    pub fn occasion(self) -> Occasion {
+        match self {
+            Leave::Suspend => Occasion::Suspend,
+            Leave::Hibernate => Occasion::Hibernate,
+            Leave::Restart => Occasion::Restart,
+            Leave::Shutdown => Occasion::Shutdown,
+        }
+    }
+
+    /// The word on the power menu's chip.
+    pub fn label(self) -> &'static str {
+        match self {
+            Leave::Suspend => "Suspend",
+            Leave::Hibernate => "Hibernate",
+            Leave::Restart => "Restart",
+            Leave::Shutdown => "Shut down",
+        }
+    }
+}
+
+/// The farewells a user's settings allow, chosen up front like the greetings. Suspend and
+/// hibernate have none: the shell's closing for them is too short to carry a line.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct FarewellSet {
+    pub restart: String,
+    pub shutdown: String,
+}
+
+impl FarewellSet {
+    pub fn choose(base: &message::Context, name: &str) -> FarewellSet {
+        let line = |occasion| message::select(occasion, base, name);
+        FarewellSet {
+            restart: line(Occasion::Restart),
+            shutdown: line(Occasion::Shutdown),
+        }
+    }
+
+    pub(super) fn line(&self, leave: Leave) -> Option<&str> {
+        match leave {
+            Leave::Restart => Some(&self.restart),
+            Leave::Shutdown => Some(&self.shutdown),
+            Leave::Suspend | Leave::Hibernate => None,
+        }
+    }
 }
 
 /// The edge's answer to `Effect::SwapLook`: what it found for `login`.
@@ -106,6 +173,11 @@ pub struct UserLook {
     pub display: Option<String>,
     /// The greetings for this user, chosen for `Occasion::Login`. `None` skips the greeting.
     pub greeting: Option<GreetingSet>,
+    /// The farewells for the power occasions. `None` plays none.
+    pub farewells: Option<FarewellSet>,
+    /// Whether this user has an enrolled print on a reader that exists: the display manager's
+    /// answer. It decides whether the fingerprint worker runs for them.
+    pub fingerprint: bool,
 }
 
 /// The username being typed. Refusals are recorded for the scene and never change the text.
@@ -162,8 +234,11 @@ pub(super) struct LoginState {
     sessions: Vec<String>,
     selected: usize,
     pub(super) fingerprint: bool,
+    pub(super) farewells: Option<FarewellSet>,
     pub(super) editing: Option<NameBuffer>,
     pub(super) swap: Option<Swap>,
+    /// The power chip is open and shows the occasions.
+    pub(super) power_open: bool,
 }
 
 impl LoginState {
@@ -173,13 +248,19 @@ impl LoginState {
             sessions: login.sessions,
             selected: login.selected,
             fingerprint: login.fingerprint,
+            farewells: None,
             editing: None,
             swap: None,
+            power_open: false,
         }
     }
 
     pub(super) fn session(&self) -> &str {
         &self.sessions[self.selected]
+    }
+
+    pub(super) fn session_index(&self) -> usize {
+        self.selected
     }
 
     pub(super) fn next_session(&mut self) {
@@ -209,7 +290,7 @@ impl LoginState {
                 }
                 Err(_) => buffer.refused = true,
             },
-            Key::Tab | Key::NextSession => {}
+            Key::Tab | Key::NextSession | Key::Leave(_) => {}
         }
         None
     }
