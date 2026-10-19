@@ -28,6 +28,7 @@ use crate::lock::worker::helper::{
     Conversation, EXIT_SOFTWARE, EXIT_UNAVAILABLE, EXIT_USAGE, converse, prepare_process,
     run_check, take_socket,
 };
+use crate::lock::pam::Method;
 use crate::lock::worker::libpam::{LibPam, PAM_AUTH_ERR, PAM_SUCCESS, PamConv};
 use crate::lock::worker::wire;
 
@@ -248,8 +249,13 @@ pub fn run_helper() -> ! {
         Service::Greeter => account::Account::validate_greeter(&login, account::lookup(&login)),
     };
     let Ok(account) = account else {
-        // Unknown, system and shell-less accounts look like a failed login.
-        let sent = peer.finished(PAM_AUTH_ERR);
+        // Unknown, system and shell-less accounts look like a failed login. For a password that
+        // includes the prompt: the screen is waiting for one before it can show a refusal.
+        let asked = match invocation.service {
+            Service::Login(Method::Password) => ask_and_discard(socket.as_fd()),
+            Service::Login(Method::Fingerprint) | Service::Greeter => Ok(()),
+        };
+        let sent = asked.and_then(|()| peer.finished(PAM_AUTH_ERR));
         std::process::exit(if sent.is_ok() { 0 } else { EXIT_SOFTWARE });
     };
 
@@ -280,6 +286,12 @@ pub fn run_helper() -> ! {
     let exit = serve(&mut handle, &mut peer, &mut launcher, &account, shell);
     drop(handle);
     std::process::exit(exit.code());
+}
+
+/// Asks the display manager for a password and drops it, zeroed, unread.
+fn ask_and_discard(socket: BorrowedFd<'_>) -> io::Result<()> {
+    wire::send(socket, &wire::prompt(false))?;
+    wire::Answer::receive(socket).map(drop)
 }
 
 fn read_login(socket: BorrowedFd<'_>) -> Option<super::protocol::Login> {
