@@ -478,6 +478,29 @@ def environment_of(lab, session_id, expected_login="nathan"):
     return env
 
 
+def frame_colour():
+    """The background of the palette nathan's snapshot carries: the colour the greeter fades to."""
+    palette = json.loads((Path.home() / ".local/state/dojo/themes/current/palette.json").read_text())
+    hex_ = palette["colors"]["background"].lstrip("#")
+    return tuple(int(hex_[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def watch_fade(lab, verdict):
+    """Screenshots from the verdict until the greeter asks for the session: (ms, mean colour) each."""
+    p = lab.proxy
+    samples = []
+    deadline = time.monotonic() + 3
+    while not p.seen("g>d", start=verdict["n"], start_session=ANY) and time.monotonic() < deadline:
+        samples.append((round((time.monotonic() - p.t0) * 1000), lab.shoot("fade")))
+    return samples
+
+
+def dm_timeline(lab):
+    """`(event, ms, unix_ms)` of the dm's own `dojo-dm: event=` journal lines."""
+    lines = re.findall(r"^dojo-dm: event=(\S+) ms=(\d+) unix_ms=(\d+)$", lab.dm_text(), re.M)
+    return [(event, int(ms), int(unix)) for event, ms, unix in lines]
+
+
 def scenario_login(lab):
     """Init and prefill, typing, wrong then right, user and session chips, StartSession, teardown, return."""
     p = lab.proxy
@@ -548,10 +571,20 @@ def scenario_login(lab):
     log_in(lab)
     answer = p.wait("g>d", start=switched["n"], answer=switched["begin"])
     check(answer["secret"] == "right", "the test password went to the live conversation")
-    p.wait("d>g", report=switched["begin"], finished="success")
+    verdict = p.wait("d>g", report=switched["begin"], finished="success")
+    fade = watch_fade(lab, verdict)
     start = p.wait("g>d", start_session=ANY)
     check(start["start_session"] == switched["begin"], f"StartSession names the winning conversation: {start}")
-    check(start["n"] > p.seen("d>g", report=switched["begin"], finished="success")[0]["n"], "start after the verdict")
+    check(start["n"] > verdict["n"], "start after the verdict")
+    # The ring fills for 300 ms and the scene fades for 200: the session is asked for after both, and
+    # with no greeting in between (a greeting alone would add 750 ms).
+    wait = start["ms"] - verdict["ms"]
+    check(470 <= wait <= 900, f"StartSession came {wait} ms after the verdict, expected the ring and the fade only")
+    background = frame_colour()
+    check(fade and apart(fade[0][1], background) > 24, f"the scene is the wallpaper at first: {fade[:1]}")
+    distances = [apart(colour, background) for _, colour in fade]
+    check(distances == sorted(distances, reverse=True), f"the scene only moves towards the frame colour: {distances}")
+    check(distances[-1] <= 16, f"the last frame before StartSession is the frame colour {background}: {fade[-2:]}")
     env = environment_of(lab, SECOND_SESSION)
     check(env["greeter_alive"] == [], f"the greeter was torn down before the session started: {env['greeter_alive']}")
     closed = p.wait("d>g", start=start["n"], closed=True)
@@ -569,10 +602,20 @@ def scenario_login(lab):
     time.sleep(1.0)
     shot = lab.shoot("returned", full=True)
     check(lab.dm.poll() is None, "dojo-dm is still running")
+    events = dm_timeline(lab)
+    names = [name for name, _, _ in events]
+    check(names == ["greeter-start", "auth-ok", "start-session", "greeter-stopped", "session-start-sent",
+                    "session-ended", "greeter-start"][:len(names)] and len(names) >= 7,
+          f"the dm's timeline lines: {names}")
+    check(all(a[1] <= b[1] and a[2] <= b[2] for a, b in zip(events, events[1:])), f"timeline times rise: {events}")
+    auth = next(e for e in events if e[0] == "auth-ok")
+    check(0 <= next(e for e in events if e[0] == "start-session")[1] - auth[1] <= 2500,
+          "the dm asks for the session soon after authentication")
     phases = (lab.dir / "pam-phases.log").read_text().splitlines()
     check(phases[-3:] == ["account", f"open_session desktop={SECOND_SESSION} vtnr={VT} tty=tty{VT}", "close_session"],
           f"PAM ran account, open_session and close_session once: {phases}")
     return {"first_greeter_exit": exit_code, "stale_cancel_after_rejection": bool(stale_cancel),
+            "fade_samples": fade, "frame_colour": background, "dm_timeline": events,
             "snapshot_modes": snapshot_modes(lab.state / "users/nathan"), "returned": str(shot),
             "unexpected_dm_log": ignored(lab)}
 
