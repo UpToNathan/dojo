@@ -20,4 +20,7 @@ Built on branch `greeter` with 05.
 - [x] `system-config/README.md` says a fingerprint login leaves the keyring locked.
 - [ ] A real reader and a real enrolled print on the host: unverified.
 
+
+Joint run (branch `login-joint`): with the real dm and `--fingerprint <user>`, the `User` reply's flag starts the fingerprint conversation, the finger wins, the password conversation is cancelled and `StartSession` names the finger's generation. fprintd itself is still unverified.
+
 ## Comments

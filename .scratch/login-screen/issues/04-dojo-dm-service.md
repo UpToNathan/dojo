@@ -17,4 +17,7 @@ Built `dojo-dm` (`src/bin/dojo-dm.rs`, `src/dm/service.rs`): one `poll(2)` loop 
 
 Not verified without a real boot: the VT switch and the greeter's last frame surviving the handover, the greeter session and seat grant under real logind, the DRM master being free for the user's Niri, fprintd and logind D-Bus calls, the identity drop as root, and `dojo-dm` stop while a session runs. The list is in the report of this workstream.
 
+
+Joint run (branch `login-joint`): the real `dojo-dm` against the real `dojo-greeter` in a nested Niri, `tools/agent-input/run-login.py`. Fixed: a failed start after the greeter was stopped is kept in `Service::unreported` and sent as `SessionFailed` right after the next greeter's `Init` (once); a `Cancel` for an attempt that is already over is no longer logged as ignored; `dojo-dm-pam` asks for a password before refusing an account the dm cannot log in, so the screen sees a wrong password and not "Press Enter to try again". `greeter.kdl` now quits Niri when the greeter ends, because the dm watches Niri: a greeter that died before connecting was only noticed after the 20 s connect timeout, so the three-in-30-seconds limit never fired.
+
 ## Comments

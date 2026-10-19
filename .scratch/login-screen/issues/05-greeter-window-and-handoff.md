@@ -24,4 +24,7 @@ Built on branch `greeter`. Unit and socketpair tests pass; a nested-Niri smoke a
 - [x] The session chip restarts the live conversations, because `Begin` carries the session and `StartSession` does not.
 - [ ] A real boot: the greeter in its own Niri on `tty1`, and the last frame handing over to the shell's login opening.
 
+
+Joint run (branch `login-joint`): `dojo-dm` stops the greeter before it starts the session and never says `SessionStarted` to it, so the greeter now treats a socket that closes after `StartSession` as the hand-over and exits 0 (`Bridge::handed_over`). A `SessionFailed` that arrives after the lock landed, or before it, shows as the hint (`LoginState::refused` holds one until the lock lands); one reason already on the screen stands.
+
 ## Comments
