@@ -59,6 +59,7 @@ class HelperCheckTests(unittest.TestCase):
         result = self.check(SILENT)
         self.assertEqual(result.returncode, 1)
         self.assertIn("--check failed", result.stderr)
+        self.assertIn("helper --check failed", result.stderr)
 
     def test_rejects_a_helper_that_does_not_refuse_missing_arguments(self):
         result = self.check(OK, usage_ok=False)
