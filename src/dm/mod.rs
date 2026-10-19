@@ -6,8 +6,9 @@
 //! log in and how their session starts, [`sessions`] the desktop entries on offer and
 //! [`memory`] what the login screen remembers. [`helper`] is the `dojo-dm-pam` process,
 //! built on the lock screen's `lock::worker` conversation machinery and libpam loader.
-//! [`service`] is `dojo-dm` itself; [`process`], [`greeter`], [`vt`], [`host`] and [`look`]
-//! are the thin parts that touch the machine, each behind a seam the tests replace.
+//! [`service`] is `dojo-dm` itself, with [`lookups`] answering its `SelectUser` requests off
+//! the loop; [`process`], [`greeter`], [`vt`], [`host`] and [`look`] are the thin parts that
+//! touch the machine, each behind a seam the tests replace.
 //! [`client`] and [`edge`] are `dojo-greeter`'s end of the socket: its connection, and the
 //! pure bridge between the lock model and the protocol.
 
@@ -23,6 +24,7 @@ pub mod helper;
 pub mod host;
 pub mod launch;
 pub mod look;
+pub mod lookups;
 pub mod memory;
 pub mod process;
 pub mod protocol;

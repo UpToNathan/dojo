@@ -791,6 +791,44 @@ fn the_login_screen_may_only_suspend_while_someone_else_is_logged_in() {
 }
 
 #[test]
+fn a_greeter_that_asks_and_never_reads_is_dropped_and_the_service_carries_on() {
+    let Some(login) = login_or_skip() else { return };
+    let bench = Bench::new();
+    let dm = bench.standard_dm();
+    let (greeter, _) = Greeter::hello(&bench);
+
+    // Every answer to a SelectUser queues in the socket until the greeter reads it.
+    let mut sent = 0;
+    for _ in 0..20_000 {
+        let request = Request::SelectUser {
+            login: login.clone(),
+        };
+        if protocol::send(greeter.socket.as_fd(), &request).is_err() {
+            break;
+        }
+        sent += 1;
+        std::thread::sleep(Duration::from_micros(200));
+    }
+    assert!(
+        sent < 20_000,
+        "the display manager never gave up on a greeter that does not read"
+    );
+    loop {
+        match protocol::receive::<Event>(greeter.socket.as_fd()) {
+            Ok(Some(_)) => {}
+            Ok(None) => break,
+            Err(error) => panic!("the connection was not closed: {error}"),
+        }
+    }
+
+    let (fresh, init) = Greeter::hello(&bench);
+    assert!(matches!(init, Event::Init { .. }));
+    fresh.send(Request::SelectUser { login });
+    assert!(matches!(fresh.next(), Event::User { .. }));
+    assert_eq!(dm.terminate(), Some(0));
+}
+
+#[test]
 fn a_greeter_that_cannot_start_ends_the_service_after_three_tries() {
     let bench = Bench::new();
     let mut dm = bench.dm(&[], &["/bin/false"]);

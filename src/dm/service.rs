@@ -5,16 +5,17 @@
 //!
 //! Blocking steps are bounded and happen where nobody is waiting on the loop: starting
 //! the greeter, stopping it, and the snapshot child. D-Bus is never called on the loop:
-//! the fingerprint probe runs on its own thread and power actions on a detached one.
+//! user lookups run on their own thread ([`super::lookups`]) and power actions on a detached
+//! one. Nothing is queued for a greeter: its sockets never block, and a greeter that does not
+//! read what it is sent is dropped.
 
+use std::cell::Cell;
 use std::collections::{BTreeMap, VecDeque};
 use std::ffi::c_int;
 use std::io;
 use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
-use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use super::account::{self, Account};
@@ -22,9 +23,10 @@ use super::auth::Rejected;
 use super::config::{Parts, Settings};
 use super::cycle::{Cycle, Input, Order, Phase};
 use super::greeter::{GreeterProcess, Greeters, SESSION_GONE_TIMEOUT, wait_session_gone};
-use super::host::{Fingerprints, Power, Seat, power_refusal};
+use super::host::{Power, Seat, power_refusal};
 use super::launch::{HelperEvent, SessionEvent};
 use super::look::Snapshots;
+use super::lookups::Lookups;
 use super::memory::{self, Remembered};
 use super::process::{HelperProcess, Received};
 use super::protocol::{self, Event, Login, PowerOccasion, Request, SessionFailure, SessionId};
@@ -33,14 +35,9 @@ use super::session::Service as PamService;
 use super::sessions::Catalog;
 use super::vt::Console;
 use crate::lock::pam::Report;
-use crate::session::snapshot;
 
 /// A greeter that has not said hello by now is not coming.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
-const SEND_TIMEOUT: libc::timeval = libc::timeval {
-    tv_sec: 2,
-    tv_usec: 0,
-};
 
 pub fn log(message: impl std::fmt::Display) {
     eprintln!("dojo-dm: {message}");
@@ -74,48 +71,6 @@ struct SessionRun {
     id: SessionId,
 }
 
-struct Lookups {
-    requests: Sender<(Login, Option<String>)>,
-    answers: Receiver<Event>,
-    wake: UnixStream,
-}
-
-impl Lookups {
-    fn spawn(mut probe: Box<dyn Fingerprints>) -> io::Result<Lookups> {
-        let (requests, queue) = channel::<(Login, Option<String>)>();
-        let (answers_in, answers) = channel();
-        let (wake, mut ring) = UnixStream::pair()?;
-        wake.set_nonblocking(true)?;
-        std::thread::Builder::new()
-            .name("fingerprint-probe".into())
-            .spawn(move || {
-                use std::io::Write as _;
-                while let Ok((login, display_name)) = queue.recv() {
-                    let fingerprint = probe.enrolled(&login);
-                    let event = Event::User {
-                        login,
-                        display_name,
-                        fingerprint,
-                    };
-                    if answers_in.send(event).is_err() || ring.write_all(&[1]).is_err() {
-                        return;
-                    }
-                }
-            })?;
-        Ok(Lookups {
-            requests,
-            answers,
-            wake,
-        })
-    }
-
-    fn drain_wake(&self) {
-        use std::io::Read as _;
-        let mut sink = [0u8; 64];
-        while matches!((&self.wake).read(&mut sink), Ok(n) if n > 0) {}
-    }
-}
-
 struct Service {
     settings: Settings,
     console: Box<dyn Console>,
@@ -137,6 +92,8 @@ struct Service {
     /// The next greeter is told right after its `Init`, once.
     unreported: Option<SessionFailure>,
     last_login: Option<Login>,
+    /// A send to the greeter failed, so it is gone, hung or not reading. Dealt with between turns.
+    unreachable: Cell<bool>,
     epoch: Instant,
     exit: Option<i32>,
 }
@@ -152,11 +109,11 @@ pub fn run(settings: Settings, parts: Parts) -> i32 {
         Ok(fd) => fd,
         Err(error) => return fail("greeter socket", error),
     };
-    let lookups = match Lookups::spawn(parts.fingerprints) {
-        Ok(lookups) => lookups,
-        Err(error) => return fail("fingerprint probe", error),
-    };
     let snapshots = Snapshots::new(settings.state.clone(), parts.greeter_group);
+    let lookups = match Lookups::spawn(parts.fingerprints, snapshots.root().to_owned()) {
+        Ok(lookups) => lookups,
+        Err(error) => return fail("user lookups", error),
+    };
     if let Err(error) = snapshots.prepare() {
         log(format!(
             "cannot prepare {}: {error}",
@@ -183,6 +140,7 @@ pub fn run(settings: Settings, parts: Parts) -> i32 {
         helpers: BTreeMap::new(),
         session: None,
         unreported: None,
+        unreachable: Cell::new(false),
         epoch: Instant::now(),
         exit: None,
     };
@@ -217,7 +175,7 @@ impl Service {
         let mut sources = vec![
             (Source::Signals, self.signals.as_raw_fd()),
             (Source::Listener, self.listener.as_raw_fd()),
-            (Source::Lookups, self.lookups.wake.as_raw_fd()),
+            (Source::Lookups, self.lookups.wake_fd()),
         ];
         if let Some(greeter) = &self.greeter {
             sources.push((Source::Greeter, greeter.process.exit_fd().as_raw_fd()));
@@ -254,6 +212,10 @@ impl Service {
                 }
                 self.dispatch(source);
             }
+        }
+        if self.unreachable.replace(false) && self.connection.is_some() {
+            log("the greeter does not read what it is sent");
+            self.greeter_lost();
         }
         self.check_deadline();
     }
@@ -396,15 +358,6 @@ impl Service {
                 log("refused a connection");
                 continue;
             }
-            unsafe {
-                libc::setsockopt(
-                    socket.as_raw_fd(),
-                    libc::SOL_SOCKET,
-                    libc::SO_SNDTIMEO,
-                    (&SEND_TIMEOUT as *const libc::timeval).cast(),
-                    size_of::<libc::timeval>() as libc::socklen_t,
-                )
-            };
             self.connection = Some(Connection {
                 socket,
                 hello: false,
@@ -445,11 +398,7 @@ impl Service {
             }
             _ if !hello => {}
             Request::Hello { .. } => {}
-            Request::SelectUser { login } => {
-                let display_name = snapshot::load(self.snapshots.root(), login.as_str())
-                    .map(|look| look.display_name());
-                let _ = self.lookups.requests.send((login, display_name));
-            }
+            Request::SelectUser { login } => self.lookups.select(login),
             Request::Power { occasion } => self.power_off(occasion),
             other => {
                 let cancel = matches!(other, Request::Cancel { .. });
@@ -496,12 +445,12 @@ impl Service {
             && let Err(error) = protocol::send(connection.socket.as_fd(), event)
         {
             log(format!("cannot reach the greeter: {error}"));
+            self.unreachable.set(true);
         }
     }
 
     fn lookups_answered(&mut self) {
-        self.lookups.drain_wake();
-        while let Ok(event) = self.lookups.answers.try_recv() {
+        for event in self.lookups.answered() {
             self.send(&event);
         }
     }
