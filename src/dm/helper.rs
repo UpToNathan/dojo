@@ -16,6 +16,7 @@ use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command};
+use std::time::Duration;
 
 use zeroize::Zeroizing;
 
@@ -38,6 +39,8 @@ pub trait Peer {
     fn finished(&mut self, code: c_int) -> io::Result<()>;
     fn next_start(&mut self) -> Waited;
     fn session(&mut self, event: SessionEvent) -> io::Result<()>;
+    /// Prompts for a password and drops the answer, zeroed, unread.
+    fn ask_and_discard(&mut self) -> io::Result<()>;
 }
 
 #[derive(Debug, PartialEq)]
@@ -69,13 +72,15 @@ impl Exit {
     }
 }
 
-/// The whole life of one attempt, in PAM's required order.
+/// The whole life of one attempt, in PAM's required order. `revalidate` looks the account
+/// up again when the start arrives: the passwd entry may have changed since the prompt.
 pub fn serve(
     pam: &mut impl Pam,
     peer: &mut impl Peer,
     launcher: &mut impl Launcher,
     account: &Account,
     shell: Option<PathBuf>,
+    revalidate: impl FnOnce() -> Option<Account>,
 ) -> Exit {
     let mut code = pam.authenticate();
     if code == PAM_SUCCESS {
@@ -102,6 +107,11 @@ pub fn serve(
         }
     };
 
+    if revalidate().as_ref() != Some(account) {
+        let _ = peer.session(SessionEvent::Failed(SessionFailure::Refused));
+        pam.end(PAM_SUCCESS);
+        return Exit::Clean;
+    }
     let Some(environment) = open_session(pam, account, &start) else {
         let _ = peer.session(SessionEvent::Failed(SessionFailure::Refused));
         pam.end(PAM_SUCCESS);
@@ -216,11 +226,6 @@ pub fn run_helper() -> ! {
     if let Some(Mode::Check) = command {
         run_check();
     }
-    let mut core = libc::rlimit {
-        rlim_cur: 0,
-        rlim_max: 0,
-    };
-    unsafe { libc::getrlimit(libc::RLIMIT_CORE, &mut core) };
     prepare_process();
     let Some(Mode::Serve(invocation)) = command else {
         std::process::exit(EXIT_USAGE);
@@ -239,7 +244,8 @@ pub fn run_helper() -> ! {
     let mut peer = SocketPeer {
         conversation: &conversation,
     };
-    let account = match invocation.service {
+    let service = invocation.service;
+    let validate = || match service {
         Service::Login(_) => account::Account::validate(
             &login,
             account::lookup(&login),
@@ -248,15 +254,8 @@ pub fn run_helper() -> ! {
         ),
         Service::Greeter => account::Account::validate_greeter(&login, account::lookup(&login)),
     };
-    let Ok(account) = account else {
-        // Unknown, system and shell-less accounts look like a failed login. For a password that
-        // includes the prompt: the screen is waiting for one before it can show a refusal.
-        let asked = match invocation.service {
-            Service::Login(Method::Password) => ask_and_discard(socket.as_fd()),
-            Service::Login(Method::Fingerprint) | Service::Greeter => Ok(()),
-        };
-        let sent = asked.and_then(|()| peer.finished(PAM_AUTH_ERR));
-        std::process::exit(if sent.is_ok() { 0 } else { EXIT_SOFTWARE });
+    let Ok(account) = validate() else {
+        std::process::exit(refuse_unknown(service, &mut peer, std::thread::sleep).code());
     };
 
     let service = CString::new(invocation.service.name()).expect("service names have no NUL");
@@ -282,10 +281,42 @@ pub fn run_helper() -> ! {
     let shell = invocation.shell;
     #[cfg(not(feature = "fake-pam-stack"))]
     let shell = None;
-    let mut launcher = ForkLauncher { child: None, core };
-    let exit = serve(&mut handle, &mut peer, &mut launcher, &account, shell);
+    let mut launcher = ForkLauncher { child: None };
+    let exit = serve(
+        &mut handle,
+        &mut peer,
+        &mut launcher,
+        &account,
+        shell,
+        || validate().ok(),
+    );
     drop(handle);
     std::process::exit(exit.code());
+}
+
+/// A real account's wrong password waits out PAM's fail delay (about two seconds) before it
+/// is refused. An account that is unknown, a system account or without a shell is refused
+/// after the same wait, so the time to a refusal does not say which names exist.
+pub const UNKNOWN_ACCOUNT_DELAY: Duration = Duration::from_secs(2);
+
+/// Unknown, system and shell-less accounts look like a failed login. For a password that
+/// includes the prompt, which the screen waits for before it can show a refusal, and the delay.
+fn refuse_unknown(
+    service: Service,
+    peer: &mut impl Peer,
+    sleep: impl FnOnce(Duration),
+) -> Exit {
+    if service == Service::Login(Method::Password) {
+        if peer.ask_and_discard().is_err() {
+            return Exit::Software;
+        }
+        sleep(UNKNOWN_ACCOUNT_DELAY);
+    }
+    if peer.finished(PAM_AUTH_ERR).is_ok() {
+        Exit::Clean
+    } else {
+        Exit::Software
+    }
 }
 
 /// Asks the display manager for a password and drops it, zeroed, unread.
@@ -341,13 +372,50 @@ impl Peer for SocketPeer<'_> {
             &launch::encode_session_event(event),
         )
     }
+
+    fn ask_and_discard(&mut self) -> io::Result<()> {
+        ask_and_discard(self.conversation.socket)
+    }
 }
 
 /// Forks the session as the user. Needs root to change identity; a test build run
 /// as the target user itself skips the identity change, which would fail without root.
 struct ForkLauncher {
     child: Option<Child>,
-    core: libc::rlimit,
+}
+
+/// The core limit the session gets. The helper itself holds 0/0 so it never dumps a password,
+/// and a session must not inherit that: its hard limit would be zero and could never be
+/// raised. Unless `pam_limits` set something while the session opened, the session gets what
+/// a systemd service gets by default, a soft limit of zero under an unlimited hard one.
+fn session_core_limit(held: libc::rlimit) -> libc::rlimit {
+    if held.rlim_cur == 0 && held.rlim_max == 0 {
+        libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: libc::RLIM_INFINITY,
+        }
+    } else {
+        held
+    }
+}
+
+/// Makes every inherited descriptor above stderr close on exec. `std` keeps its own pipe for
+/// reporting a failed exec open until then, so closing them outright would hide that failure.
+fn close_inherited_descriptors() -> io::Result<()> {
+    const CLOSE_RANGE_CLOEXEC: libc::c_uint = 4;
+    let rc = unsafe {
+        libc::syscall(
+            libc::SYS_close_range,
+            3 as libc::c_uint,
+            libc::c_uint::MAX,
+            CLOSE_RANGE_CLOEXEC,
+        )
+    };
+    if rc < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 impl ForkLauncher {
@@ -370,7 +438,12 @@ impl Launcher for ForkLauncher {
             .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
         let account = plan.account.clone();
         let (uid, gid) = (plan.uid, plan.gid);
-        let core = self.core;
+        let mut held = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        unsafe { libc::getrlimit(libc::RLIMIT_CORE, &mut held) };
+        let core = session_core_limit(held);
         let mut command = Command::new(&plan.shell);
         command
             .args(&plan.arguments)
@@ -388,6 +461,7 @@ impl Launcher for ForkLauncher {
                 if libc::setsid() < 0 {
                     return Err(io::Error::last_os_error());
                 }
+                close_inherited_descriptors()?;
                 libc::setrlimit(libc::RLIMIT_CORE, &core);
                 if drop_identity
                     && (libc::initgroups(account.as_ptr(), gid) < 0

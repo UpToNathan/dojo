@@ -96,6 +96,10 @@ impl Peer for FakePeer {
         self.log.borrow_mut().push(format!("session {event:?}"));
         Ok(())
     }
+    fn ask_and_discard(&mut self) -> io::Result<()> {
+        self.log.borrow_mut().push("ask".into());
+        Ok(())
+    }
 }
 
 struct FakeLauncher {
@@ -150,6 +154,15 @@ fn run(
     configure: impl FnOnce(&mut FakePam, &mut FakePeer, &mut FakeLauncher),
     wait: Waited,
 ) -> Run {
+    run_revalidating(configure, wait, Some(account()))
+}
+
+/// `now` is what the account looks up as when the start arrives.
+fn run_revalidating(
+    configure: impl FnOnce(&mut FakePam, &mut FakePeer, &mut FakeLauncher),
+    wait: Waited,
+    now: Option<Account>,
+) -> Run {
     let log: Log = Rc::default();
     let mut pam = FakePam::new(&log);
     let mut peer = FakePeer {
@@ -163,7 +176,7 @@ fn run(
         plans: vec![],
     };
     configure(&mut pam, &mut peer, &mut launcher);
-    let exit = serve(&mut pam, &mut peer, &mut launcher, &account(), None);
+    let exit = serve(&mut pam, &mut peer, &mut launcher, &account(), None, || now);
     let log = log.borrow().clone();
     Run {
         log,
@@ -201,7 +214,9 @@ fn the_greeter_session_is_class_greeter_and_runs_the_given_command() {
         shell: "/bin/sh".into(),
     };
     assert_eq!(
-        serve(&mut pam, &mut peer, &mut launcher, &greeter, None),
+        serve(&mut pam, &mut peer, &mut launcher, &greeter, None, || {
+            Some(greeter.clone())
+        }),
         Exit::Clean
     );
     assert!(
@@ -410,13 +425,15 @@ fn test_builds_accept_a_private_confdir_and_shell_before_the_service() {
     assert_eq!(parse(&["--other", "x", "dojo-login"]), None);
 }
 
+/// Launching a session changes the subreaper flag of the whole test process.
+#[cfg(feature = "fake-pam-stack")]
+static SUBREAPER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// The parent a session's double-forked daemon ends up with once the session has exited,
 /// with this process standing in for the helper as a child subreaper.
 #[cfg(feature = "fake-pam-stack")]
 fn parent_of_orphan(own_orphans: bool) -> i32 {
-    use std::sync::Mutex;
     use std::time::{Duration, Instant};
-    static SUBREAPER: Mutex<()> = Mutex::new(());
     let _flag = SUBREAPER.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) };
 
@@ -440,13 +457,7 @@ fn parent_of_orphan(own_orphans: bool) -> i32 {
         account: c"test".into(),
         own_orphans,
     };
-    let mut launcher = ForkLauncher {
-        child: None,
-        core: libc::rlimit {
-            rlim_cur: 0,
-            rlim_max: 0,
-        },
-    };
+    let mut launcher = ForkLauncher { child: None };
     launcher.spawn(&plan).unwrap();
     launcher.wait();
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -463,4 +474,115 @@ fn the_greeters_orphans_are_reparented_to_the_helper_and_a_users_are_not() {
     let helper = std::process::id() as i32;
     assert_eq!(parent_of_orphan(true), helper);
     assert_ne!(parent_of_orphan(false), helper);
+}
+
+#[test]
+fn an_account_that_changed_since_the_prompt_never_opens_a_session() {
+    let moved = |change: fn(&mut Account)| {
+        let mut changed = account();
+        change(&mut changed);
+        Some(changed)
+    };
+    for now in [
+        None,
+        moved(|a| a.uid = 0),
+        moved(|a| a.gid = 27),
+        moved(|a| a.home = "/home/elsewhere".into()),
+        moved(|a| a.shell = "/bin/zsh".into()),
+    ] {
+        let run = run_revalidating(|_, _, _| {}, go(), now.clone());
+        assert_eq!(
+            run.log,
+            [
+                "authenticate",
+                "acct_mgmt",
+                "finished 0",
+                "wait for start",
+                "session Failed(Refused)",
+                "end 0"
+            ],
+            "{now:?}"
+        );
+        assert_eq!(run.exit, Exit::Clean);
+        assert!(run.plans.is_empty());
+    }
+    let unchanged = run_revalidating(|_, _, _| {}, go(), Some(account()));
+    assert!(unchanged.log.contains(&"spawn".to_owned()));
+}
+
+#[test]
+fn an_unknown_password_account_waits_the_fixed_delay_before_the_refusal() {
+    for (service, delayed) in [
+        (Service::Login(Method::Password), true),
+        (Service::Login(Method::Fingerprint), false),
+        (Service::Greeter, false),
+    ] {
+        let log: Log = Rc::default();
+        let mut peer = FakePeer {
+            log: log.clone(),
+            wait: None,
+            send_fails: false,
+        };
+        let slept = Rc::new(RefCell::new(None));
+        let sleeping = slept.clone();
+        let exit = refuse_unknown(service, &mut peer, |time| {
+            log.borrow_mut().push("sleep".into());
+            *sleeping.borrow_mut() = Some(time);
+        });
+        assert_eq!(exit, Exit::Clean);
+        if delayed {
+            assert_eq!(*log.borrow(), ["ask", "sleep", &format!("finished {PAM_AUTH_ERR}")]);
+            assert_eq!(*slept.borrow(), Some(Duration::from_secs(2)));
+        } else {
+            assert_eq!(*log.borrow(), [format!("finished {PAM_AUTH_ERR}")]);
+            assert_eq!(*slept.borrow(), None);
+        }
+    }
+}
+
+#[test]
+fn a_session_gets_an_unlimited_hard_core_limit_unless_pam_limits_chose_one() {
+    let limit = |cur, max| libc::rlimit { rlim_cur: cur, rlim_max: max };
+    let same = |a: libc::rlimit, b: libc::rlimit| (a.rlim_cur, a.rlim_max) == (b.rlim_cur, b.rlim_max);
+    assert!(same(session_core_limit(limit(0, 0)), limit(0, libc::RLIM_INFINITY)));
+    assert!(same(session_core_limit(limit(0, 1 << 20)), limit(0, 1 << 20)));
+    assert!(same(
+        session_core_limit(limit(libc::RLIM_INFINITY, libc::RLIM_INFINITY)),
+        limit(libc::RLIM_INFINITY, libc::RLIM_INFINITY)
+    ));
+}
+
+#[cfg(feature = "fake-pam-stack")]
+#[test]
+fn the_session_inherits_no_descriptor_above_stderr() {
+    let _flag = SUBREAPER.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut fds = [0; 2];
+    assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+    let leaked = fds[1];
+    let directory = tempfile::tempdir().unwrap();
+    let report = directory.path().join("fds");
+    let script = format!(
+        "for fd in /proc/self/fd/*; do echo \"${{fd##*/}}\"; done > '{}'",
+        report.display()
+    );
+    let plan = SessionPlan {
+        shell: "/bin/sh".into(),
+        arguments: vec!["-c".into(), script.into()],
+        environment: vec![("PATH".into(), "/usr/bin".into())],
+        home: "/".into(),
+        uid: unsafe { libc::geteuid() },
+        gid: unsafe { libc::getegid() },
+        account: c"test".into(),
+        own_orphans: false,
+    };
+    let mut launcher = ForkLauncher { child: None };
+    launcher.spawn(&plan).unwrap();
+    launcher.wait();
+    unsafe {
+        libc::close(fds[0]);
+        libc::close(fds[1]);
+    }
+    let seen = std::fs::read_to_string(&report).unwrap();
+    let seen: Vec<i32> = seen.lines().filter_map(|line| line.parse().ok()).collect();
+    assert!(!seen.contains(&leaked), "descriptor {leaked} leaked into {seen:?}");
 }
