@@ -14,8 +14,6 @@ mod app;
 mod host;
 #[path = "dojo-lock/lifecycle.rs"]
 mod lifecycle;
-#[path = "dojo-lock/view.rs"]
-mod view;
 
 use dojo::lock::Settings;
 use dojo::lock::worker::Helper;

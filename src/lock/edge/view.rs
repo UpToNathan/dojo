@@ -5,16 +5,30 @@ use std::cell::RefCell;
 use std::ops::Range;
 use std::rc::Rc;
 
-use dojo::lock::{EventKind, Key, Line, OutputId, Panel, Role, Scene};
-use dojo::session::paint::{self, Look};
 use gpui::{
     App, Bounds, Context, ElementInputHandler, Entity, EntityInputHandler, FocusHandle, KeyBinding,
     MouseButton, Pixels, Point, UTF16Selection, Window, actions, canvas, div, prelude::*,
 };
 
-use crate::app::Locker;
+use super::Locker;
+use crate::lock::{EventKind, Key, Leave, Line, LookMix, OutputId, Panel, Role, Scene};
+use crate::session::paint::{self, ChipClick, Look, OnChip};
 
-actions!(dojo_lock, [Submit, Erase, Cancel, ClearLine]);
+actions!(
+    dojo_lock,
+    [
+        Submit,
+        Erase,
+        Cancel,
+        ClearLine,
+        EditUser,
+        NextSession,
+        Suspend,
+        Hibernate,
+        Restart,
+        Shutdown
+    ]
+);
 
 const CONTEXT: &str = "LockView";
 
@@ -27,13 +41,26 @@ pub fn bind_keys(cx: &mut App) {
     ]);
 }
 
+/// The login screen's own keys, which the lock screen leaves unbound: Tab edits the username,
+/// Ctrl+Tab picks the next session, and Ctrl+Alt with S, H, R or P leaves. None of them types a
+/// character, so none can collide with a password.
+pub fn bind_login_keys(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("tab", EditUser, Some(CONTEXT)),
+        KeyBinding::new("ctrl-tab", NextSession, Some(CONTEXT)),
+        KeyBinding::new("ctrl-alt-s", Suspend, Some(CONTEXT)),
+        KeyBinding::new("ctrl-alt-h", Hibernate, Some(CONTEXT)),
+        KeyBinding::new("ctrl-alt-r", Restart, Some(CONTEXT)),
+        KeyBinding::new("ctrl-alt-p", Shutdown, Some(CONTEXT)),
+    ]);
+}
+
 /// The scene a window last painted, read by `Locker::sync` to skip unchanged windows.
 pub type Painted = Rc<RefCell<Option<Scene>>>;
 
 pub struct LockView {
     output: OutputId,
     locker: Entity<Locker>,
-    look: Rc<Look>,
     focus: FocusHandle,
     painted: Painted,
     rendered: bool,
@@ -44,7 +71,6 @@ impl LockView {
     pub fn new(
         output: OutputId,
         locker: Entity<Locker>,
-        look: Rc<Look>,
         painted: Painted,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -58,7 +84,6 @@ impl LockView {
         LockView {
             output,
             locker,
-            look,
             focus: cx.focus_handle(),
             painted,
             rendered: false,
@@ -80,6 +105,39 @@ impl LockView {
         self.send(EventKind::Key(output, key), cx);
     }
 
+    /// The look this scene paints, and the veil over it while one user's look gives way to the next's.
+    fn looks(&self, scene: Option<&Scene>, cx: &App) -> (Rc<Look>, Option<(gpui::Rgba, f32)>) {
+        let locker = self.locker.read(cx);
+        let Some(LookMix { login, from, mix }) = scene.and_then(|scene| scene.look.as_ref()) else {
+            return (locker.look(None), None);
+        };
+        let Some(from) = from else {
+            return (locker.look(Some(login)), None);
+        };
+        let (old, new) = (locker.look(Some(from)), locker.look(Some(login)));
+        let fade = paint::fade(*mix, old.palette.background, new.palette.background);
+        let shown = if fade.incoming { new } else { old };
+        (shown, Some((fade.colour, fade.veil)))
+    }
+
+    /// Clicks on the login screen's chips become the same events as its keys. The lock screen has none.
+    fn on_chip(&self, scene: &Scene) -> Option<OnChip> {
+        let Role::Active(Panel { chips, .. }) = &scene.role else {
+            return None;
+        };
+        chips.login.as_ref()?;
+        let (locker, output) = (self.locker.clone(), self.output);
+        Some(Rc::new(move |click, _, cx| {
+            let kind = match click {
+                ChipClick::User => EventKind::UserChip(output),
+                ChipClick::Session => EventKind::SessionChip(output),
+                ChipClick::Power => EventKind::PowerChip(output),
+                ChipClick::Leave(leave) => EventKind::LeaveChip(output, leave),
+            };
+            locker.update(cx, |locker, cx| locker.dispatch(kind, cx));
+        }))
+    }
+
     /// Any input on this output. The reducer reads `Pointer` as activity there:
     /// it takes the active output, wakes the power timeline and skips a greeting.
     fn activity(&mut self, cx: &mut Context<Self>) {
@@ -94,19 +152,30 @@ impl Render for LockView {
         let scene = sized
             .then(|| self.locker.read(cx).scene(self.output))
             .flatten();
+        let (look, veil) = self.looks(scene.as_ref(), cx);
         let root = div()
             .key_context(CONTEXT)
             .track_focus(&self.focus)
             .relative()
             .size_full()
             .overflow_hidden()
-            .font_family(dojo::power::FONT_FAMILY)
-            .font_features(dojo::power::font_features())
-            .bg(self.look.palette.background)
+            .font_family(crate::power::FONT_FAMILY)
+            .font_features(crate::power::font_features())
+            .bg(look.palette.background)
             .on_action(cx.listener(|this, _: &Submit, _, cx| this.key(Key::Enter, cx)))
             .on_action(cx.listener(|this, _: &Erase, _, cx| this.key(Key::Backspace, cx)))
             .on_action(cx.listener(|this, _: &Cancel, _, cx| this.key(Key::Escape, cx)))
             .on_action(cx.listener(|this, _: &ClearLine, _, cx| this.key(Key::ClearLine, cx)))
+            .on_action(cx.listener(|this, _: &EditUser, _, cx| this.key(Key::Tab, cx)))
+            .on_action(cx.listener(|this, _: &NextSession, _, cx| this.key(Key::NextSession, cx)))
+            .on_action(cx.listener(|this, _: &Suspend, _, cx| this.key(Key::Leave(Leave::Suspend), cx)))
+            .on_action(
+                cx.listener(|this, _: &Hibernate, _, cx| this.key(Key::Leave(Leave::Hibernate), cx)),
+            )
+            .on_action(cx.listener(|this, _: &Restart, _, cx| this.key(Key::Leave(Leave::Restart), cx)))
+            .on_action(
+                cx.listener(|this, _: &Shutdown, _, cx| this.key(Key::Leave(Leave::Shutdown), cx)),
+            )
             .on_key_down(cx.listener(|this, _, _, cx| this.activity(cx)))
             .on_modifiers_changed(cx.listener(|this, _, _, cx| this.activity(cx)))
             .on_mouse_move(cx.listener(|this, _, _, cx| this.activity(cx)))
@@ -132,7 +201,7 @@ impl Render for LockView {
         }
         if !self.rendered {
             self.rendered = true;
-            crate::app::log(&format!(
+            self.locker.read(cx).log(&format!(
                 "event=first-render output={} viewport={:?} scale={}",
                 self.output.0,
                 window.viewport_size(),
@@ -142,7 +211,8 @@ impl Render for LockView {
         trace_frame(&scene);
         *self.painted.borrow_mut() = Some(scene.clone());
 
-        let mut children = paint::scene(&scene, &self.look, window.viewport_size());
+        let on_chip = self.on_chip(&scene);
+        let mut children = paint::scene(&scene, &look, window.viewport_size(), on_chip.as_ref());
         let entity = cx.entity();
         let focus = self.focus.clone();
         children.push(
@@ -156,6 +226,15 @@ impl Render for LockView {
             .size_full()
             .into_any_element(),
         );
+        if let Some((colour, strength)) = veil {
+            children.push(
+                div()
+                    .absolute()
+                    .size_full()
+                    .bg(colour.opacity(strength))
+                    .into_any_element(),
+            );
+        }
         if scene.dim < 1. {
             children.push(
                 div()
@@ -173,7 +252,7 @@ impl Render for LockView {
 /// A build without `record-session-actions` logs nothing.
 #[cfg(feature = "record-session-actions")]
 fn trace_frame(scene: &Scene) {
-    let dojo::session::transition::Pose::Moving(layout) = scene.pose else {
+    let crate::session::transition::Pose::Moving(layout) = scene.pose else {
         return;
     };
     eprintln!(

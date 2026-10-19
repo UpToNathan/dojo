@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use gpui::{Pixels, Size};
 
-use super::login::{Choice, Login, LoginState, SwapPhase, UserLook, Username};
+use super::login::{Choice, Leave, Login, LoginState, SwapPhase, UserLook, Username};
 use super::pam::{Method, Notice, PamOutcome, Report, WorkerId};
 use super::power::{Display, PowerPhase, Sensor, rules};
 use super::secret::Password;
@@ -148,8 +148,16 @@ pub enum EventKind {
     UserChip(OutputId),
     /// A click on the session chip: selects the next session.
     SessionChip(OutputId),
+    /// A click on the power chip: opens or closes the occasions it offers.
+    PowerChip(OutputId),
+    /// A click on one of the power chip's occasions.
+    LeaveChip(OutputId, Leave),
     /// The answer to `Effect::SwapLook`. Ignored unless it names the committed user.
     LookReady(UserLook),
+    /// The display manager started the session that `Effect::Unlock` asked for.
+    SessionStarted,
+    /// It did not. The text is the hint the screen shows when it asks for the password again.
+    SessionFailed(String),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -163,6 +171,8 @@ pub enum Key {
     Tab,
     /// Selects the next session. The edge binds it to Ctrl+Tab. Ignored on the lock screen.
     NextSession,
+    /// Leaves by this occasion: a shortcut of the login screen. Ignored on the lock screen.
+    Leave(Leave),
 }
 
 impl fmt::Debug for Key {
@@ -175,6 +185,7 @@ impl fmt::Debug for Key {
             Key::ClearLine => f.write_str("ClearLine"),
             Key::Tab => f.write_str("Tab"),
             Key::NextSession => f.write_str("NextSession"),
+            Key::Leave(leave) => write!(f, "Leave({leave:?})"),
         }
     }
 }
@@ -201,8 +212,11 @@ pub enum Effect {
     /// `EventKind::LookReady`. Comes before the `Kill`/`Spawn` of the new user's workers, which
     /// always authenticate the latest `SwapLook` user, or `Login`'s own at the start.
     SwapLook(Username),
-    /// Authenticated. On the login screen: start the session in `LockModel::choice`.
-    Unlock,
+    /// Authenticated by `by`. On the login screen: start the session that conversation was
+    /// begun for, then wait for `EventKind::SessionStarted` or `SessionFailed`.
+    Unlock { by: WorkerId },
+    /// The login screen has played its farewell: carry the occasion out.
+    Power(Leave),
     Exit(ExitReason),
 }
 
@@ -240,6 +254,11 @@ pub(super) const FAREWELL_OUT: Duration = Duration::from_millis(150);
 pub(super) const FAREWELL: Duration = FAREWELL_IN
     .saturating_add(FAREWELL_HOLD)
     .saturating_add(FAREWELL_OUT);
+/// After the login screen asks for a power occasion, the machine has this long to go down
+/// before activity brings the login screen back: a suspended machine wakes into it.
+pub(super) const LEAVE_SETTLE: Duration = Duration::from_millis(1500);
+/// A power action that never took effect (it was refused) must not leave the closed state forever.
+pub(super) const LEAVE_GIVE_UP: Duration = Duration::from_secs(15);
 
 pub struct LockModel {
     pub(super) settings: Settings,
@@ -267,6 +286,8 @@ pub(super) enum Stage {
     Locked(Locked),
     /// Authenticated: irreversible. Both workers are already dead.
     Unlocking(Unlocking),
+    /// The login screen is playing a power occasion's farewell. Its workers are dead.
+    Departing(Departing),
     Exiting,
 }
 
@@ -278,6 +299,8 @@ pub(super) struct Locked {
     /// The last password was rejected and nothing newer has been said: no key
     /// since, and no fingerprint message since.
     pub(super) rejected: bool,
+    /// The login screen could not start the session after a verdict, until the next key.
+    pub(super) failure: Option<String>,
     /// The shell's farewell, until it has played or a key skipped it.
     pub(super) farewell: Option<Farewell>,
     /// The `Locked` event, while the dial's parts fade in. `None`: they are there from the start.
@@ -336,8 +359,42 @@ pub(super) struct Power {
     pub(super) since: Instant,
 }
 
+/// The login screen's departure: the parts go, the farewell plays over the closed dial, the
+/// edge carries the occasion out, and the closed state waits for the machine to go down.
+pub(super) struct Departing {
+    pub(super) since_unix: i64,
+    pub(super) leave: Leave,
+    pub(super) since: Instant,
+    pub(super) farewell: Option<String>,
+    /// When the occasion was handed to the edge.
+    pub(super) sent: Option<Instant>,
+}
+
+impl Departing {
+    /// The parts have gone and the farewell may start. Reduced motion has no fade to wait for.
+    pub(super) fn farewell_from(&self, reduced_motion: bool) -> Instant {
+        if reduced_motion {
+            self.since
+        } else {
+            self.since + RELEASE
+        }
+    }
+
+    /// When the occasion is handed over: the end of the farewell, or of the release without one.
+    pub(super) fn power_at(&self, reduced_motion: bool) -> Instant {
+        let from = self.farewell_from(reduced_motion);
+        if self.farewell.is_some() {
+            from + FAREWELL
+        } else {
+            from
+        }
+    }
+}
+
 pub(super) struct Unlocking {
     pub(super) since_unix: i64,
+    /// The conversation that authenticated.
+    pub(super) by: WorkerId,
     pub(super) phase: UnlockPhase,
     /// A live shell holds a parked overlay and draws the opening: the locker leaves
     /// the closed disc and clock and unlocks as soon as the rest has faded. False
@@ -365,6 +422,9 @@ pub(super) enum UnlockPhase {
     /// No greeting (or it has been skipped) and the shell opens: the ring, date,
     /// hint and chips fade out over `RELEASE`, leaving the closed disc.
     Release { since: Instant },
+    /// The login screen only: the parts are gone and the display manager is starting the
+    /// session. The closed state waits as it is, and nothing animates until the answer comes.
+    Handover { started: bool },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -496,7 +556,7 @@ fn edit(password: &mut Password, key: Key) -> bool {
         Key::Backspace => password.pop(),
         Key::Escape | Key::ClearLine => *password = Password::new(),
         Key::Enter => return password.char_count() > 0,
-        Key::Tab | Key::NextSession => {}
+        Key::Tab | Key::NextSession | Key::Leave(_) => {}
     }
     false
 }
@@ -550,6 +610,8 @@ impl LockModel {
                 | EventKind::Resumed
                 | EventKind::UserChip(_)
                 | EventKind::SessionChip(_)
+                | EventKind::PowerChip(_)
+                | EventKind::LeaveChip(..)
         ) && let Stage::Locked(locked) = &mut self.stage
         {
             locked.power = Power {
@@ -572,7 +634,7 @@ impl LockModel {
                 self.active = Some(output);
                 self.skip_farewell();
                 self.activity(now.mono, &mut fx);
-                self.key(key, now.mono, &mut fx);
+                self.key(key, now, &mut fx);
             }
             EventKind::UserChip(output) => {
                 self.active = Some(output);
@@ -584,9 +646,23 @@ impl LockModel {
                 self.active = Some(output);
                 self.skip_farewell();
                 self.activity(now.mono, &mut fx);
-                self.next_session();
+                self.next_session(&mut fx);
             }
-            EventKind::LookReady(look) => self.look_ready(look, now.mono),
+            EventKind::PowerChip(output) => {
+                self.active = Some(output);
+                self.skip_farewell();
+                self.activity(now.mono, &mut fx);
+                self.toggle_power_menu();
+            }
+            EventKind::LeaveChip(output, leave) => {
+                self.active = Some(output);
+                self.skip_farewell();
+                self.activity(now.mono, &mut fx);
+                self.leave(leave, now, &mut fx);
+            }
+            EventKind::LookReady(look) => self.look_ready(look, now.mono, &mut fx),
+            EventKind::SessionStarted => self.session_started(&mut fx),
+            EventKind::SessionFailed(text) => self.session_failed(text, now, &mut fx),
             EventKind::Worker(id, report) => self.report(id, report, now, &mut fx),
             EventKind::Timer => {}
             EventKind::Resumed => self.activity(now.mono, &mut fx),
@@ -623,12 +699,23 @@ impl LockModel {
                 ]
             }
             Stage::Unlocking(unlocking) => [
-                Some(match unlocking.phase {
+                match unlocking.phase {
                     UnlockPhase::Greeting { since, .. } => {
-                        since + greeting(unlocking.shell_opens)
+                        Some(since + greeting(unlocking.shell_opens))
                     }
-                    UnlockPhase::Opening { since } => since + OPENING,
-                    UnlockPhase::Release { since } => since + RELEASE,
+                    UnlockPhase::Opening { since } => Some(since + OPENING),
+                    UnlockPhase::Release { since } => Some(since + RELEASE),
+                    UnlockPhase::Handover { .. } => None,
+                },
+                None,
+                None,
+                None,
+                None,
+            ],
+            Stage::Departing(departing) => [
+                Some(match departing.sent {
+                    None => departing.power_at(self.settings.reduced_motion),
+                    Some(sent) => sent + LEAVE_GIVE_UP,
                 }),
                 None,
                 None,
@@ -669,31 +756,51 @@ impl LockModel {
         let Stage::Requested { typed } = mem::replace(&mut self.stage, Stage::Exiting) else {
             return;
         };
+        let farewell_from = if self.reveals() {
+            now.mono + REVEAL
+        } else {
+            now.mono
+        };
+        let farewell = self.settings.farewell.take().map(|text| Farewell {
+            text,
+            since: farewell_from,
+        });
+        let since_unix = self.settings.lock_age_origin.unwrap_or(now.unix);
+        self.arm(now.mono, since_unix, typed, farewell, None, fx);
+    }
+
+    /// Becomes the locked screen: a password worker, and a fingerprint worker where the method
+    /// exists, both started now. Used when the lock is confirmed and whenever a login screen
+    /// has to ask for the password again.
+    fn arm(
+        &mut self,
+        now: Instant,
+        since_unix: i64,
+        typed: Typed,
+        farewell: Option<Farewell>,
+        failure: Option<String>,
+        fx: &mut Vec<Effect>,
+    ) {
         let pw = issue(&mut self.next_generation);
         let fp = self
             .fingerprint_wanted()
             .then(|| issue(&mut self.next_generation));
         fx.push(Effect::Spawn(password(pw)));
         fx.extend(fp.map(|g| Effect::Spawn(fingerprint(g))));
-        let reveals = self.reveals();
-        let reveal_from = reveals.then_some(now.mono);
-        let farewell_from = if reveals { now.mono + REVEAL } else { now.mono };
         self.stage = Stage::Locked(Locked {
-            since_unix: self.settings.lock_age_origin.unwrap_or(now.unix),
+            since_unix,
             password: PasswordFlow::Starting { worker: pw, typed },
             fingerprint: fp.map_or(Fingerprint::Unavailable, |worker| Fingerprint::Starting {
                 worker,
             }),
             power: Power {
                 phase: PowerPhase::Active,
-                since: now.mono,
+                since: now,
             },
             rejected: false,
-            farewell: self.settings.farewell.take().map(|text| Farewell {
-                text,
-                since: farewell_from,
-            }),
-            reveal_from,
+            failure,
+            farewell,
+            reveal_from: self.reveals().then_some(now),
         });
     }
 
@@ -716,7 +823,7 @@ impl LockModel {
                 );
                 ExitReason::Ended
             }
-            Stage::Unlocking(_) => ExitReason::Ended,
+            Stage::Unlocking(_) | Stage::Departing(_) => ExitReason::Ended,
             Stage::Exiting => return,
         };
         fx.push(Effect::Exit(reason));
@@ -726,7 +833,7 @@ impl LockModel {
         let ticking = match &self.stage {
             Stage::Requested { .. } => true,
             Stage::Locked(locked) => rules(locked.power.phase).minute_tick,
-            Stage::Unlocking(_) | Stage::Exiting => false,
+            Stage::Unlocking(_) | Stage::Departing(_) | Stage::Exiting => false,
         };
         let minute = now.unix.div_euclid(60);
         if ticking && minute != self.sampled_minute {
@@ -799,22 +906,43 @@ impl LockModel {
                     _ => None,
                 };
                 // The shell's opening starts as the locker lets go, so the greeting ends in the release.
+                let mut finished = false;
                 if let Some(end) = greeting_end.filter(|end| *end <= now) {
                     if unlocking.shell_opens {
-                        fx.extend([Effect::Unlock, Effect::Exit(ExitReason::Unlocked)]);
+                        finished = true;
+                    } else {
+                        unlocking.phase = UnlockPhase::Opening { since: end };
+                    }
+                }
+                finished |= match unlocking.phase {
+                    UnlockPhase::Opening { since } => since + OPENING <= now,
+                    UnlockPhase::Release { since } => since + RELEASE <= now,
+                    UnlockPhase::Greeting { .. } | UnlockPhase::Handover { .. } => false,
+                };
+                if finished {
+                    if self.login.is_some() {
+                        // The session is the display manager's to start, and may not start.
+                        fx.push(Effect::Unlock { by: unlocking.by });
+                        unlocking.phase = UnlockPhase::Handover { started: false };
+                    } else {
+                        fx.extend([Effect::Unlock { by: unlocking.by }, Effect::Exit(ExitReason::Unlocked)]);
                         self.stage = Stage::Exiting;
                         return;
                     }
-                    unlocking.phase = UnlockPhase::Opening { since: end };
                 }
-                let done = match unlocking.phase {
-                    UnlockPhase::Opening { since } => since + OPENING <= now,
-                    UnlockPhase::Release { since } => since + RELEASE <= now,
-                    UnlockPhase::Greeting { .. } => false,
-                };
-                if done {
-                    fx.extend([Effect::Unlock, Effect::Exit(ExitReason::Unlocked)]);
-                    self.stage = Stage::Exiting;
+            }
+            Stage::Departing(departing) => {
+                let reduced = self.settings.reduced_motion;
+                if departing.sent.is_none() && departing.power_at(reduced) <= now {
+                    departing.sent = Some(departing.power_at(reduced));
+                    fx.push(Effect::Power(departing.leave));
+                }
+                let gave_up = departing
+                    .sent
+                    .is_some_and(|sent| sent + LEAVE_GIVE_UP <= now);
+                if gave_up {
+                    let since_unix = departing.since_unix;
+                    self.rearm(now, since_unix, None, fx);
                 }
             }
             Stage::Requested { .. } | Stage::Exiting => {}
@@ -851,17 +979,26 @@ impl LockModel {
                     };
                 }
             }
+            // Input cannot cancel a departure, but once the machine has had its moment to go down
+            // it brings the login screen back, which is what a woken machine needs.
+            Stage::Departing(departing) => {
+                if departing.sent.is_some_and(|sent| sent + LEAVE_SETTLE <= now) {
+                    let since_unix = departing.since_unix;
+                    self.rearm(now, since_unix, None, fx);
+                }
+            }
             Stage::Requested { .. } | Stage::Exiting => {}
         }
     }
 
-    fn key(&mut self, key: Key, now: Instant, fx: &mut Vec<Effect>) {
-        if self.login_key(key, fx) {
+    fn key(&mut self, key: Key, now: Now, fx: &mut Vec<Effect>) {
+        if self.login_key(key, now, fx) {
             return;
         }
         let shown_before = self.typed_dots();
         if let Stage::Locked(locked) = &mut self.stage {
             locked.rejected = false;
+            locked.failure = None;
         }
         match &mut self.stage {
             Stage::Requested { typed } => edit_typed(typed, key),
@@ -885,10 +1022,10 @@ impl LockModel {
                 }
                 PasswordFlow::Checking { .. } | PasswordFlow::Paused(_) => {}
             },
-            Stage::Unlocking(_) | Stage::Exiting => {}
+            Stage::Unlocking(_) | Stage::Departing(_) | Stage::Exiting => {}
         }
         if shown_before == 0 && self.typed_dots() > 0 && !self.settings.reduced_motion {
-            self.start(MotionKind::DialShrink, now);
+            self.start(MotionKind::DialShrink, now.mono);
         }
     }
 
@@ -904,7 +1041,7 @@ impl LockModel {
                 password: PasswordFlow::Prompting { typed, .. } | PasswordFlow::Broken { typed },
                 ..
             }) => typed.char_count(),
-            Stage::Locked(_) | Stage::Unlocking(_) | Stage::Exiting => 0,
+            Stage::Locked(_) | Stage::Unlocking(_) | Stage::Departing(_) | Stage::Exiting => 0,
         }
     }
 
@@ -920,7 +1057,7 @@ impl LockModel {
             return;
         }
         if report == Report::Finished(PamOutcome::Success) {
-            return self.unlock(id.method, now, fx);
+            return self.unlock(id, now, fx);
         }
         match id.method {
             Method::Password => self.password_report(id.generation, report, now.mono, fx),
@@ -1016,6 +1153,7 @@ impl LockModel {
                 *sensor = Fingerprint::Listening { worker, hint };
                 if error {
                     locked.rejected = false;
+                    locked.failure = None;
                     self.motion = Some(Motion {
                         kind: MotionKind::RingFlash,
                         since: now,
@@ -1072,6 +1210,7 @@ impl LockModel {
         Some(Choice {
             login: login.user.as_str(),
             session: login.session(),
+            index: login.session_index(),
         })
     }
 
@@ -1098,19 +1237,116 @@ impl LockModel {
         }
     }
 
-    fn next_session(&mut self) {
-        if matches!(self.stage, Stage::Requested { .. } | Stage::Locked(_))
-            && let Some(login) = &mut self.login
-        {
-            login.next_session();
+    /// Selects the next session. A conversation begun for the old one would start it, so the
+    /// live workers restart for the new one and the typed password stays.
+    fn next_session(&mut self, fx: &mut Vec<Effect>) {
+        if !self.login_open() {
+            return;
+        }
+        let Some(login) = &mut self.login else {
+            return;
+        };
+        login.next_session();
+        let Stage::Locked(locked) = &mut self.stage else {
+            return;
+        };
+        if let Some(old) = locked.password.worker() {
+            let typed = match &mut locked.password {
+                PasswordFlow::Starting { typed, .. } => {
+                    mem::replace(typed, Typed::Editing(Password::new()))
+                }
+                PasswordFlow::Prompting { typed, .. } => Typed::Editing(mem::take(typed)),
+                _ => Typed::Editing(Password::new()),
+            };
+            let g = issue(&mut self.next_generation);
+            fx.extend([Effect::Kill(password(old)), Effect::Spawn(password(g))]);
+            locked.password = PasswordFlow::Starting { worker: g, typed };
+        }
+        if let Some(old) = locked.fingerprint.worker() {
+            let g = issue(&mut self.next_generation);
+            fx.extend([Effect::Kill(fingerprint(old)), Effect::Spawn(fingerprint(g))]);
+            locked.fingerprint = Fingerprint::Starting { worker: g };
         }
     }
 
-    /// Login mode's keys. True when the key was theirs: Tab and the session key, and every
-    /// key while the username is being edited. The rest go to the password as on the lock screen.
-    fn login_key(&mut self, key: Key, fx: &mut Vec<Effect>) -> bool {
+    fn toggle_power_menu(&mut self) {
+        if matches!(self.stage, Stage::Requested { .. } | Stage::Locked(_))
+            && let Some(login) = &mut self.login
+        {
+            login.power_open = !login.power_open;
+        }
+    }
+
+    /// Plays the farewell for `leave` over the closed dial and then asks the edge to carry it
+    /// out. Both workers die at once: nothing is authenticated from here on.
+    fn leave(&mut self, leave: Leave, now: Now, fx: &mut Vec<Effect>) {
         let Some(login) = &mut self.login else {
-            return matches!(key, Key::Tab | Key::NextSession);
+            return;
+        };
+        let Stage::Locked(locked) = &self.stage else {
+            return;
+        };
+        login.editing = None;
+        login.power_open = false;
+        let farewell = login
+            .farewells
+            .as_ref()
+            .and_then(|set| set.line(leave))
+            .map(str::to_owned);
+        fx.extend(locked.password.worker().map(|g| Effect::Kill(password(g))));
+        fx.extend(
+            locked
+                .fingerprint
+                .worker()
+                .map(|g| Effect::Kill(fingerprint(g))),
+        );
+        self.stage = Stage::Departing(Departing {
+            since_unix: locked.since_unix,
+            leave,
+            since: now.mono,
+            farewell,
+            sent: None,
+        });
+        self.motion = None;
+    }
+
+    /// The display manager started the session: the frame stays as it is, closed, for the
+    /// shell's login opening to continue from.
+    fn session_started(&mut self, fx: &mut Vec<Effect>) {
+        if let Stage::Unlocking(Unlocking {
+            phase: UnlockPhase::Handover { started },
+            ..
+        }) = &mut self.stage
+            && !mem::replace(started, true)
+        {
+            fx.push(Effect::Exit(ExitReason::Unlocked));
+        }
+    }
+
+    /// The session did not start: ask for the password again, with the reason as the hint.
+    fn session_failed(&mut self, text: String, now: Now, fx: &mut Vec<Effect>) {
+        if let Stage::Unlocking(Unlocking {
+            phase: UnlockPhase::Handover { started: false },
+            since_unix,
+            ..
+        }) = &self.stage
+        {
+            let since_unix = *since_unix;
+            self.rearm(now.mono, since_unix, Some(text), fx);
+        }
+    }
+
+    /// Back to the login screen with fresh conversations, after a departure or a failed start.
+    fn rearm(&mut self, now: Instant, since_unix: i64, failure: Option<String>, fx: &mut Vec<Effect>) {
+        self.arm(now, since_unix, Typed::Editing(Password::new()), None, failure, fx);
+    }
+
+    /// Login mode's keys. True when the key was theirs: Tab, the session key and the leave
+    /// shortcuts, Escape while the power chip is open, and every key while the username is being
+    /// edited. The rest go to the password as on the lock screen.
+    fn login_key(&mut self, key: Key, now: Now, fx: &mut Vec<Effect>) -> bool {
+        let Some(login) = &mut self.login else {
+            return matches!(key, Key::Tab | Key::NextSession | Key::Leave(_));
         };
         if login.editing.is_some() {
             if let Some(user) = login.edit(key) {
@@ -1120,20 +1356,24 @@ impl LockModel {
         }
         match key {
             Key::Tab => self.begin_edit_user(),
-            Key::NextSession => self.next_session(),
-            _ => return false,
+            Key::NextSession => self.next_session(fx),
+            Key::Leave(leave) => self.leave(leave, now, fx),
+            Key::Escape if login.power_open => login.power_open = false,
+            _ => return matches!(self.stage, Stage::Departing(_)),
         }
         true
     }
 
     /// The committed user changed: the PAM conversations must follow the user chip, and the
-    /// password typed for the old user is dropped rather than offered to the new one.
+    /// password typed for the old user is dropped rather than offered to the new one. The
+    /// fingerprint worker belongs to the old user too, and waits for the new user's look, which
+    /// says whether they have a print.
     fn switch_user(&mut self, user: Username, fx: &mut Vec<Effect>) {
         let Some(login) = &mut self.login else {
             return;
         };
         login.commit(user.clone());
-        let fingerprint_wanted = login.fingerprint;
+        login.fingerprint = false;
         self.settings.user = user.as_str().to_owned();
         // The old user's greeting must never greet the new one.
         self.settings.greeting = None;
@@ -1149,23 +1389,22 @@ impl LockModel {
                     typed: Typed::Editing(Password::new()),
                 };
                 locked.rejected = false;
-                if fingerprint_wanted {
-                    fx.extend(
-                        locked
-                            .fingerprint
-                            .worker()
-                            .map(|g| Effect::Kill(fingerprint(g))),
-                    );
-                    let g = issue(&mut self.next_generation);
-                    fx.push(Effect::Spawn(fingerprint(g)));
-                    locked.fingerprint = Fingerprint::Starting { worker: g };
-                }
+                locked.failure = None;
+                fx.extend(
+                    locked
+                        .fingerprint
+                        .worker()
+                        .map(|g| Effect::Kill(fingerprint(g))),
+                );
+                locked.fingerprint = Fingerprint::Unavailable;
             }
-            Stage::Unlocking(_) | Stage::Exiting => {}
+            Stage::Unlocking(_) | Stage::Departing(_) | Stage::Exiting => {}
         }
     }
 
-    fn look_ready(&mut self, look: UserLook, now: Instant) {
+    /// The edge has the committed user's look. Its fingerprint answer decides whether the
+    /// sensor runs for them: armed now if the screen is locked, else when the lock lands.
+    fn look_ready(&mut self, look: UserLook, now: Instant, fx: &mut Vec<Effect>) {
         let reduced_motion = self.settings.reduced_motion;
         let Some(login) = &mut self.login else {
             return;
@@ -1173,17 +1412,35 @@ impl LockModel {
         if login.user.as_str() != look.login {
             return;
         }
+        login.fingerprint = look.fingerprint;
+        login.farewells = look.farewells;
+        login.look_ready(now, reduced_motion);
         self.settings.user = look.display.unwrap_or(look.login);
         self.settings.greeting = look.greeting;
-        login.look_ready(now, reduced_motion);
+        let wanted = self.fingerprint_wanted();
+        if let Stage::Locked(locked) = &mut self.stage {
+            match (&locked.fingerprint, wanted) {
+                (Fingerprint::Unavailable, true) => {
+                    let g = issue(&mut self.next_generation);
+                    fx.push(Effect::Spawn(fingerprint(g)));
+                    locked.fingerprint = Fingerprint::Starting { worker: g };
+                }
+                (Fingerprint::Unavailable, false) => {}
+                (_, true) => {}
+                (sensor, false) => {
+                    fx.extend(sensor.worker().map(|g| Effect::Kill(fingerprint(g))));
+                    locked.fingerprint = Fingerprint::Unavailable;
+                }
+            }
+        }
     }
 
     /// Authenticated by `by`: kill the other worker and start the unlock sequence.
-    fn unlock(&mut self, by: Method, now: Now, fx: &mut Vec<Effect>) {
+    fn unlock(&mut self, by: WorkerId, now: Now, fx: &mut Vec<Effect>) {
         let Stage::Locked(locked) = mem::replace(&mut self.stage, Stage::Exiting) else {
             return;
         };
-        match by {
+        match by.method {
             Method::Password => fx.extend(
                 locked
                     .fingerprint
@@ -1198,6 +1455,7 @@ impl LockModel {
         let login = self.login.is_some();
         if let Some(state) = &mut self.login {
             state.editing = None;
+            state.power_open = false;
         }
         let locked_for =
             Duration::from_secs(now.unix.saturating_sub(locked.since_unix).max(0) as u64);
@@ -1211,6 +1469,7 @@ impl LockModel {
         };
         let mut unlocking = Unlocking {
             since_unix: locked.since_unix,
+            by,
             phase,
             shell_opens: false,
         };
