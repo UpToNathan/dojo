@@ -1,19 +1,39 @@
 #!/usr/bin/env bash
-# Lets `loginctl lock-session` lock Dojo and holds a logind sleep delay
-# inhibitor until the session is locked, so suspend never completes with the
-# desktop visible. Neither stasis nor Niri does either: stasis only reads
-# PrepareForSleep and LockedHint, and treats login1 Lock as a request it ignores.
+# Lets `loginctl lock-session` lock Dojo, and makes every route into suspend,
+# hibernate, restart and shutdown show Dojo's closing before the machine goes.
+# Neither stasis nor Niri does either: stasis only reads PrepareForSleep and
+# LockedHint, and treats login1 Lock as a request it ignores.
 #
-# The inhibitor is held while idle and dropped once the session is locked after
-# PrepareForSleep(true): the locker's `locked-at` marker is newer than the wait,
-# or logind's LockedHint is true, whichever comes first. Niri sets no LockedHint
-# here (its environment has no XDG_SESSION_ID), so the locker writes the marker
-# and sets the hint itself. logind stops waiting after InhibitDelayMaxSec (5 s by
-# default), so a locker that never takes the lock delays suspend, not blocks it.
+# Sleep: a logind sleep delay inhibitor is held while idle and dropped once the
+# session is locked after PrepareForSleep(true): the locker's `locked-at` marker is
+# newer than the wait, or logind's LockedHint is true, whichever comes first. Niri
+# sets no LockedHint here (its environment has no XDG_SESSION_ID), so the locker
+# writes the marker and sets the hint itself. The shell is also asked for the
+# suspend farewell (`dojo --farewell suspend`: the short closing, no action),
+# alongside the lock and in either order. If it gets there first the shell starts
+# the locker behind its closing; if the lock closing is already on screen the
+# farewell does nothing. Logind cannot say suspend from hibernate here and the two
+# closings are the same, so the signal is always answered with the suspend one.
+#
+# Shutdown: a shutdown delay inhibitor is held the same way. On
+# PrepareForShutdown(true) the shell is asked for the farewell and the inhibitor
+# is dropped when it has played, so poweroff and restart show the closing whatever
+# started them: the power key, `systemctl poweroff`, a stray `shutdown now`. The
+# signal cannot tell restart from poweroff, and ScheduledShutdown is only set by a
+# scheduled shutdown, so the type comes from PrepareForShutdownWithMetadata, which
+# logind sends first (systemd 255 and later). Without it the shutdown pool is used.
+# When the shell itself started the action it is already closing, and the
+# farewell returns at once.
+#
+# logind stops waiting after InhibitDelayMaxSec (5 s by default). Every wait here
+# ends well before that: a locker that never takes the lock, or a shell that is
+# absent or stalled, delays suspend or shutdown, never blocks it.
 set -euo pipefail
 
 lock_now=${DOJO_LOCK_NOW:-"$(dirname -- "${BASH_SOURCE[0]}")/dojo-lock-now"}
+dojo=${DOJO_DESKTOP:-"${HOME}/.local/bin/dojo-desktop"}
 hint_polls=${DOJO_LOCK_HINT_POLLS:-40}
+farewell_bound=${DOJO_FAREWELL_BOUND:-2.5}
 marker=${DOJO_LOCK_MARKER:-"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/dojo/locked-at"}
 
 session_id=$(loginctl show-user "$(id -u)" --property=Display --value)
@@ -22,18 +42,22 @@ session_path=$(busctl --system call org.freedesktop.login1 /org/freedesktop/logi
     org.freedesktop.login1.Manager GetSession s "$session_id" | sed -n 's/^o "\(.*\)"$/\1/p')
 [[ -n $session_path ]] || { echo "dojo-lock-session-bridge: logind has no session $session_id" >&2; exit 1; }
 
-holder=
+declare -A holder
+# take_inhibitor WHAT WHY: one delay inhibitor per kind of operation.
 take_inhibitor() {
-    [[ -z $holder ]] || return 0
-    setsid systemd-inhibit --what=sleep --mode=delay --who=Dojo \
-        --why="Lock the session before suspend" sleep infinity &
-    holder=$!
+    [[ -z ${holder[$1]:-} ]] || return 0
+    setsid systemd-inhibit --what="$1" --mode=delay --who=Dojo --why="$2" sleep infinity &
+    holder[$1]=$!
 }
 drop_inhibitor() {
-    [[ -n $holder ]] || return 0
-    kill -- "-$holder" 2>/dev/null || true
-    wait "$holder" 2>/dev/null || true
-    holder=
+    [[ -n ${holder[$1]:-} ]] || return 0
+    kill -- "-${holder[$1]}" 2>/dev/null || true
+    wait "${holder[$1]}" 2>/dev/null || true
+    holder[$1]=
+}
+drop_all() {
+    local what
+    for what in "${!holder[@]}"; do drop_inhibitor "$what"; done
 }
 # `began` is stamped before the lock is requested, so a marker written however
 # quickly afterwards still counts as newer.
@@ -50,20 +74,46 @@ wait_for_lock() {
     rm -f -- "$began"
     echo "dojo-lock-session-bridge: session still unlocked after $hint_polls polls; releasing sleep" >&2
 }
-trap drop_inhibitor EXIT
+# Asks the shell to play the closing for an occasion and waits until it has, at
+# most `farewell_bound` seconds. With no shell the command returns at once.
+farewell() {
+    timeout --kill-after=0.3 "$farewell_bound" "$dojo" --farewell "$1" ||
+        echo "dojo-lock-session-bridge: farewell $1 ended early or not at all; releasing" >&2
+}
+trap drop_all EXIT
 
+shutdown_occasion=shutdown
 exec {events}< <(exec gdbus monitor --system --dest org.freedesktop.login1)
-take_inhibitor
+take_inhibitor sleep "Lock the session before suspend"
+take_inhibitor shutdown "Show the farewell before shutdown"
 while IFS= read -r line <&"$events"; do
     case $line in
         *"org.freedesktop.login1.Manager.PrepareForSleep (true,)"*)
             began=$(mktemp)
+            farewell suspend &
+            farewell_job=$!
             "$lock_now" || true
             wait_for_lock "$began"
-            drop_inhibitor
+            wait "$farewell_job" || true
+            drop_inhibitor sleep
             ;;
         *"org.freedesktop.login1.Manager.PrepareForSleep (false,)"*)
-            take_inhibitor
+            take_inhibitor sleep "Lock the session before suspend"
+            ;;
+        *"org.freedesktop.login1.Manager.PrepareForShutdownWithMetadata (true,"*)
+            case $line in
+                *"'reboot'"* | *"'soft-reboot'"*) shutdown_occasion=restart ;;
+                *) shutdown_occasion=shutdown ;;
+            esac
+            ;;
+        *"org.freedesktop.login1.Manager.PrepareForShutdown (true,)"*)
+            farewell "$shutdown_occasion"
+            shutdown_occasion=shutdown
+            drop_inhibitor shutdown
+            ;;
+        *"org.freedesktop.login1.Manager.PrepareForShutdown (false,)"*)
+            shutdown_occasion=shutdown
+            take_inhibitor shutdown "Show the farewell before shutdown"
             ;;
         "$session_path: org.freedesktop.login1.Session.Lock ()")
             "$lock_now" || true
