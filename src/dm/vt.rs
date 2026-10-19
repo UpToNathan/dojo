@@ -41,12 +41,17 @@ impl Vt {
 pub trait Console {
     fn vt(&self) -> Vt;
     fn acquire(&mut self) -> io::Result<()>;
+    /// Puts the terminal in graphics mode, so the kernel's console does not paint over the
+    /// screen while nothing draws on it. Meant for the gap between the greeter and the session;
+    /// [`acquire`](Self::acquire) puts it back in text mode for the next greeter.
+    fn graphics(&mut self) -> io::Result<()>;
 }
 
 const VT_ACTIVATE: u64 = 0x5606;
 const VT_WAITACTIVE: u64 = 0x5607;
 const KDSETMODE: u64 = 0x4B3A;
 const KD_TEXT: c_int = 0;
+const KD_GRAPHICS: c_int = 1;
 
 /// The terminal systemd opened as standard input (`TTYPath=/dev/tty1`).
 pub struct StdinConsole {
@@ -66,24 +71,29 @@ impl StdinConsole {
     }
 }
 
+fn ioctl(request: u64, argument: c_int) -> io::Result<()> {
+    let stdin = unsafe { BorrowedFd::borrow_raw(0) };
+    if unsafe { libc::ioctl(stdin.as_raw_fd(), request as _, argument) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 impl Console for StdinConsole {
     fn vt(&self) -> Vt {
         self.vt
     }
 
     fn acquire(&mut self) -> io::Result<()> {
-        let stdin = unsafe { BorrowedFd::borrow_raw(0) };
         let number = c_int::from(self.vt.number());
-        let call = |request: u64, argument: c_int| {
-            if unsafe { libc::ioctl(stdin.as_raw_fd(), request as _, argument) } < 0 {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(())
-        };
-        call(VT_ACTIVATE, number)?;
-        call(VT_WAITACTIVE, number)?;
+        ioctl(VT_ACTIVATE, number)?;
+        ioctl(VT_WAITACTIVE, number)?;
         // A compositor that died leaves the terminal in graphics mode.
-        call(KDSETMODE, KD_TEXT)
+        ioctl(KDSETMODE, KD_TEXT)
+    }
+
+    fn graphics(&mut self) -> io::Result<()> {
+        ioctl(KDSETMODE, KD_GRAPHICS)
     }
 }
 

@@ -29,6 +29,9 @@ pub struct Options {
     pub session_shell: Option<PathBuf>,
     pub vt: u8,
     pub power_log: Option<PathBuf>,
+    /// Every console and greeter step is appended here, one word per line, so a test can read the
+    /// order they happened in next to lines the session script appends itself.
+    pub trace: Option<PathBuf>,
     /// While this file exists the fake greeter reports that its processes survived being stopped.
     pub greeter_survivor: Option<PathBuf>,
     pub other_session: bool,
@@ -48,6 +51,7 @@ pub fn parse(arguments: Vec<OsString>) -> Result<Options, Unusable> {
         session_shell: None,
         vt: 1,
         power_log: None,
+        trace: None,
         greeter_survivor: None,
         other_session: false,
         fingerprints: Vec::new(),
@@ -85,6 +89,7 @@ pub fn parse(arguments: Vec<OsString>) -> Result<Options, Unusable> {
             "--session-shell" => options.session_shell = Some(value.into()),
             "--vt" => options.vt = text()?.parse().map_err(|_| bad("--vt"))?,
             "--power-log" => options.power_log = Some(value.into()),
+            "--trace" => options.trace = Some(value.into()),
             "--greeter-survivor" => options.greeter_survivor = Some(value.into()),
             "--fingerprint" => options.fingerprints.push(text()?),
             other => return Err(bad(&format!("unknown {other}"))),
@@ -119,10 +124,14 @@ pub fn build(arguments: Vec<OsString>) -> Result<(Settings, Parts), Unusable> {
         helper,
     };
     let parts = Parts {
-        console: Box::new(FakeConsole(Vt::new(options.vt).expect("checked"))),
+        console: Box::new(FakeConsole(
+            Vt::new(options.vt).expect("checked"),
+            Trace(options.trace.clone()),
+        )),
         greeters: Box::new(CommandGreeters {
             command: options.greeter,
             survivor: options.greeter_survivor,
+            trace: Trace(options.trace),
         }),
         power: Box::new(PowerLog(options.power_log)),
         seat: Box::new(FakeSeat {
@@ -134,7 +143,20 @@ pub fn build(arguments: Vec<OsString>) -> Result<(Settings, Parts), Unusable> {
     Ok((settings, parts))
 }
 
-struct FakeConsole(Vt);
+/// Appends `console acquire`, `console graphics`, `greeter launch` and `greeter stop` lines.
+#[derive(Clone)]
+struct Trace(Option<PathBuf>);
+
+impl Trace {
+    fn step(&self, what: &str) {
+        let Some(path) = &self.0 else { return };
+        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            let _ = writeln!(file, "{what}");
+        }
+    }
+}
+
+struct FakeConsole(Vt, Trace);
 
 impl Console for FakeConsole {
     fn vt(&self) -> Vt {
@@ -142,6 +164,12 @@ impl Console for FakeConsole {
     }
 
     fn acquire(&mut self) -> io::Result<()> {
+        self.1.step("console acquire");
+        Ok(())
+    }
+
+    fn graphics(&mut self) -> io::Result<()> {
+        self.1.step("console graphics");
         Ok(())
     }
 }
@@ -188,6 +216,7 @@ impl Fingerprints for Enrolled {
 struct CommandGreeters {
     command: Vec<OsString>,
     survivor: Option<PathBuf>,
+    trace: Trace,
 }
 
 impl Greeters for CommandGreeters {
@@ -221,10 +250,12 @@ impl Greeters for CommandGreeters {
             return Err(io::Error::last_os_error());
         }
         let pidfd = unsafe { OwnedFd::from_raw_fd(fd as i32) };
+        self.trace.step("greeter launch");
         Ok(Box::new(CommandGreeter {
             child,
             pidfd,
             survivor: self.survivor.clone(),
+            trace: self.trace.clone(),
         }))
     }
 }
@@ -233,6 +264,7 @@ struct CommandGreeter {
     child: Child,
     pidfd: OwnedFd,
     survivor: Option<PathBuf>,
+    trace: Trace,
 }
 
 impl GreeterProcess for CommandGreeter {
@@ -251,6 +283,7 @@ impl GreeterProcess for CommandGreeter {
             let _ = child.try_wait();
         });
         let _ = self.child.wait();
+        self.trace.step("greeter stop");
         let sticky = self.survivor.as_ref().is_some_and(|marker| marker.exists());
         survivors.is_empty() && !sticky
     }

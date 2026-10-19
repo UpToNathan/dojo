@@ -35,6 +35,7 @@ esac >> "$DIR/pam-phases.log"
 "#;
 
 const SESSION: &str = r#"#!/bin/bash
+echo "session start" >> "$DIR/trace.log"
 {
   echo "pid=$$"
   echo "cwd=$(pwd -P)"
@@ -167,6 +168,8 @@ impl Bench {
             .arg(self.path("pam.d"))
             .arg("--session-shell")
             .arg(self.path("shell.sh"))
+            .arg("--trace")
+            .arg(self.path("trace.log"))
             .args(extra)
             .arg("--greeter-command")
             .args(greeter)
@@ -186,6 +189,15 @@ impl Bench {
     fn standard_dm(&self) -> Dm {
         let greeter = self.path("greeter.sh");
         self.dm(&[], &[greeter.to_str().unwrap()])
+    }
+
+    /// The console, greeter and session steps in the order they happened.
+    fn trace(&self) -> Vec<String> {
+        fs::read_to_string(self.path("trace.log"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
     }
 
     fn phases(&self) -> Vec<String> {
@@ -472,6 +484,80 @@ fn a_login_runs_the_session_and_the_greeter_comes_back() {
     bench.wait_for("the greeter to be stopped", || unsafe {
         libc::kill(greeter_pid, 0) != 0
     });
+}
+
+/// `(event, ms, unix_ms)` of every `dojo-dm: event=...` line in the log.
+fn timeline(dm: &Dm) -> Vec<(String, u64, u64)> {
+    fs::read_to_string(&dm.log)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.strip_prefix("dojo-dm: event=")?.split(' ');
+            let event = fields.next()?.to_owned();
+            let ms = fields.next()?.strip_prefix("ms=")?.parse().ok()?;
+            let unix = fields.next()?.strip_prefix("unix_ms=")?.parse().ok()?;
+            fields.next().is_none().then_some((event, ms, unix))
+        })
+        .collect()
+}
+
+#[test]
+fn the_greeter_stays_through_authentication_then_the_screen_is_held_before_the_session_starts() {
+    let Some(login) = login_or_skip() else { return };
+    let bench = Bench::new();
+    let dm = bench.standard_dm();
+    let (greeter, _) = Greeter::hello(&bench);
+    greeter.begin(1, Method::Password, &login, "test-desktop");
+    assert_eq!(greeter.report(1, Method::Password), Report::Prompt { echo: false });
+    greeter.answer(1, SECRET);
+    assert_eq!(
+        greeter.report(1, Method::Password),
+        Report::Finished(PamOutcome::Success)
+    );
+    // The greeter fades to the frame colour now. Nothing may stop it before it asks for the session.
+    std::thread::sleep(Duration::from_millis(600));
+    assert_eq!(bench.trace(), ["console acquire", "greeter launch"]);
+    assert!(bench.path("greeter.pid").exists());
+    assert!(!bench.path("session.out").exists());
+    greeter.send(Request::StartSession { generation: 1 });
+    assert!(greeter.closed());
+
+    bench.session_env();
+    bench.wait_for("the greeter to come back", || {
+        bench.trace().iter().filter(|step| *step == "greeter launch").count() == 2
+    });
+    let trace = bench.trace();
+    let at = |step: &str, from: usize| {
+        from + trace[from..].iter().position(|s| s == step).unwrap_or_else(|| {
+            panic!("no {step:?} after step {from} of {trace:?}")
+        })
+    };
+    let stopped = at("greeter stop", 0);
+    let quiet = at("console graphics", stopped);
+    let session = at("session start", quiet);
+    assert!(!trace[..stopped].contains(&"console graphics".to_owned()), "{trace:?}");
+    assert!(trace[quiet..session].iter().all(|step| step == "console graphics"), "{trace:?}");
+    let next = at("console acquire", session);
+    assert_eq!(trace[next + 1], "greeter launch", "{trace:?}");
+
+    bench.wait_for("the second greeter to be logged", || timeline(&dm).len() >= 7);
+    let events = timeline(&dm);
+    let names: Vec<&str> = events.iter().map(|(name, _, _)| name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "greeter-start",
+            "auth-ok",
+            "start-session",
+            "greeter-stopped",
+            "session-start-sent",
+            "session-ended",
+            "greeter-start"
+        ]
+    );
+    assert!(events.windows(2).all(|pair| pair[0].1 <= pair[1].1 && pair[0].2 <= pair[1].2));
+    drop(greeter);
+    dm.terminate();
 }
 
 #[test]

@@ -34,13 +34,19 @@ use super::registry::{Action, Registry};
 use super::session::Service as PamService;
 use super::sessions::Catalog;
 use super::vt::Console;
-use crate::lock::pam::Report;
+use crate::lock::pam::{PamOutcome, Report};
 
 /// A greeter that has not said hello by now is not coming.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 
 pub fn log(message: impl std::fmt::Display) {
     eprintln!("dojo-dm: {message}");
+}
+
+/// One line of the hand-over timeline, in the shape of the shell's `dojo-session:` lines.
+/// `ms` counts from the service's start; `unix_ms` lines the journal up with the shell's.
+fn timeline_line(event: &str, ms: u128, unix_ms: u128) -> String {
+    format!("dojo-dm: event={event} ms={ms} unix_ms={unix_ms}")
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -162,6 +168,17 @@ impl Service {
         self.epoch.elapsed()
     }
 
+    /// Writes an event of the hand-over from greeter to session to the journal.
+    fn note(&self, event: &str) {
+        let unix_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_millis());
+        eprintln!(
+            "{}",
+            timeline_line(event, self.epoch.elapsed().as_millis(), unix_ms)
+        );
+    }
+
     fn timeout(&self) -> c_int {
         let deadline = self.greeter.as_ref().and_then(|greeter| greeter.deadline);
         deadline.map_or(-1, |deadline| {
@@ -265,7 +282,7 @@ impl Service {
                     }
                 }
                 Order::StopGreeter => {
-                    self.stop_greeter();
+                    self.stop_greeter(false);
                 }
                 Order::Snapshot => self.snapshot_current(),
                 Order::Exit(code) => self.finish(code),
@@ -278,6 +295,7 @@ impl Service {
             log(format!("cannot take the console: {error}"));
         }
         let process = self.greeters.launch(self.console.vt())?;
+        self.note("greeter-start");
         self.greeter = Some(Greeter {
             process,
             deadline: Some(Instant::now() + CONNECT_TIMEOUT),
@@ -287,7 +305,13 @@ impl Service {
 
     /// Stops the greeter and its connection and waits until its logind session is gone.
     /// `false` when something of the greeter is still running afterwards.
-    fn stop_greeter(&mut self) -> bool {
+    ///
+    /// With `to_session` the terminal goes to graphics mode as soon as the greeter's processes
+    /// are gone, and again once logind has forgotten its session: logind puts the terminal back
+    /// in text mode when it ends a session, and the kernel's console would paint over the
+    /// screen until the user's compositor takes it. Only a hand-over does this. A greeter that
+    /// is lost, or a service that stops, leaves a terminal someone has to read.
+    fn stop_greeter(&mut self, to_session: bool) -> bool {
         self.connection = None;
         let actions = self.registry.greeter_gone();
         let mut clean = true;
@@ -297,6 +321,9 @@ impl Service {
                 clean = false;
             }
             drop(greeter);
+            if to_session {
+                self.hold_screen();
+            }
             if !wait_session_gone(
                 self.seat.as_ref(),
                 self.greeters.peer_uid(),
@@ -304,14 +331,24 @@ impl Service {
             ) {
                 log("the greeter's session is still known to logind");
             }
+            if to_session {
+                self.hold_screen();
+            }
+            self.note("greeter-stopped");
         }
         self.run_actions(actions);
         clean
     }
 
+    fn hold_screen(&mut self) {
+        if let Err(error) = self.console.graphics() {
+            log(format!("cannot keep the console quiet: {error}"));
+        }
+    }
+
     /// The greeter went away or never came: a failed start unless a session took over.
     fn greeter_lost(&mut self) {
-        self.stop_greeter();
+        self.stop_greeter(false);
         if self.cycle.phase() == Phase::Greeter {
             self.apply(Input::GreeterFailed { at: self.now() });
         }
@@ -541,6 +578,9 @@ impl Service {
             // Ended is sent just before the helper's last PAM call; let it finish.
             helper.wait_for_exit(Duration::from_secs(3));
         }
+        if !in_session && event == HelperEvent::Report(Report::Finished(PamOutcome::Success)) {
+            self.note("auth-ok");
+        }
         let over = in_session
             && matches!(
                 event,
@@ -556,6 +596,7 @@ impl Service {
             self.helpers.remove(&generation);
         }
         if over {
+            self.note("session-ended");
             self.session = None;
             self.apply(Input::SessionOver);
         }
@@ -593,6 +634,7 @@ impl Service {
                 .registry
                 .refuse_start(generation, SessionFailure::Refused);
         };
+        self.note("start-session");
         let start = session.start(&self.console.vt());
         self.session = Some(SessionRun {
             generation,
@@ -602,7 +644,7 @@ impl Service {
         self.last_login = Some(login);
         self.apply(Input::SessionStarting);
         self.refresh_snapshot(&account, gecos.as_deref());
-        if !self.stop_greeter() {
+        if !self.stop_greeter(true) {
             // The greeter user's code may still be running; the user's session, and the
             // password that unlocked it, must not start beside it.
             log("not starting the session: the greeter left processes behind");
@@ -616,6 +658,7 @@ impl Service {
             log("cannot send the session to its helper");
             return self.abandon_start(generation, SessionFailure::SpawnFailed);
         }
+        self.note("session-start-sent");
         Vec::new()
     }
 
@@ -731,4 +774,17 @@ fn listen(path: &Path, group: Option<u32>) -> io::Result<OwnedFd> {
         return Err(io::Error::last_os_error());
     }
     Ok(socket)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::timeline_line;
+
+    #[test]
+    fn a_timeline_line_has_the_shape_of_the_shells() {
+        assert_eq!(
+            timeline_line("auth-ok", 1234, 1_792_000_000_123),
+            "dojo-dm: event=auth-ok ms=1234 unix_ms=1792000000123"
+        );
+    }
 }
