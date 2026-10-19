@@ -292,7 +292,7 @@ pub fn wait_session_gone(seat: &dyn Seat, uid: u32, timeout: Duration) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
 
@@ -412,33 +412,36 @@ mod tests {
     }
 
     struct Gone {
-        calls: Cell<u32>,
+        calls: AtomicUsize,
         answers: Vec<Option<bool>>,
     }
 
     impl Seat for Gone {
         fn has_session_of(&self, _uid: u32) -> Option<bool> {
-            let call = self.calls.get() as usize;
-            self.calls.set(self.calls.get() + 1);
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
             self.answers.get(call).copied().unwrap_or(Some(true))
+        }
+
+        fn has_session_besides(&self, _uid: u32) -> Option<bool> {
+            None
         }
     }
 
     #[test]
     fn the_seat_is_free_once_logind_forgets_the_greeter_or_cannot_say() {
         let seat = Gone {
-            calls: Cell::new(0),
+            calls: AtomicUsize::new(0),
             answers: vec![Some(true), Some(true), Some(false)],
         };
         assert!(wait_session_gone(&seat, 975, Duration::from_secs(2)));
-        assert_eq!(seat.calls.get(), 3);
+        assert_eq!(seat.calls.load(Ordering::SeqCst), 3);
         let unknown = Gone {
-            calls: Cell::new(0),
+            calls: AtomicUsize::new(0),
             answers: vec![None],
         };
         assert!(wait_session_gone(&unknown, 975, Duration::from_secs(2)));
         let stuck = Gone {
-            calls: Cell::new(0),
+            calls: AtomicUsize::new(0),
             answers: vec![Some(true); 1000],
         };
         assert!(!wait_session_gone(&stuck, 975, Duration::from_millis(120)));

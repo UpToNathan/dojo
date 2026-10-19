@@ -31,6 +31,7 @@ pub struct Options {
     pub power_log: Option<PathBuf>,
     /// While this file exists the fake greeter reports that its processes survived being stopped.
     pub greeter_survivor: Option<PathBuf>,
+    pub other_session: bool,
     pub fingerprints: Vec<String>,
     pub greeter: Vec<OsString>,
 }
@@ -48,6 +49,7 @@ pub fn parse(arguments: Vec<OsString>) -> Result<Options, Unusable> {
         vt: 1,
         power_log: None,
         greeter_survivor: None,
+        other_session: false,
         fingerprints: Vec::new(),
         greeter: Vec::new(),
     };
@@ -57,6 +59,10 @@ pub fn parse(arguments: Vec<OsString>) -> Result<Options, Unusable> {
         if flag == "--greeter-command" {
             options.greeter = arguments.by_ref().collect();
             break;
+        }
+        if flag == "--other-session" {
+            options.other_session = true;
+            continue;
         }
         let value = arguments
             .next()
@@ -119,7 +125,9 @@ pub fn build(arguments: Vec<OsString>) -> Result<(Settings, Parts), Unusable> {
             survivor: options.greeter_survivor,
         }),
         power: Box::new(PowerLog(options.power_log)),
-        seat: Box::new(NoSessions),
+        seat: Box::new(FakeSeat {
+            other_session: options.other_session,
+        }),
         fingerprints: Box::new(Enrolled(options.fingerprints)),
         greeter_group: None,
     };
@@ -152,11 +160,18 @@ impl Power for PowerLog {
     }
 }
 
-struct NoSessions;
+/// logind with no session of the greeter's left, and, with `--other-session`, someone else logged in.
+struct FakeSeat {
+    other_session: bool,
+}
 
-impl Seat for NoSessions {
+impl Seat for FakeSeat {
     fn has_session_of(&self, _uid: u32) -> Option<bool> {
         Some(false)
+    }
+
+    fn has_session_besides(&self, _uid: u32) -> Option<bool> {
+        Some(self.other_session)
     }
 }
 

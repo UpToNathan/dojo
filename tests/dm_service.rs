@@ -728,6 +728,39 @@ fn users_fingerprints_and_power_are_answered_and_requests_before_hello_are_ignor
 }
 
 #[test]
+fn the_login_screen_may_only_suspend_while_someone_else_is_logged_in() {
+    let Some(login) = login_or_skip() else { return };
+    let bench = Bench::new();
+    let power_log = bench.path("power.log");
+    let greeter_command = bench.path("greeter.sh");
+    let dm = bench.dm(
+        &["--other-session", "--power-log", power_log.to_str().unwrap()],
+        &[greeter_command.to_str().unwrap()],
+    );
+    let (greeter, _) = Greeter::hello(&bench);
+    for occasion in [
+        PowerOccasion::Shutdown,
+        PowerOccasion::Restart,
+        PowerOccasion::Hibernate,
+        PowerOccasion::Suspend,
+    ] {
+        greeter.send(Request::Power { occasion });
+    }
+    bench.wait_for("the suspend", || power_log.exists());
+    bench.wait_for("three refusals in the log", || {
+        fs::read_to_string(bench.path("dm.log")).is_ok_and(|log| log.matches("refused").count() == 3)
+    });
+    assert_eq!(fs::read_to_string(&power_log).unwrap(), "Suspend\n");
+
+    greeter.send(Request::SelectUser { login: login.clone() });
+    assert!(
+        matches!(greeter.next(), Event::User { .. }),
+        "the loop carries on after a refusal"
+    );
+    assert_eq!(dm.terminate(), Some(0));
+}
+
+#[test]
 fn a_greeter_that_cannot_start_ends_the_service_after_three_tries() {
     let bench = Bench::new();
     let mut dm = bench.dm(&[], &["/bin/false"]);

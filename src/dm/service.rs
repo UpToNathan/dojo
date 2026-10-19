@@ -22,7 +22,7 @@ use super::auth::Rejected;
 use super::config::{Parts, Settings};
 use super::cycle::{Cycle, Input, Order, Phase};
 use super::greeter::{GreeterProcess, Greeters, SESSION_GONE_TIMEOUT, wait_session_gone};
-use super::host::{Fingerprints, Power, Seat};
+use super::host::{Fingerprints, Power, Seat, power_refusal};
 use super::launch::{HelperEvent, SessionEvent};
 use super::look::Snapshots;
 use super::memory::{self, Remembered};
@@ -121,7 +121,7 @@ struct Service {
     console: Box<dyn Console>,
     greeters: Box<dyn Greeters>,
     power: Arc<dyn Power>,
-    seat: Box<dyn Seat>,
+    seat: Arc<dyn Seat>,
     snapshots: Snapshots,
     lookups: Lookups,
     cycle: Cycle,
@@ -170,7 +170,7 @@ pub fn run(settings: Settings, parts: Parts) -> i32 {
         console: parts.console,
         greeters: parts.greeters,
         power: Arc::from(parts.power),
-        seat: parts.seat,
+        seat: Arc::from(parts.seat),
         snapshots,
         lookups,
         cycle,
@@ -504,9 +504,16 @@ impl Service {
 
     fn power_off(&self, occasion: PowerOccasion) {
         let power = self.power.clone();
+        let seat = self.seat.clone();
+        let greeter_uid = self.greeters.peer_uid();
         let spawned = std::thread::Builder::new()
             .name("power".into())
             .spawn(move || {
+                if let Some(why) =
+                    power_refusal(occasion, || seat.has_session_besides(greeter_uid))
+                {
+                    return log(format!("refused {occasion:?} from the login screen: {why}"));
+                }
                 if let Err(error) = power.perform(occasion) {
                     log(format!("{occasion:?}: {error}"));
                 }

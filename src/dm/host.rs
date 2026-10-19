@@ -26,10 +26,31 @@ pub trait Power: Send + Sync {
     fn perform(&self, occasion: PowerOccasion) -> Result<(), String>;
 }
 
-/// Whether logind still knows a session of a user.
-pub trait Seat {
-    /// `None` when logind cannot be asked.
+/// What logind knows about sessions. `None` is always "logind could not be asked".
+pub trait Seat: Send + Sync {
+    /// Whether logind still knows a session of a user.
     fn has_session_of(&self, uid: u32) -> Option<bool>;
+    /// Whether logind lists a session of anyone but `uid`.
+    fn has_session_besides(&self, uid: u32) -> Option<bool>;
+}
+
+/// Why the login screen may not start `occasion` now, if it may not. Restarting, powering
+/// off and hibernating end or park other people's sessions, so they are only for a machine
+/// where the greeter is the one session; a compromised greeter must not be able to cut
+/// short someone logged in elsewhere. Suspend leaves every session intact. `others` is
+/// only asked when the answer matters, and no answer is a refusal.
+pub fn power_refusal(
+    occasion: PowerOccasion,
+    others: impl FnOnce() -> Option<bool>,
+) -> Option<&'static str> {
+    if occasion == PowerOccasion::Suspend {
+        return None;
+    }
+    match others() {
+        Some(false) => None,
+        Some(true) => Some("another session is open"),
+        None => Some("logind could not say whether another session is open"),
+    }
 }
 
 pub trait Fingerprints: Send {
@@ -63,12 +84,23 @@ impl Power for Logind {
     }
 }
 
-impl Seat for Logind {
-    fn has_session_of(&self, uid: u32) -> Option<bool> {
+impl Logind {
+    /// The owner of every session logind lists.
+    fn session_owners() -> Option<Vec<u32>> {
         let connection = system_bus(CALL_TIMEOUT).ok()?;
         let sessions: Vec<(String, u32, String, String, OwnedObjectPath)> =
             logind(&connection).ok()?.call("ListSessions", &()).ok()?;
-        Some(sessions.iter().any(|(_, owner, ..)| *owner == uid))
+        Some(sessions.into_iter().map(|(_, owner, ..)| owner).collect())
+    }
+}
+
+impl Seat for Logind {
+    fn has_session_of(&self, uid: u32) -> Option<bool> {
+        Some(Self::session_owners()?.contains(&uid))
+    }
+
+    fn has_session_besides(&self, uid: u32) -> Option<bool> {
+        Some(Self::session_owners()?.iter().any(|owner| *owner != uid))
     }
 }
 
@@ -101,6 +133,24 @@ impl Fingerprints for Fprintd {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_suspend_is_allowed_while_anyone_else_is_logged_in() {
+        for occasion in [
+            PowerOccasion::Hibernate,
+            PowerOccasion::Restart,
+            PowerOccasion::Shutdown,
+        ] {
+            assert_eq!(power_refusal(occasion, || Some(false)), None);
+            assert!(power_refusal(occasion, || Some(true)).is_some());
+            assert!(
+                power_refusal(occasion, || None).is_some(),
+                "an unanswered question is a no"
+            );
+        }
+        let never = || -> Option<bool> { panic!("suspend does not ask") };
+        assert_eq!(power_refusal(PowerOccasion::Suspend, never), None);
+    }
 
     #[test]
     fn occasions_call_the_logind_methods_the_system_menu_calls() {
