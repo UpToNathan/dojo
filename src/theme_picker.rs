@@ -272,6 +272,9 @@ impl ThemePicker {
                         }
                     })
                     .detach();
+                    let saved_layout = dojo::theme::Paths::user_default()
+                        .and_then(|paths| WallpaperLayout::read(&paths.root))
+                        .unwrap_or_default();
                     PickerView {
                         focus,
                         analysis: None,
@@ -284,9 +287,9 @@ impl ThemePicker {
                         message: "Choose a wallpaper. No desktop changes until Apply.".into(),
                         panel: None,
                         show_wallpaper: true,
-                        layout: dojo::theme::Paths::user_default()
-                            .and_then(|paths| WallpaperLayout::read(&paths.root))
-                            .unwrap_or_default(),
+                        layout: saved_layout,
+                        saved_layout,
+                        image_chosen: false,
                         file_request: None,
                         file_request_revision: 0,
                         file_request_error: None,
@@ -315,7 +318,11 @@ struct PickerView {
     message: String,
     panel: Option<gpui::Bounds<gpui::Pixels>>,
     show_wallpaper: bool,
+    /// The layout shown as selected; saved only when Apply runs.
     layout: WallpaperLayout,
+    saved_layout: WallpaperLayout,
+    /// An image was chosen this session, as opposed to the current wallpaper loaded at open.
+    image_chosen: bool,
     file_request: Option<portal::Request>,
     file_request_revision: u64,
     file_request_error: Option<String>,
@@ -325,6 +332,18 @@ struct PickerView {
 
 fn confirmable(selected: Option<usize>, count: usize, loading: bool, applying: bool) -> bool {
     !loading && !applying && selected.is_some_and(|index| index < count)
+}
+
+/// What Apply wallpaper does: the layout to save (when it differs from the saved one) and whether
+/// to publish the wallpaper image. A layout-only change leaves the image and theme untouched; with
+/// nothing changed Apply republishes the current wallpaper, as it always has.
+fn wallpaper_apply_plan(
+    layout: WallpaperLayout,
+    saved: WallpaperLayout,
+    image_chosen: bool,
+) -> (Option<WallpaperLayout>, bool) {
+    let layout_to_save = (layout != saved).then_some(layout);
+    (layout_to_save, image_chosen || layout_to_save.is_none())
 }
 
 fn picker_targets() -> Vec<String> {
@@ -444,22 +463,13 @@ impl PickerView {
         .detach();
     }
 
-    /// Unlike an image, the layout applies at once: it only describes how the current wallpaper
-    /// sits on this machine's monitors and changes nothing else.
+    /// Like an image, the layout is only previewed here; Apply wallpaper saves it.
     fn set_layout(&mut self, layout: WallpaperLayout, cx: &mut Context<Self>) {
         if self.layout == layout || self.applying {
             return;
         }
-        match dojo::theme::Paths::user_default().and_then(|paths| layout.write(&paths.root)) {
-            Ok(()) => {
-                self.layout = layout;
-                self.message = match layout {
-                    WallpaperLayout::Span => "One wallpaper now spans all monitors.".into(),
-                    WallpaperLayout::Fill => "Each monitor shows the whole wallpaper.".into(),
-                };
-            }
-            Err(error) => self.message = format!("Could not save the wallpaper layout: {error:#}"),
-        }
+        self.layout = layout;
+        self.message = "Preview only. Apply wallpaper saves the layout.".into();
         cx.notify();
     }
 
@@ -552,6 +562,7 @@ impl PickerView {
                 match result {
                     Ok(analysis) => {
                         view.replace_analysis(analysis, window);
+                        view.image_chosen = true;
                         view.message =
                             "Preview only. Apply wallpaper keeps your selected theme.".into();
                         if !view.show_wallpaper && !view.show_presets {
@@ -580,34 +591,53 @@ impl PickerView {
                 return;
             };
             let colors = *cx.global::<ThemeColors>();
+            let (layout_to_save, apply_image) =
+                wallpaper_apply_plan(self.layout, self.saved_layout, self.image_chosen);
             self.applying = true;
             self.message = "Applying wallpaper without changing your theme…".into();
             cx.notify();
             cx.spawn_in(window, async move |this, cx| {
-                let result = cx
+                let (layout_saved, result) = cx
                     .background_executor()
                     .spawn(async move {
                         let store = ThemeStore::new(Paths::user_default()?);
-                        let fallback = if store.selection()?.is_none() {
-                            Some(colors.semantic_palette(dojo::theme::system_appearance()?)?)
-                        } else {
-                            None
-                        };
-                        dojo::theme::apply_wallpaper(
-                            &store,
-                            &analysis.path,
-                            analysis.bytes.as_ref().clone(),
-                            fallback,
-                        )
+                        let mut layout_saved = false;
+                        let result = (|| {
+                            if let Some(layout) = layout_to_save {
+                                layout.write(&store.paths.root)?;
+                                layout_saved = true;
+                            }
+                            if !apply_image {
+                                return Ok(None);
+                            }
+                            let fallback = if store.selection()?.is_none() {
+                                Some(colors.semantic_palette(dojo::theme::system_appearance()?)?)
+                            } else {
+                                None
+                            };
+                            dojo::theme::apply_wallpaper(
+                                &store,
+                                &analysis.path,
+                                analysis.bytes.as_ref().clone(),
+                                fallback,
+                            )
+                            .map(Some)
+                        })();
+                        Ok::<_, anyhow::Error>((layout_saved, result))
                     })
-                    .await;
+                    .await
+                    .unwrap_or_else(|error| (false, Err(error)));
                 if let Err(error) = this.update_in(cx, |view, _, cx| {
                     view.applying = false;
+                    if layout_saved {
+                        view.saved_layout = view.layout;
+                    }
                     view.message = match result {
-                        Ok(report) => format!(
+                        Ok(Some(report)) => format!(
                             "Wallpaper selected. Theme and darkman mode unchanged.\n{}",
                             apply_results(&report)
                         ),
+                        Ok(None) => "Wallpaper layout saved.".into(),
                         Err(error) => format!("Could not apply wallpaper: {error:#}"),
                     };
                     cx.notify();
@@ -1291,7 +1321,8 @@ impl Render for PickerView {
 
 #[cfg(test)]
 mod tests {
-    use super::{confirmable, theme_content_row};
+    use super::{confirmable, theme_content_row, wallpaper_apply_plan};
+    use dojo::theme::wallpaper_layout::WallpaperLayout::{Fill, Span};
     use anyhow::Context as _;
     use gpui::{Styled, px};
     use std::path::PathBuf;
@@ -1751,6 +1782,17 @@ mod tests {
         let mut row = theme_content_row();
         assert_eq!(row.style().min_size.height, Some(px(0.).into()));
     }
+    #[test]
+    fn a_layout_change_is_saved_by_apply_and_publishes_the_image_only_when_one_was_chosen() {
+        // Nothing changed: Apply republishes the current wallpaper, as it always has.
+        assert_eq!(wallpaper_apply_plan(Fill, Fill, false), (None, true));
+        // Layout alone: save it, leave the wallpaper and theme alone.
+        assert_eq!(wallpaper_apply_plan(Span, Fill, false), (Some(Span), false));
+        // A new image with the same layout, and with a new layout: publish the image.
+        assert_eq!(wallpaper_apply_plan(Fill, Fill, true), (None, true));
+        assert_eq!(wallpaper_apply_plan(Span, Fill, true), (Some(Span), true));
+    }
+
     #[test]
     fn applying_requires_an_explicit_ready_selection() {
         assert!(!confirmable(None, 23, false, false));

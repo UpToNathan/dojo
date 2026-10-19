@@ -37,10 +37,11 @@ left of the system tray. It opens on Wallpaper and offers Wallpaper, Presets, an
   appearance policy and targets without calling darkman. With no selected theme,
   the current config colors are retained rather than running extraction.
   Below it, **Each monitor** (the default) or **Span all monitors** chooses how the
-  wallpaper sits on the displays. Unlike an image, the layout takes effect at once:
-  it only describes this machine's monitors, so it is kept in
-  `~/.local/state/dojo/themes/wallpaper-layout` (`fill` or `span`) outside the theme
-  generations and survives theme changes.
+  wallpaper sits on the displays. Like an image, the layout is preview-only until
+  **Apply wallpaper**, which saves it to `~/.local/state/dojo/themes/wallpaper-layout`
+  (`fill` or `span`). That file lives outside the theme generations and survives theme
+  changes. Changing only the layout and pressing Apply saves just the layout; the
+  wallpaper image and theme are left alone.
 - **Presets**: 41 variants grouped by family.
 - **Derive**: previews all 23 refined modes from the chosen wallpaper. Select
   Dark or Light, then Apply theme to publish that exact mode and appearance.
