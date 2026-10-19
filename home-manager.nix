@@ -366,7 +366,7 @@ in
 
               suspend:
                 timeout 570
-                command "/usr/bin/systemctl suspend-then-hibernate"
+                command "${homeDirectory}/.local/bin/dojo-desktop --leave suspend-then-hibernate"
               end
             end
           end
@@ -481,10 +481,12 @@ in
           TimeoutStopSec = "5s";
         };
       };
-      # stasis cannot hold a sleep delay inhibitor or react to `loginctl lock-session`.
+      # stasis cannot hold a sleep delay inhibitor or react to `loginctl lock-session`. The bridge
+      # also holds a shutdown delay inhibitor and asks the shell for its farewell on any poweroff or
+      # restart, `systemctl poweroff` included, then releases it.
       systemd.user.services.dojo-lock-session-bridge = {
         Unit = {
-          Description = "Lock Dojo on loginctl lock-session and before suspend";
+          Description = "Lock Dojo on loginctl lock-session and show its farewell before suspend and shutdown";
           After = [ "graphical-session.target" ];
           PartOf = [ "graphical-session.target" ];
           ConditionEnvironment = "WAYLAND_DISPLAY";
@@ -699,6 +701,8 @@ in
         enable = true;
         checkConfig = false;
 	settings.input.focus-follows-mouse = {};
+	# Niri hardcodes the power key to suspend, ahead of any bind, unless this is set.
+	settings.input.disable-power-key-handling = {};
 	enableDefaultConfig = true;
 	settings.binds."Mod+T" = {
 	  _props.hotkey-overlay-title = "Open a Terminal: kitty";
@@ -758,6 +762,12 @@ in
 	settings.binds."Mod+Shift+D" = {
 	  _props.hotkey-overlay-title = "Toggle light/dark mode";
 	  spawn = [ "darkman" "toggle" ];
+	};
+	# logind ignores a short press (system-config/systemd/logind.conf.d/90-dojo-power-key.conf);
+	# a long press still powers off. The lid stays with logind: the closing cannot be seen
+	# once the lid is shut, and the bridge covers the sleep that follows.
+	settings.binds."XF86PowerOff" = {
+	  spawn = [ "${homeDirectory}/.local/bin/dojo-desktop" "--leave" "shutdown" ];
 	};
 	settings.binds."XF86MonBrightnessUp" = {
 	  spawn = [ "brightnessctl" "set" "+5%" ];

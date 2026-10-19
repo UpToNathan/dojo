@@ -8,7 +8,7 @@ use gpui::{
 
 use crate::config::ThemeColors;
 use dojo::session::Occasion;
-use dojo::session::action::Action;
+use dojo::session::action::{Action, Departure};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PowerAction {
@@ -76,12 +76,17 @@ impl PowerAction {
             Self::PowerOff => Occasion::Shutdown,
         }
     }
+    /// The departure the shell closes for when this action is chosen.
+    fn departure(self) -> Departure {
+        Departure::of(self.occasion()).expect("every menu occasion is a closing")
+    }
     /// The power action behind a session action. The locker is not one.
     #[cfg_attr(feature = "record-session-actions", allow(dead_code))]
     fn from_action(action: Action) -> Option<Self> {
         match action {
             Action::StartLocker => None,
             Action::Suspend => Some(Self::Suspend),
+            Action::SuspendThenHibernate => None,
             Action::Hibernate => Some(Self::Hibernate),
             Action::Logout => Some(Self::Logout),
             Action::Restart => Some(Self::Reboot),
@@ -214,9 +219,26 @@ fn read_capabilities() -> anyhow::Result<[bool; PowerAction::ALL.len()]> {
 /// power, Niri IPC for logout. Blocking; the caller keeps it off the UI thread.
 #[cfg_attr(feature = "record-session-actions", allow(dead_code))]
 pub fn perform(action: Action) -> anyhow::Result<()> {
+    if action == Action::SuspendThenHibernate {
+        return call_logind("SuspendThenHibernate");
+    }
     let power = PowerAction::from_action(action)
         .ok_or_else(|| anyhow::anyhow!("{} is not a power action", action.key()))?;
     execute(power)
+}
+
+fn call_logind(method: &str) -> anyhow::Result<()> {
+    let connection = zbus::blocking::connection::Builder::system()?
+        .method_timeout(Duration::from_secs(15))
+        .build()?;
+    let proxy = zbus::blocking::Proxy::new(
+        &connection,
+        "org.freedesktop.login1",
+        "/org/freedesktop/login1",
+        "org.freedesktop.login1.Manager",
+    )?;
+    proxy.call::<_, _, ()>(method, &(true,))?;
+    Ok(())
 }
 
 fn execute(action: PowerAction) -> anyhow::Result<()> {
@@ -225,16 +247,7 @@ fn execute(action: PowerAction) -> anyhow::Result<()> {
         "locking goes through the locker, not logind"
     );
     if let Some(method) = action.method() {
-        let connection = zbus::blocking::connection::Builder::system()?
-            .method_timeout(Duration::from_secs(15))
-            .build()?;
-        let proxy = zbus::blocking::Proxy::new(
-            &connection,
-            "org.freedesktop.login1",
-            "/org/freedesktop/login1",
-            "org.freedesktop.login1.Manager",
-        )?;
-        proxy.call::<_, _, ()>(method, &(true,))?;
+        call_logind(method)?;
     } else {
         let mut socket = niri_ipc::socket::Socket::connect()?;
         socket.set_read_timeout(Some(Duration::from_secs(3)))?;
@@ -296,7 +309,7 @@ impl Menu {
         cx.notify();
         self.action = Some(cx.spawn(async move |this, cx| {
             let _ = this.update_in(cx, |menu, window, cx| {
-                match crate::session_overlay::leave(action.occasion(), cx) {
+                match crate::session_overlay::leave(action.departure(), cx) {
                     Ok(()) => window.remove_window(),
                     Err(error) => {
                         menu.phase = Phase::Choosing;

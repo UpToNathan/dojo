@@ -56,6 +56,7 @@ config_copies=(
     'sudoers.d/dojo-chromium-theme-policy|/etc/sudoers.d/dojo-chromium-theme-policy|0440'
     'pam.d/dojo-lock-fingerprint|/etc/pam.d/dojo-lock-fingerprint|0644'
     'pam.d/dojo-lock-password|/etc/pam.d/dojo-lock-password|0644'
+    'systemd/logind.conf.d/90-dojo-power-key.conf|/etc/systemd/logind.conf.d/90-dojo-power-key.conf|0644'
     'wayland-sessions/niri-uwsm.desktop|/usr/share/wayland-sessions/niri-uwsm.desktop|0644'
 )
 
@@ -121,6 +122,7 @@ if $theme_only; then
 fi
 
 if ! $theme_only; then
+    printf 'The power-key setting in logind takes effect at the next boot.\n'
     "$repo_root/system-config/bin/configure-firewalld"
     as_root systemctl daemon-reload
     as_root udevadm control --reload-rules

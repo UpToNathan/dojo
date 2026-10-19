@@ -70,6 +70,22 @@ the rest are bridges with no driver), changing the ASPM policy (unmeasured, and 
 is sensitive to it), USB autosuspend (already on for all but one device), TLP, and forcing GPU
 power levels (conflicts with power-profiles-daemon).
 
+## Power key and farewell
+
+`systemd/logind.conf.d/90-dojo-power-key.conf` makes logind ignore a short press of the power key
+and power off on a long one. Niri binds the key to `dojo --leave shutdown`, so the shell plays its
+closing with the farewell and then shuts down. Niri hardcodes the power key to suspend ahead of any
+bind, so `home-manager.nix` also sets `disable-power-key-handling`. Deploy the Home Manager
+configuration before the next boot after installing the drop-in, or a short press does nothing
+until then. Where there is no Niri (a TTY, the login screen until it has its own shortcut) a short
+press does nothing and the long press is the way off.
+
+The lid stays with logind (`laptop/systemd/logind.conf.d/90-dojo-lid.conf`): the closing cannot be
+seen once the lid is shut. The session bridge (`scripts/dojo-lock-session-bridge`) holds sleep and
+shutdown delay inhibitors and asks the shell for the farewell on `PrepareForShutdown` and
+`PrepareForSleep`, which covers `systemctl poweroff`, `reboot`, `suspend` and `hibernate` and the
+lid's sleep. Stasis's suspend step runs `dojo --leave suspend-then-hibernate`.
+
 ## Lock screen
 
 `pam.d/dojo-lock-fingerprint` and `pam.d/dojo-lock-password` are the two PAM

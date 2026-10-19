@@ -643,9 +643,13 @@ fn run_with_surfaces(
                                     crate::system_menu::toggle(display, cx)
                                 }
                             }
-                            ControlCommand::Leave(occasion) => {
+                            ControlCommand::Leave(departure) => {
                                 controller.close_temporary_surfaces(cx);
-                                crate::session_overlay::leave(occasion, cx)
+                                crate::session_overlay::leave(departure, cx)
+                            }
+                            ControlCommand::Farewell(occasion) => {
+                                controller.close_temporary_surfaces(cx);
+                                crate::session_overlay::farewell(occasion, cx)
                             }
                             ControlCommand::Terminal => controller
                                 .set_enabled(true, cx)
