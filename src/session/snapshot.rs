@@ -22,6 +22,10 @@
 //! bounded by reading only regular files, never blocking on a FIFO, and
 //! stopping at each file's size cap.
 //!
+//! The collector also decodes the wallpaper PNG ([`Wallpaper::from_png`]), the one
+//! step that runs a parser over user-influenced data. That is why it lives here and
+//! not in the greeter, which sees every password: the greeter only receives raw pixels.
+//!
 //! # Symlinks
 //!
 //! The theme store publishes `~/.local/state/dojo/themes/current` as a symlink

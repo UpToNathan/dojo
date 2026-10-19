@@ -20,7 +20,7 @@ Everything the greeter and `dojo-dm` execute is a root-owned copy under `/usr/lo
 
 ## Look snapshots
 
-At session start, session end and `dojo-dm` stop, a child that has dropped to the user reads `palette.json`, `lock-wallpaper.png`, the `[session]` settings and the last greeting (no symlinks, size caps) and hands the bytes to the parent, which writes `/var/lib/dojo-dm/users/<login>/` atomically. The greeter reads only these. A theme change shows at the next login screen after a session ends.
+At session start, session end and `dojo-dm` stop, a child that has dropped to the user reads `palette.json`, `lock-wallpaper.png`, the `[session]` settings and the last greeting (no symlinks, size caps), decodes the wallpaper with explicit limits (at most 512x2048 pixels, 16 MiB of decoder allocation, under a bounded address space) into raw pixels, and hands the bytes to the parent, which writes `/var/lib/dojo-dm/users/<login>/` atomically. The wallpaper file there is `lock-wallpaper.raw`: `DJWP`, width and height as little-endian `u32`, then `width * height * 4` bytes of BGRA. The greeter reads only these and runs no image decoder, because it sees every user's password. A theme change shows at the next login screen after a session ends.
 
 ## Power occasions
 

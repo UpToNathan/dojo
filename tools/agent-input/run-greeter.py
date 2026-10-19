@@ -22,7 +22,6 @@ import subprocess
 import tempfile
 import threading
 import time
-import zlib
 
 ROOT = Path(__file__).resolve().parents[2]
 ANY = object()
@@ -166,14 +165,10 @@ class FakeDm:
         return [r for r in self.requests if holds(r)]
 
 
-def write_png(path, width, height, pixel):
-    rows = b"".join(b"\x00" + b"".join(bytes(pixel(x, y)) for x in range(width)) for y in range(height))
-
-    def chunk(kind, data):
-        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
-
-    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
-                     + chunk(b"IDAT", zlib.compress(rows, 6)) + chunk(b"IEND", b""))
+def write_raw_wallpaper(path, width, height, pixel):
+    """The snapshot's wallpaper: DJWP, width and height as u32 LE, then BGRA."""
+    bgra = b"".join(bytes([b, g, r, 255]) for y in range(height) for x in range(width) for r, g, b in [pixel(x, y)])
+    path.write_bytes(b"DJWP" + struct.pack("<II", width, height) + bgra)
 
 
 def gradient(a, b):
@@ -193,7 +188,7 @@ def prepare_snapshots(state):
         directory.mkdir(parents=True)
         (directory / "palette.json").write_text(palette if login == "nathan" else rotated)
         colours = ((0x2a, 0x3a, 0x6a), (0x6a, 0x3a, 0x5a)) if login == "nathan" else ((0x6a, 0x4a, 0x2a), (0x2a, 0x6a, 0x4a))
-        write_png(directory / "lock-wallpaper.png", 320, 180, gradient(*colours))
+        write_raw_wallpaper(directory / "lock-wallpaper.raw", 320, 180, gradient(*colours))
         (directory / "identity").write_text(name + "\n")
         (directory / "session.toml").write_text(
             "[session]\ntransition = true\ngreeting = true\nfarewell = true\nreduced_motion = false\n")

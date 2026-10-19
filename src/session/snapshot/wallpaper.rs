@@ -34,7 +34,9 @@ impl Wallpaper {
     /// The snapshot file: checks the header and the exact length, nothing else.
     pub fn parse(mut bytes: Vec<u8>) -> anyhow::Result<Wallpaper> {
         use anyhow::Context as _;
-        let header = bytes.get(..HEADER_LEN).context("shorter than a wallpaper header")?;
+        let header = bytes
+            .get(..HEADER_LEN)
+            .context("shorter than a wallpaper header")?;
         anyhow::ensure!(&header[..4] == MAGIC, "not a raw wallpaper");
         let field = |at: usize| u32::from_le_bytes(header[at..at + 4].try_into().unwrap());
         let (width, height) = (field(4), field(8));
@@ -61,7 +63,8 @@ impl Wallpaper {
 
     fn new(width: u32, height: u32, bgra: Vec<u8>) -> anyhow::Result<Wallpaper> {
         anyhow::ensure!(
-            (1..=WALLPAPER_MAX_WIDTH).contains(&width) && (1..=WALLPAPER_MAX_HEIGHT).contains(&height),
+            (1..=WALLPAPER_MAX_WIDTH).contains(&width)
+                && (1..=WALLPAPER_MAX_HEIGHT).contains(&height),
             "wallpaper is {width}x{height}, outside 1x1 to {WALLPAPER_MAX_WIDTH}x{WALLPAPER_MAX_HEIGHT}"
         );
         let expected = width as usize * height as usize * 4;
@@ -181,8 +184,22 @@ mod tests {
             ("no pixels", raw(2, 2, 0)),
             ("zero width", raw(0, 2, 0)),
             ("zero height", raw(2, 0, 0)),
-            ("too wide", raw(WALLPAPER_MAX_WIDTH + 1, 1, (WALLPAPER_MAX_WIDTH as usize + 1) * 4)),
-            ("too tall", raw(1, WALLPAPER_MAX_HEIGHT + 1, (WALLPAPER_MAX_HEIGHT as usize + 1) * 4)),
+            (
+                "too wide",
+                raw(
+                    WALLPAPER_MAX_WIDTH + 1,
+                    1,
+                    (WALLPAPER_MAX_WIDTH as usize + 1) * 4,
+                ),
+            ),
+            (
+                "too tall",
+                raw(
+                    1,
+                    WALLPAPER_MAX_HEIGHT + 1,
+                    (WALLPAPER_MAX_HEIGHT as usize + 1) * 4,
+                ),
+            ),
             ("huge declared size", raw(u32::MAX, u32::MAX, 16)),
         ] {
             assert!(Wallpaper::parse(bytes).is_err(), "{name}");
@@ -200,26 +217,37 @@ mod tests {
 
         let gray = image::GrayImage::from_pixel(1, 1, image::Luma([90]));
         let mut bytes = Vec::new();
-        gray.write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png).unwrap();
-        assert_eq!(Wallpaper::from_png(&bytes).unwrap().bgra(), [90, 90, 90, 255]);
+        gray.write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
+            .unwrap();
+        assert_eq!(
+            Wallpaper::from_png(&bytes).unwrap().bgra(),
+            [90, 90, 90, 255]
+        );
     }
 
     #[test]
     fn the_largest_accepted_png_decodes() {
-        let image = RgbaImage::from_pixel(WALLPAPER_MAX_WIDTH, WALLPAPER_MAX_HEIGHT, Rgba([1, 2, 3, 4]));
+        let image = RgbaImage::from_pixel(
+            WALLPAPER_MAX_WIDTH,
+            WALLPAPER_MAX_HEIGHT,
+            Rgba([1, 2, 3, 4]),
+        );
         let wallpaper = Wallpaper::from_png(&png(&image)).unwrap();
-        assert_eq!(wallpaper.encode().len() as u64, crate::session::snapshot::WALLPAPER_CAP);
+        assert_eq!(
+            wallpaper.encode().len() as u64,
+            crate::session::snapshot::WALLPAPER_CAP
+        );
     }
 
     #[test]
     fn an_oversized_png_is_refused_by_the_limits() {
-        for (width, height) in [
-            (WALLPAPER_MAX_WIDTH + 1, 8),
-            (8, WALLPAPER_MAX_HEIGHT + 1),
-        ] {
+        for (width, height) in [(WALLPAPER_MAX_WIDTH + 1, 8), (8, WALLPAPER_MAX_HEIGHT + 1)] {
             let error = Wallpaper::from_png(&png(&RgbaImage::new(width, height))).unwrap_err();
             assert!(
-                matches!(error.downcast_ref::<ImageError>(), Some(ImageError::Limits(_))),
+                matches!(
+                    error.downcast_ref::<ImageError>(),
+                    Some(ImageError::Limits(_))
+                ),
                 "{width}x{height}: {error:#}"
             );
         }
@@ -232,13 +260,19 @@ mod tests {
             assert!(bytes.len() < 100);
             let error = Wallpaper::from_png(&bytes).unwrap_err();
             assert!(
-                matches!(error.downcast_ref::<ImageError>(), Some(ImageError::Limits(_))),
+                matches!(
+                    error.downcast_ref::<ImageError>(),
+                    Some(ImageError::Limits(_))
+                ),
                 "{width}x{height}: {error:#}"
             );
         }
         // The same file with sane dimensions is not rejected for its size, only for its data.
         let error = Wallpaper::from_png(&bomb(8, 8)).unwrap_err();
-        assert!(!matches!(error.downcast_ref::<ImageError>(), Some(ImageError::Limits(_))));
+        assert!(!matches!(
+            error.downcast_ref::<ImageError>(),
+            Some(ImageError::Limits(_))
+        ));
     }
 
     #[test]
@@ -247,7 +281,12 @@ mod tests {
         image::RgbImage::new(8, 8)
             .write_to(&mut Cursor::new(&mut jpeg), ImageFormat::Jpeg)
             .unwrap();
-        for bytes in [jpeg, b"GIF89a".to_vec(), b"\x89PNG\r\n\x1a\n".to_vec(), Vec::new()] {
+        for bytes in [
+            jpeg,
+            b"GIF89a".to_vec(),
+            b"\x89PNG\r\n\x1a\n".to_vec(),
+            Vec::new(),
+        ] {
             assert!(Wallpaper::from_png(&bytes).is_err());
         }
     }
@@ -280,7 +319,11 @@ mod tests {
         for file in files {
             let text = std::fs::read_to_string(&file).unwrap();
             for decoder in &decoders {
-                assert!(!text.contains(decoder.as_str()), "{} uses {decoder}", file.display());
+                assert!(
+                    !text.contains(decoder.as_str()),
+                    "{} uses {decoder}",
+                    file.display()
+                );
             }
         }
     }
