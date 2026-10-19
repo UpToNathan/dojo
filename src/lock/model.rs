@@ -1323,15 +1323,21 @@ impl LockModel {
         }
     }
 
-    /// The session did not start: ask for the password again, with the reason as the hint.
+    /// The session did not start, or could not have: ask for the password again, with the reason
+    /// as the hint. The display manager may say so while the greeting still plays, when the
+    /// helper dies after the verdict, and then there is nothing left to wait for.
     fn session_failed(&mut self, text: String, now: Now, fx: &mut Vec<Effect>) {
         if let Stage::Unlocking(Unlocking {
-            phase: UnlockPhase::Handover { started: false },
-            since_unix,
+            phase: UnlockPhase::Handover { started: true },
             ..
         }) = &self.stage
         {
-            let since_unix = *since_unix;
+            return;
+        }
+        if let Stage::Unlocking(unlocking) = &self.stage
+            && self.login.is_some()
+        {
+            let since_unix = unlocking.since_unix;
             self.rearm(now.mono, since_unix, Some(text), fx);
         }
     }

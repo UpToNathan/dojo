@@ -2433,6 +2433,23 @@ fn a_session_that_does_not_start_asks_for_the_password_again_with_the_reason() {
 }
 
 #[test]
+fn a_helper_that_dies_after_the_verdict_asks_for_the_password_again_at_once() {
+    let mut rig = login_prompting();
+    rig.send(1_000, pw(1, finished(PamOutcome::Success)));
+    assert_eq!(rig.panel(1_100).line.is_some(), true);
+    // The greeting is still playing when the display manager says the start cannot happen.
+    assert_eq!(
+        rig.send(1_100, EventKind::SessionFailed("The login stopped unexpectedly".into())),
+        ["spawn password 2"]
+    );
+    assert_eq!(rig.hint(1_100), "The login stopped unexpectedly");
+    // Nothing of the abandoned greeting is left to unlock.
+    assert_eq!(rig.send(1_300, EventKind::Timer), none());
+    assert_eq!(rig.send(2_000, EventKind::Timer), none());
+    assert_eq!(rig.send(2_100, EventKind::SessionStarted), none());
+}
+
+#[test]
 fn a_failed_start_rearms_the_sensor_too_and_a_stale_answer_changes_nothing() {
     let mut rig = handed_over_screen(true);
     assert_eq!(
@@ -2604,4 +2621,13 @@ fn a_departure_closes_the_menu_and_the_name_editor() {
     assert_eq!(rig.key(230, Key::Leave(Leave::Shutdown)), ["kill password 1"]);
     let chips = login_chips(&rig, 240);
     assert_eq!((chips.power_open, chips.editing), (false, None));
+}
+
+#[test]
+fn an_unlocking_lock_screen_ignores_the_display_managers_answers() {
+    let mut rig = prompting();
+    rig.send(1_000, pw(1, finished(PamOutcome::Success)));
+    assert_eq!(rig.send(1_050, EventKind::SessionFailed("x".into())), none());
+    assert_eq!(rig.send(1_060, EventKind::SessionStarted), none());
+    assert!(rig.deadline().is_some());
 }
