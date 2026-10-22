@@ -388,9 +388,9 @@ impl Render for Panel {
                 .line_height(px(16.))
                 .text_color(colors.foreground_muted.rgb())
                 .child(if capturing {
-                    "Press the new shortcut · Backspace clears · Esc stops"
+                    "Press a shortcut · Backspace clears · Esc stops"
                 } else {
-                    "↑↓ select · Enter change · Backspace clear · Esc cancel"
+                    "Enter change · Backspace clear · Esc cancel"
                 }),
         );
 
