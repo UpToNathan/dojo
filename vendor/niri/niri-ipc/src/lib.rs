@@ -79,6 +79,14 @@ pub enum Request {
         /// Every shortcut this connection wants grabbed. An empty list releases them all.
         shortcuts: Vec<GlobalShortcut>,
     },
+    /// Ask whether this connection could grab each key, without grabbing any.
+    ///
+    /// Grabs held by other connections, configured binds and keys niri reserves all make a key
+    /// unavailable. Keys are in the same syntax as [`GlobalShortcut::key`].
+    CheckGlobalShortcuts {
+        /// The keys to check.
+        keys: Vec<String>,
+    },
     /// Inspect human ownership without creating an agent seat.
     InputCoordination,
     /// Yield human ownership without moving the human cursor or keyboard focus.
@@ -174,6 +182,8 @@ pub enum Response {
     Handled,
     /// Which of the requested global shortcuts are now grabbed.
     GlobalShortcuts(GlobalShortcutGrants),
+    /// For each key of [`Request::CheckGlobalShortcuts`], why it is unavailable, or `None`.
+    GlobalShortcutChecks(Vec<Option<String>>),
     /// The pointer started moving. Send AgentInput::Wait before acting at its destination.
     AgentInputMoving,
     /// Human ownership or another held interaction prevented delivery.

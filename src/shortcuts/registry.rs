@@ -43,6 +43,8 @@ pub struct Pending {
     pub description: String,
     pub preferred: Option<Trigger>,
     pub current: Option<Trigger>,
+    /// Why the app's suggestion was not used, to show beside the row.
+    pub note: Option<String>,
 }
 
 /// The user's answer for one shortcut. `None` declines it.
@@ -168,6 +170,7 @@ impl Registry {
                     .as_deref()
                     .and_then(|text| Trigger::from_xdg(text).ok()),
                 current: None,
+                note: None,
             })
             .collect())
     }
@@ -234,6 +237,7 @@ impl Registry {
                 description: entry.description.clone(),
                 preferred: None,
                 current: entry.trigger.clone(),
+                note: None,
             })
             .collect())
     }
@@ -516,7 +520,7 @@ mod tests {
             .commit_bind("/s/1", &[request("a", None)], &[choice("a", Some("F1"))])
             .unwrap();
         let grabs = registry.plan_grabs();
-        registry.apply_refusals(&[(grabs[0].id.clone(), "already a configured bind".into())]);
+        registry.apply_refusals(&[(grabs[0].id.clone(), "already a Niri key binding".into())]);
         assert_eq!(registry.list("/s/1").unwrap()[0].trigger, None);
         // The choice is kept, and retried once the conflict is gone.
         assert_eq!(registry.plan_grabs().len(), 1);

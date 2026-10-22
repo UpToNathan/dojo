@@ -413,6 +413,18 @@ async fn process(ctx: &ClientCtx, request: Request) -> Reply {
                 .await
                 .map_err(|_| "shortcut dispatcher stopped".to_string())?;
         }
+        Request::CheckGlobalShortcuts { keys } => {
+            let (tx, rx) = async_channel::bounded(1);
+            let peer = ctx.peer;
+            ctx.event_loop.insert_idle(move |state| {
+                let checks = state.check_global_shortcuts(peer, &keys);
+                let _ = tx.try_send(Ok(Response::GlobalShortcutChecks(checks)));
+            });
+            return rx
+                .recv()
+                .await
+                .map_err(|_| "shortcut dispatcher stopped".to_string())?;
+        }
         Request::YieldHumanInput => {
             let (tx, rx) = async_channel::bounded(1);
             ctx.event_loop.insert_idle(move |state| {

@@ -19,6 +19,7 @@ use zbus::{Connection, ObjectServer, interface};
 
 use super::compositor::{Compositor, KeyEvent};
 use super::registry::{Choice, Pending, Registry, Requested, View};
+use super::trigger::Trigger;
 use super::store::Store;
 
 pub const BUS_NAME: &str = "org.freedesktop.impl.portal.desktop.dojo";
@@ -33,10 +34,45 @@ const FAILED: u32 = 2;
 type Results = HashMap<String, OwnedValue>;
 type ShortcutList = Vec<(String, Results)>;
 
+/// Asks Niri whether a key could be grabbed, so a panel can refuse keys that are already taken.
+#[derive(Clone)]
+pub struct TriggerCheck(Option<Arc<dyn Compositor>>);
+
+impl TriggerCheck {
+    /// A check that finds nothing wrong, for tests and headless use.
+    pub fn allow_all() -> Self {
+        Self(None)
+    }
+
+    /// Why the key is unavailable, if it is. Blocks briefly on Niri's socket. A failed check is
+    /// not a refusal.
+    pub fn check(&self, trigger: &Trigger) -> Option<String> {
+        let compositor = self.0.as_ref()?;
+        match compositor.check(&[trigger.to_niri()]) {
+            Ok(mut reasons) => reasons.pop().flatten(),
+            // An older Niri has no check. The grab itself still refuses a key that is taken, so an
+            // unanswered question must not block the user.
+            Err(error) => {
+                eprintln!("Dojo shortcuts: Niri could not check {trigger}: {error:#}");
+                None
+            }
+        }
+    }
+}
+
+impl std::fmt::Debug for TriggerCheck {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("TriggerCheck")
+    }
+}
+
 /// What the user is asked to decide.
 #[derive(Clone, Debug)]
 pub struct ChoiceRequest {
     pub app_id: String,
+    /// The app's name from its desktop entry, when it has one.
+    pub app_name: Option<String>,
+    pub check: TriggerCheck,
     pub parent_window: String,
     /// The user opened the panel from the app's configure button, not from a first bind.
     pub reconfigure: bool,
@@ -147,7 +183,7 @@ impl Service {
         requested: Vec<Requested>,
         mut cancelled: oneshot::Receiver<()>,
     ) -> BindOutcome {
-        let (app_id, pending) = {
+        let (app_id, mut pending) = {
             let registry = self.registry();
             let app_id = match registry.app_id(handle) {
                 Ok(app_id) => app_id.to_owned(),
@@ -158,11 +194,14 @@ impl Service {
                 Err(error) => return BindOutcome::Failed(error.to_string()),
             }
         };
+        self.drop_unavailable_suggestions(&mut pending).await;
         let choices = if pending.is_empty() {
             Vec::new()
         } else {
             let request = ChoiceRequest {
+                app_name: app_name(&app_id),
                 app_id,
+                check: TriggerCheck(Some(self.compositor.clone())),
                 parent_window: parent_window.to_owned(),
                 reconfigure: false,
                 shortcuts: pending,
@@ -210,7 +249,9 @@ impl Service {
             return Ok(None);
         }
         let request = ChoiceRequest {
+            app_name: app_name(&app_id),
             app_id,
+            check: TriggerCheck(Some(self.compositor.clone())),
             parent_window: parent_window.to_owned(),
             reconfigure: true,
             shortcuts: pending,
@@ -225,6 +266,40 @@ impl Service {
         self.persist();
         self.sync().await?;
         Ok(Some(self.registry().list(handle)?))
+    }
+
+    /// An app's suggested key may be one Niri already uses. Do not offer it, and say why.
+    async fn drop_unavailable_suggestions(&self, pending: &mut [Pending]) {
+        let keys: Vec<String> = pending
+            .iter()
+            .filter_map(|item| item.preferred.as_ref().map(Trigger::to_niri))
+            .collect();
+        if keys.is_empty() {
+            return;
+        }
+        let compositor = self.compositor.clone();
+        let handle = self.runtime.clone();
+        let checks = self
+            .runtime
+            .spawn(async move {
+                tokio::time::timeout(
+                    Duration::from_secs(10),
+                    handle.spawn_blocking(move || compositor.check(&keys)),
+                )
+                .await
+            })
+            .await;
+        let Ok(Ok(Ok(Ok(reasons)))) = checks else {
+            // The final grab still refuses an unavailable key; the panel just cannot warn first.
+            return;
+        };
+        let mut reasons = reasons.into_iter();
+        for item in pending.iter_mut().filter(|item| item.preferred.is_some()) {
+            if let (Some(trigger), Some(Some(reason))) = (item.preferred.as_ref(), reasons.next()) {
+                item.note = Some(format!("{trigger} is not available: {reason}"));
+                item.preferred = None;
+            }
+        }
     }
 
     /// Put a question to the user. `None` means they cancelled or the caller withdrew it.
@@ -327,6 +402,36 @@ impl Drop for Pause<'_> {
     fn drop(&mut self) {
         self.0.fetch_sub(1, Ordering::SeqCst);
     }
+}
+
+/// The app's display name from its desktop entry, looked up by app id.
+fn app_name(app_id: &str) -> Option<String> {
+    if app_id.is_empty() {
+        return None;
+    }
+    let mut directories = Vec::new();
+    match std::env::var_os("XDG_DATA_HOME") {
+        Some(home) if !home.is_empty() => directories.push(std::path::PathBuf::from(home)),
+        _ => {
+            if let Some(home) = std::env::var_os("HOME") {
+                directories.push(std::path::PathBuf::from(home).join(".local/share"));
+            }
+        }
+    }
+    let system = std::env::var("XDG_DATA_DIRS")
+        .ok()
+        .filter(|dirs| !dirs.is_empty())
+        .unwrap_or_else(|| "/usr/local/share:/usr/share".to_owned());
+    directories.extend(system.split(':').map(std::path::PathBuf::from));
+    let locales = freedesktop_desktop_entry::get_languages_from_env();
+    directories.into_iter().find_map(|directory| {
+        let path = directory.join("applications").join(format!("{app_id}.desktop"));
+        let entry = freedesktop_desktop_entry::DesktopEntry::from_path(&path, Some(&locales)).ok()?;
+        entry
+            .name(&locales)
+            .map(|name| name.to_string())
+            .filter(|name| !name.is_empty())
+    })
 }
 
 fn string_option(options: &Results, key: &str) -> Option<String> {

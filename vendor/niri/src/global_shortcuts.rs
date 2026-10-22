@@ -88,24 +88,10 @@ impl GlobalShortcuts {
                     continue;
                 }
             };
-            if !matches!(key.trigger, Trigger::Keysym(_)) {
-                refused.push(refuse("only keyboard keys can be grabbed"));
-            } else if is_hardcoded(key.trigger) {
-                refused.push(refuse("reserved by the compositor"));
-            } else if config_binds
-                .clone()
-                .any(|bind| same_key(bind, &key, mod_key))
-            {
-                refused.push(refuse("already a configured bind"));
+            if let Some(reason) = self.unavailable(owner, &key, mod_key, config_binds.clone()) {
+                refused.push(refuse(reason));
             } else if grabs.iter().any(|grab| same_key(&grab.key, &key, mod_key)) {
                 refused.push(refuse("requested more than once"));
-            } else if self
-                .grabs
-                .values()
-                .flatten()
-                .any(|grab| same_key(&grab.key, &key, mod_key))
-            {
-                refused.push(refuse("grabbed by another connection"));
             } else {
                 grabs.push(Grab { id, key });
             }
@@ -115,6 +101,34 @@ impl GlobalShortcuts {
             self.grabs.insert(owner, grabs);
         }
         GlobalShortcutGrants { owner, refused }
+    }
+
+    /// Why `asker` could not have this key, if it could not. Its own grabs do not count.
+    fn unavailable<'a>(
+        &self,
+        asker: u64,
+        key: &Key,
+        mod_key: ModKey,
+        config_binds: impl Iterator<Item = &'a Key>,
+    ) -> Option<&'static str> {
+        let mut config_binds = config_binds;
+        if !matches!(key.trigger, Trigger::Keysym(_)) {
+            Some("only keyboard keys can be grabbed")
+        } else if is_hardcoded(key.trigger) {
+            Some("reserved by Niri")
+        } else if config_binds.any(|bind| same_key(bind, key, mod_key)) {
+            Some("already a Niri key binding")
+        } else if self
+            .grabs
+            .iter()
+            .filter(|(owner, _)| **owner != asker)
+            .flat_map(|(_, grabs)| grabs)
+            .any(|grab| same_key(&grab.key, key, mod_key))
+        {
+            Some("taken by another app")
+        } else {
+            None
+        }
     }
 
     fn find(&self, mod_key: ModKey, trigger: Trigger, modifiers: Modifiers) -> Option<(u64, &str)> {
@@ -153,6 +167,22 @@ impl State {
         self.niri
             .global_shortcuts
             .replace(owner, shortcuts, mod_key, config_keys(&config))
+    }
+
+    /// For each key, why this connection could not grab it, without grabbing anything.
+    pub fn check_global_shortcuts(&self, owner: u64, keys: &[String]) -> Vec<Option<String>> {
+        let config = self.niri.config.borrow();
+        let mod_key = self.backend.mod_key(&config);
+        keys.iter()
+            .map(|key| match Key::from_str(key) {
+                Err(err) => Some(format!("invalid key: {err}")),
+                Ok(key) => self
+                    .niri
+                    .global_shortcuts
+                    .unavailable(owner, &key, mod_key, config_keys(&config))
+                    .map(str::to_owned),
+            })
+            .collect()
     }
 
     pub fn release_global_shortcuts(&mut self, owner: u64) {
@@ -289,8 +319,8 @@ mod tests {
         assert_eq!(refused.len(), 4);
         assert!(refused[0].1.starts_with("invalid key"));
         assert_eq!(refused[1], ("mouse", "only keyboard keys can be grabbed"));
-        assert_eq!(refused[2], ("vt", "reserved by the compositor"));
-        assert_eq!(refused[3], ("power", "reserved by the compositor"));
+        assert_eq!(refused[2], ("vt", "reserved by Niri"));
+        assert_eq!(refused[3], ("power", "reserved by Niri"));
         assert!(shortcuts.grabs.is_empty());
     }
 
@@ -304,7 +334,7 @@ mod tests {
             vec![shortcut("a", "Super+Shift+P"), shortcut("b", "Shift+P")],
             &config,
         );
-        assert_eq!(refused(&grants), [("a", "already a configured bind")]);
+        assert_eq!(refused(&grants), [("a", "already a Niri key binding")]);
         assert_eq!(shortcuts.grabs[&1].len(), 1);
     }
 
@@ -321,8 +351,8 @@ mod tests {
         assert_eq!(
             refused(&grants),
             [
-                ("b", "grabbed by another connection"),
-                ("c", "grabbed by another connection")
+                ("b", "taken by another app"),
+                ("c", "taken by another app")
             ]
         );
         assert!(!shortcuts.grabs.contains_key(&2));
@@ -380,6 +410,23 @@ mod tests {
         assert!(shortcuts.active.is_empty());
         let grants = replace(&mut shortcuts, 2, vec![shortcut("b", "Ctrl+F1")], &[]);
         assert!(grants.refused.is_empty());
+    }
+
+    #[test]
+    fn checking_does_not_grab_and_ignores_the_askers_own_keys() {
+        let mut shortcuts = GlobalShortcuts::default();
+        replace(&mut shortcuts, 1, vec![shortcut("a", "Ctrl+F1")], &[]);
+        let config = [key("Mod+Q")];
+        let check = |asker: u64, text: &str| {
+            shortcuts.unavailable(asker, &key(text), ModKey::Super, config.iter())
+        };
+        assert_eq!(check(1, "Ctrl+F1"), None, "a connection's own grab is its own");
+        assert_eq!(check(2, "Ctrl+F1"), Some("taken by another app"));
+        assert_eq!(check(2, "Super+Q"), Some("already a Niri key binding"));
+        assert_eq!(check(2, "XF86PowerOff"), Some("reserved by Niri"));
+        assert_eq!(check(2, "Ctrl+MouseLeft"), Some("only keyboard keys can be grabbed"));
+        assert_eq!(check(2, "Ctrl+F2"), None);
+        assert_eq!(shortcuts.grabs.len(), 1, "checking grabs nothing");
     }
 
     #[test]

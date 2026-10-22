@@ -561,5 +561,5 @@ fn global_shortcut_yields_to_a_configured_bind() {
         }],
     );
     assert_eq!(grants.refused.len(), 1);
-    assert_eq!(grants.refused[0].reason, "already a configured bind");
+    assert_eq!(grants.refused[0].reason, "already a Niri key binding");
 }

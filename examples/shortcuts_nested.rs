@@ -242,6 +242,14 @@ async fn main() -> anyhow::Result<()> {
     let session = String::try_from(results["session_handle"].try_clone()?)?;
     println!("session {session}");
 
+    // The first suggests a key the nested Niri binds (see nested.kdl above) and has a description far
+    // wider than the panel; the panel must not offer the key and must not overflow.
+    let mut long: HashMap<&str, Value<'_>> = HashMap::new();
+    long.insert(
+        "description",
+        Value::from("Quick access: show the window from any application, even when it is minimised or hidden"),
+    );
+    long.insert("preferred_trigger", Value::from("CTRL+ALT+F11"));
     let mut properties: HashMap<&str, Value<'_>> = HashMap::new();
     properties.insert("description", Value::from("Push to talk"));
     properties.insert("preferred_trigger", Value::from("CTRL+ALT+k"));
@@ -252,7 +260,7 @@ async fn main() -> anyhow::Result<()> {
         PATH,
         Some(FRONT),
         "BindShortcuts",
-        &(ObjectPath::try_from(session.as_str())?, vec![("ptt", properties)], "", options),
+        &(ObjectPath::try_from(session.as_str())?, vec![("quick", long), ("ptt", properties)], "", options),
     )
     .await?;
 
@@ -260,6 +268,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(600)).await;
     let panel = dir.join("panel.png");
     niri(&socket, Request::Action(Action::ScreenshotScreen { write_to_disk: true, show_pointer: false, path: Some(panel.display().to_string()) }))?;
+    until("the screenshot", || panel.exists().then_some(())).await?;
     println!("panel is up; screenshot {}", panel.display());
 
     let keys = [("WAYLAND_DISPLAY", wayland.as_path())];
@@ -267,7 +276,11 @@ async fn main() -> anyhow::Result<()> {
     let (code, results) = response(&mut responses, "BindShortcuts").await?;
     ensure!(code == 0, "BindShortcuts answered {code}");
     let shortcuts: Vec<(String, HashMap<String, OwnedValue>)> = results["shortcuts"].try_clone()?.try_into()?;
-    let trigger = String::try_from(shortcuts[0].1["trigger_description"].try_clone()?)?;
+    let described = |index: usize| -> anyhow::Result<String> {
+        Ok(String::try_from(shortcuts[index].1["trigger_description"].try_clone()?)?)
+    };
+    ensure!(described(0)?.is_empty(), "a key Niri binds was offered: {:?}", described(0)?);
+    let trigger = described(1)?;
     ensure!(trigger == "Ctrl+Alt+K", "bound to {trigger:?}");
     println!("bound: ptt = {trigger}");
     ensure!(!layers(&socket).iter().any(|n| n == "dojo-shortcuts"), "the panel stayed open");

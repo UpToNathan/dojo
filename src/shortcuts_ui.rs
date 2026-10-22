@@ -8,7 +8,8 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use dojo::shortcuts::compositor::NiriLink;
 use dojo::shortcuts::panel::{Mode, Model, Mods, Outcome};
-use dojo::shortcuts::portal::{Approver, ChoiceRequest, Portal};
+use dojo::shortcuts::portal::{Approver, ChoiceRequest, Portal, TriggerCheck};
+use dojo::shortcuts::trigger::Trigger;
 use dojo::shortcuts::registry::Choice;
 use dojo::shortcuts::store::Store;
 use gpui::{
@@ -167,6 +168,8 @@ fn open_panel(
                 window.focus(&focus, cx);
                 Panel {
                     model: Model::new(&request),
+                    check: request.check.clone(),
+                    _check: None,
                     focus,
                     reply: Some(reply),
                     reveal: dojo::design::MenuReveal::opening(Instant::now()),
@@ -201,6 +204,9 @@ fn open_panel(
 
 struct Panel {
     model: Model,
+    check: TriggerCheck,
+    /// The question Niri is answering, if any. Dropping it abandons the answer.
+    _check: Option<gpui::Task<()>>,
     focus: FocusHandle,
     reply: Option<oneshot::Sender<Option<Vec<Choice>>>>,
     reveal: dojo::design::MenuReveal,
@@ -211,6 +217,10 @@ impl Panel {
     fn finish(&mut self, outcome: Outcome, window: &mut Window, cx: &mut Context<Self>) {
         let answer = match outcome {
             Outcome::Pending => return,
+            Outcome::Check(trigger) => {
+                self.ask_niri(trigger, cx);
+                return;
+            }
             Outcome::Done(choices) => Some(choices),
             Outcome::Cancelled => None,
         };
@@ -219,6 +229,22 @@ impl Panel {
         }
         window.remove_window();
         cx.defer(show_next);
+    }
+
+    /// Niri decides whether a key is free; asking blocks on its socket, so it happens off the UI thread.
+    fn ask_niri(&mut self, trigger: Trigger, cx: &mut Context<Self>) {
+        let check = self.check.clone();
+        let asked = trigger.clone();
+        self._check = Some(cx.spawn(async move |this, cx| {
+            let reason = cx
+                .background_executor()
+                .spawn(async move { check.check(&asked) })
+                .await;
+            let _ = this.update(cx, |panel: &mut Panel, cx| {
+                panel.model.checked(&trigger, reason);
+                cx.notify();
+            });
+        }));
     }
 
     fn press(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -238,6 +264,36 @@ impl Panel {
     }
 }
 
+/// Sizes of the panel's single-line elements. Every text is truncated to one line, so the
+/// height is the sum of these and never depends on how a font wraps.
+mod size {
+    pub const PADDING: f32 = 18.;
+    pub const GAP: f32 = 8.;
+    pub const LINE: f32 = 20.;
+    pub const ROW_PADDING: f32 = 8.;
+    pub const ROW: f32 = LINE + 2. * ROW_PADDING;
+    pub const NOTE: f32 = 14.;
+    pub const TITLE: f32 = 24.;
+    pub const SUBTITLE: f32 = 16.;
+    pub const HINT: f32 = 16.;
+    pub const WIDTH: f32 = 440.;
+}
+
+impl Panel {
+    fn content_height(&self) -> f32 {
+        let mut items = vec![size::TITLE, size::SUBTITLE];
+        for row in &self.model.rows {
+            items.push(size::ROW + if row.note.is_some() { size::NOTE } else { 0. });
+        }
+        items.push(size::ROW);
+        if self.model.notice.is_some() {
+            items.push(size::NOTE);
+        }
+        items.push(size::HINT);
+        size::PADDING * 2. + items.iter().sum::<f32>() + size::GAP * (items.len() as f32 - 1.)
+    }
+}
+
 impl Render for Panel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = *cx.global::<ThemeColors>();
@@ -248,19 +304,10 @@ impl Render for Panel {
         if moving {
             window.request_animation_frame();
         }
-        let width = 360_f32.min((f32::from(viewport.width) - 24.).max(100.));
-        let padding = 18.;
-        let gap = 8.;
-        let row_padding = 8.;
-        let line = 20.;
-        let notice_height = if self.model.notice.is_some() { gap + line } else { 0. };
-        let content_height = padding * 2.
-            + 24.
-            + (gap + row_padding * 2. + line) * (self.model.rows.len() as f32 + 1.)
-            + notice_height
-            + gap
-            + 16.;
-        let height = content_height.min((f32::from(viewport.height) - 80.).max(80.));
+        let width = size::WIDTH.min((f32::from(viewport.width) - 24.).max(100.));
+        let height = self
+            .content_height()
+            .min((f32::from(viewport.height) - 80.).max(80.));
         let right = crate::geometry::RIGHT_INSET as f32;
         let bottom = crate::geometry::BOTTOM_INSET as f32;
         let bounds = Bounds::new(
@@ -271,60 +318,95 @@ impl Render for Panel {
             gpui::size(px(width), px(height * progress)),
         );
 
-        let capturing = self.model.mode == Mode::Capturing;
+        let mode = self.model.mode;
+        let capturing = mode == Mode::Capturing;
         let mut content = div()
             .flex()
             .flex_col()
-            .gap(px(gap))
-            .p(px(padding))
+            .gap(px(size::GAP))
+            .p(px(size::PADDING))
             .text_size(px(13.))
-            .line_height(px(line))
+            .line_height(px(size::LINE))
             .child(
                 div()
                     .text_size(px(16.))
-                    .line_height(px(24.))
+                    .line_height(px(size::TITLE))
+                    .truncate()
                     .child(self.model.title.clone()),
+            )
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .line_height(px(size::SUBTITLE))
+                    .text_color(colors.foreground_muted.rgb())
+                    .truncate()
+                    .child(self.model.subtitle),
             );
         for (index, row) in self.model.rows.iter().enumerate() {
             let selected = self.model.selected == index;
-            let waiting = selected && capturing;
+            let waiting = selected && matches!(mode, Mode::Capturing | Mode::Checking);
             let trigger = if waiting {
-                "Press a shortcut…".to_owned()
+                if capturing {
+                    "Press a shortcut…".to_owned()
+                } else {
+                    "Checking…".to_owned()
+                }
             } else {
                 row.trigger
                     .as_ref()
                     .map_or_else(|| "Not set".to_owned(), ToString::to_string)
             };
+            let strong = if selected {
+                colors.selection_foreground.rgb()
+            } else {
+                colors.foreground.rgb()
+            };
+            let muted = if selected {
+                colors.selection_foreground.rgb()
+            } else {
+                colors.foreground_muted.rgb()
+            };
+            let mut line = div()
+                .flex()
+                .items_center()
+                .gap(px(12.))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .child(row.description.clone()),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .text_color(if row.trigger.is_some() || waiting { strong } else { muted })
+                        .child(trigger),
+                );
+            if let Some(note) = &row.note {
+                line = div().flex().flex_col().child(line).child(
+                    div()
+                        .text_size(px(11.))
+                        .line_height(px(size::NOTE))
+                        .text_color(muted)
+                        .truncate()
+                        .child(note.clone()),
+                );
+            }
             content = content.child(
                 div()
                     .id(format!("shortcut-row-{index}"))
-                    .flex()
-                    .justify_between()
-                    .gap(px(12.))
                     .px(px(12.))
-                    .py(px(row_padding))
+                    .py(px(size::ROW_PADDING))
                     .rounded(px(10.))
                     .bg(if selected {
                         colors.background_highlight.rgb()
                     } else {
                         colors.background.rgb()
                     })
-                    .text_color(if selected {
-                        colors.selection_foreground.rgb()
-                    } else {
-                        colors.foreground.rgb()
-                    })
+                    .text_color(strong)
                     .cursor_pointer()
-                    .child(div().child(row.description.clone()))
-                    .child(div().text_color(if row.trigger.is_some() || waiting {
-                        if selected {
-                            colors.selection_foreground.rgb()
-                        } else {
-                            colors.foreground.rgb()
-                        }
-                    } else {
-                        colors.foreground_muted.rgb()
-                    }).child(trigger))
+                    .child(line)
                     .on_hover(cx.listener(move |panel, hovered, _, cx| {
                         if *hovered && panel.model.selected != index {
                             panel.model.select(index);
@@ -349,7 +431,7 @@ impl Render for Panel {
             div()
                 .id("shortcuts-done")
                 .px(px(12.))
-                .py(px(row_padding))
+                .py(px(size::ROW_PADDING))
                 .rounded(px(10.))
                 .bg(if done {
                     colors.background_highlight.rgb()
@@ -380,17 +462,24 @@ impl Render for Panel {
                 ),
         );
         if let Some(notice) = &self.model.notice {
-            content = content.child(div().text_size(px(11.)).child(notice.clone()));
+            content = content.child(
+                div()
+                    .text_size(px(11.))
+                    .line_height(px(size::NOTE))
+                    .truncate()
+                    .child(notice.clone()),
+            );
         }
         content = content.child(
             div()
                 .text_size(px(11.))
-                .line_height(px(16.))
+                .line_height(px(size::HINT))
                 .text_color(colors.foreground_muted.rgb())
-                .child(if capturing {
-                    "Press a shortcut · Backspace clears · Esc stops"
-                } else {
-                    "Enter change · Backspace clear · Esc cancel"
+                .truncate()
+                .child(match mode {
+                    Mode::Browsing => "Enter change · Backspace clear · Esc cancel",
+                    Mode::Capturing => "Press a shortcut · Backspace clears · Esc stops",
+                    Mode::Checking => "Checking with Niri…",
                 }),
         );
 
@@ -429,7 +518,7 @@ impl Render for Panel {
                     .w(px(width))
                     .h(px(height * progress))
                     .opacity(progress)
-                    .overflow_y_scroll()
+                    .overflow_hidden()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(content),
             )

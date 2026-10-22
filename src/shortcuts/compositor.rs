@@ -28,6 +28,10 @@ pub type Refusal = (String, String);
 pub trait Compositor: Send + Sync + 'static {
     /// Replace every grab this service holds. Blocks for the compositor's reply.
     fn set_grabs(&self, grabs: &[Grab]) -> anyhow::Result<Vec<Refusal>>;
+
+    /// For each key (in Niri's syntax), why this service could not grab it, or `None` if it
+    /// could. Grabs nothing.
+    fn check(&self, keys: &[String]) -> anyhow::Result<Vec<Option<String>>>;
 }
 
 pub struct NiriLink {
@@ -127,6 +131,20 @@ impl Compositor for NiriLink {
             other => bail!("Niri answered a shortcut request with {other:?}"),
         }
     }
+
+    fn check(&self, keys: &[String]) -> anyhow::Result<Vec<Option<String>>> {
+        let mut control = self.control.lock().expect("Niri control lock poisoned");
+        let reply = control
+            .send(Request::CheckGlobalShortcuts {
+                keys: keys.to_vec(),
+            })
+            .context("talking to Niri")?
+            .map_err(anyhow::Error::msg)?;
+        match reply {
+            Response::GlobalShortcutChecks(checks) if checks.len() == keys.len() => Ok(checks),
+            other => bail!("Niri answered a shortcut check with {other:?}"),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -168,7 +186,7 @@ mod tests {
                     .filter(|shortcut| shortcut.key == "Ctrl+F1")
                     .map(|shortcut| RefusedShortcut {
                         id: shortcut.id.clone(),
-                        reason: "already a configured bind".into(),
+                        reason: "already a Niri key binding".into(),
                     })
                     .collect();
                 seen.push(shortcuts);
@@ -217,6 +235,19 @@ mod tests {
                     events_stream = Some(events);
                 }
             }
+            // A check follows: two keys, the second unavailable.
+            let mut line = String::new();
+            control_reader.read_line(&mut line).unwrap();
+            let Request::CheckGlobalShortcuts { keys } = serde_json::from_str(&line).unwrap()
+            else {
+                panic!("expected a check, got {line}");
+            };
+            assert_eq!(keys, ["Ctrl+F5", "Ctrl+F6"]);
+            let reply: Reply = Ok(Response::GlobalShortcutChecks(vec![
+                None,
+                Some("already a Niri key binding".into()),
+            ]));
+            send_line(&mut control, &reply);
             // Dropping the event stream closes it.
             drop(events_stream);
             seen
@@ -242,7 +273,7 @@ mod tests {
                 },
             ])
             .unwrap();
-        assert_eq!(refused, [("1/bad".to_owned(), "already a configured bind".to_owned())]);
+        assert_eq!(refused, [("1/bad".to_owned(), "already a Niri key binding".to_owned())]);
 
         let pressed = events.recv_blocking().unwrap();
         assert_eq!(
@@ -254,6 +285,11 @@ mod tests {
             }
         );
         assert!(!events.recv_blocking().unwrap().pressed);
+
+        let checks = link
+            .check(&["Ctrl+F5".to_owned(), "Ctrl+F6".to_owned()])
+            .unwrap();
+        assert_eq!(checks, [None, Some("already a Niri key binding".to_owned())]);
 
         let seen = niri.join().unwrap();
         assert!(seen[0].is_empty(), "the first request only learns the owner");

@@ -52,6 +52,8 @@ impl Drop for PrivateBus {
 struct FakeCompositor {
     sets: Mutex<Vec<Vec<Grab>>>,
     refuse_key: Mutex<Option<String>>,
+    /// Keys `check` reports as unavailable, with the reason.
+    unavailable: Mutex<Vec<(String, String)>>,
 }
 
 impl FakeCompositor {
@@ -61,13 +63,26 @@ impl FakeCompositor {
 }
 
 impl Compositor for FakeCompositor {
+    fn check(&self, keys: &[String]) -> anyhow::Result<Vec<Option<String>>> {
+        let unavailable = self.unavailable.lock().unwrap();
+        Ok(keys
+            .iter()
+            .map(|key| {
+                unavailable
+                    .iter()
+                    .find(|(taken, _)| taken == key)
+                    .map(|(_, reason)| reason.clone())
+            })
+            .collect())
+    }
+
     fn set_grabs(&self, grabs: &[Grab]) -> anyhow::Result<Vec<super::super::compositor::Refusal>> {
         self.sets.lock().unwrap().push(grabs.to_vec());
         let refuse = self.refuse_key.lock().unwrap().clone();
         Ok(grabs
             .iter()
             .filter(|grab| Some(&grab.key) == refuse.as_ref())
-            .map(|grab| (grab.id.clone(), "already a configured bind".to_owned()))
+            .map(|grab| (grab.id.clone(), "already a Niri key binding".to_owned()))
             .collect())
     }
 }
@@ -298,6 +313,42 @@ async fn a_bound_shortcut_is_grabbed_and_its_key_reaches_the_app() {
         .unwrap();
     assert!(h.compositor.latest().is_empty());
     drop(h.portal);
+}
+
+#[tokio::test]
+async fn a_suggestion_niri_would_refuse_is_not_offered() {
+    let approver = Arc::new(Scripted::default());
+    approver
+        .answers
+        .lock()
+        .unwrap()
+        .push_back(Some(Vec::new()));
+    let h = harness(approver.clone(), None).await;
+    h.compositor
+        .unavailable
+        .lock()
+        .unwrap()
+        .push(("Ctrl+F1".into(), "already a Niri key binding".into()));
+    create_session(&h.client, "/session/one", "app").await;
+    bind(
+        &h.client,
+        "/session/one",
+        "/request/bind",
+        vec![
+            shortcut("taken", "Taken", Some("CTRL+F1")),
+            shortcut("free", "Free", Some("CTRL+F2")),
+        ],
+    )
+    .await;
+    let asked = approver.asked.lock().unwrap();
+    let items = &asked[0].shortcuts;
+    assert_eq!(items[0].preferred, None);
+    assert_eq!(
+        items[0].note.as_deref(),
+        Some("Ctrl+F1 is not available: already a Niri key binding")
+    );
+    assert_eq!(items[1].preferred, Some(Trigger::from_xdg("CTRL+F2").unwrap()));
+    assert_eq!(items[1].note, None);
 }
 
 #[tokio::test]
