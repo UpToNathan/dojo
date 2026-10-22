@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check that dojo-lock-pam starts under the host loader and can load libpam.
+"""Check that a PAM helper (dojo-lock-pam, dojo-dm-pam) starts under the host loader and can load libpam.
 
 dojo-lock spawns the helper the way src/lock/worker/mod.rs does: the host's
 dynamic loader with the host library directory ahead of the binary's RUNPATH.
@@ -15,6 +15,7 @@ time without touching the real PAM stack:
 
 import argparse
 import subprocess
+from pathlib import Path
 
 LOADER = "/usr/lib64/ld-linux-x86-64.so.2"
 LIBRARIES = "/usr/lib"
@@ -24,6 +25,7 @@ TIMEOUT = 15
 
 
 def run_usage(command):
+    name = Path(command[3]).name
     result = subprocess.run(
         command,
         stdin=subprocess.DEVNULL,
@@ -35,7 +37,7 @@ def run_usage(command):
     if result.returncode != EXIT_USAGE:
         detail = result.stderr.decode(errors="replace").strip()
         raise SystemExit(
-            f"dojo-lock-pam cannot start under {command[0]} with library path {command[2]}"
+            f"{name} cannot start under {command[0]} with library path {command[2]}"
             f" (exit {result.returncode}, expected {EXIT_USAGE}). {detail}"
         )
 
@@ -70,10 +72,10 @@ def main():
         )
     if result.returncode != 0 or result.stdout.strip() != b"ok":
         raise SystemExit(
-            f"dojo-lock-pam --check failed (exit {result.returncode},"
+            f"{Path(arguments.helper).name} --check failed (exit {result.returncode},"
             f" stdout {result.stdout.strip()!r}). {detail}"
         )
-    print("dojo-lock-pam starts under the host loader and libpam loads")
+    print(f"{Path(arguments.helper).name} starts under the host loader and libpam loads")
 
 
 if __name__ == "__main__":

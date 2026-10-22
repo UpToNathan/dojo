@@ -1,0 +1,43 @@
+# Dojo login screen and display manager
+
+Replace `ly` with a display manager that looks like the lock screen. Pick a session (Niri through UWSM), type a username, and the screen becomes that user's lock screen: their palette, pre-blurred wallpaper, name, greeting and farewell. Type a password and the screen fades to the frame colour, then the desktop frame opens as it does on unlock, with the greeting after the swap. Shutdown, hibernate, restart and suspend play the farewell closing whatever triggers them.
+
+Terms are in [the glossary](../../GLOSSARY.md). Decisions: [ADR 0003](../../docs/adr/0003-dojo-ships-its-own-display-manager.md), building on [ADR 0001](../../docs/adr/0001-lock-screen-is-a-separate-gpui-program.md) and [ADR 0002](../../docs/adr/0002-unlock-methods-race-in-separate-pam-conversations.md). The lock screen it copies is in [the lock spec](../lockscreen/spec.md).
+
+## Experience
+
+The login screen is the resting lock screen with two differences. The top-left chip is the user (typed or the last user, prefilled) and a second chip names the session; the hint reads "Type your password". The first key press goes to the password pill, as on the lock screen. Clicking the user chip, or Tab, edits the username; Enter commits it and the look cross-fades to that user's snapshot. A name with no snapshot gets the default theme and a neutral hint. The session chip cycles through the Wayland sessions (the last choice is the default); only `wayland-sessions` entries are offered. Any username may be typed. Wrong password, password pause, reduced motion and the power policy match the lock screen. After a login screen settles it dims and the display turns off on the same timeline.
+
+Fingerprint is offered when the typed user has an enrolled print and a reader exists, and races the password as ADR 0002 describes; otherwise the screen is password only, so a machine without a reader (Jupiter) simply never shows the sensor state. The dial shows the reader state only when it is live. A fingerprint login leaves the GNOME keyring locked; the login password unlocks it.
+
+## Process
+
+`dojo-dm` runs as root on `tty1` (`Conflicts=getty@tty1.service`, `Alias=display-manager.service`). `tty2` is a rescue `getty`. It starts the greeter as `dojo-greeter`: our Niri fork with a greeter config whose only client is `dojo-greeter` (the lock program's login mode), in a PAM session of class `greeter` so logind grants seat access. The greeter talks to `dojo-dm` over a seqpacket socket in `/run/dojo-dm` whose peer must be `dojo-greeter`.
+
+A login attempt is one PAM conversation per method in a root helper, `dojo-dm-pam`, with the service names `dojo-login` (the old `ly` stack) and `dojo-login-fingerprint`. The winning helper becomes the session leader: `pam_setcred`, `pam_open_session`, then fork, drop to the user, set the environment (`XDG_SESSION_TYPE`, `XDG_SESSION_DESKTOP`, `XDG_SEAT`, `XDG_VTNR`, `DesktopNames`) and run the session's `Exec` through the user's login shell. It closes the PAM session when the session ends, and `dojo-dm` starts the greeter again. The greeter's last frame is the frame colour (the user's `palette.json` background, which is also Niri's `background-color` in their session), so the compositor swap between the two Niris shows nothing but that colour.
+
+## Handoff
+
+One movement, one greeting. After a login succeeds the ring completes (300 ms), the whole scene fades to the frame colour (200 ms, cut under reduced motion) and only then does the greeter send `StartSession`; the greeter plays no greeting. `dojo-dm` leaves the greeter alone until that request. Once the greeter is stopped it puts the VT in graphics mode (`KDSETMODE`), so the kernel console does not paint the gap, and then starts the session; the next `acquire` puts it back in text mode. `dojo-dm` writes `dojo-dm: event=... ms=... unix_ms=...` lines to the journal for `greeter-start`, `auth-ok`, `start-session`, `greeter-stopped`, `session-start-sent` and `session-ended`.
+
+The session helper leaves `$XDG_RUNTIME_DIR/dojo/after-greeter` as the user just before it execs the login shell. The shell deletes it as it starts. When it was there, the login opening is `opening::Entry::AfterGreeter`: it begins as the frame colour alone, waits (at most 1.5 s) behind it until the lock wallpaper is decoded, fades the closed state in over 200 ms, plays the login greeting and opens as before. Without the marker the opening is the old one. What remains between the greeter's last frame and the shell's first: the compositor swap, uwsm's preamble and the shell's start-up, all under the frame colour.
+
+Everything the greeter and `dojo-dm` execute is a root-owned copy under `/usr/local/lib/dojo-dm/<release>/` with an `environment.sh`, never a path in a home directory.
+
+## Look snapshots
+
+At session start, session end and `dojo-dm` stop, a child that has dropped to the user reads `palette.json`, `lock-wallpaper.png`, the `[session]` settings and the last greeting (no symlinks, size caps), decodes the wallpaper with explicit limits (at most 512x2048 pixels, 16 MiB of decoder allocation, under a bounded address space) into raw pixels, and hands the bytes to the parent, which writes `/var/lib/dojo-dm/users/<login>/` atomically. The wallpaper file there is `lock-wallpaper.raw`: `DJWP`, width and height as little-endian `u32`, then `width * height * 4` bytes of BGRA. The greeter reads only these and runs no image decoder, because it sees every user's password. A theme change shows at the next login screen after a session ends.
+
+## Power occasions
+
+The shell already plays the closing for shutdown, hibernate, restart, suspend and logout when they start from its menu. Other triggers bypass it: the power key, the lid, stasis's suspend-then-hibernate and `systemctl poweroff`. The logind bridge holds a delay inhibitor for shutdown as well as sleep, and on `PrepareForShutdown(true)` or `PrepareForSleep(true)` asks the shell to play the closing (`dojo --farewell <occasion>`, no action of its own), then releases it. The shell's own actions must not trigger a second closing. The login screen offers the same occasions from a corner chip and keyboard shortcuts and plays them in its own scene. `logind.conf` stops handling the power key so Niri's bind does.
+
+## Open decisions
+
+- **Greeter user and cleanup:** whether `dojo-greeter` is created by the installer through `sysusers.d` (recommended).
+- **Failed greeter:** after 3 failed starts in 30 s, `dojo-dm` stops and leaves `tty2` as the console.
+- **Autologin:** not offered.
+
+## Verification
+
+Run the greeter and `dojo-dm` against a fake PAM stack and a nested Niri (`tools/agent-input/run-nested.sh`), never the live VT, and never run real power actions. A human checklist covers real login, logout, shutdown, restart and hibernate with `tty2` as the way back.

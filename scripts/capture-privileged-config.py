@@ -45,6 +45,8 @@ def installer_sources(text):
     result = {}
     for array, kind in [('config_links', 'symlink'), ('config_copies', 'copy')]:
         match = re.search(r'\b' + array + r'=\((.*?)\n\)', text, re.S)
+        if not match and array == 'config_links':
+            continue
         if not match:
             raise ValueError(f'Cannot parse installer {array}; update inventory parser')
         for source, target, mode in re.findall(r"'([^'|]+)\|(/[^'|]+)(?:\|([0-7]+))?'", match[1]):

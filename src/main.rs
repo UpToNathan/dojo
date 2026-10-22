@@ -71,12 +71,24 @@ fn run() -> anyhow::Result<()> {
             let word = arguments
                 .next()
                 .ok_or_else(|| anyhow::anyhow!("missing occasion"))?;
-            let occasion = dojo::session::Occasion::parse_closing(&word).ok_or_else(|| {
+            let departure = dojo::session::action::Departure::parse(&word).ok_or_else(|| {
                 anyhow::anyhow!(
-                    "unknown occasion {word:?}; use lock, logout, suspend, hibernate, restart or shutdown"
+                    "unknown occasion {word:?}; use lock, logout, suspend, suspend-then-hibernate, hibernate, restart or shutdown"
                 )
             })?;
-            ControlCommand::Leave(occasion)
+            ControlCommand::Leave(departure)
+        }
+        Some("--farewell") => {
+            let word = arguments
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("missing occasion"))?;
+            let occasion =
+                dojo::session::action::Departure::parse_farewell(&word).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "unknown occasion {word:?}; use logout, suspend, hibernate, restart or shutdown"
+                    )
+                })?;
+            ControlCommand::Farewell(occasion)
         }
         Some("--speech-state") => {
             let phase = arguments
@@ -99,7 +111,7 @@ fn run() -> anyhow::Result<()> {
         }
         Some("--help") | Some("-h") => {
             println!(
-                "Usage: dojo [--toggle|--enable|--disable|--quit|--launcher|--launcher-up|--launcher-down|--launcher-activate|--launcher-dismiss|--theme|--displays|--wifi|--system-menu|--models|--terminal|--leave OCCASION|--launcher-benchmark|--speech-state STATE|--speech-response TEXT|--speech-transcript TEXT]"
+                "Usage: dojo [--toggle|--enable|--disable|--quit|--launcher|--launcher-up|--launcher-down|--launcher-activate|--launcher-dismiss|--theme|--displays|--wifi|--system-menu|--models|--terminal|--leave OCCASION|--farewell OCCASION|--launcher-benchmark|--speech-state STATE|--speech-response TEXT|--speech-transcript TEXT]"
             );
             return Ok(());
         }
@@ -132,7 +144,8 @@ fn run() -> anyhow::Result<()> {
         ControlCommand::Terminal | ControlCommand::TerminalClosed => {
             bail!("start Dojo before using its quick terminal")
         }
-        ControlCommand::Leave(occasion) => session_overlay::leave_without_shell(occasion),
+        ControlCommand::Leave(departure) => session_overlay::leave_without_shell(departure),
+        ControlCommand::Farewell(_) => Ok(()),
         ControlCommand::Speech(_) => bail!("start Dojo before sending speech events"),
     }
 }

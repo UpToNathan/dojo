@@ -1,26 +1,10 @@
-//! Exit status and the `locked-at` takeover marker.
+//! The `locked-at` takeover marker.
 //!
 //! The marker lets a locker restarted after a crash keep counting the lock age
 //! from the first lock. It names the compositor instance, so a marker left by a
 //! crashed locker under a compositor that has since restarted is ignored.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU8, Ordering};
-
-/// `EX_TEMPFAIL`: the event loop ended without the model deciding to exit, so
-/// the session may still be locked. `Restart=on-failure` restarts on it.
-pub const ENDED_UNEXPECTEDLY: u8 = 75;
-
-static EXIT: AtomicU8 = AtomicU8::new(ENDED_UNEXPECTEDLY);
-
-/// Called for the model's `Exit`: unlocked, refused and ended all exit 0.
-pub fn exit_cleanly() {
-    EXIT.store(0, Ordering::SeqCst);
-}
-
-pub fn exit_status() -> u8 {
-    EXIT.load(Ordering::SeqCst)
-}
 
 pub struct Marker {
     path: PathBuf,

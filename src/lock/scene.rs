@@ -1,10 +1,13 @@
 //! Exactly what one output paints, derived from the model at an instant.
 //! No timestamps, so equal scenes mean no frame.
 
+use std::time::Instant;
+
 use gpui::{Pixels, Size, px};
 
+use super::login::SwapPhase;
 use super::model::{
-    FAREWELL, FAREWELL_HOLD, FAREWELL_IN, FAREWELL_OUT, Fingerprint, GREETING_IN, GREETING_OUT,
+    Departing, FAREWELL, FAREWELL_HOLD, FAREWELL_IN, FAREWELL_OUT, Fingerprint, GREETING_IN, GREETING_OUT,
     LockModel, Locked, MotionKind, Now, OPENING, OutputId, PasswordFlow, PauseEnd, RELEASE, REVEAL,
     Stage, Typed, UnlockPhase, greeting, minutes_left,
 };
@@ -29,6 +32,22 @@ pub struct Scene {
     pub role: Role,
     /// True only while a bounded motion or the unlock sequence runs.
     pub animating: bool,
+    /// Which user's look to paint, on the login screen. `None` on the lock screen, which has one look.
+    pub look: Option<LookMix>,
+    /// How much of the scene the look's frame colour covers: the login screen's dip as it hands
+    /// the screen to the session. 0 everywhere else.
+    pub veil: f32,
+}
+
+/// The login screen's look: `login`'s, or a cross-fade into it from `from`.
+#[derive(Clone, PartialEq, Debug)]
+pub struct LookMix {
+    /// The account whose snapshot is the target of the paint.
+    pub login: String,
+    /// The account fading out, while `mix` is below 1.
+    pub from: Option<String>,
+    /// 0 paints `from` (or `login` alone when there is no `from`), 1 paints `login`.
+    pub mix: f32,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -96,6 +115,25 @@ pub struct Chips {
     pub battery: Option<String>,
     pub network: Option<String>,
     pub lock_age: Option<String>,
+    /// The session chip and the username editor. `None` on the lock screen.
+    pub login: Option<LoginChips>,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct LoginChips {
+    /// The selected session's name.
+    pub session: String,
+    /// The user chip is being edited: it shows the text typed so far.
+    pub editing: Option<NameEdit>,
+    /// The power chip is open and offers the occasions in `Leave::ALL`.
+    pub power_open: bool,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct NameEdit {
+    pub text: String,
+    /// The last key or Enter was refused by the name rules.
+    pub refused: bool,
 }
 
 /// The inactive outputs' clock: present but quiet.
@@ -108,6 +146,7 @@ const HINT_RESTING: &str = "Touch the sensor, or just start typing";
 const HINT_TYPING: &str = "The sensor still works";
 const HINT_WRONG: &str = "That wasn't it. Try again.";
 const HINT_PASSWORD_ONLY: &str = "Start typing to unlock";
+const HINT_LOGIN_PASSWORD: &str = "Type your password";
 const HINT_PAUSED_SENSOR: &str = "Password paused. The sensor still works";
 const HINT_PAUSED: &str = "Password paused";
 const HINT_BROKEN: &str = "Press Enter to try again";
@@ -177,18 +216,34 @@ impl LockModel {
     /// go for the shell's opening: 1 until the last `RELEASE` of the unlock sequence.
     /// Reduced motion has no fades, so the parts stay until the shell's cross-fade.
     fn letting_go(&self, now: Now) -> f32 {
-        let Stage::Unlocking(unlocking) = &self.stage else {
-            return 1.;
+        let release = |since: Instant| {
+            1. - smoothstep(
+                now.mono.saturating_duration_since(since).as_secs_f32() / RELEASE.as_secs_f32(),
+            )
         };
-        if !unlocking.shell_opens || self.settings.reduced_motion {
-            return 1.;
+        match &self.stage {
+            Stage::Departing(departing) if !self.settings.reduced_motion => {
+                release(departing.since)
+            }
+            Stage::Unlocking(unlocking) if unlocking.shell_opens && !self.settings.reduced_motion => {
+                match &unlocking.phase {
+                    UnlockPhase::Greeting { since, .. } => release(*since + greeting(true) - RELEASE),
+                    UnlockPhase::Release { since } => release(*since),
+                    UnlockPhase::Handover { .. } => 0.,
+                    UnlockPhase::Opening { .. } | UnlockPhase::Fade { .. } => 1.,
+                }
+            }
+            _ => 1.,
         }
-        let since = match &unlocking.phase {
-            UnlockPhase::Greeting { since, .. } => *since + greeting(true) - RELEASE,
-            UnlockPhase::Release { since } => *since,
-            UnlockPhase::Opening { .. } => return 1.,
-        };
-        1. - smoothstep(now.mono.saturating_duration_since(since).as_secs_f32() / RELEASE.as_secs_f32())
+    }
+
+    /// The farewell of a departure showing at `now` as (text, alpha).
+    fn departure_farewell(&self, departing: &Departing, now: Now) -> Option<(String, f32)> {
+        let text = departing.farewell.as_ref()?;
+        let from = departing.farewell_from(self.settings.reduced_motion);
+        let elapsed = now.mono.checked_duration_since(from)?;
+        let alpha = farewell_alpha(elapsed, self.settings.reduced_motion)?;
+        Some((text.clone(), alpha))
     }
 
     /// The farewell showing at `now` as (text, alpha).
@@ -221,18 +276,32 @@ impl LockModel {
         let progress = match &self.stage {
             Stage::Requested { .. } | Stage::Locked(_) => 1.,
             Stage::Unlocking(unlocking) => match unlocking.phase {
-                UnlockPhase::Greeting { .. } | UnlockPhase::Release { .. } => 1.,
+                UnlockPhase::Greeting { .. }
+                | UnlockPhase::Release { .. }
+                | UnlockPhase::Fade { .. }
+                | UnlockPhase::Handover { .. } => 1.,
                 UnlockPhase::Opening { since } => {
                     1. - transition::progress(now.mono.saturating_duration_since(since), OPENING)
                 }
             },
+            Stage::Departing(_) => 1.,
             Stage::Exiting => 0.,
         };
         let motion = self
             .motion
             .and_then(|m| Some((m.kind, m.progress(now.mono)?)))
             .map(|(kind, p)| (kind, if self.settings.reduced_motion { 0. } else { p }));
-        let unlocking = matches!(self.stage, Stage::Unlocking(_));
+        // The handover waits for the display manager and the departure for the machine: both hold
+        // a still frame, so only the movement before them asks for frames.
+        let unlocking = match &self.stage {
+            Stage::Unlocking(unlocking) => {
+                !matches!(unlocking.phase, UnlockPhase::Handover { .. })
+            }
+            Stage::Departing(departing) => {
+                departing.sent.is_none() && !self.settings.reduced_motion
+            }
+            _ => false,
+        };
         let opening = progress > 0. && progress < 1.;
         let role = if self.active_output() == Some(output) {
             self.panel(now, motion).map_or(Role::Passive, Role::Active)
@@ -243,7 +312,11 @@ impl LockModel {
         let fading = self.farewell(now).is_some() && !self.settings.reduced_motion;
         let reveal = self.reveal(now);
         let revealing = reveal < 1. && matches!(self.stage, Stage::Locked(_));
+        let look = self.look(now);
+        let veil = self.veil(now);
         let animating = opening
+            || (veil > 0. && veil < 1.)
+            || look.as_ref().is_some_and(|look| look.from.is_some())
             || matches!(role, Role::Active(_))
                 && (unlocking
                     || fading
@@ -270,6 +343,51 @@ impl LockModel {
             },
             role,
             animating,
+            look,
+            veil,
+        })
+    }
+
+    /// The login screen's dip to the frame colour: rising through the fade, held until the
+    /// session has started. A screen that rearms after a failed start is not veiled.
+    fn veil(&self, now: Now) -> f32 {
+        match &self.stage {
+            Stage::Unlocking(unlocking) => match unlocking.phase {
+                UnlockPhase::Fade { since } => self
+                    .greeter_fade()
+                    .veil(now.mono.saturating_duration_since(since)),
+                UnlockPhase::Handover { .. } => 1.,
+                _ => 0.,
+            },
+            _ => 0.,
+        }
+    }
+
+    /// The look to paint on the login screen. The old one stays until the edge has the new one.
+    fn look(&self, now: Now) -> Option<LookMix> {
+        let login = self.login.as_ref()?;
+        let to = |user: &str| LookMix {
+            login: user.to_owned(),
+            from: None,
+            mix: 1.,
+        };
+        Some(match &login.swap {
+            None => to(login.user.as_str()),
+            Some(swap) => match swap.phase {
+                SwapPhase::Loading => to(swap.from.as_str()),
+                SwapPhase::Fading { since } => {
+                    let elapsed = now.mono.saturating_duration_since(since);
+                    if elapsed >= REVEAL {
+                        to(login.user.as_str())
+                    } else {
+                        LookMix {
+                            from: Some(swap.from.as_str().to_owned()),
+                            mix: smoothstep(elapsed.as_secs_f32() / REVEAL.as_secs_f32()),
+                            ..to(login.user.as_str())
+                        }
+                    }
+                }
+            },
         })
     }
 
@@ -278,6 +396,7 @@ impl LockModel {
             Stage::Requested { .. } => None,
             Stage::Locked(locked) => Some(locked.since_unix),
             Stage::Unlocking(unlocking) => Some(unlocking.since_unix),
+            Stage::Departing(departing) => Some(departing.since_unix),
             Stage::Exiting => return None,
         };
         let pill = self.pill(now, motion);
@@ -286,8 +405,10 @@ impl LockModel {
             _ => None,
         };
         let armed = match &self.stage {
-            Stage::Requested { .. } => true,
+            Stage::Requested { .. } => self.fingerprint_wanted(),
             Stage::Locked(locked) => locked.fingerprint.armed(),
+            // The ring keeps its colour while the departure's parts fade.
+            Stage::Departing(_) => self.fingerprint_wanted(),
             Stage::Unlocking(_) | Stage::Exiting => false,
         };
         let ring = if unlocking(&self.stage) {
@@ -310,7 +431,12 @@ impl LockModel {
             }
         } else {
             Ring {
-                tone: if armed { Tone::Normal } else { Tone::Muted },
+                // Without the fingerprint method the ring says nothing about a sensor.
+                tone: if armed || !self.fingerprint_wanted() {
+                    Tone::Normal
+                } else {
+                    Tone::Muted
+                },
                 fill: 0.,
                 flash: 0.,
             }
@@ -329,7 +455,17 @@ impl LockModel {
                 user: self.settings.user.clone(),
                 battery: self.chips.battery.clone(),
                 network: self.chips.network.clone(),
-                lock_age: since_unix.map(|since| lock_age(since, now.unix)),
+                lock_age: since_unix
+                    .filter(|_| self.login.is_none())
+                    .map(|since| lock_age(since, now.unix)),
+                login: self.login.as_ref().map(|login| LoginChips {
+                    session: login.session().to_owned(),
+                    editing: login.editing.as_ref().map(|buffer| NameEdit {
+                        text: buffer.text().to_owned(),
+                        refused: buffer.refused(),
+                    }),
+                    power_open: login.power_open,
+                }),
             },
         })
     }
@@ -401,8 +537,16 @@ impl LockModel {
                             unlocking.shell_opens,
                         ),
                     }),
-                    UnlockPhase::Opening { .. } | UnlockPhase::Release { .. } => None,
+                    UnlockPhase::Opening { .. }
+                    | UnlockPhase::Release { .. }
+                    | UnlockPhase::Fade { .. }
+                    | UnlockPhase::Handover { .. } => None,
                 };
+            }
+            Stage::Departing(departing) => {
+                return self
+                    .departure_farewell(departing, now)
+                    .map(|(text, alpha)| Line::Farewell { text, alpha });
             }
             Stage::Exiting => return None,
         };
@@ -417,6 +561,7 @@ impl LockModel {
                 (PasswordFlow::Broken { .. }, _) => return hint(HINT_BROKEN),
                 (PasswordFlow::Paused(_), _) if armed => return hint(HINT_PAUSED_SENSOR),
                 (PasswordFlow::Paused(_), _) => return hint(HINT_PAUSED),
+                _ if let Some(failure) = &locked.failure => return hint(failure),
                 _ if locked.rejected => return hint(HINT_WRONG),
                 (
                     _,
@@ -430,6 +575,7 @@ impl LockModel {
         match (armed, typing) {
             (true, true) => hint(HINT_TYPING),
             (true, false) => hint(HINT_RESTING),
+            (false, _) if self.login.is_some() => hint(HINT_LOGIN_PASSWORD),
             (false, _) => hint(HINT_PASSWORD_ONLY),
         }
     }
@@ -449,5 +595,7 @@ fn dark(viewport: Size<Pixels>, style: Style) -> Scene {
         quiet: 1.,
         role: Role::Passive,
         animating: false,
+        look: None,
+        veil: 0.,
     }
 }

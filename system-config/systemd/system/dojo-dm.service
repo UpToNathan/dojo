@@ -1,0 +1,36 @@
+[Unit]
+Description=Dojo display manager
+After=systemd-user-sessions.service plymouth-quit-wait.service systemd-logind.service getty@tty1.service
+Conflicts=getty@tty1.service
+# A greeter that cannot start leaves tty2 (getty@tty2.service) as the console.
+StartLimitIntervalSec=30
+StartLimitBurst=3
+
+[Service]
+ExecStart=/usr/local/lib/dojo-dm/current/run
+Restart=always
+RestartSec=1
+RuntimeDirectory=dojo-dm
+RuntimeDirectoryMode=0755
+StateDirectory=dojo-dm
+TTYPath=/dev/tty1
+StandardInput=tty
+# The hand-over timeline (`dojo-dm: event=...`) is read from the journal; a tty on standard input
+# must not take standard output with it.
+StandardOutput=journal
+StandardError=journal
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+# Nothing else is set on purpose. The greeter's and every user's session are forked from this
+# service's helper, so they inherit its mount namespace, seccomp filters, capability bounding set
+# and no_new_privs: ProtectSystem, ProtectHome, PrivateTmp, PrivateDevices, NoNewPrivileges,
+# CapabilityBoundingSet, SystemCall*, Memory* and Restrict* would all land on the desktop.
+# Cgroup limits such as IPAddressDeny fall away only if pam_systemd moves the session, which it
+# is optional in the stacks. WatchdogSec needs sd_notify in the loop, and a watchdog restart
+# during a session would start a greeter over it.
+KeyringMode=private
+
+[Install]
+Alias=display-manager.service
+WantedBy=multi-user.target

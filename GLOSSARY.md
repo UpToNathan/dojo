@@ -33,6 +33,18 @@ _Avoid_: Screen lock, lock state
 The full-screen surface Dojo shows on every output while the session is locked.
 _Avoid_: Screensaver, greeter
 
+**Login screen**:
+The lock screen's form shown on a virtual terminal before any session exists. It is the same surface with a user chip and a session chip, drawn with the look of the user named in the user chip.
+_Avoid_: Greeter UI, display manager screen
+
+**Display manager**:
+Dojo's own root service, `dojo-dm`, that owns the login virtual terminal, authenticates through PAM, opens the logind session and starts the chosen session.
+_Avoid_: Greeter, ly
+
+**Look snapshot**:
+The copy of a user's palette, pre-blurred wallpaper, display name and greeting settings that the display manager keeps for the login screen. It is taken when a session starts and ends, so the login screen never reads a home directory.
+_Avoid_: Theme cache, profile
+
 **Unlock method**:
 A way of proving identity at the lock screen: fingerprint or password. Both are live at the same time and the first to succeed unlocks.
 _Avoid_: Credential, factor

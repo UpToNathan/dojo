@@ -8,7 +8,7 @@ use std::sync::Arc;
 use gpui::RenderImage;
 
 /// Used when the theme's `palette.json` has no readable `error` colour.
-const FALLBACK_ERROR: u32 = 0xf7768e;
+pub const FALLBACK_ERROR: u32 = 0xf7768e;
 
 fn theme_file(name: &str) -> Option<PathBuf> {
     Some(
@@ -43,19 +43,22 @@ pub fn error_colour(palette: &str) -> Option<u32> {
 /// the UI thread. `None` paints a flat palette colour.
 pub fn decode_wallpaper() -> Option<Arc<RenderImage>> {
     let path = theme_file("lock-wallpaper.png")?;
-    let image = match image::open(&path) {
-        Ok(image) => image,
+    match image::open(&path) {
+        Ok(image) => Some(render_image(image)),
         Err(error) if path.exists() => {
             eprintln!("dojo: ignoring {}: {error}", path.display());
-            return None;
+            None
         }
-        Err(_) => return None,
-    };
+        Err(_) => None,
+    }
+}
+
+fn render_image(image: image::DynamicImage) -> Arc<RenderImage> {
     let mut pixels = image.into_rgba8();
     for pixel in pixels.chunks_exact_mut(4) {
         pixel.swap(0, 2);
     }
-    Some(Arc::new(RenderImage::new(vec![image::Frame::new(pixels)])))
+    Arc::new(RenderImage::new(vec![image::Frame::new(pixels)]))
 }
 
 pub struct Account {

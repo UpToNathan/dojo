@@ -23,7 +23,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context as _;
 use dojo::config::{ConfigStore, ThemeColors};
-use dojo::session::action::{Action, ActionRunner};
+use dojo::session::action::{Action, ActionRunner, Departure};
 use dojo::session::closing::{Closing, Effect, Event, EventKind, Phase};
 use dojo::session::host::{self, Account};
 use dojo::session::{handoff, login, logind};
@@ -180,15 +180,12 @@ fn runner(_detached: bool) -> Box<dyn ActionRunner> {
 }
 
 /// `dojo --leave` with no shell running: the action alone, with no animation.
-pub fn leave_without_shell(occasion: Occasion) -> anyhow::Result<()> {
-    run_directly(occasion, runner(false).as_mut())
+pub fn leave_without_shell(departure: Departure) -> anyhow::Result<()> {
+    run_directly(departure, runner(false).as_mut())
 }
 
-fn run_directly(occasion: Occasion, runner: &mut dyn ActionRunner) -> anyhow::Result<()> {
-    let action = occasion
-        .action()
-        .with_context(|| format!("{} has nothing to leave", occasion.key()))?;
-    runner.run(action).map_err(anyhow::Error::msg)
+fn run_directly(departure: Departure, runner: &mut dyn ActionRunner) -> anyhow::Result<()> {
+    runner.run(departure.action()).map_err(anyhow::Error::msg)
 }
 
 fn unix_now() -> i64 {
@@ -237,24 +234,109 @@ fn store_line(occasion: Occasion, line: String) {
     });
 }
 
-/// Begins the closing for `occasion`. A second request while one runs is ignored.
+/// What asks for a closing: the shell's own departure, which performs its action,
+/// or a farewell for an occasion that something else carries out.
+#[derive(Clone, Copy)]
+enum Request {
+    Leave(Departure),
+    Farewell(Occasion),
+}
+
+impl Request {
+    fn occasion(self) -> Occasion {
+        match self {
+            Request::Leave(departure) => departure.occasion(),
+            Request::Farewell(occasion) => occasion,
+        }
+    }
+
+    fn begin(
+        self,
+        settings: &SessionSettings,
+        line: Option<String>,
+        now: Instant,
+    ) -> (Closing, Vec<Effect>) {
+        match self {
+            Request::Leave(departure) => Closing::depart(departure, settings, line, now),
+            Request::Farewell(occasion) => Closing::farewell_only(occasion, settings, line, now),
+        }
+    }
+}
+
+/// Tells the control socket whether a closing is still playing, so a waiting
+/// `dojo --farewell` returns as soon as the picture is done.
+fn publish(cx: &App) {
+    let playing = cx
+        .try_global::<SessionOverlay>()
+        .and_then(|overlay| overlay.active.as_ref())
+        .is_some_and(|active| !active.closing.timeline_over());
+    dojo::control::CLOSING_PLAYING.store(playing, std::sync::atomic::Ordering::Release);
+}
+
+/// Begins the closing for `departure` and performs its action when it ends. A
+/// second request while one runs is ignored, except that a lock asked for during
+/// a suspend or hibernate closing starts the locker.
 /// When no window can be opened the action runs at once, as it did before the closing existed.
-pub fn leave(occasion: Occasion, cx: &mut App) -> anyhow::Result<()> {
+pub fn leave(departure: Departure, cx: &mut App) -> anyhow::Result<()> {
+    let result = play(Request::Leave(departure), cx);
+    publish(cx);
+    result
+}
+
+/// Plays the closing and farewell for `occasion` and performs nothing: logind, or
+/// whatever else started the occasion, does that. Idempotent: while any closing is
+/// on screen, including the one the shell began for the same occasion, it does nothing.
+pub fn farewell(occasion: Occasion, cx: &mut App) -> anyhow::Result<()> {
     anyhow::ensure!(
-        occasion.action().is_some(),
-        "{} has nothing to leave",
+        Departure::parse_farewell(occasion.key()) == Some(occasion),
+        "{} has no farewell to play",
         occasion.key()
     );
+    let result = play(Request::Farewell(occasion), cx);
+    publish(cx);
+    result
+}
+
+/// A lock was asked for while a closing is on screen. Only a sleeping closing acts on it.
+fn ask_for_lock(cx: &mut App) {
+    cx.update_global::<SessionOverlay, _>(|overlay, cx| {
+        let Some(active) = overlay.active.as_mut() else {
+            return;
+        };
+        let effects = active.closing.lock_requested();
+        if effects.is_empty() {
+            eprintln!("Dojo ignored lock: a transition is already running");
+            return;
+        }
+        active._lock_watch = watch_lock(active.begun, SystemTime::now(), cx);
+        trace(active.begun, &effects);
+        perform(&effects, active.runner.as_mut());
+    });
+}
+
+fn play(request: Request, cx: &mut App) -> anyhow::Result<()> {
+    let occasion = request.occasion();
     let login_running = cx
         .try_global::<OpeningOverlay>()
         .is_some_and(|overlay| overlay.active.is_some());
-    if login_running
-        || cx.has_global::<SessionOverlay>() && cx.global::<SessionOverlay>().active.is_some()
-    {
+    let closing_running =
+        cx.has_global::<SessionOverlay>() && cx.global::<SessionOverlay>().active.is_some();
+    if login_running {
         eprintln!(
             "Dojo ignored {}: a transition is already running",
             occasion.key()
         );
+        return Ok(());
+    }
+    if closing_running {
+        if occasion == Occasion::Lock && matches!(request, Request::Leave(_)) {
+            ask_for_lock(cx);
+        } else {
+            eprintln!(
+                "Dojo ignored {}: a transition is already running",
+                occasion.key()
+            );
+        }
         return Ok(());
     }
     let settings = session_settings();
@@ -262,7 +344,7 @@ pub fn leave(occasion: Occasion, cx: &mut App) -> anyhow::Result<()> {
     // A lock's farewell is the locker's: it travels in the handoff file, not the closing.
     let line = (settings.transition && settings.farewell && occasion != Occasion::Lock)
         .then(|| pick_line(occasion, unix, false));
-    let (mut closing, mut effects) = Closing::begin(occasion, &settings, line, now);
+    let (mut closing, mut effects) = request.begin(&settings, line, now);
     if occasion == Occasion::Lock && settings.farewell {
         hand_off_farewell(unix);
     }
@@ -285,7 +367,7 @@ pub fn leave(occasion: Occasion, cx: &mut App) -> anyhow::Result<()> {
                     transition: false,
                     ..settings
                 };
-                (closing, effects) = Closing::begin(occasion, &plain, None, now);
+                (closing, effects) = request.begin(&plain, None, now);
             }
         }
     }
@@ -458,6 +540,7 @@ fn dispatch(kind: EventKind, cx: &mut App) {
             let _ = window.update(cx, |_, window, _| window.refresh());
         }
     });
+    publish(cx);
 }
 
 /// The lock is confirmed: instead of coming down, the closing's windows stay on the
@@ -473,6 +556,9 @@ fn park(active: &mut Active, cx: &mut App) {
             settings: SessionSettings::default(),
             line: None,
             opening: None,
+            entry: opening::Entry::Cold,
+            wallpaper_ready: true,
+            waiting: None,
             style: active.closing.style(),
             shell_clock: active.shell_clock.clone(),
             dial_clock: active.dial_clock.clone(),
@@ -688,8 +774,18 @@ impl Global for OpeningOverlay {}
 struct OpeningActive {
     settings: SessionSettings,
     line: Option<String>,
-    /// `None` while the shell is still starting: the closed state, with no greeting.
+    /// `None` while the shell is still starting: the closed state, with no greeting, or the frame
+    /// colour alone after a greeter.
     opening: Option<Opening>,
+    /// How this login begins: after the greeter it starts from the frame colour it faded to.
+    entry: opening::Entry,
+    /// The lock wallpaper has been decoded, or has failed to be. An opening after a greeter
+    /// starts from the frame colour and waits for this, so the closed state never appears
+    /// without its wallpaper and pops in.
+    wallpaper_ready: bool,
+    /// `start_login` came before the wallpaper was ready: the opening begins when it is, or at
+    /// the cap if decoding hangs.
+    waiting: Option<Task<()>>,
     style: Style,
     shell_clock: String,
     dial_clock: String,
@@ -748,10 +844,20 @@ pub fn clear_overlay_ready() {
 /// into the shell. Any failure means a normal start with no animation.
 pub fn begin_login(cx: &mut App) {
     clear_overlay_ready();
-    let start = login::detect(std::env::var_os("XDG_RUNTIME_DIR"));
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR");
+    // Consumed on every start, so a marker a restart left behind cannot colour a later login.
+    let after_greeter = login::after_greeter_path_from(runtime.clone())
+        .is_some_and(|marker| login::consume_after_greeter(&marker));
+    let start = login::detect(runtime);
     if !start.is_login() {
         return;
     }
+    let entry = if after_greeter {
+        crate::startup::mark("login-after-greeter");
+        opening::Entry::AfterGreeter
+    } else {
+        opening::Entry::Cold
+    };
     let settings = session_settings();
     if !settings.transition {
         return;
@@ -781,6 +887,9 @@ pub fn begin_login(cx: &mut App) {
             settings,
             line,
             opening: None,
+            entry,
+            wallpaper_ready: false,
+            waiting: None,
             style: if settings.reduced_motion {
                 Style::Crossfade
             } else {
@@ -802,8 +911,12 @@ pub fn begin_login(cx: &mut App) {
     });
 }
 
+/// How long an opening after a greeter waits for the wallpaper before it starts without it.
+const WALLPAPER_WAIT: std::time::Duration = std::time::Duration::from_millis(1500);
+
 /// Last thing in the shell's start-up: the greeting starts when everything else
 /// is up, so start-up work cannot eat it. Does nothing when no login is covered.
+/// After a greeter the opening also waits for the wallpaper, behind the frame colour.
 pub fn start_login(cx: &mut App) {
     if !cx.has_global::<OpeningOverlay>() {
         return;
@@ -812,24 +925,52 @@ pub fn start_login(cx: &mut App) {
         let Some(active) = overlay.active.as_mut() else {
             return;
         };
-        let (opening, effects) = Opening::begin(
-            Occasion::Login,
-            &active.settings,
-            active.line.clone(),
-            Instant::now(),
-        );
-        if let Some(line) = opening.greeting() {
-            store_line(Occasion::Login, line.to_owned());
-        }
-        active.opening = Some(opening);
-        if finish_opening(overlay, &effects, cx) {
+        if active.entry == opening::Entry::AfterGreeter && !active.wallpaper_ready {
+            active.waiting = Some(cx.spawn(async move |cx| {
+                cx.background_executor().timer(WALLPAPER_WAIT).await;
+                cx.update(|cx| begin_opening(cx));
+            }));
             return;
         }
-        if let Some(active) = overlay.active.as_mut() {
-            arm_opening(active, cx);
-            refresh(&active.windows, cx);
-        }
+        begin_opening_of(overlay, cx);
     });
+}
+
+fn begin_opening(cx: &mut App) {
+    if !cx.has_global::<OpeningOverlay>() {
+        return;
+    }
+    cx.update_global::<OpeningOverlay, _>(begin_opening_of);
+}
+
+/// Starts the login opening once, whichever of the wallpaper, the cap or the end of start-up asks first.
+fn begin_opening_of(overlay: &mut OpeningOverlay, cx: &mut App) {
+    let Some(active) = overlay.active.as_mut() else {
+        return;
+    };
+    active.waiting = None;
+    if active.opening.is_some() {
+        return;
+    }
+    crate::startup::mark("login-opening-begin");
+    let (opening, effects) = Opening::begin_from(
+        Occasion::Login,
+        active.entry,
+        &active.settings,
+        active.line.clone(),
+        Instant::now(),
+    );
+    if let Some(line) = opening.greeting() {
+        store_line(Occasion::Login, line.to_owned());
+    }
+    active.opening = Some(opening);
+    if finish_opening(overlay, &effects, cx) {
+        return;
+    }
+    if let Some(active) = overlay.active.as_mut() {
+        arm_opening(active, cx);
+        refresh(&active.windows, cx);
+    }
 }
 
 fn refresh(windows: &[WindowHandle<ClosingView>], cx: &mut App) {
@@ -935,15 +1076,24 @@ fn arm_opening(active: &mut OpeningActive, cx: &mut App) {
     });
 }
 
+/// The login's decode finished (`image` is `None` when there is no wallpaper) or a closing's
+/// outlasted it. Either way an opening that was waiting for the wallpaper starts now.
 fn set_opening_wallpaper(image: Option<std::sync::Arc<gpui::RenderImage>>, cx: &mut App) {
-    if image.is_none() || !cx.has_global::<OpeningOverlay>() {
+    if !cx.has_global::<OpeningOverlay>() {
         return;
     }
     cx.update_global::<OpeningOverlay, _>(|overlay, cx| {
         let Some(active) = overlay.active.as_mut() else {
             return;
         };
-        active.look = Rc::new(Look::new(active.colors, active.error, image));
+        if image.is_some() {
+            active.look = Rc::new(Look::new(active.colors, active.error, image));
+        }
+        active.wallpaper_ready = true;
+        crate::startup::mark("login-wallpaper-ready");
+        if active.waiting.is_some() {
+            return begin_opening_of(overlay, cx);
+        }
         refresh(&active.windows, cx);
     });
 }
@@ -951,6 +1101,10 @@ fn set_opening_wallpaper(image: Option<std::sync::Arc<gpui::RenderImage>>, cx: &
 /// The login opening at one instant, drawn by the same painter as a closing run backwards.
 fn opening_frame(active: &OpeningActive, window: &mut Window) -> Vec<gpui::AnyElement> {
     let now = Instant::now();
+    let veil = match &active.opening {
+        Some(opening) => opening.veil(now),
+        None => active.entry.veil_before_start(),
+    };
     let (progress, greeting) = match &active.opening {
         Some(opening) => {
             if opening.animating(now) {
@@ -972,7 +1126,7 @@ fn opening_frame(active: &OpeningActive, window: &mut Window) -> Vec<gpui::AnyEl
     } else if active.parked {
         trace_parked();
     }
-    paint::closing(
+    let mut children = paint::closing(
         &pose,
         progress,
         &active.shell_clock,
@@ -980,7 +1134,9 @@ fn opening_frame(active: &OpeningActive, window: &mut Window) -> Vec<gpui::AnyEl
         greeting,
         &active.look,
         viewport,
-    )
+    );
+    children.extend(paint::veil(active.look.palette.background, veil));
+    children
 }
 
 struct ClosingView {
@@ -1198,22 +1354,82 @@ mod tests {
     }
 
     #[test]
-    fn without_a_shell_the_action_runs_directly_and_openings_are_refused() {
+    fn without_a_shell_the_action_runs_directly() {
         for occasion in Occasion::ALL {
             let mut recorder = Recorder::default();
-            let result = run_directly(occasion, &mut recorder);
-            assert_eq!(result.is_ok(), occasion.action().is_some(), "{occasion:?}");
-            assert_eq!(
-                recorder.actions,
-                occasion.action().into_iter().collect::<Vec<_>>(),
-                "{occasion:?}"
-            );
+            let Some(departure) = Departure::of(occasion) else {
+                continue;
+            };
+            run_directly(departure, &mut recorder).unwrap();
+            assert_eq!(recorder.actions, [departure.action()], "{occasion:?}");
         }
+        let mut recorder = Recorder::default();
+        run_directly(Departure::parse("suspend-then-hibernate").unwrap(), &mut recorder).unwrap();
+        assert_eq!(recorder.actions, [Action::SuspendThenHibernate]);
         let mut failing = Recorder {
             fail: true,
             ..Default::default()
         };
-        assert!(run_directly(Occasion::Lock, &mut failing).is_err());
+        assert!(run_directly(Departure::of(Occasion::Lock).unwrap(), &mut failing).is_err());
+    }
+
+    /// Plays a farewell-only closing to its end, as the shell's timer would.
+    fn farewell_effects(occasion: Occasion) -> Vec<Effect> {
+        let t0 = Instant::now();
+        let (mut closing, mut effects) =
+            Closing::farewell_only(occasion, &SessionSettings::default(), None, t0);
+        while let Some(at) = closing.next_deadline() {
+            effects.extend(closing.update(Event {
+                now: at,
+                kind: EventKind::Tick,
+            }));
+        }
+        effects
+    }
+
+    #[test]
+    fn a_farewell_closing_performs_nothing_through_the_runner() {
+        for occasion in [
+            Occasion::Logout,
+            Occasion::Suspend,
+            Occasion::Hibernate,
+            Occasion::Restart,
+            Occasion::Shutdown,
+        ] {
+            let mut recorder = Recorder::default();
+            let outcome = perform(&farewell_effects(occasion), &mut recorder);
+            assert!(recorder.actions.is_empty(), "{occasion:?}");
+            assert_eq!(
+                outcome,
+                Outcome {
+                    dismiss: true,
+                    done: true
+                },
+                "{occasion:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_closing_started_by_the_shell_and_one_started_by_a_farewell_each_act_once() {
+        let mut recorder = Recorder::default();
+        perform(
+            &effects_of(Occasion::Shutdown, SessionSettings::default()),
+            &mut recorder,
+        );
+        perform(&farewell_effects(Occasion::Shutdown), &mut recorder);
+        assert_eq!(recorder.actions, [Action::Shutdown]);
+    }
+
+    #[test]
+    fn a_locker_asked_for_during_a_sleeping_closing_reaches_the_runner_once() {
+        let t0 = Instant::now();
+        let (mut closing, _) =
+            Closing::farewell_only(Occasion::Suspend, &SessionSettings::default(), None, t0);
+        let mut recorder = Recorder::default();
+        perform(&closing.lock_requested(), &mut recorder);
+        perform(&closing.lock_requested(), &mut recorder);
+        assert_eq!(recorder.actions, [Action::StartLocker]);
     }
 
     #[cfg(feature = "record-session-actions")]

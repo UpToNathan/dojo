@@ -16,6 +16,7 @@ pub mod message;
 pub mod opening;
 pub mod paint;
 pub mod settings;
+pub mod snapshot;
 pub mod transition;
 
 /// Why the desktop frame closes or opens. See the glossary.
