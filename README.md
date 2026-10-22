@@ -287,6 +287,13 @@ these measurements exclude GPUI presentation, input delivery, and IPC, and do
 not establish parity with Fuzzel. The detached launch fixture test can be run with
 `cargo test -- --include-ignored`; it only launches a temporary test script.
 
+## Global shortcuts
+
+Dojo implements the GlobalShortcuts portal, so apps can ask for system-wide
+hotkeys under Niri. The first request from an app opens a small panel to choose
+the keys; the choice is remembered. See [global shortcuts](docs/global-shortcuts.md)
+for how it works and what it needs (the forked Niri and the running shell).
+
 ## License
 
 Dojo is licensed under the GNU General Public License, version 3 or (at your

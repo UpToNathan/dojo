@@ -6,6 +6,7 @@
 //! `docs/global-shortcuts.md`.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -48,6 +49,12 @@ pub struct ChoiceRequest {
 pub trait Approver: Send + Sync + 'static {
     /// `None` means the user cancelled. Dropping the future withdraws the question.
     async fn choose(&self, request: ChoiceRequest) -> Option<Vec<Choice>>;
+
+    /// Whether the user types keys to answer. Niri's grabs are lifted while they do, or a key
+    /// already bound could never be chosen again.
+    fn interactive(&self) -> bool {
+        false
+    }
 }
 
 /// Grants each shortcut the key its app suggested, when the suggestion is a usable trigger.
@@ -83,6 +90,8 @@ pub struct Service {
     approver: Arc<dyn Approver>,
     /// Grabs reach the compositor in the order they were planned.
     sync_lock: tokio::sync::Mutex<()>,
+    /// Questions being asked that need every key free. While any is open no key is grabbed.
+    paused: AtomicUsize,
     runtime: tokio::runtime::Handle,
 }
 
@@ -109,6 +118,7 @@ impl Service {
             compositor,
             approver,
             sync_lock: tokio::sync::Mutex::new(()),
+            paused: AtomicUsize::new(0),
             runtime,
         }
     }
@@ -157,17 +167,7 @@ impl Service {
                 reconfigure: false,
                 shortcuts: pending,
             };
-            // A closed channel means nobody can cancel, not that someone did.
-            let withdrawn = async {
-                if (&mut cancelled).await.is_err() {
-                    std::future::pending::<()>().await;
-                }
-            };
-            let answer = tokio::select! {
-                answer = self.approver.choose(request) => answer,
-                () = withdrawn => None,
-            };
-            match answer {
+            match self.ask(request, Some(&mut cancelled)).await {
                 Some(choices) => choices,
                 None => return BindOutcome::Cancelled,
             }
@@ -215,7 +215,7 @@ impl Service {
             reconfigure: true,
             shortcuts: pending,
         };
-        let Some(choices) = self.approver.choose(request).await else {
+        let Some(choices) = self.ask(request, None).await else {
             return Ok(None);
         };
         let changed = self.registry().apply_choices(handle, &choices)?;
@@ -225,6 +225,42 @@ impl Service {
         self.persist();
         self.sync().await?;
         Ok(Some(self.registry().list(handle)?))
+    }
+
+    /// Put a question to the user. `None` means they cancelled or the caller withdrew it.
+    async fn ask(
+        &self,
+        request: ChoiceRequest,
+        withdrawn: Option<&mut oneshot::Receiver<()>>,
+    ) -> Option<Vec<Choice>> {
+        let interactive = self.approver.interactive();
+        let _pause = interactive.then(|| Pause::begin(&self.paused));
+        if interactive {
+            if let Err(error) = self.sync().await {
+                eprintln!("Dojo shortcuts: lifting the grabs failed: {error:#}");
+            }
+        }
+        let withdrawn = async {
+            if let Some(receiver) = withdrawn {
+                // A closed channel means nobody can cancel, not that someone did.
+                if receiver.await.is_ok() {
+                    return;
+                }
+            }
+            std::future::pending::<()>().await
+        };
+        let answer = tokio::select! {
+            answer = self.approver.choose(request) => answer,
+            () = withdrawn => None,
+        };
+        drop(_pause);
+        if interactive && answer.is_none() {
+            // Nothing else will put the grabs back.
+            if let Err(error) = self.sync().await {
+                eprintln!("Dojo shortcuts: restoring the grabs failed: {error:#}");
+            }
+        }
+        answer
     }
 
     /// The session and shortcut a key event belongs to.
@@ -248,6 +284,11 @@ impl Service {
     async fn sync(&self) -> anyhow::Result<()> {
         let _order = self.sync_lock.lock().await;
         let grabs = self.registry().plan_grabs();
+        let grabs = if self.paused.load(Ordering::SeqCst) > 0 {
+            Vec::new()
+        } else {
+            grabs
+        };
         let compositor = self.compositor.clone();
         // Handlers run on zbus's executor, so anything needing tokio's timer or blocking pool is
         // spawned onto our runtime and awaited through its join handle.
@@ -270,6 +311,21 @@ impl Service {
         }
         self.registry().apply_refusals(&refused);
         Ok(())
+    }
+}
+
+struct Pause<'a>(&'a AtomicUsize);
+
+impl<'a> Pause<'a> {
+    fn begin(count: &'a AtomicUsize) -> Self {
+        count.fetch_add(1, Ordering::SeqCst);
+        Self(count)
+    }
+}
+
+impl Drop for Pause<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
     }
 }
 

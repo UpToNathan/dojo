@@ -7,6 +7,15 @@ let
     org.freedesktop.impl.portal.Settings=darkman
     org.freedesktop.impl.portal.ScreenCast=gnome
     org.freedesktop.impl.portal.Screenshot=gnome
+    org.freedesktop.impl.portal.GlobalShortcuts=dojo
+  '';
+  # The shell owns this backend's bus name while it runs. No D-Bus service file: the shell is
+  # started at login, never by the portal, so a missing shell means apps see no GlobalShortcuts.
+  globalShortcutsPortal = ''
+    [portal]
+    DBusName=org.freedesktop.impl.portal.desktop.dojo
+    Interfaces=org.freedesktop.impl.portal.GlobalShortcuts
+    UseIn=niri
   '';
   backend = pkgs.xdg-desktop-portal-termfilechooser;
   fileManagerPython = pkgs.python3.withPackages (ps: [ ps.dbus-next ]);
@@ -84,6 +93,7 @@ in
       Exec=${fileManager}/bin/dojo-yazi-filemanager
       SystemdService=dojo-yazi-filemanager.service
     '';
+    "xdg-desktop-portal/portals/dojo.portal".text = globalShortcutsPortal;
     "xdg-desktop-portal/portals/termfilechooser.portal".source =
       "${backend}/share/xdg-desktop-portal/portals/termfilechooser.portal";
     "dbus-1/services/org.freedesktop.impl.portal.desktop.termfilechooser.service".source =

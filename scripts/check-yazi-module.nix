@@ -24,6 +24,7 @@ pkgs.linkFarm "dojo-yazi-module-check" (
   map (p: { name = p.name; path = p; }) packages
   ++ [
     { name = "portal-routing"; path = hm.config.xdg.configFile."xdg-desktop-portal/portals.conf".source; }
+    { name = "dojo-portal"; path = hm.config.xdg.dataFile."xdg-desktop-portal/portals/dojo.portal".source; }
     { name = "config"; path = hm.config.xdg.configFile."xdg-desktop-portal-termfilechooser/config".source; }
     { name = "backend"; path = pkgs.xdg-desktop-portal-termfilechooser; }
     { name = "dbus-filemanager"; path = hm.config.xdg.dataFile."dbus-1/services/org.freedesktop.FileManager1.service".source; }

@@ -33,7 +33,7 @@ struct OutputLogicalBounds {
     scale: f32,
 }
 
-fn focused_display_id(cx: &App) -> Option<DisplayId> {
+pub(crate) fn focused_display_id(cx: &App) -> Option<DisplayId> {
     let output = Command::new("niri")
         .args(["msg", "--json", "focused-output"])
         .output()
@@ -437,6 +437,7 @@ fn run_with_surfaces(
             }
             crate::bluetooth_ui::initialize(cx);
             crate::model_picker::watch_setup(cx);
+            crate::shortcuts_ui::initialize(cx);
             crate::startup::mark("services-initialized");
             if let Err(error) = crate::wallpaper::start(cx, wallpaper_events) {
                 eprintln!("Dojo could not start its wallpaper surfaces: {error:#}");

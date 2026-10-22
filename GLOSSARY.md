@@ -60,3 +60,17 @@ _Avoid_: Focused monitor
 **Password pause**:
 A timed refusal of password attempts after repeated failures.
 _Avoid_: Lockout
+
+### Global shortcuts
+
+**Global shortcut**:
+A key combination an app asks for through the GlobalShortcuts portal, which acts whichever window has focus. The app learns when it goes down and up.
+_Avoid_: Hotkey, keybinding (those are configured Niri binds)
+
+**Shortcut grab**:
+A global shortcut's key held by Niri on behalf of an IPC connection. Niri consumes the key, so the focused app never sees it, and releases it when the connection closes.
+_Avoid_: Bind, registration
+
+**Binding panel**:
+The shell surface where the user picks the keys an app's global shortcuts get.
+_Avoid_: Shortcut dialog

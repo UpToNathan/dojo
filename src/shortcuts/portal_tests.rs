@@ -75,6 +75,7 @@ impl Compositor for FakeCompositor {
 /// Answers from a script and records what it was asked.
 #[derive(Default)]
 struct Scripted {
+    interactive: bool,
     answers: Mutex<VecDeque<Option<Vec<Choice>>>>,
     asked: Mutex<Vec<ChoiceRequest>>,
 }
@@ -84,6 +85,10 @@ impl Approver for Scripted {
     async fn choose(&self, request: ChoiceRequest) -> Option<Vec<Choice>> {
         self.asked.lock().unwrap().push(request);
         self.answers.lock().unwrap().pop_front().flatten()
+    }
+
+    fn interactive(&self) -> bool {
+        self.interactive
     }
 }
 
@@ -483,4 +488,220 @@ async fn unknown_sessions_fail_cleanly() {
         2,
         "a session handle cannot be created twice"
     );
+}
+
+#[tokio::test]
+async fn keys_are_lifted_while_the_user_is_typing_and_restored_after() {
+    let approver = Arc::new(Scripted {
+        interactive: true,
+        ..Scripted::default()
+    });
+    approver.answers.lock().unwrap().push_back(Some(vec![Choice {
+        id: "a".into(),
+        trigger: Some(Trigger::from_xdg("CTRL+F1").unwrap()),
+    }]));
+    approver.answers.lock().unwrap().push_back(None);
+    let h = harness(approver, None).await;
+    create_session(&h.client, "/session/one", "app").await;
+    bind(&h.client, "/session/one", "/request/one", vec![shortcut("a", "A", None)]).await;
+    let sets = h.compositor.sets.lock().unwrap().clone();
+    assert_eq!(sets.len(), 2, "{sets:?}");
+    assert!(sets[0].is_empty(), "grabs were not lifted before the question");
+    assert_eq!(sets[1][0].key, "Ctrl+F1");
+
+    // Cancelling the panel puts back what was held before.
+    h.client
+        .call_method(
+            Some(BUS_NAME),
+            OBJECT_PATH,
+            Some(INTERFACE),
+            "ConfigureShortcuts",
+            &(ObjectPath::try_from("/session/one").unwrap(), "", opts()),
+        )
+        .await
+        .unwrap();
+    for _ in 0..100 {
+        if h.compositor.sets.lock().unwrap().len() >= 4 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let sets = h.compositor.sets.lock().unwrap().clone();
+    assert_eq!(sets.len(), 4, "{sets:?}");
+    assert!(sets[2].is_empty());
+    assert_eq!(sets[3][0].key, "Ctrl+F1");
+}
+
+/// The same flow through the real xdg-desktop-portal frontend, which is what apps talk to. It
+/// checks the frontend accepts this backend and how it names a plain host app.
+///
+/// `DOJO_XDG_DESKTOP_PORTAL=/path/to/libexec/xdg-desktop-portal cargo test -- --ignored real_frontend`
+#[tokio::test]
+#[ignore = "needs the real xdg-desktop-portal binary in DOJO_XDG_DESKTOP_PORTAL"]
+async fn real_frontend_routes_an_app_to_this_backend() {
+    let frontend = std::env::var("DOJO_XDG_DESKTOP_PORTAL")
+        .expect("set DOJO_XDG_DESKTOP_PORTAL to the xdg-desktop-portal binary");
+    let h = harness(Arc::new(PreferredTriggers), None).await;
+
+    let home = tempfile::tempdir().unwrap();
+    let portals = home.path().join("data/xdg-desktop-portal/portals");
+    std::fs::create_dir_all(&portals).unwrap();
+    std::fs::write(
+        portals.join("dojo.portal"),
+        format!("[portal]\nDBusName={BUS_NAME}\nInterfaces=org.freedesktop.impl.portal.GlobalShortcuts\nUseIn=niri\n"),
+    )
+    .unwrap();
+    // Registering an app id needs a desktop entry of that name.
+    let applications = home.path().join("data/applications");
+    std::fs::create_dir_all(&applications).unwrap();
+    std::fs::write(
+        applications.join("org.example.Recorder.desktop"),
+        "[Desktop Entry]\nType=Application\nName=Recorder\nExec=true\n",
+    )
+    .unwrap();
+    let config = home.path().join("config/xdg-desktop-portal");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(
+        config.join("niri-portals.conf"),
+        "[preferred]\ndefault=none\norg.freedesktop.impl.portal.GlobalShortcuts=dojo\n",
+    )
+    .unwrap();
+    let mut portal = Command::new(frontend)
+        .args(["-r", "-v"])
+        .env("DBUS_SESSION_BUS_ADDRESS", &h._bus.address)
+        .env("XDG_DATA_HOME", home.path().join("data"))
+        .env("XDG_CONFIG_HOME", home.path().join("config"))
+        .env("XDG_CURRENT_DESKTOP", "niri")
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .unwrap();
+
+    const PORTAL: &str = "org.freedesktop.portal.Desktop";
+    const FRONT: &str = "org.freedesktop.portal.GlobalShortcuts";
+    const REQUEST: &str = "org.freedesktop.portal.Request";
+    let app = h.client.clone();
+    let mut responses = MessageStream::for_match_rule(
+        MatchRule::builder()
+            .msg_type(Type::Signal)
+            .interface(REQUEST)
+            .unwrap()
+            .member("Response")
+            .unwrap()
+            .build(),
+        &app,
+        Some(16),
+    )
+    .await
+    .unwrap();
+    let mut activated = MessageStream::for_match_rule(
+        MatchRule::builder()
+            .msg_type(Type::Signal)
+            .interface(FRONT)
+            .unwrap()
+            .member("Activated")
+            .unwrap()
+            .build(),
+        &app,
+        Some(16),
+    )
+    .await
+    .unwrap();
+
+    // A plain host app has no app id until it registers one; the frontend refuses it otherwise.
+    for _ in 0..100 {
+        let registered = app
+            .call_method(
+                Some(PORTAL),
+                "/org/freedesktop/portal/desktop",
+                Some("org.freedesktop.host.portal.Registry"),
+                "Register",
+                &("org.example.Recorder", opts()),
+            )
+            .await;
+        match registered {
+            Ok(_) => break,
+            // The frontend takes a moment to own its name.
+            Err(_) => tokio::time::sleep(Duration::from_millis(100)).await,
+        }
+    }
+    let mut created = None;
+    for _ in 0..100 {
+        let mut options: HashMap<&str, Value<'_>> = HashMap::new();
+        options.insert("handle_token", Value::from("create1"));
+        options.insert("session_handle_token", Value::from("session1"));
+        match app
+            .call_method(Some(PORTAL), "/org/freedesktop/portal/desktop", Some(FRONT), "CreateSession", &(options,))
+            .await
+        {
+            Ok(message) => {
+                created = Some(message);
+                break;
+            }
+            Err(error) => {
+                let text = error.to_string();
+                if !text.contains("ServiceUnknown") && !text.contains("NameHasNoOwner") {
+                    panic!("CreateSession failed: {text}");
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    }
+    created.expect("the frontend never appeared on the bus");
+
+    let message = tokio::time::timeout(Duration::from_secs(5), responses.next())
+        .await
+        .expect("no Response to CreateSession")
+        .unwrap()
+        .unwrap();
+    let body = message.body();
+    let (code, results): (u32, HashMap<String, OwnedValue>) = body.deserialize().unwrap();
+    assert_eq!(code, 0, "the frontend refused CreateSession: {results:?}");
+    let session = String::try_from(results["session_handle"].try_clone().unwrap()).unwrap();
+
+    let mut options: HashMap<&str, Value<'_>> = HashMap::new();
+    options.insert("handle_token", Value::from("bind1"));
+    let shortcut = shortcut("ptt", "Push to talk", Some("CTRL+ALT+k"));
+    let shortcuts = vec![(shortcut.0.as_str(), {
+        let mut properties: HashMap<&str, Value<'_>> = HashMap::new();
+        for (key, value) in &shortcut.1 {
+            properties.insert(key.as_str(), value.clone());
+        }
+        properties
+    })];
+    app.call_method(
+        Some(PORTAL),
+        "/org/freedesktop/portal/desktop",
+        Some(FRONT),
+        "BindShortcuts",
+        &(ObjectPath::try_from(session.as_str()).unwrap(), shortcuts, "", options),
+    )
+    .await
+    .unwrap();
+    let message = tokio::time::timeout(Duration::from_secs(5), responses.next())
+        .await
+        .expect("no Response to BindShortcuts")
+        .unwrap()
+        .unwrap();
+    let body = message.body();
+    let (code, results): (u32, HashMap<String, OwnedValue>) = body.deserialize().unwrap();
+    assert_eq!(code, 0, "{results:?}");
+    let bound = listed(&(code, results));
+    assert_eq!(bound[0].2, "Ctrl+Alt+K");
+
+    let grabs = h.compositor.latest();
+    assert_eq!(grabs.len(), 1);
+    h.events.send(key_event(&grabs[0].id, true, 99)).await.unwrap();
+    let message = tokio::time::timeout(Duration::from_secs(5), activated.next())
+        .await
+        .expect("the frontend did not forward Activated")
+        .unwrap()
+        .unwrap();
+    let body = message.body();
+    let (forwarded, id, _, _): (ObjectPath<'_>, String, u64, HashMap<String, OwnedValue>) =
+        body.deserialize().unwrap();
+    assert_eq!((forwarded.as_str(), id.as_str()), (session.as_str(), "ptt"));
+
+    let _ = portal.kill();
+    let _ = portal.wait();
 }

@@ -13,6 +13,7 @@ mod picker_menu;
 mod quick_terminal;
 mod session_overlay;
 mod shell;
+mod shortcuts_ui;
 mod sign_in;
 mod startup;
 mod state;

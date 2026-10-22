@@ -15,6 +15,7 @@ nix-store --add-root "$data_root/dojo/yazi-integration" --indirect --realise "$a
 link_file "$artifact/config" "$config_root/xdg-desktop-portal-termfilechooser/config"
 link_file "$artifact/portal-routing" "$config_root/xdg-desktop-portal/niri-portals.conf"
 link_file "$artifact/portal-routing" "$config_root/xdg-desktop-portal/portals.conf"
+link_file "$artifact/dojo-portal" "$data_root/xdg-desktop-portal/portals/dojo.portal"
 link_file "$artifact/dojo-yazi.desktop/share/applications/dojo-yazi.desktop" "$data_root/applications/dojo-yazi.desktop"
 link_file "$artifact/dbus-filemanager" "$data_root/dbus-1/services/org.freedesktop.FileManager1.service"
 link_file "$artifact/systemd-filemanager" "$config_root/systemd/user/dojo-yazi-filemanager.service"

@@ -3,6 +3,7 @@
 //! D-Bus interface. Nothing here depends on GPUI.
 
 pub mod compositor;
+pub mod panel;
 pub mod portal;
 pub mod registry;
 pub mod store;
