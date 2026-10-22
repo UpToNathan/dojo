@@ -9,6 +9,7 @@ pub mod geometry;
 pub mod lock;
 pub mod power;
 pub mod session;
+pub mod shortcuts;
 pub mod speech;
 pub mod theme;
 pub mod wall_clock;
