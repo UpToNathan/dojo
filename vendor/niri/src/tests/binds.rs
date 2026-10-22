@@ -502,3 +502,64 @@ fn layouts() {
     "
     );
 }
+
+#[test]
+fn global_shortcut_is_consumed_and_reported() {
+    use niri_ipc::{Event, GlobalShortcut};
+
+    let (mut f, id, surface) = set_up("binds {\n}");
+    let grants = f.niri_state().set_global_shortcuts(
+        7,
+        vec![GlobalShortcut {
+            id: "ptt".to_owned(),
+            key: "Ctrl+Alt+K".to_owned(),
+        }],
+    );
+    assert!(grants.refused.is_empty());
+
+    // Releasing the modifiers first still ends the shortcut, and no K reaches the client.
+    let trace = run_f(&mut f, id, &surface, "+LCTL +LALT +LatK -LCTL -LALT -LatK");
+    let k_lines: Vec<_> = trace.lines().filter(|l| l.contains("XK_k")).collect();
+    assert_eq!(k_lines.len(), 2);
+    let after_k = trace.split("+AC08").nth(1).unwrap();
+    assert!(
+        !after_k.contains("key pressed: 37"),
+        "the grabbed press leaked: {trace}"
+    );
+    assert!(
+        !after_k.lines().any(|l| l.contains("key released: 37")),
+        "the grabbed release leaked: {trace}"
+    );
+    let sent = std::mem::take(&mut f.niri().global_shortcuts.sent);
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    assert!(matches!(&sent[0], Event::ShortcutActivated { owner: 7, id, .. } if id == "ptt"));
+    assert!(matches!(&sent[1], Event::ShortcutDeactivated { owner: 7, id, .. } if id == "ptt"));
+
+    // The same key without the modifiers is an ordinary key.
+    let trace = run_f(&mut f, id, &surface, "+LatK -LatK");
+    assert!(trace.contains("surface key pressed: 37"), "{trace}");
+    assert!(trace.contains("surface key released: 37"), "{trace}");
+    assert!(f.niri().global_shortcuts.sent.is_empty());
+
+    // Closing the connection frees the key.
+    f.niri_state().release_global_shortcuts(7);
+    let trace = run_f(&mut f, id, &surface, "+LCTL +LALT +LatK -LatK -LALT -LCTL");
+    assert!(trace.contains("surface key pressed: 37"), "{trace}");
+    assert!(f.niri().global_shortcuts.sent.is_empty());
+}
+
+#[test]
+fn global_shortcut_yields_to_a_configured_bind() {
+    use niri_ipc::GlobalShortcut;
+
+    let (mut f, _id, _surface) = set_up("binds {\n    Ctrl+Alt+K { close-window; }\n}");
+    let grants = f.niri_state().set_global_shortcuts(
+        7,
+        vec![GlobalShortcut {
+            id: "ptt".to_owned(),
+            key: "Ctrl+Alt+K".to_owned(),
+        }],
+    );
+    assert_eq!(grants.refused.len(), 1);
+    assert_eq!(grants.refused[0].reason, "already a configured bind");
+}

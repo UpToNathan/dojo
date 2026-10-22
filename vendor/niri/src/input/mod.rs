@@ -425,10 +425,12 @@ impl State {
         let serial = SERIAL_COUNTER.next_serial();
         let time = Event::time(&event);
         let pressed = event.state() == KeyState::Pressed;
+        let event_time = Duration::from_micros(time.micros());
         if !pressed {
             if let Some(bind) = self.niri.release_binds.remove(&event.key_code()) {
                 self.handle_bind(bind);
             }
+            self.global_shortcut_release(event.key_code(), event_time);
         }
 
         // Stop bind key repeat on any release. This won't work 100% correctly in cases like:
@@ -583,6 +585,19 @@ impl State {
                         this.niri.config.borrow().input.disable_power_key_handling,
                         is_inhibiting_shortcuts,
                     )
+                };
+
+                // A key no bind claimed may still be a shortcut an IPC client grabbed. It is
+                // inhibited like a bind: a focused client that inhibits shortcuts keeps the key.
+                let res = if matches!(res, FilterResult::Forward)
+                    && pressed
+                    && !is_inhibiting_shortcuts
+                    && this.global_shortcut_press(key_code, raw, *mods, mod_key, event_time)
+                {
+                    this.niri.suppressed_keys.insert(key_code);
+                    FilterResult::Intercept(None)
+                } else {
+                    res
                 };
 
                 if matches!(res, FilterResult::Forward) {
@@ -4755,12 +4770,7 @@ fn find_configured_bind<'a>(
             continue;
         }
 
-        let mut bind_modifiers = bind.key.modifiers;
-        if bind_modifiers.contains(Modifiers::COMPOSITOR) {
-            bind_modifiers |= mod_key.to_modifiers();
-        } else if bind_modifiers.contains(mod_key.to_modifiers()) {
-            bind_modifiers |= Modifiers::COMPOSITOR;
-        }
+        let bind_modifiers = crate::global_shortcuts::effective_modifiers(bind.key.modifiers, mod_key);
 
         if bind_modifiers == modifiers {
             return Some(bind.clone());
@@ -4787,7 +4797,7 @@ fn find_configured_switch_action(
         .map(|switch_action| Action::Spawn(switch_action.spawn.clone()))
 }
 
-fn modifiers_from_state(mods: ModifiersState) -> Modifiers {
+pub(crate) fn modifiers_from_state(mods: ModifiersState) -> Modifiers {
     let mut modifiers = Modifiers::empty();
     if mods.ctrl {
         modifiers |= Modifiers::CTRL;

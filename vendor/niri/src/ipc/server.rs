@@ -68,7 +68,10 @@ impl Drop for ClientCtx {
     fn drop(&mut self) {
         let peer = self.peer;
         self.event_loop
-            .insert_idle(move |state| state.destroy_agent(peer));
+            .insert_idle(move |state| {
+                state.release_global_shortcuts(peer);
+                state.destroy_agent(peer);
+            });
     }
 }
 
@@ -135,7 +138,7 @@ impl IpcServer {
         self.send_event(event);
     }
 
-    fn send_event(&self, event: Event) {
+    pub(crate) fn send_event(&self, event: Event) {
         let mut streams = self.event_streams.borrow_mut();
         let mut to_remove = Vec::new();
         for (idx, stream) in streams.iter_mut().enumerate() {
@@ -397,6 +400,18 @@ async fn process(ctx: &ClientCtx, request: Request) -> Reply {
                 .recv()
                 .await
                 .map_err(|_| "agent dispatcher stopped".to_string())?;
+        }
+        Request::GlobalShortcuts { shortcuts } => {
+            let (tx, rx) = async_channel::bounded(1);
+            let peer = ctx.peer;
+            ctx.event_loop.insert_idle(move |state| {
+                let grants = state.set_global_shortcuts(peer, shortcuts);
+                let _ = tx.try_send(Ok(Response::GlobalShortcuts(grants)));
+            });
+            return rx
+                .recv()
+                .await
+                .map_err(|_| "shortcut dispatcher stopped".to_string())?;
         }
         Request::YieldHumanInput => {
             let (tx, rx) = async_channel::bounded(1);

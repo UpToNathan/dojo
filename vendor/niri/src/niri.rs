@@ -356,6 +356,7 @@ pub struct Niri {
     /// Scancodes of the keys to suppress.
     pub suppressed_keys: HashSet<Keycode>,
     pub release_binds: HashMap<Keycode, niri_config::Bind>,
+    pub global_shortcuts: crate::global_shortcuts::GlobalShortcuts,
     /// Button codes of the mouse buttons to suppress.
     pub suppressed_buttons: HashSet<u32>,
     pub bind_cooldown_timers: HashMap<Key, RegistrationToken>,
@@ -2835,6 +2836,7 @@ impl Niri {
             popup_grab: None,
             suppressed_keys: HashSet::new(),
             release_binds: HashMap::new(),
+            global_shortcuts: Default::default(),
             suppressed_buttons: HashSet::new(),
             bind_cooldown_timers: HashMap::new(),
             bind_repeat_timer: Option::default(),

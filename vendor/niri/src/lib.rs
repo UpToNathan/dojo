@@ -13,6 +13,7 @@ pub mod cursor;
 pub mod dbus;
 pub mod external_admission;
 pub mod frame_clock;
+pub mod global_shortcuts;
 pub mod handlers;
 pub mod input;
 pub mod ipc;

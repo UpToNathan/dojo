@@ -545,6 +545,12 @@ pub fn handle_msg(mut msg: Msg, json: bool, print_request: bool) -> anyhow::Resu
                     Event::TouchpadToggled { on } => {
                         println!("Touchpad enabled: {on}");
                     }
+                    Event::ShortcutActivated { owner, id, .. } => {
+                        println!("Shortcut activated: owner {owner}, id {id}");
+                    }
+                    Event::ShortcutDeactivated { owner, id, .. } => {
+                        println!("Shortcut deactivated: owner {owner}, id {id}");
+                    }
                 }
             }
         }

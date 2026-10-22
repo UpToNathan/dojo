@@ -69,6 +69,16 @@ pub enum Request {
     Version,
     /// Control the agent seat owned by this persistent IPC connection.
     AgentInput(AgentInput),
+    /// Replace the global shortcuts grabbed by this persistent IPC connection.
+    ///
+    /// A grabbed key is matched after the configured and hardcoded binds. Niri consumes both its
+    /// press and its release, and reports them as [`Event::ShortcutActivated`] and
+    /// [`Event::ShortcutDeactivated`] on the event stream. The grabs end when this connection
+    /// closes.
+    GlobalShortcuts {
+        /// Every shortcut this connection wants grabbed. An empty list releases them all.
+        shortcuts: Vec<GlobalShortcut>,
+    },
     /// Inspect human ownership without creating an agent seat.
     InputCoordination,
     /// Yield human ownership without moving the human cursor or keyboard focus.
@@ -162,6 +172,8 @@ pub enum Response {
     CapturedScene(CapturedScene),
     /// A request that does not need a response was handled successfully.
     Handled,
+    /// Which of the requested global shortcuts are now grabbed.
+    GlobalShortcuts(GlobalShortcutGrants),
     /// The pointer started moving. Send AgentInput::Wait before acting at its destination.
     AgentInputMoving,
     /// Human ownership or another held interaction prevented delivery.
@@ -1605,6 +1617,37 @@ pub struct Window {
     pub focus_timestamp: Option<Timestamp>,
 }
 
+/// A key a client wants niri to grab system-wide.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct GlobalShortcut {
+    /// Client-chosen identifier, unique within one request. Echoed back in events.
+    pub id: String,
+    /// The key in niri's config syntax, for example `Ctrl+Alt+K` or `Mod+Shift+F23`.
+    pub key: String,
+}
+
+/// A requested global shortcut that niri did not grab.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct RefusedShortcut {
+    /// Identifier from the request.
+    pub id: String,
+    /// Why the key could not be grabbed.
+    pub reason: String,
+}
+
+/// The outcome of [`Request::GlobalShortcuts`].
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct GlobalShortcutGrants {
+    /// Identifies this connection's grabs in [`Event::ShortcutActivated`] and
+    /// [`Event::ShortcutDeactivated`]. Every event stream receives those events.
+    pub owner: u64,
+    /// Requested shortcuts that were refused. Every other requested shortcut is grabbed.
+    pub refused: Vec<RefusedShortcut>,
+}
+
 /// A moment in time.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
@@ -1993,6 +2036,28 @@ pub enum Event {
         /// Note that this only indicates the [`Action::ToggleTouchpad`] state. The touchpad can be
         /// disabled in hardware, or via `input { touchpad { off; } }`—this is not reflected here.
         on: bool,
+    },
+    /// A grabbed global shortcut was pressed.
+    ///
+    /// Sent once per press; key repeat does not send more.
+    ShortcutActivated {
+        /// The connection that grabbed the shortcut, from [`GlobalShortcutGrants::owner`].
+        owner: u64,
+        /// Identifier from the grabbing request.
+        id: String,
+        /// The key event's time on the compositor's input clock.
+        time: Timestamp,
+    },
+    /// A grabbed global shortcut was released.
+    ///
+    /// Sent for every [`Event::ShortcutActivated`] whose connection is still open.
+    ShortcutDeactivated {
+        /// The connection that grabbed the shortcut, from [`GlobalShortcutGrants::owner`].
+        owner: u64,
+        /// Identifier from the grabbing request.
+        id: String,
+        /// The key event's time on the compositor's input clock.
+        time: Timestamp,
     },
 }
 
