@@ -737,6 +737,9 @@ in
 	  _props.hotkey-overlay-title = "Toggle quick-access terminal";
 	  spawn = [ "${homeDirectory}/.local/bin/dojo-desktop" "--terminal" ];
 	};
+	# Niri's default Print binds copy to the clipboard and also write a PNG under ~/Pictures/Screenshots.
+	# The interactive screenshot has no per-bind switch for the file, so none is written at all.
+	settings.screenshot-path = null;
 	settings.binds."Mod+Ctrl+Shift+S" = {
 	  _props.hotkey-overlay-title = "Supersampled screenshot to clipboard";
 	  spawn = [ "utsushot" "--copy" ];
