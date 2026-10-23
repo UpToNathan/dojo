@@ -153,8 +153,6 @@ in
         pkgs.vscode-extensions.vadimcn.vscode-lldb
         pkgs.vscode-js-debug
         pkgs.wl-clipboard
-        pkgs.grim
-        pkgs.slurp
         pkgs.wl-screenrec
         pkgs.procps
         pkgs.xdg-utils
@@ -739,17 +737,6 @@ in
 	  _props.hotkey-overlay-title = "Toggle quick-access terminal";
 	  spawn = [ "${homeDirectory}/.local/bin/dojo-desktop" "--terminal" ];
 	};
-	settings.binds."Mod+Shift+S" = {
-	  _props.hotkey-overlay-title = "Select screenshot region to clipboard";
-	  spawn = [ "sh" "-lc" ''
-	    tmp="$(mktemp --suffix=.png)" || exit
-	    trap 'rm -f "$tmp"' EXIT
-	    geometry="$(slurp)" || exit
-	    [ -n "$geometry" ] || exit
-	    grim -g "$geometry" "$tmp" || exit
-	    wl-copy --type image/png < "$tmp"
-	  '' ];
-	};
 	settings.binds."Mod+Ctrl+Shift+S" = {
 	  _props.hotkey-overlay-title = "Supersampled screenshot to clipboard";
 	  spawn = [ "utsushot" "--copy" ];
@@ -784,6 +771,9 @@ in
 	settings.binds."XF86KbdBrightnessDown" = {
 	  spawn = [ "brightnessctl" "--device" "tpacpi::kbd_backlight" "set" "1-" ];
 	};
+      # Niri paints the output backdrop in the gaps a workspace swipe reveals; it defaults to grey.
+      # Fallback until the theme export publishes it in themes/niri.kdl, like the layout colour.
+      settings.overview.backdrop-color = "#1e1e2e";
       settings.layout = {
         gaps = 16;
         # Dojo frame colour (ThemeColors default background) until the theme

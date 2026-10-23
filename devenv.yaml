@@ -1,16 +1,16 @@
 # yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
 inputs:
   devenv:
-    url: github:cachix/devenv/1566050ec14ce238983376e118af9fb220454d39?dir=src/modules
+    url: github:cachix/devenv/0b7e9055a96160091bc1b8dcea6e6771fcfd1a62?dir=src/modules
   nixpkgs:
     url: github:cachix/devenv-nixpkgs/02918c1b9bd4fdeffc582c5f26a3945efd3df5d3
   home-manager:
-    url: github:nix-community/home-manager/54ad640b81c5e9a32db1a29e7561fda628601117
+    url: github:nix-community/home-manager/640725978b99076e18e069f6e7d2959124584f8f
     inputs:
       nixpkgs:
         follows: nixpkgs
   bend:
-    url: github:bendlang/bend/d2aeefc1902d617340e26f7fab5c1ef50fe28efa
+    url: github:bendlang/bend/e5527d5be0c441d00f1f7d2fb61eb464fa478e5c
     inputs:
       nixpkgs:
         follows: nixpkgs
@@ -20,7 +20,7 @@ inputs:
       nixpkgs:
         follows: nixpkgs
   rush:
-    url: github:rockorager/rush/4c35a0819d0749a0e4c17928d4fe7983f6ba0d18
+    url: github:rockorager/rush/918ff58157d215b48941fac5bc51ae35b02b9b29
     inputs:
       nixpkgs:
         follows: nixpkgs
@@ -30,7 +30,7 @@ inputs:
       nixpkgs:
         follows: nixpkgs
   stasis:
-    url: github:saltnpepper97/stasis/698d9c802e54b8cd7de3dce67f33e4a2d91814bc
+    url: github:saltnpepper97/stasis/3a2c2fa8ea5f0523c242cc99c3ec791f602a860c
     inputs:
       nixpkgs:
         follows: nixpkgs
@@ -45,12 +45,12 @@ inputs:
       nixpkgs:
         follows: nixpkgs
   opencode:
-    url: github:anomalyco/opencode/501b15af26915ba52682e20e220e7e137e89e92f
+    url: github:anomalyco/opencode/15adc3d91ecc6955ee0918607a5593e23bd4d538
     inputs:
       nixpkgs:
         follows: nixpkgs
   pi:
-    url: github:earendil-works/pi/482c1381a00d8d00bc81697e4a980c593db6803e
+    url: github:earendil-works/pi/16f5f0af4d85ca583d045ceb5ed6d646fcaf7761
     inputs:
       nixpkgs:
         follows: nixpkgs

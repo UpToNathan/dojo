@@ -508,7 +508,7 @@ fn publish_target(
             let path = paths.root.join("niri.kdl");
             put("niri.kdl",&path,registry)?;
             command("niri",&["msg","action","load-config-file"])?;
-            Ok(("reload_requested","Niri reloaded the Dojo focus-ring and agent cursor colors from the active theme".into()))
+            Ok(("reload_requested","Niri reloaded the Dojo background, workspace-swipe backdrop, focus-ring and agent cursor colors from the active theme".into()))
         },
         "kitty"=>{
             let config=fs::read_to_string(paths.config.join("kitty/kitty.conf"))?;

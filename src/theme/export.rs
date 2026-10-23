@@ -159,7 +159,8 @@ fn ghostty(p: &SemanticPalette) -> String {
 
 fn niri(p: &SemanticPalette) -> String {
     format!(
-        "layout {{\n    background-color \"{}\"\n    focus-ring {{\n        active-color \"{}{:02x}\"\n        inactive-color \"{}{:02x}\"\n    }}\n}}\ncursor {{\n    agent-color \"{}\"\n}}\n",
+        "overview {{\n    backdrop-color \"{}\"\n}}\nlayout {{\n    background-color \"{}\"\n    focus-ring {{\n        active-color \"{}{:02x}\"\n        inactive-color \"{}{:02x}\"\n    }}\n}}\ncursor {{\n    agent-color \"{}\"\n}}\n",
+        p.color("background"),
         p.color("background"),
         p.color("primary"),
         crate::design::BORDER_ALPHA,
@@ -855,14 +856,14 @@ mod tests {
     use crate::extraction::{Mode, Palette, Rgb};
 
     #[test]
-    fn niri_export_sets_background_and_twenty_percent_ring_without_recoloring_the_preset() -> anyhow::Result<()> {
+    fn niri_export_sets_background_backdrop_and_twenty_percent_ring_without_recoloring_the_preset() -> anyhow::Result<()> {
         let preset = super::super::presets()?
             .into_iter()
             .find(|preset| preset.id == "tokyo-night-night")
             .expect("bundled Tokyo Night Night");
         assert_eq!(
             niri(&preset.palette),
-            "layout {\n    background-color \"#1a1b26\"\n    focus-ring {\n        active-color \"#7aa2f733\"\n        inactive-color \"#15161e33\"\n    }\n}\ncursor {\n    agent-color \"#7aa2f7\"\n}\n"
+            "overview {\n    backdrop-color \"#1a1b26\"\n}\nlayout {\n    background-color \"#1a1b26\"\n    focus-ring {\n        active-color \"#7aa2f733\"\n        inactive-color \"#15161e33\"\n    }\n}\ncursor {\n    agent-color \"#7aa2f7\"\n}\n"
         );
         assert_eq!(preset.palette.color("background"), "#1a1b26");
         assert_eq!(preset.palette.color("primary"), "#7aa2f7");
