@@ -21,36 +21,36 @@ use crate::niri_layout::NiriLayout;
 use crate::state::{Preferences, StateStore};
 use crate::tray::{TrayHandle, TrayService};
 
-#[derive(serde::Deserialize)]
-struct FocusedOutput {
-    logical: OutputLogicalBounds,
+/// How long a keybind waits on Niri before opening on the primary output instead.
+const NIRI_QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// The logical placement of the output Niri says has focus, asked over its socket in-process.
+/// Spawning `niri msg` for this cost about 16 ms on the UI thread before every panel opened.
+fn focused_logical_output() -> Option<niri_ipc::LogicalOutput> {
+    let mut socket = niri_ipc::socket::Socket::connect().ok()?;
+    socket.set_read_timeout(Some(NIRI_QUERY_TIMEOUT)).ok()?;
+    socket.set_write_timeout(Some(NIRI_QUERY_TIMEOUT)).ok()?;
+    match socket.send(niri_ipc::Request::FocusedOutput).ok()?.ok()? {
+        niri_ipc::Response::FocusedOutput(output) => output?.logical,
+        _ => None,
+    }
 }
 
-#[derive(serde::Deserialize)]
-struct OutputLogicalBounds {
-    x: f32,
-    y: f32,
-    scale: f32,
+/// Where a Niri output starts in GPUI's display space: GPUI measures in Wayland buffer scale
+/// (whole numbers), Niri in fractional logical pixels.
+fn logical_origin(logical: &niri_ipc::LogicalOutput) -> Point<Pixels> {
+    let wayland_scale = (logical.scale as f32).ceil();
+    Point::new(
+        px(logical.x as f32 / wayland_scale),
+        px(logical.y as f32 / wayland_scale),
+    )
 }
 
 pub(crate) fn focused_display_id(cx: &App) -> Option<DisplayId> {
-    let output = Command::new("niri")
-        .args(["msg", "--json", "focused-output"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let focused: FocusedOutput = serde_json::from_slice(&output.stdout).ok()?;
-    let displays = cx.displays();
-    let wayland_scale = focused.logical.scale.ceil();
-    let origin = Point::new(
-        px(focused.logical.x / wayland_scale),
-        px(focused.logical.y / wayland_scale),
-    );
+    let origin = logical_origin(&focused_logical_output()?);
     display_at_origin(
         origin,
-        displays
+        cx.displays()
             .into_iter()
             .map(|display| (display.id(), display.bounds().origin)),
     )
@@ -740,20 +740,18 @@ async fn follow_appearance(sender: &async_channel::Sender<()>) -> anyhow::Result
 
 #[cfg(test)]
 mod focused_display_tests {
-    use super::{FocusedOutput, display_at_origin};
+    use super::{display_at_origin, logical_origin};
     use gpui::{DisplayId, Point, px};
+    use niri_ipc::{LogicalOutput, Transform};
+
+    fn logical(x: i32, y: i32, scale: f64) -> LogicalOutput {
+        LogicalOutput { x, y, width: 1645, height: 1028, scale, transform: Transform::Normal }
+    }
 
     #[test]
     fn focused_output_selects_the_matching_external_display() {
-        let focused: FocusedOutput = serde_json::from_str(
-            r#"{"name":"eDP-1","logical":{"x":1920,"y":0,"width":1645,"height":1028,"scale":1.75}}"#,
-        )
-        .unwrap();
         let id = display_at_origin(
-            Point::new(
-                px(focused.logical.x / focused.logical.scale.ceil()),
-                px(focused.logical.y / focused.logical.scale.ceil()),
-            ),
+            logical_origin(&logical(1920, 0, 1.75)),
             [
                 (DisplayId::from(1), Point::new(px(0.), px(0.))),
                 (DisplayId::from(2), Point::new(px(960.), px(0.))),
