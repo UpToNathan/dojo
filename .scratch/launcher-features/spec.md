@@ -17,7 +17,7 @@ Ideas were compared against oma-cast (typecraft-dev/oma-cast, no licence file, s
 - Direct keybinds may open the launcher straight into a view (`dojo --launcher <view>`).
 - The same history model ranks commands and view items (emoji recents, clipboard re-copies, bangs).
 - Enter copies to the clipboard and closes. Automatic paste (injecting Ctrl+V) is a later opt-in, not part of the first versions.
-- The `?` agent prompt is plain text sent to the agent runtime. It must not need a microphone or the voice path. The runtime is split out of `dojo-voice` first (issue 02), so it runs without a mic and voice becomes one input to it.
+- The `?` agent prompt is plain text sent to the agent runtime; the shell's speech bubbles show the reply (there is no separate Agent panel). It must not need a microphone or the voice path. The runtime is split out of `dojo-voice` first (issue 02), so it runs without a mic and voice becomes one input to it.
 - Bangs resolve inside the launcher and open the final URL in Helium (`helium` wrapper, `xdg-open` fallback). Helium's native bangs are omnibox-only and cannot be driven from outside, so the launcher carries its own tracked list (draft in `bangs.md`) plus a user file at `~/.config/dojo/bangs.toml` that wins on a clash. Larger lists need a licence check before use.
 - Colour picking uses Niri's native `PickColor` request, no extra tool. Conversions reuse the oklch code in `src/theme/refined.rs` where possible.
 - Process management is inspired by pitchfork (project daemons, ports, ready checks) and process-compose, but pitchfork is not adopted. Processes (list and kill) and Services (systemd user units) are the launcher's scope.

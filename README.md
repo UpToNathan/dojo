@@ -272,8 +272,11 @@ order, including localized names, keywords, visibility and `TryExec` filtering.
 Discovery and Nucleo matching run on a worker with a single latest-query slot;
 stale results cannot launch an application. Opening the launcher refreshes the
 catalogue so newly installed desktop entries appear without a Dojo restart.
-Extension providers, desktop actions, PATH-only commands and history are not
-implemented yet.
+Applications you launch and the searches that found them rank first. The launcher
+also has commands (emoji, clipboard history, windows, snippets, colour picking,
+processes, services), bangs, a calculator and a `?` prompt to the agent; see
+[the launcher guide](docs/launcher.md). Desktop actions, PATH-only commands and a
+third-party extension system are not implemented yet.
 
 Native desktop-entry launching requires a systemd user session, with UWSM used
 when it owns that session. Apps receive the session manager's environment rather
@@ -284,7 +287,8 @@ screen-reader behavior still need broader desktop testing.
 Dismissing the launcher unmaps its layer surface instead of destroying it, and the next
 opening maps it again with an empty search; opening on another output creates a new surface.
 `devenv shell -- tools/agent-input/run-nested.sh --launcher-open` times openings in a nested
-Niri and `--launcher-reuse` checks keyboard focus across hide and show; see
+Niri, `--launcher-reuse` checks keyboard focus across hide and show, and
+`--launcher-views` opens every command's view; see
 [the performance notes](docs/research/dojo-launcher-performance.md).
 
 `dojo --launcher-benchmark` reports catalogue discovery time and matcher

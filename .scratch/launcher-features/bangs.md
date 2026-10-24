@@ -1,6 +1,6 @@
 # Bang list (draft)
 
-Status: needs-info. Trigger, site, search URL with `{}` for the query. URLs are from memory and
+Status: resolved (see data/launcher-bangs.toml, which is the list now). Trigger, site, search URL with `{}` for the query. URLs are from memory and
 have not been requested; check each before committing. The AI rows may only fill the input box.
 Planned format: tracked TOML in the repo plus `~/.config/dojo/bangs.toml`, which wins on a clash.
 
