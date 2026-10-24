@@ -100,7 +100,9 @@ Run `devenv shell -- python3 scripts/check-speech-worker.py` to capture two
 short recordings and verify model reuse and cancellation. This opens the
 microphone, but does not submit transcripts to T3.
 
-The desktop keeps `dojo-voice.service` running with the graphical session and
-preloads speech during login. Home Manager installs and enables the tracked
-[unit](../../tools/speech/dojo-voice.service). The microphone remains closed
-until a capture command. Stop the user service to release the model.
+The desktop keeps `dojo-voice.service` (the agent runtime) running with the graphical session on
+every host. It preloads speech at startup only when a microphone exists, and
+`dojo-voice-mic.service` loads or releases the model as microphones come and go (see
+[Agent runtime and voice input](../../docs/speech-ui.md)). Home Manager installs and enables the
+tracked [unit](../../tools/speech/dojo-voice.service). The microphone remains closed until a
+capture command. Stop the user service to release the model and the runtime.

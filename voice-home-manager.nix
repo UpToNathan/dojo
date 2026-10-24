@@ -10,12 +10,14 @@ in
   xdg.configFile."systemd/user/dojo-voice-mic.service".text = builtins.replaceStrings
     [ "@DOJO_ROOT@" ] [ config.dojo.root ]
     (builtins.readFile ./tools/speech/dojo-voice-mic.service);
-  # The watcher starts dojo-voice.service when a microphone appears and stops it when the last
-  # one goes, so the voice service is no longer enabled at login itself.
+  # The agent runtime (dojo-voice.service) runs at login on every host, with or without a
+  # microphone. The watcher tells it when voice input can run; it is the only part that follows
+  # the microphone. `start` does not restart a runtime that is already running, so an upgrade
+  # takes effect on the next login or `systemctl --user restart dojo-voice.service`.
   home.activation.dojoVoiceService = lib.hm.dag.entryAfter [ "reloadSystemd" ] ''
-    rm -f ${config.xdg.configHome}/systemd/user/graphical-session.target.wants/dojo-voice.service
     ${pkgs.systemd}/bin/systemctl --user daemon-reload
-    ${pkgs.systemd}/bin/systemctl --user enable dojo-voice-mic.service
+    ${pkgs.systemd}/bin/systemctl --user enable dojo-voice.service dojo-voice-mic.service
+    ${pkgs.systemd}/bin/systemctl --user start dojo-voice.service
     ${pkgs.systemd}/bin/systemctl --user restart dojo-voice-mic.service
   '';
   home.activation.dojoNiriConfigCheck = lib.hm.dag.entryAfter [ "linkGeneration" ] ''

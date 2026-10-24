@@ -41,6 +41,16 @@ export async function socketRequest(path, value) {
   });
 }
 
+const noMicrophone = 'No microphone is available, so voice input is off. Connect one to use voice.';
+
+/**
+ * The Dojo agent runtime and its command socket, with voice as one optional input.
+ *
+ * Everything except the voice actions (begin, finish, toggle, cancel, controller-*, voice-input)
+ * works with no microphone and never touches the speech worker. The speech worker, a separate
+ * native process holding the transcription model, exists only while a microphone does: it starts
+ * when one is present at startup or reported by `voice-input`, and ends when the last one goes.
+ */
 export class VoiceService {
   capture;
   speechWorker;
@@ -63,6 +73,10 @@ export class VoiceService {
   loginStatus = null;
   validateOpenCodeKey = validateOpenCodeKey;
   oauthProvider = subscriptionProvider;
+  /** Whether a microphone can record: null until first checked. Only voice input depends on it. */
+  microphone = null;
+  microphoneCheck = () => microphoneAvailable();
+  openRuntime = options => PiRuntime.open(options);
   idleSeconds = Number(process.env.DOJO_VOICE_IDLE_SECONDS || 0);
   onIdle = async () => {};
 
@@ -113,14 +127,17 @@ export class VoiceService {
     const mark = name => marks.push(`${name} ${Math.round(performance.now() - started)}`);
     this.state = await readJson(statePath, { version: 1, activeThreadId: null, chats: [], seenMessages: [] });
     this.config = await readJson(join(dataDir, 'config.json'), {});
-    // The model takes a few seconds to load, so it loads while the agent runtime starts.
-    this.ensureSpeechWorker();
+    // With a microphone the model takes a few seconds to load, so it loads while the agent runtime
+    // starts. Without one nothing speech-related starts; the runtime does not need it.
+    const voice = this.microphoneCheck().then(present => this.setMicrophone(present));
     this.memory = await MemoryStore.open(join(dataDir, 'memory-v2'));
     mark('memory');
-    this.runtime = await PiRuntime.open({ stateDir: join(dataDir, 'pi'), root, memory: this.memory,
+    this.runtime = await this.openRuntime({ stateDir: join(dataDir, 'pi'), root, memory: this.memory,
       config: { legacyModel: this.config.model, ...this.config.pi, modelSelection: this.config.modelSelection },
       onEvent: event => { if (!this.closing) this.enqueue(() => this.runtimeEvent(event)).catch(error => this.failure(error)); } });
     mark('runtime');
+    await voice;
+    mark('voice');
     this.state.piConversationId = String(this.runtime.id);
     let chat = this.state.chats.find(item => item.threadId === this.state.piConversationId);
     if (!chat) { chat = { threadId: this.state.piConversationId, runtime: 'pi', createdAt: new Date().toISOString() }; this.state.chats.push(chat); }
@@ -208,12 +225,32 @@ export class VoiceService {
     }
     this.speechCommand('finish', this.capture.id);
   }
+  /** Records whether voice input is possible; the speech worker follows it. Never touches the runtime. */
+  async setMicrophone(present) {
+    this.microphone = present;
+    if (present) {
+      if (!this.closing) this.ensureSpeechWorker();
+      return;
+    }
+    await this.cancel();
+    const worker = this.speechWorker;
+    this.speechWorker = null;
+    worker?.stdin.end();
+  }
+  /** Fast when a microphone is known to exist; otherwise asks again, so a missed hotplug event heals. */
+  async requireMicrophone() {
+    if (this.microphone === true) return;
+    this.microphone = await this.microphoneCheck();
+    if (!this.microphone) throw new Error(noMicrophone);
+  }
   async begin() {
     try { await readFile(heldPath); } catch (error) { if (error.code === 'ENOENT') return; throw error; }
     if (this.capture) return;
     await this.toggle();
   }
   async toggle() {
+    // Any await happens before the capture check, so starting a capture stays one synchronous step.
+    if (!this.capture && this.microphone !== true) await this.requireMicrophone();
     if (this.capture) {
       if (this.recording) await this.finish();
       return;
@@ -224,8 +261,9 @@ export class VoiceService {
     this.speechCommand('begin', this.capture.id);
     this.scheduleDeadline();
   }
-  controllerBegin(owner) {
+  async controllerBegin(owner) {
     if (!isUuid(owner)) throw new Error('Controller owner must be a UUID.');
+    if (!this.capture && this.microphone !== true) await this.requireMicrophone();
     if (this.capture) {
       return { recording: this.recording, owned: this.capture.controllerOwner === owner, busy: this.capture.controllerOwner !== owner };
     }
@@ -462,7 +500,7 @@ export class VoiceService {
 
   async handle(command) {
     console.error(`${new Date().toISOString()} voice command: ${command.action}`);
-    if (!['status', 'history', 'memory-zoom', 'memory-date', 'memory-status', 'trace', 'models', 'login-status'].includes(command.action)) this.touch();
+    if (!['status', 'history', 'memory-zoom', 'memory-date', 'memory-status', 'trace', 'models', 'login-status', 'voice-input'].includes(command.action)) this.touch();
     switch (command.action) {
       case 'memory-zoom': if (!this.memory) throw new Error('Dojo memory is disabled.'); return this.memory.zoom(command.id, command.count ?? 1, command.offset ?? 0);
       case 'memory-date': if (!this.memory) throw new Error('Dojo memory is disabled.'); return { date: await this.memory.date(command.id) };
@@ -472,6 +510,10 @@ export class VoiceService {
       case 'finish': await this.finish(); return {};
       case 'toggle': await this.toggle(); return { recording: this.recording };
       case 'cancel': await this.cancel(); return {};
+      case 'voice-input':
+        if (typeof command.available !== 'boolean') throw new Error('voice-input needs available: true or false.');
+        await this.setMicrophone(command.available);
+        return { microphone: this.microphone };
       case 'controller-begin': return this.controllerBegin(command.owner);
       case 'controller-finish': return this.controllerFinish(command.owner);
       case 'controller-cancel': return this.controllerCancel(command.owner);
@@ -582,8 +624,8 @@ export async function serve(service = new VoiceService()) {
 }
 
 const micCheck = join(root, 'tools/speech/dojo-mic-present');
-// The unit (and its ExecCondition) already refuses to run without one; this keeps a keypress from
-// starting a detached service the unit would not have allowed.
+// Decides only whether voice input (the speech worker) may run; the agent runtime never asks.
+// A missing check script counts as present, so a broken checkout does not silence voice.
 export const microphoneAvailable = () => new Promise(resolve => {
   const child = spawn(micCheck, [], { stdio: 'ignore' });
   child.once('error', () => resolve(true));
@@ -596,7 +638,9 @@ async function request(command) {
     if (!['ENOENT', 'ECONNREFUSED'].includes(error.code)) throw error;
     if (command.action === 'trace') return { error: 'Dojo voice service is not running. No trace was exported.' };
     if (['cancel', 'finish'].includes(command.action)) return {};
-    if (!await microphoneAvailable()) return { error: 'No microphone is available, so the voice service is not running. Connect one to use voice.' };
+    // The watcher reports microphone changes; with no runtime running there is nothing to tell.
+    if (command.action === 'voice-input') return {};
+    // The runtime runs on every host, so a missing one is started whether or not a microphone exists.
     // Through the unit when there is one, so the mic watcher can also stop this instance.
     const viaUnit = await new Promise(resolve => {
       const child = spawn('systemctl', ['--user', 'start', 'dojo-voice.service'], { stdio: 'ignore' });
@@ -627,7 +671,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     const command = { action, ...(action === 'send' ? { text: process.argv.slice(3).join(' ') } : {}),
       ...(action === 'resume' ? { threadId: process.argv[3] } : {}),
       ...(action === 'select-model' ? { account: process.argv[3], model: process.argv[4] } : {}),
-      ...(action === 'sign-out' ? { account: process.argv[3] } : {}) };
+      ...(action === 'sign-out' ? { account: process.argv[3] } : {}),
+      ...(action === 'voice-input' ? { available: process.argv[3] === 'on' } : {}) };
+    if (action === 'voice-input' && !['on', 'off'].includes(process.argv[3])) {
+      console.log(JSON.stringify({ error: 'Usage: dojo-voice voice-input on|off' }));
+      process.exit(1);
+    }
     if (action === 'begin') await writeFile(heldPath, '', { mode: 0o600 });
     if (['finish', 'cancel'].includes(action)) await unlink(heldPath).catch(error => { if (error.code !== 'ENOENT') throw error; });
     const result = await request(command);
