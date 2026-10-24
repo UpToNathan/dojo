@@ -881,6 +881,21 @@ impl LauncherView {
 
     /// Ctrl+H on a command: take it out of (or put it back into) the empty launcher's suggestions.
     fn toggle_suggestion(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match commands::hidden_path() {
+            Ok(path) => self.toggle_suggestion_at(&path, window, cx),
+            Err(error) => {
+                self.status = Some(format!("Could not save that: {error:#}"));
+                cx.notify();
+            }
+        }
+    }
+
+    fn toggle_suggestion_at(
+        &mut self,
+        path: &std::path::Path,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(RowAction::Open(command)) =
             self.rows.get(self.selected).map(|row| row.action.clone())
         else {
@@ -889,14 +904,11 @@ impl LauncherView {
         if !self.stack.is_empty() {
             return;
         }
-        let result = commands::hidden_path().and_then(|path| {
-            let mut hidden = HiddenCommands::load(&path);
-            let now_hidden = hidden.toggle(command);
-            hidden.save(&path).map(|()| now_hidden)
-        });
-        self.status = Some(match result {
-            Ok(true) => format!("{} hidden from suggestions", command.command().title),
-            Ok(false) => format!("{} shown in suggestions", command.command().title),
+        let mut hidden = HiddenCommands::load(path);
+        let now_hidden = hidden.toggle(command);
+        self.status = Some(match hidden.save(path) {
+            Ok(()) if now_hidden => format!("{} hidden from suggestions", command.command().title),
+            Ok(()) => format!("{} shown in suggestions", command.command().title),
             Err(error) => format!("Could not save that: {error:#}"),
         });
         // The worker reloads the hidden set whenever the catalogue refreshes.
@@ -907,7 +919,6 @@ impl LauncherView {
             }
             Err(error) => self.error = Some(error),
         }
-        let _ = window;
         cx.notify();
     }
 
@@ -1747,6 +1758,56 @@ mod launch_tests {
                 .update(cx, |view, _, _| {
                     assert!(view.stack.is_empty(), "reopening clears the views");
                     assert!(view.reveal.is_open());
+                })
+                .unwrap();
+        });
+    }
+
+    #[gpui::test]
+    fn ctrl_h_hides_and_shows_a_suggestion_and_only_on_commands(cx: &mut gpui::TestAppContext) {
+        let display = gpui::DisplayId::from(2);
+        cx.simulate_display_added(display, None);
+        let mut launcher = super::Launcher::new().unwrap();
+        cx.update(|cx| {
+            cx.set_global(crate::config::ThemeColors::default());
+            launcher.toggle(Some(display), cx).unwrap();
+        });
+        let handle = launcher.window.unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("hidden.json");
+        cx.update(|cx| {
+            handle
+                .update(cx, |view, window, cx| {
+                    let command = |id: super::CommandId| dojo::launcher_core::rows::Row {
+                        id: id.history_id(),
+                        title: id.command().title.into(),
+                        subtitle: String::new(),
+                        icon: dojo::launcher_core::rows::RowIcon::None,
+                        action: super::RowAction::Open(id),
+                    };
+                    view.rows = vec![
+                        dojo::launcher_core::rows::Row::header("Suggestions"),
+                        command(super::CommandId::Windows),
+                    ];
+                    // A header is not a command: nothing happens.
+                    view.selected = 0;
+                    view.toggle_suggestion_at(&path, window, cx);
+                    assert!(!path.exists());
+                    view.selected = 1;
+                    view.toggle_suggestion_at(&path, window, cx);
+                    assert_eq!(
+                        view.status.as_deref(),
+                        Some("Switch Windows hidden from suggestions")
+                    );
+                    assert!(super::HiddenCommands::load(&path).contains(super::CommandId::Windows));
+                    view.toggle_suggestion_at(&path, window, cx);
+                    assert_eq!(
+                        view.status.as_deref(),
+                        Some("Switch Windows shown in suggestions")
+                    );
+                    assert!(
+                        !super::HiddenCommands::load(&path).contains(super::CommandId::Windows)
+                    );
                 })
                 .unwrap();
         });

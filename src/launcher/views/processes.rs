@@ -14,6 +14,8 @@ use super::{Host, Notify, Outcome, Secondary, View};
 
 /// How often the list is sampled while the view is open.
 const REFRESH: Duration = Duration::from_secs(2);
+/// The wait before the second sample, which is the first to have CPU figures.
+const FIRST_RESAMPLE: Duration = Duration::from_millis(400);
 /// How long a second press may follow the first and still count as the confirmation.
 const CONFIRM_WINDOW: Duration = Duration::from_secs(5);
 
@@ -190,6 +192,9 @@ impl View for ProcessesView {
         let stop = self.stop.clone();
         std::thread::spawn(move || {
             let mut sampler = Sampler::new();
+            // CPU is a change between two samples, so the first one reads zero: take a second
+            // soon after, then settle into the normal cadence.
+            let mut interval = FIRST_RESAMPLE;
             while !stop.load(Ordering::Relaxed) {
                 let result = sampler.refresh();
                 if let Ok(mut snapshot) = snapshot.lock() {
@@ -203,10 +208,11 @@ impl View for ProcessesView {
                 }
                 notify();
                 let mut waited = Duration::ZERO;
-                while waited < REFRESH && !stop.load(Ordering::Relaxed) {
-                    std::thread::sleep(Duration::from_millis(100));
-                    waited += Duration::from_millis(100);
+                while waited < interval && !stop.load(Ordering::Relaxed) {
+                    std::thread::sleep(Duration::from_millis(50));
+                    waited += Duration::from_millis(50);
                 }
+                interval = REFRESH;
             }
         });
     }

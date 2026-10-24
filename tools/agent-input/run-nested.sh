@@ -54,6 +54,9 @@ elif [[ "${1:-}" == --lock ]]; then
 elif [[ "${1:-}" == --launcher-reuse ]]; then
     shift
     driver="$repo_root/tools/agent-input/run-launcher-reuse.py"
+elif [[ "${1:-}" == --launcher-views ]]; then
+    shift
+    driver="$repo_root/tools/agent-input/run-launcher-views.py"
 elif [[ "${1:-}" == --launcher-open ]]; then
     shift
     driver="$repo_root/tools/agent-input/run-launcher-open.py"
