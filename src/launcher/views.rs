@@ -4,6 +4,7 @@
 //! launcher draws its rows and carries out the [`Outcome`] of an activation.
 
 mod emoji;
+mod snippets;
 
 use std::sync::Arc;
 
@@ -13,6 +14,13 @@ use dojo::launcher_core::rows::Row;
 /// Tells the launcher that a view's data changed (a background load finished) so it asks the view
 /// for its rows again. Safe to call from any thread.
 pub type Notify = Arc<dyn Fn() + Send + Sync>;
+
+/// What the launcher knows that a view may need when a row is activated.
+#[derive(Clone, Debug, Default)]
+pub struct Host {
+    /// The text on the clipboard, if any.
+    pub clipboard: Option<String>,
+}
 
 /// What the launcher does after a row of a view is activated.
 // No view ships with the foundation; each command's view constructs the variants it needs.
@@ -27,6 +35,8 @@ pub enum Outcome {
     Copy(String),
     /// Show the message in the status line and keep the view open.
     Error(String),
+    /// Say something in the status line without it being an error, and ask for the rows again.
+    Notice(String),
 }
 
 pub trait View {
@@ -43,7 +53,7 @@ pub trait View {
     fn rows(&mut self, query: &str) -> Vec<Row>;
 
     /// Enter (or a click) on `row`, one of the rows last returned.
-    fn activate(&mut self, row: &Row, query: &str) -> Outcome;
+    fn activate(&mut self, row: &Row, query: &str, host: &Host) -> Outcome;
 
     /// Tab. A view that has a mode to cycle (a skin tone) does it and returns the status text
     /// that says so; the rows are then requested again.
@@ -69,6 +79,7 @@ pub type ViewFactory = Arc<dyn Fn(CommandId) -> Option<Box<dyn View>> + Send + S
 pub fn default_factory() -> ViewFactory {
     Arc::new(|command| match command {
         CommandId::Emoji => Some(Box::new(emoji::EmojiView::new())),
+        CommandId::Snippets => Some(Box::new(snippets::SnippetsView::new())),
         _ => None,
     })
 }

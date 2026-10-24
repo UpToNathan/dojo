@@ -6,7 +6,7 @@ use nucleo_matcher::Matcher;
 
 use dojo::launch_history::{self, LaunchHistory};
 use dojo::launcher_core::commands::{self, HiddenCommands};
-use dojo::launcher_core::inline::inline_rows;
+use dojo::launcher_core::inline::{InlineState, fallback_rows, inline_rows};
 use dojo::launcher_core::root::{RootInput, root_rows};
 use dojo::launcher_core::rows::{Row, RowAction};
 
@@ -76,6 +76,7 @@ impl SearchWorker {
                 let mut catalogue = None;
                 let mut history = LaunchHistory::default();
                 let mut hidden = HiddenCommands::default();
+                let mut inline = InlineState::tracked();
                 let available = commands::available();
                 let mut matcher = Matcher::new(nucleo_matcher::Config::DEFAULT);
                 loop {
@@ -105,6 +106,7 @@ impl SearchWorker {
                             |_| LaunchHistory::default(),
                             |path| LaunchHistory::load(&path),
                         );
+                        inline = InlineState::load();
                         hidden = commands::hidden_path().map_or_else(
                             |_| HiddenCommands::default(),
                             |path| HiddenCommands::load(&path),
@@ -132,10 +134,16 @@ impl SearchWorker {
                             now_ms: launch_history::now_ms(),
                             commands: &available,
                             hidden: &hidden,
-                            inline: inline_rows(&query),
+                            inline: inline_rows(&query, &inline),
                         },
                         &mut matcher,
                     );
+                    // With nothing else to offer, a typed query can still be searched on the web.
+                    let rows = if rows.is_empty() {
+                        fallback_rows(&query, &inline)
+                    } else {
+                        rows
+                    };
                     let Ok(mut state) = worker_shared.0.lock() else {
                         return;
                     };

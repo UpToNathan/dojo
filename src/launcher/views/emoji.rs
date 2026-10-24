@@ -4,7 +4,7 @@ use dojo::launch_history::{self, LaunchHistory};
 use dojo::launcher_core::emoji::{self, Emoji, Tone};
 use dojo::launcher_core::rows::{Row, RowAction, RowIcon};
 
-use super::{Outcome, View};
+use super::{Host, Outcome, View};
 
 /// Emoji shown under Recent in the empty search.
 const RECENT_LIMIT: usize = 16;
@@ -131,7 +131,7 @@ impl View for EmojiView {
         rows
     }
 
-    fn activate(&mut self, row: &Row, _query: &str) -> Outcome {
+    fn activate(&mut self, row: &Row, _query: &str, _host: &Host) -> Outcome {
         match row.action {
             RowAction::Item(index) => self
                 .copies
@@ -260,11 +260,11 @@ mod tests {
         let first = rows.iter().find(|row| row.is_selectable()).unwrap().clone();
         assert_eq!(first.icon, RowIcon::Glyph("👍".into()));
         assert_eq!(
-            view.activate(&first, "thumbs up"),
+            view.activate(&first, "thumbs up", &Host::default()),
             Outcome::Copy("👍".into())
         );
         let header = Row::header("x");
-        assert_eq!(view.activate(&header, ""), Outcome::Stay);
+        assert_eq!(view.activate(&header, "", &Host::default()), Outcome::Stay);
     }
 
     #[test]
@@ -276,7 +276,7 @@ mod tests {
         let thumb = rows.iter().find(|row| row.is_selectable()).unwrap().clone();
         assert_eq!(thumb.icon, RowIcon::Glyph("👍🏻".into()));
         assert_eq!(
-            view.activate(&thumb, "thumbs up"),
+            view.activate(&thumb, "thumbs up", &Host::default()),
             Outcome::Copy("👍🏻".into())
         );
         // An emoji without tones is unaffected, and its history id stays the base glyph.

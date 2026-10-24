@@ -20,7 +20,7 @@ use catalogue::Catalogue;
 use dojo::launcher_core::commands::{self, CommandId, HiddenCommands};
 use dojo::launcher_core::rows::{Row, RowAction, RowIcon, Step, first_selectable, step_selection};
 use input::SearchInput;
-use views::{Notify, Outcome, View, ViewFactory};
+use views::{Host, Notify, Outcome, View, ViewFactory};
 use worker::SearchWorker;
 
 pub use dojo::control::LauncherNavigation as Navigation;
@@ -630,8 +630,16 @@ impl LauncherView {
         };
         let query = self.input.text.clone();
         if let Some(open) = self.stack.last_mut() {
-            match open.view.activate(&row, &query) {
+            let host = Host {
+                clipboard: cx.read_from_clipboard().and_then(|item| item.text()),
+            };
+            match open.view.activate(&row, &query, &host) {
                 Outcome::Stay => self.view_rows(window, cx),
+                Outcome::Notice(message) => {
+                    self.view_rows(window, cx);
+                    self.status = Some(message);
+                    cx.notify();
+                }
                 Outcome::Close => self.dismiss(window),
                 Outcome::Copy(text) => {
                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
@@ -648,7 +656,7 @@ impl LauncherView {
         if self.ready_generation != Some(self.generation) {
             return;
         }
-        match row.action {
+        match row.action.clone() {
             RowAction::Launch(index) => self.launch_application(index, window, cx),
             RowAction::Open(command) => {
                 self.remember(&row, &query, cx);
@@ -658,7 +666,11 @@ impl LauncherView {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
                 self.dismiss(window);
             }
-            RowAction::OpenUrl(_) | RowAction::AskAgent(_) => {
+            RowAction::OpenUrl(url) => {
+                self.remember(&row, &query, cx);
+                self.run_launch(window, cx, move || dojo::application_launch::open_url(&url));
+            }
+            RowAction::AskAgent(_) => {
                 self.error = Some("That action is not available yet".into());
                 cx.notify();
             }
@@ -685,27 +697,34 @@ impl LauncherView {
         let Some(catalogue) = self.catalogue.clone() else {
             return;
         };
+        let query = self.input.text.clone();
+        self.run_launch(window, cx, move || {
+            let application = catalogue
+                .applications
+                .get(index)
+                .ok_or_else(|| anyhow::anyhow!("selected application disappeared"))?;
+            catalogue::launch(application)?;
+            // The launch succeeded; failing to remember it must not report a failure.
+            if let Err(error) = dojo::launch_history::record_launch(&application.id, &query) {
+                eprintln!("Dojo could not record the launch: {error:#}");
+            }
+            anyhow::Ok(())
+        });
+    }
+
+    /// Runs a launch off the UI thread behind the launch gate: one at a time, closing the
+    /// launcher on success and showing the error on failure.
+    fn run_launch(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        work: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
+    ) {
         if !self.launch.begin() {
             return;
         }
-        let query = self.input.text.clone();
         cx.spawn_in(window, async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    let application = catalogue
-                        .applications
-                        .get(index)
-                        .ok_or_else(|| anyhow::anyhow!("selected application disappeared"))?;
-                    catalogue::launch(application)?;
-                    // The launch succeeded; failing to remember it must not report a failure.
-                    if let Err(error) = dojo::launch_history::record_launch(&application.id, &query)
-                    {
-                        eprintln!("Dojo could not record the launch: {error:#}");
-                    }
-                    anyhow::Ok(())
-                })
-                .await;
+            let result = cx.background_executor().spawn(async move { work() }).await;
             if let Err(error) = this.update_in(cx, |this, window, cx| {
                 this.launch.complete(result.is_ok());
                 match result {
@@ -1424,7 +1443,7 @@ mod launch_tests {
         use dojo::launcher_core::commands::CommandId;
         use dojo::launcher_core::rows::{Row, RowAction, RowIcon};
 
-        use super::super::views::{Notify, Outcome, View, ViewFactory};
+        use super::super::views::{Host, Notify, Outcome, View, ViewFactory};
 
         /// What the fake view saw, shared with the test that built it.
         #[derive(Default)]
@@ -1465,7 +1484,7 @@ mod launch_tests {
                 rows
             }
 
-            fn activate(&mut self, row: &Row, _query: &str) -> Outcome {
+            fn activate(&mut self, row: &Row, _query: &str, _host: &Host) -> Outcome {
                 self.seen.lock().unwrap().activated.push(row.title.clone());
                 (self.outcome)(row)
             }

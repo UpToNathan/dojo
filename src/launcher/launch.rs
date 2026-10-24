@@ -198,7 +198,7 @@ fn absent_activation(error: &anyhow::Error) -> bool {
 }
 
 fn terminal_argv(
-    plan: &ExecPlan,
+    command: &[String],
     environment: &HashMap<String, String>,
 ) -> anyhow::Result<Vec<String>> {
     let terminal = environment
@@ -219,7 +219,7 @@ fn terminal_argv(
             "unsupported terminal launch convention for {base}; set TERMINAL to a supported terminal"
         ),
     };
-    argv.extend(plan.argv.clone());
+    argv.extend(command.iter().cloned());
     Ok(argv)
 }
 
@@ -252,10 +252,28 @@ fn launch_with_window(path: &Path, name: &str, new_window: bool) -> anyhow::Resu
     if new_window {
         plan.argv.insert(1, "--new-window".into());
     }
+    run_in_session(
+        &environment,
+        name,
+        &plan.argv,
+        plan.directory.as_deref(),
+        plan.terminal,
+    )
+}
+
+/// Starts `argv` as an application of the desktop session: under uwsm when it manages the
+/// session, otherwise in a transient user scope. Both detach it from the shell.
+fn run_in_session(
+    environment: &HashMap<String, String>,
+    name: &str,
+    argv: &[String],
+    directory: Option<&Path>,
+    terminal: bool,
+) -> anyhow::Result<()> {
     let active = Command::new("uwsm")
         .args(["check", "is-active"])
         .env_clear()
-        .envs(&environment)
+        .envs(environment)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -263,19 +281,19 @@ fn launch_with_window(path: &Path, name: &str, new_window: bool) -> anyhow::Resu
     let mut command = if active {
         let mut command = Command::new("uwsm");
         command.args(["app", "-t", "service", "-d", name]);
-        if let Some(directory) = &plan.directory {
+        if let Some(directory) = directory {
             command.current_dir(directory);
         }
-        if plan.terminal {
+        if terminal {
             command.arg("-T");
         }
-        command.arg("--").args(&plan.argv);
+        command.arg("--").args(argv);
         command
     } else {
-        let argv = if plan.terminal {
-            terminal_argv(&plan, &environment)?
+        let argv = if terminal {
+            terminal_argv(argv, environment)?
         } else {
-            plan.argv.clone()
+            argv.to_vec()
         };
         let mut command = Command::new("systemd-run");
         command.args([
@@ -285,7 +303,7 @@ fn launch_with_window(path: &Path, name: &str, new_window: bool) -> anyhow::Resu
             "--quiet",
             "--slice=app.slice",
         ]);
-        if let Some(directory) = &plan.directory {
+        if let Some(directory) = directory {
             command.current_dir(directory);
         }
         command
@@ -308,9 +326,90 @@ fn launch_with_window(path: &Path, name: &str, new_window: bool) -> anyhow::Resu
     Ok(())
 }
 
+/// The command that opens `url` in the browser: Helium when its wrapper is installed, otherwise
+/// whatever the system opens web addresses with.
+fn browser_argv(
+    url: &str,
+    environment: &HashMap<String, String>,
+    exists: impl Fn(&Path) -> bool,
+) -> anyhow::Result<Vec<String>> {
+    anyhow::ensure!(
+        (url.starts_with("https://") || url.starts_with("http://"))
+            && !url.chars().any(|c| c.is_control() || c.is_whitespace()),
+        "refusing to open {url:?}: not a web address"
+    );
+    let variable = |name: &str| environment.get(name).map(String::as_str);
+    let mut directories = variable("PATH")
+        .map(|path| std::env::split_paths(path).collect::<Vec<_>>())
+        .unwrap_or_default();
+    if let Some(home) = variable("HOME") {
+        directories.push(Path::new(home).join(".nix-profile/bin"));
+    }
+    let browser = directories
+        .iter()
+        .map(|directory| directory.join("helium"))
+        .find(|candidate| exists(candidate))
+        .map_or_else(
+            || "xdg-open".to_owned(),
+            |path| path.to_string_lossy().into_owned(),
+        );
+    Ok(vec![browser, url.to_owned()])
+}
+
+/// Opens a web address in the browser, as an application of the desktop session.
+pub fn open_url(url: &str) -> anyhow::Result<()> {
+    let connection = zbus::blocking::connection::Builder::session()?
+        .method_timeout(std::time::Duration::from_secs(3))
+        .build()?;
+    let environment = session_environment(&connection)?;
+    let argv = browser_argv(url, &environment, Path::is_file)?;
+    run_in_session(&environment, "Browser", &argv, None, false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn environment(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn web_addresses_open_in_helium_when_its_wrapper_exists() {
+        let env = environment(&[("PATH", "/usr/bin:/opt/bin"), ("HOME", "/home/me")]);
+        let url = "https://www.youtube.com/results?search_query=cats";
+        let argv = browser_argv(url, &env, |path| path == Path::new("/opt/bin/helium")).unwrap();
+        assert_eq!(argv, ["/opt/bin/helium", url]);
+        // The Home Manager profile is searched even when PATH does not list it.
+        let argv = browser_argv(url, &env, |path| {
+            path == Path::new("/home/me/.nix-profile/bin/helium")
+        })
+        .unwrap();
+        assert_eq!(argv[0], "/home/me/.nix-profile/bin/helium");
+        // Without Helium the system's opener takes over.
+        assert_eq!(browser_argv(url, &env, |_| false).unwrap(), ["xdg-open", url]);
+    }
+
+    #[test]
+    fn only_plain_web_addresses_are_opened() {
+        let env = environment(&[("PATH", "/usr/bin")]);
+        for bad in [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "--new-window",
+            "https://example.com/a b",
+            "https://example.com/\n",
+            "ftp://example.com",
+            "",
+        ] {
+            assert!(browser_argv(bad, &env, |_| false).is_err(), "{bad:?}");
+        }
+        assert!(browser_argv("http://example.com/?q=1", &env, |_| false).is_ok());
+    }
+
     fn entry(exec: &str) -> DesktopEntry {
         DesktopEntry::from_str(
             PathBuf::from("/tmp/org.dojo.Test.desktop"),
