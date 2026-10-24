@@ -65,7 +65,7 @@ cannot make application tree changes atomic with execution.
 | Runtime | Exact native binding | Delivery route |
 | --- | --- | --- |
 | GTK exposing GTK shell v7 | Its existing surface annotation | Stock producer |
-| Qt 6.11.2 from the pinned system package | Generic surface annotation | Version-checked generic plugin |
+| Qt 6.12.0 from the pinned system package | Generic surface annotation | Version-checked generic plugin |
 | Qt 5.15.19 from the pinned system package | Generic surface annotation | Patched QtWayland accessor, guarded QPA loader and generic plugin |
 | Repo-built GPUI | Generic surface annotation | Forked AccessKit endpoint callback, published by the owning Wayland window |
 | Other generic-annotation producers | Their supplied exact surface/root tuple | Validated protocol consumer |

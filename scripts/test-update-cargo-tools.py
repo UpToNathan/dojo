@@ -70,6 +70,10 @@ class CargoUpdateTests(unittest.TestCase):
             "--features", "fast,json", "--no-default-features", "--bin", "tool",
         ], check=True)
 
+    def test_host_without_cargo_installs_has_nothing_to_update(self):
+        self.assertEqual(self.run_update(api=AssertionError("no crate should be queried")), 0)
+        self.assertIn("no crates.io binaries are installed", self.output.getvalue())
+
     def test_dry_run_does_not_install_and_keeps_installed_newer(self):
         self.write_installs([
             ("newer", "3.0.0", updater.CRATES_IO, ["newer"]),

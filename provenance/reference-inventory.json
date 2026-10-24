@@ -10,8 +10,8 @@
     {
       "name": "bend",
       "repository": "https://github.com/bendlang/bend",
-      "commit": "d2aeefc1902d617340e26f7fab5c1ef50fe28efa",
-      "narHash": "sha256-U3S3lKhofGEsVsAP48u27B9gl4iTgyB9f+R4U7IhSc8="
+      "commit": "042e797ebd1cfc060603e2682879909fe86fa8c2",
+      "narHash": "sha256-fzvSP+xnX/4FFv5VrYJPmyJEbAfNIi1TQHoAZ28rwwo="
     },
     {
       "name": "clipvault",
@@ -22,44 +22,44 @@
     {
       "name": "devenv",
       "repository": "https://github.com/cachix/devenv",
-      "commit": "1566050ec14ce238983376e118af9fb220454d39",
-      "narHash": "sha256-DUCfod12b6e/r9FCjE3+x7mJlVEmIpC10BZKGz+Nrsw="
+      "commit": "feb3388b7f1c8398d8c1efde2e3c811b81019d58",
+      "narHash": "sha256-UQk5entVLWj6uRM21GQkgq54N4Lah6rEcrduJkbQ7nE="
     },
     {
       "name": "home-manager",
       "repository": "https://github.com/nix-community/home-manager",
-      "commit": "54ad640b81c5e9a32db1a29e7561fda628601117",
-      "narHash": "sha256-X9iN67cdW9KqLuvbyyr9rdF4Zssk1uFHh1UC/GZH08s="
+      "commit": "ec80131710bffcdf3b8498cf41f3a0579833b023",
+      "narHash": "sha256-TyoYH983Nsc++1scw0SoOEKshPSJWJDxK7tTmuZ974M="
     },
     {
       "name": "nixpkgs",
       "repository": "https://github.com/cachix/devenv-nixpkgs",
-      "commit": "02918c1b9bd4fdeffc582c5f26a3945efd3df5d3",
-      "narHash": "sha256-nqMMvHs5aQq2pDOd0X7QDSQnRg90ni1aUdppP+YOJVM="
+      "commit": "ae27f26c6eba089c3b656912fa0df544f390796d",
+      "narHash": "sha256-cIDEdMBVUCTNOVeUcXgHZbcVBOIfImKTW56eVxfQAPw="
     },
     {
       "name": "opencode",
       "repository": "https://github.com/anomalyco/opencode",
-      "commit": "501b15af26915ba52682e20e220e7e137e89e92f",
-      "narHash": "sha256-EYrAD/vrX2SsxSFLP7RmuC8o7pNqSiYefIy4JtyRpEg="
+      "commit": "df6fb9a4602b8984426ac04477cc9426086c6df2",
+      "narHash": "sha256-ZvMV5RC1ZW36lTk7QrtNEJ57B0TQgoXMeaih369gj7M="
     },
     {
       "name": "pi",
       "repository": "https://github.com/earendil-works/pi",
-      "commit": "482c1381a00d8d00bc81697e4a980c593db6803e",
-      "narHash": "sha256-ckXJ6hLOhPpJcJ+FJKxMvZXDmLrPAXkl5yqiZGLoM1g="
+      "commit": "136b87e8a7f5a3e5186de0289523ba327dc592fc",
+      "narHash": "sha256-x4xvKfqhP7nfDT3aVlUH75T9TWD4y3seHD5ULcdaabI="
     },
     {
       "name": "rush",
       "repository": "https://github.com/rockorager/rush",
-      "commit": "4c35a0819d0749a0e4c17928d4fe7983f6ba0d18",
-      "narHash": "sha256-dkfEn8xwmYHQ3GpoHMpBlexNEjH2rlhuywf+GOXZob0="
+      "commit": "918ff58157d215b48941fac5bc51ae35b02b9b29",
+      "narHash": "sha256-SoAMV9Zn3dnEUSEFRaJePeMyZSa+tcsTUWlOo4JugzI="
     },
     {
       "name": "stasis",
       "repository": "https://github.com/saltnpepper97/stasis",
-      "commit": "698d9c802e54b8cd7de3dce67f33e4a2d91814bc",
-      "narHash": "sha256-y0fNm/8Dt7RjtwCmDx4LIqd9N7uET46PgkmWmwiJ27M="
+      "commit": "6f7882ea2be29926c4aecf6ed147db8a3a96e929",
+      "narHash": "sha256-xbkid9Pv3pd3otxFyYT1XEkjzErBJZZd+eR3Ki3BOnc="
     },
     {
       "name": "utsushot",
@@ -76,8 +76,8 @@
     {
       "name": "zen-browser",
       "repository": "https://github.com/youwen5/zen-browser-flake",
-      "commit": "458cd16116c362a5e92d5db6bdc3599e4e8b1f4a",
-      "narHash": "sha256-qpJE5ug1T+7LEdXRLI9/ZIwe/rzqjILR9BpMg/sNVtM="
+      "commit": "5a0d21f99706b231df9ff35ab95dbccda88414d8",
+      "narHash": "sha256-TEDD0EgSDKOl9hGNlEaINfd2Y4PFhyh4czw4lb1AGak="
     }
   ],
   "vendored_source_bases": [
@@ -169,7 +169,7 @@
     },
     {
       "file": "devenv.lock",
-      "sha256": "f6e8fd427fd54a7e873c3a15d4189f08db69636093085e60553a217ec5c149f3"
+      "sha256": "b7314b1638f96992cd2550f3be2215050682031d63aa505ec6a7a5f1dc39eaae"
     },
     {
       "file": "nvim-config/lazy-lock.json",
@@ -319,7 +319,7 @@
     },
     {
       "file": "Cargo.toml",
-      "sha256": "1197a1408277fa3c2d90461b0079b31574a270bef91c22741fc3b1e730c511ed"
+      "sha256": "e56a9a0a3ff2fe6415bff8d98004331effc254ebc258512a7912c32647027dba"
     },
     {
       "file": "crates/dojo-accessibility/Cargo.toml",
@@ -391,11 +391,11 @@
     },
     {
       "file": "devenv.yaml",
-      "sha256": "74681fe7975fcf32d82254324ff403d3ab64bc210d675512b1561bf013562afe"
+      "sha256": "df3bcb7e734cb153973a7cc9f30e9763e204b81f2f696def3126dd7d6e945941"
     },
     {
       "file": "home-manager.nix",
-      "sha256": "1013046e0177e245b90aea7a26ebcb162cd4f6204b5ddb94b8e881b3a3b590e6"
+      "sha256": "b0e719abd2d7c3bc3ba29ab70de14a18400997c0e79abf49ac86aabba7f54ef8"
     },
     {
       "file": "tools/agent-input/Cargo.toml",
@@ -5182,6 +5182,13 @@
       "status": "moving-reference"
     },
     {
+      "file": ".scratch/global-shortcuts/spec.md",
+      "line": 6,
+      "url": "https://x.com/thdxr/status/2113072161531572675:",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
       "file": ".scratch/gpu-logout/findings.md",
       "line": 85,
       "url": "https://code.googlesource.com/linux/torvalds/linux/+/3f008280327ba5ad132965abab0c7846283cef0c/drivers/gpu/drm/amd/amdgpu/amdgpu_cs.c",
@@ -6179,54 +6186,54 @@
     {
       "file": "devenv.yaml",
       "line": 4,
-      "url": "github:cachix/devenv/1566050ec14ce238983376e118af9fb220454d39?dir=src/modules",
+      "url": "github:cachix/devenv/feb3388b7f1c8398d8c1efde2e3c811b81019d58?dir=src/modules",
       "identity": {
-        "git_commit": "1566050ec14ce238983376e118af9fb220454d39"
+        "git_commit": "feb3388b7f1c8398d8c1efde2e3c811b81019d58"
       },
       "status": "commit-pinned"
     },
     {
       "file": "devenv.yaml",
       "line": 6,
-      "url": "github:cachix/devenv-nixpkgs/02918c1b9bd4fdeffc582c5f26a3945efd3df5d3",
+      "url": "github:cachix/devenv-nixpkgs/ae27f26c6eba089c3b656912fa0df544f390796d",
       "identity": {
-        "git_commit": "02918c1b9bd4fdeffc582c5f26a3945efd3df5d3"
+        "git_commit": "ae27f26c6eba089c3b656912fa0df544f390796d"
       },
       "status": "commit-pinned"
     },
     {
       "file": "devenv.yaml",
       "line": 8,
-      "url": "github:nix-community/home-manager/54ad640b81c5e9a32db1a29e7561fda628601117",
+      "url": "github:nix-community/home-manager/ec80131710bffcdf3b8498cf41f3a0579833b023",
       "identity": {
-        "git_commit": "54ad640b81c5e9a32db1a29e7561fda628601117"
+        "git_commit": "ec80131710bffcdf3b8498cf41f3a0579833b023"
       },
       "status": "commit-pinned"
     },
     {
       "file": "devenv.yaml",
       "line": 13,
-      "url": "github:bendlang/bend/d2aeefc1902d617340e26f7fab5c1ef50fe28efa",
+      "url": "github:bendlang/bend/042e797ebd1cfc060603e2682879909fe86fa8c2",
       "identity": {
-        "git_commit": "d2aeefc1902d617340e26f7fab5c1ef50fe28efa"
+        "git_commit": "042e797ebd1cfc060603e2682879909fe86fa8c2"
       },
       "status": "commit-pinned"
     },
     {
       "file": "devenv.yaml",
       "line": 18,
-      "url": "github:youwen5/zen-browser-flake/458cd16116c362a5e92d5db6bdc3599e4e8b1f4a",
+      "url": "github:youwen5/zen-browser-flake/5a0d21f99706b231df9ff35ab95dbccda88414d8",
       "identity": {
-        "git_commit": "458cd16116c362a5e92d5db6bdc3599e4e8b1f4a"
+        "git_commit": "5a0d21f99706b231df9ff35ab95dbccda88414d8"
       },
       "status": "commit-pinned"
     },
     {
       "file": "devenv.yaml",
       "line": 23,
-      "url": "github:rockorager/rush/4c35a0819d0749a0e4c17928d4fe7983f6ba0d18",
+      "url": "github:rockorager/rush/918ff58157d215b48941fac5bc51ae35b02b9b29",
       "identity": {
-        "git_commit": "4c35a0819d0749a0e4c17928d4fe7983f6ba0d18"
+        "git_commit": "918ff58157d215b48941fac5bc51ae35b02b9b29"
       },
       "status": "commit-pinned"
     },
@@ -6242,9 +6249,9 @@
     {
       "file": "devenv.yaml",
       "line": 33,
-      "url": "github:saltnpepper97/stasis/698d9c802e54b8cd7de3dce67f33e4a2d91814bc",
+      "url": "github:saltnpepper97/stasis/6f7882ea2be29926c4aecf6ed147db8a3a96e929",
       "identity": {
-        "git_commit": "698d9c802e54b8cd7de3dce67f33e4a2d91814bc"
+        "git_commit": "6f7882ea2be29926c4aecf6ed147db8a3a96e929"
       },
       "status": "commit-pinned"
     },
@@ -6269,18 +6276,18 @@
     {
       "file": "devenv.yaml",
       "line": 48,
-      "url": "github:anomalyco/opencode/501b15af26915ba52682e20e220e7e137e89e92f",
+      "url": "github:anomalyco/opencode/df6fb9a4602b8984426ac04477cc9426086c6df2",
       "identity": {
-        "git_commit": "501b15af26915ba52682e20e220e7e137e89e92f"
+        "git_commit": "df6fb9a4602b8984426ac04477cc9426086c6df2"
       },
       "status": "commit-pinned"
     },
     {
       "file": "devenv.yaml",
       "line": 53,
-      "url": "github:earendil-works/pi/482c1381a00d8d00bc81697e4a980c593db6803e",
+      "url": "github:earendil-works/pi/136b87e8a7f5a3e5186de0289523ba327dc592fc",
       "identity": {
-        "git_commit": "482c1381a00d8d00bc81697e4a980c593db6803e"
+        "git_commit": "136b87e8a7f5a3e5186de0289523ba327dc592fc"
       },
       "status": "commit-pinned"
     },
@@ -9107,21 +9114,21 @@
     },
     {
       "file": "home-manager.nix",
-      "line": 202,
+      "line": 206,
       "url": "https://rubjo.github.io/victor-mono/VictorMonoAll.zip",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "home-manager.nix",
-      "line": 220,
+      "line": 224,
       "url": "https://codeberg.org/julmajustus/btrbg/archive/2d36d378f7779fb91e29440bca1f701d9b6bfcf8.tar.gz",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "home-manager.nix",
-      "line": 239,
+      "line": 243,
       "url": "https://addons.mozilla.org/en-US/firefox/downloads/latest/1password-x-password-manager/latest.xpi",
       "identity": null,
       "status": "moving-reference"
@@ -9478,7 +9485,7 @@
     },
     {
       "file": "scripts/test-update-cargo-tools.py",
-      "line": 90,
+      "line": 94,
       "url": "https://example.test/tool",
       "identity": null,
       "status": "requires-classification"
@@ -9519,6 +9526,13 @@
       "status": "requires-classification"
     },
     {
+      "file": "src/shortcuts/portal.rs",
+      "line": 3,
+      "url": "https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.impl.portal.GlobalShortcuts.html",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
       "file": "src/sign_in.rs",
       "line": 467,
       "url": "https://auth.example/device",
@@ -9555,14 +9569,14 @@
     },
     {
       "file": "src/theme/export.rs",
-      "line": 179,
+      "line": 180,
       "url": "https://opencode.ai/theme.json",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "src/theme/export.rs",
-      "line": 613,
+      "line": 614,
       "url": "http://www.apple.com/DTDs/PropertyList-1.0.dtd\\",
       "identity": null,
       "status": "requires-classification"
@@ -11133,14 +11147,14 @@
     {
       "file": "tools/accessibility/qt6-annotation/provenance.json",
       "line": 33,
-      "url": "https://code.qt.io/cgit/qt/qtbase.git/plain/LICENSES/LGPL-3.0-only.txt?id=ef55f427f2c8b410d34f8a7681020a3000cf6866",
+      "url": "https://code.qt.io/cgit/qt/qtbase.git/plain/LICENSES/LGPL-3.0-only.txt?id=025bdad181de241e81bf853c8a2d7bf3d19261a9",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "tools/accessibility/qt6-annotation/provenance.json",
       "line": 38,
-      "url": "https://code.qt.io/cgit/qt/qtbase.git/plain/LICENSES/GPL-3.0-only.txt?id=ef55f427f2c8b410d34f8a7681020a3000cf6866",
+      "url": "https://code.qt.io/cgit/qt/qtbase.git/plain/LICENSES/GPL-3.0-only.txt?id=025bdad181de241e81bf853c8a2d7bf3d19261a9",
       "identity": null,
       "status": "requires-classification"
     },
@@ -30115,13 +30129,6 @@
       "file": "vendor/cua/upstream/libs/cua-driver/tests/fixtures/apps/cross-platform/visual-only-canvas/test_fixture.py",
       "line": 116,
       "url": "https://example.test/state",
-      "identity": null,
-      "status": "requires-classification"
-    },
-    {
-      "file": "vendor/cua/upstream/libs/cua-driver/tests/fixtures/build/macos.sh",
-      "line": 78,
-      "url": "http://www.apple.com/DTDs/PropertyList-1.0.dtd",
       "identity": null,
       "status": "requires-classification"
     },
