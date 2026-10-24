@@ -10,6 +10,8 @@ use freedesktop_desktop_entry::DesktopEntry;
 use nucleo_matcher::pattern::{Atom, AtomKind, CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Matcher, Utf32String};
 
+use crate::launch_history::{LaunchHistory, TermMatch};
+
 pub const RESULT_LIMIT: usize = 64;
 
 pub struct Application {
@@ -121,8 +123,41 @@ impl Catalogue {
     }
 
     pub fn search(&self, query: &str, matcher: &mut Matcher) -> Vec<usize> {
+        self.search_ranked(query, matcher, &LaunchHistory::default(), 0)
+    }
+
+    /// Results for `query`, best first. Matches fall into tiers: an exact name or learned search
+    /// term, then a name or learned-term prefix, then a fuzzy name match, then a fuzzy match on the
+    /// rest of the metadata. Within a tier, applications launched more recently and more often
+    /// come first, then the better fuzzy score. With no history this is the plain fuzzy order.
+    /// An empty query lists the applications in use first.
+    pub fn search_ranked(
+        &self,
+        query: &str,
+        matcher: &mut Matcher,
+        history: &LaunchHistory,
+        now_ms: u64,
+    ) -> Vec<usize> {
         if query.is_empty() {
-            return (0..self.applications.len().min(RESULT_LIMIT)).collect();
+            let mut used = self
+                .applications
+                .iter()
+                .enumerate()
+                .filter_map(|(index, app)| {
+                    let frecency = history.frecency(&app.id, now_ms);
+                    (frecency > 1.0).then_some((index, frecency))
+                })
+                .collect::<Vec<_>>();
+            used.sort_by(|(left, left_weight), (right, right_weight)| {
+                right_weight
+                    .total_cmp(left_weight)
+                    .then_with(|| left.cmp(right))
+            });
+            let mut order = used.iter().map(|(index, _)| *index).collect::<Vec<_>>();
+            let used = order.iter().copied().collect::<HashSet<_>>();
+            order.extend((0..self.applications.len()).filter(|index| !used.contains(index)));
+            order.truncate(RESULT_LIMIT);
+            return order;
         }
         let pattern = Pattern::new(
             query,
@@ -149,38 +184,55 @@ impl Catalogue {
             .iter()
             .enumerate()
             .filter_map(|(index, app)| {
-                if let Some(score) = pattern.score(app.searchable_name.slice(..), matcher) {
-                    let tier = if exact
-                        .score(app.searchable_name.slice(..), matcher)
-                        .is_some()
-                    {
-                        0
-                    } else if prefix
-                        .score(app.searchable_name.slice(..), matcher)
-                        .is_some()
-                    {
-                        1
+                let matched =
+                    if let Some(score) = pattern.score(app.searchable_name.slice(..), matcher) {
+                        let tier = if exact
+                            .score(app.searchable_name.slice(..), matcher)
+                            .is_some()
+                        {
+                            0
+                        } else if prefix
+                            .score(app.searchable_name.slice(..), matcher)
+                            .is_some()
+                        {
+                            1
+                        } else {
+                            2
+                        };
+                        Some((tier, score))
                     } else {
-                        2
+                        pattern
+                            .score(app.searchable.slice(..), matcher)
+                            .map(|score| (3, score))
                     };
-                    Some((index, tier, score))
-                } else {
-                    pattern
-                        .score(app.searchable.slice(..), matcher)
-                        .map(|score| (index, 3, score))
-                }
+                // A learned search term can promote a match or find an application the text
+                // alone would not.
+                let learned = match history.term_match(&app.id, query, now_ms) {
+                    TermMatch::Exact => Some(0),
+                    TermMatch::Prefix => Some(1),
+                    TermMatch::None => None,
+                };
+                let (tier, score) = match (matched, learned) {
+                    (Some((tier, score)), Some(learned)) => (tier.min(learned), score),
+                    (Some(found), None) => found,
+                    (None, Some(learned)) => (learned, 0),
+                    (None, None) => return None,
+                };
+                Some((index, tier, score, history.frecency(&app.id, now_ms)))
             })
             .collect::<Vec<_>>();
         scores.sort_unstable_by(
-            |(left, left_tier, left_score), (right, right_tier, right_score)| {
+            |(left, left_tier, left_score, left_weight),
+             (right, right_tier, right_score, right_weight)| {
                 left_tier
                     .cmp(right_tier)
+                    .then_with(|| right_weight.total_cmp(left_weight))
                     .then_with(|| right_score.cmp(left_score))
                     .then_with(|| left.cmp(right))
             },
         );
         scores.truncate(RESULT_LIMIT);
-        scores.into_iter().map(|(index, _, _)| index).collect()
+        scores.into_iter().map(|(index, ..)| index).collect()
     }
 }
 
@@ -330,6 +382,85 @@ mod tests {
         assert_eq!(
             catalogue.search("Zen Browser", &mut matcher).first(),
             Some(&1)
+        );
+    }
+
+    fn used_catalogue() -> Catalogue {
+        Catalogue {
+            applications: vec![
+                application("Files", "File manager"),
+                application("Firefox", "Web Browser"),
+                application("Fonts", "Font viewer"),
+                application("Zen Browser", "Web Browser"),
+            ],
+        }
+    }
+
+    fn history_with(launches: &[(&str, &str, u64)]) -> LaunchHistory {
+        let mut history = LaunchHistory::default();
+        for (name, query, at) in launches {
+            history.record(&format!("{name}.desktop"), query, *at);
+        }
+        history
+    }
+
+    #[test]
+    fn launched_applications_lead_a_tier_and_an_empty_query() {
+        let catalogue = used_catalogue();
+        let mut matcher = Matcher::new(nucleo_matcher::Config::DEFAULT);
+        let now = 1_800_000_000_000;
+        assert_eq!(catalogue.search("f", &mut matcher), vec![0, 1, 2]);
+        let history = history_with(&[
+            ("Fonts", "", now),
+            ("Firefox", "", now),
+            ("Firefox", "", now),
+        ]);
+        assert_eq!(
+            catalogue.search_ranked("f", &mut matcher, &history, now),
+            vec![1, 2, 0]
+        );
+        assert_eq!(
+            catalogue.search_ranked("", &mut matcher, &history, now),
+            vec![1, 2, 0, 3]
+        );
+        assert_eq!(
+            catalogue.search_ranked("", &mut matcher, &LaunchHistory::default(), now),
+            vec![0, 1, 2, 3]
+        );
+    }
+
+    #[test]
+    fn a_learned_term_promotes_an_application_and_can_find_it_alone() {
+        let catalogue = used_catalogue();
+        let mut matcher = Matcher::new(nucleo_matcher::Config::DEFAULT);
+        let now = 1_800_000_000_000;
+        let history = history_with(&[("Zen Browser", "web", now), ("Firefox", "ff", now)]);
+        // "web" matches Firefox and Zen's metadata; Zen learned it exactly, so it leads.
+        assert_eq!(
+            catalogue
+                .search_ranked("web", &mut matcher, &history, now)
+                .first(),
+            Some(&3)
+        );
+        // "ff" is not a subsequence of Zen Browser but is a fuzzy hit for Firefox's name; the
+        // learned term keeps Firefox first even against the exact name "Files" for "fi".
+        assert_eq!(
+            catalogue
+                .search_ranked("ff", &mut matcher, &history, now)
+                .first(),
+            Some(&1)
+        );
+        let lone = history_with(&[("Fonts", "typography", now)]);
+        assert_eq!(
+            catalogue.search_ranked("typography", &mut matcher, &lone, now),
+            vec![2]
+        );
+        // Expired terms stop matching.
+        let later = now + 18 * 86_400_000;
+        assert!(
+            catalogue
+                .search_ranked("typography", &mut matcher, &lone, later)
+                .is_empty()
         );
     }
 

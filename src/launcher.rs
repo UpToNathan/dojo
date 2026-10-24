@@ -548,6 +548,7 @@ impl LauncherView {
         if !self.launch.begin() {
             return;
         }
+        let query = self.input.text.clone();
         cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_executor()
@@ -556,7 +557,13 @@ impl LauncherView {
                         .applications
                         .get(index)
                         .ok_or_else(|| anyhow::anyhow!("selected application disappeared"))?;
-                    catalogue::launch(application)
+                    catalogue::launch(application)?;
+                    // The launch succeeded; failing to remember it must not report a failure.
+                    if let Err(error) = dojo::launch_history::record_launch(&application.id, &query)
+                    {
+                        eprintln!("Dojo could not record the launch: {error:#}");
+                    }
+                    anyhow::Ok(())
                 })
                 .await;
             if let Err(error) = this.update_in(cx, |this, window, cx| {

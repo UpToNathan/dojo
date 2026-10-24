@@ -4,6 +4,8 @@ use std::thread;
 use anyhow::Context as _;
 use nucleo_matcher::Matcher;
 
+use dojo::launch_history::{self, LaunchHistory};
+
 use super::catalogue::Catalogue;
 
 #[derive(Clone)]
@@ -68,6 +70,7 @@ impl SearchWorker {
             .name("dojo-launcher-search".into())
             .spawn(move || {
                 let mut catalogue = None;
+                let mut history = LaunchHistory::default();
                 let mut matcher = Matcher::new(nucleo_matcher::Config::DEFAULT);
                 loop {
                     let (generation, query, refresh_catalogue) = {
@@ -91,6 +94,11 @@ impl SearchWorker {
                     };
 
                     if refresh_catalogue || catalogue.is_none() {
+                        // Each reopen refreshes, so launches since the last open count.
+                        history = launch_history::default_path().map_or_else(
+                            |_| LaunchHistory::default(),
+                            |path| LaunchHistory::load(&path),
+                        );
                         match discover() {
                             Ok(discovered) => catalogue = Some(Arc::new(discovered)),
                             Err(error) => {
@@ -106,7 +114,12 @@ impl SearchWorker {
                     let Some(catalogue) = catalogue.as_ref().cloned() else {
                         continue;
                     };
-                    let matches = catalogue.search(&query, &mut matcher);
+                    let matches = catalogue.search_ranked(
+                        &query,
+                        &mut matcher,
+                        &history,
+                        launch_history::now_ms(),
+                    );
                     let Ok(mut state) = worker_shared.0.lock() else {
                         return;
                     };
