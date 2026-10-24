@@ -855,6 +855,13 @@ impl LauncherView {
                 self.search(window, cx);
             }
             "h" if modifiers.control => self.toggle_suggestion(window, cx),
+            "tab" => {
+                let Some(status) = self.stack.last_mut().and_then(|open| open.view.tab()) else {
+                    return;
+                };
+                self.status = Some(status);
+                self.view_rows(window, cx);
+            }
             "delete" => {
                 self.input.delete();
                 self.search(window, cx);
@@ -1581,8 +1588,18 @@ mod launch_tests {
     fn a_view_data_change_refreshes_its_rows_and_unknown_commands_report_why(
         cx: &mut gpui::TestAppContext,
     ) {
-        let (_launcher, handle, seen, _display) =
+        let (launcher, handle, seen, _display) =
             launcher_with_fake_view(cx, |_| super::Outcome::Stay);
+        // Let the search thread finish its one request first: it wakes the window's task, and
+        // that must not happen while the test scheduler is parked.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while launcher.worker.results().ok().flatten().is_none() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the search worker never answered"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
         let notify = seen
             .lock()
             .unwrap()

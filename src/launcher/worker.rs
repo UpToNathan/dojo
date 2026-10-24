@@ -8,7 +8,7 @@ use dojo::launch_history::{self, LaunchHistory};
 use dojo::launcher_core::commands::{self, HiddenCommands};
 use dojo::launcher_core::inline::inline_rows;
 use dojo::launcher_core::root::{RootInput, root_rows};
-use dojo::launcher_core::rows::Row;
+use dojo::launcher_core::rows::{Row, RowAction};
 
 use super::catalogue::Catalogue;
 
@@ -264,8 +264,13 @@ mod tests {
             .map_err(anyhow::Error::msg)?
             .context("current launcher has no results")?;
         assert_eq!(results.generation, generation);
+        // The empty search leads with command suggestions; the first application follows.
         assert_eq!(
-            results.rows.first().map(|row| row.title.as_str()),
+            results
+                .rows
+                .iter()
+                .find(|row| matches!(row.action, RowAction::Launch(_)))
+                .map(|row| row.title.as_str()),
             Some("Visible App")
         );
         worker.stop();

@@ -84,7 +84,7 @@ pub const ALL: [Command; 7] = [
 
 /// The commands whose views exist. A command joins this list when its view is wired in; until
 /// then it is neither suggested nor found by searching.
-pub const IMPLEMENTED: &[CommandId] = &[];
+pub const IMPLEMENTED: &[CommandId] = &[CommandId::Emoji];
 
 pub fn available() -> Vec<Command> {
     ALL.iter()

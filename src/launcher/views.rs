@@ -3,6 +3,8 @@
 //! A view is plain data plus logic. It never touches the window, so it can be tested alone; the
 //! launcher draws its rows and carries out the [`Outcome`] of an activation.
 
+mod emoji;
+
 use std::sync::Arc;
 
 use dojo::launcher_core::commands::CommandId;
@@ -43,6 +45,12 @@ pub trait View {
     /// Enter (or a click) on `row`, one of the rows last returned.
     fn activate(&mut self, row: &Row, query: &str) -> Outcome;
 
+    /// Tab. A view that has a mode to cycle (a skin tone) does it and returns the status text
+    /// that says so; the rows are then requested again.
+    fn tab(&mut self) -> Option<String> {
+        None
+    }
+
     /// Shown in the status line when `rows` is empty.
     fn empty_text(&self, query: &str) -> String {
         if query.is_empty() {
@@ -59,5 +67,8 @@ pub type ViewFactory = Arc<dyn Fn(CommandId) -> Option<Box<dyn View>> + Send + S
 /// The views Dojo ships. A command joins [`dojo::launcher_core::commands::IMPLEMENTED`] in the
 /// same change that adds its arm here.
 pub fn default_factory() -> ViewFactory {
-    Arc::new(|_command| None)
+    Arc::new(|command| match command {
+        CommandId::Emoji => Some(Box::new(emoji::EmojiView::new())),
+        _ => None,
+    })
 }
