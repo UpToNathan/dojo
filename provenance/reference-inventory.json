@@ -76,8 +76,8 @@
     {
       "name": "zen-browser",
       "repository": "https://github.com/youwen5/zen-browser-flake",
-      "commit": "5a0d21f99706b231df9ff35ab95dbccda88414d8",
-      "narHash": "sha256-TEDD0EgSDKOl9hGNlEaINfd2Y4PFhyh4czw4lb1AGak="
+      "commit": "458cd16116c362a5e92d5db6bdc3599e4e8b1f4a",
+      "narHash": "sha256-qpJE5ug1T+7LEdXRLI9/ZIwe/rzqjILR9BpMg/sNVtM="
     }
   ],
   "vendored_source_bases": [
@@ -169,7 +169,7 @@
     },
     {
       "file": "devenv.lock",
-      "sha256": "b7314b1638f96992cd2550f3be2215050682031d63aa505ec6a7a5f1dc39eaae"
+      "sha256": "d45ba8d0f595d7e666d5a05059927343cbba47472aaf2d1603ad8eb11f829523"
     },
     {
       "file": "nvim-config/lazy-lock.json",
@@ -391,7 +391,7 @@
     },
     {
       "file": "devenv.yaml",
-      "sha256": "df3bcb7e734cb153973a7cc9f30e9763e204b81f2f696def3126dd7d6e945941"
+      "sha256": "46cfdc3e776869b1ff3f239f603331f83799effb832ca4f85e01ddd8c9cf3cfd"
     },
     {
       "file": "home-manager.nix",
@@ -6222,9 +6222,9 @@
     {
       "file": "devenv.yaml",
       "line": 18,
-      "url": "github:youwen5/zen-browser-flake/5a0d21f99706b231df9ff35ab95dbccda88414d8",
+      "url": "github:youwen5/zen-browser-flake/458cd16116c362a5e92d5db6bdc3599e4e8b1f4a",
       "identity": {
-        "git_commit": "5a0d21f99706b231df9ff35ab95dbccda88414d8"
+        "git_commit": "458cd16116c362a5e92d5db6bdc3599e4e8b1f4a"
       },
       "status": "commit-pinned"
     },
