@@ -2281,6 +2281,23 @@ impl Window {
         }
     }
 
+    /// Unmaps this window without destroying it, keeping its surface and renderer for
+    /// [`Window::show`]. Returns `false` if the platform cannot do that for this window; close
+    /// it instead. A hidden window holds no keyboard focus and draws nothing.
+    pub fn hide(&mut self) -> bool {
+        self.platform_window.hide()
+    }
+
+    /// Maps a window hidden by [`Window::hide`] and redraws it. Returns `false` if the
+    /// platform cannot hide this window.
+    pub fn show(&mut self) -> bool {
+        let shown = self.platform_window.show();
+        if shown {
+            self.refresh();
+        }
+        shown
+    }
+
     /// Whether the platform is presenting this window's frames (see
     /// [`WindowVisibility`]).
     pub fn visibility(&self) -> WindowVisibility {

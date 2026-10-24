@@ -646,6 +646,12 @@ impl TestAppContext {
         .unwrap();
     }
 
+    /// Whether the window was unmapped with [`Window::hide`](crate::Window::hide) and not
+    /// mapped again with [`Window::show`](crate::Window::show).
+    pub fn window_is_hidden(&self, window: AnyWindowHandle) -> bool {
+        self.test_window(window).is_hidden()
+    }
+
     /// Returns the `TestWindow` backing the given handle.
     pub(crate) fn test_window(&self, window: AnyWindowHandle) -> TestWindow {
         self.app

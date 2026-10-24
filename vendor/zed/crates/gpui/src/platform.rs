@@ -1248,6 +1248,20 @@ pub trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     /// The current [`WindowVisibility`]. Read once when the window is created;
     /// afterwards changes arrive through [`Self::on_visibility_change`].
     fn visibility(&self) -> WindowVisibility;
+    /// Unmaps the window without destroying it, so [`Self::show`] can map it again without
+    /// recreating the surface or its renderer. Returns `false` if this window cannot be hidden
+    /// that way, in which case it is unchanged and should be closed instead.
+    ///
+    /// * Wayland: layer-shell windows only. The surface gets a null buffer, which releases its
+    ///   keyboard focus, and frame callbacks stop until `show`.
+    fn hide(&self) -> bool {
+        false
+    }
+    /// Maps a window unmapped by [`Self::hide`]. The window redraws once the platform is ready
+    /// for a buffer. Returns `false` if this window cannot be hidden.
+    fn show(&self) -> bool {
+        false
+    }
     fn is_hovered(&self) -> bool;
     fn background_appearance(&self) -> WindowBackgroundAppearance;
     fn set_title(&mut self, title: &str);

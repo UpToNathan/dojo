@@ -123,6 +123,7 @@ pub struct WgpuSurfaceConfig {
     pub preferred_present_mode: Option<wgpu::PresentMode>,
 }
 
+#[derive(Clone)]
 struct WgpuPipelines {
     quads: wgpu::RenderPipeline,
     shadows: wgpu::RenderPipeline,
@@ -156,11 +157,60 @@ struct InstanceBindings {
     polychrome_sprites: InstanceBinding,
 }
 
+#[derive(Clone)]
 struct WgpuBindGroupLayouts {
     globals: wgpu::BindGroupLayout,
     instances: wgpu::BindGroupLayout,
     texture: wgpu::BindGroupLayout,
     surfaces: wgpu::BindGroupLayout,
+}
+
+/// Everything that selects one set of render pipelines. Windows with equal keys on the same
+/// device build identical pipelines.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PipelineKey {
+    target_format: wgpu::TextureFormat,
+    alpha_mode: wgpu::CompositeAlphaMode,
+    path_sample_count: u32,
+    dual_source_blending: bool,
+    uses_webgl_instance_data: bool,
+}
+
+/// A small keyed store that builds a value once per key and hands out clones afterwards.
+/// Keys are compared with `==` because only a handful ever exist.
+struct KeyedCache<K, V> {
+    entries: Vec<(K, V)>,
+}
+
+impl<K, V> Default for KeyedCache<K, V> {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+}
+
+impl<K: PartialEq, V: Clone> KeyedCache<K, V> {
+    fn get_or_insert_with(&mut self, key: K, build: impl FnOnce() -> V) -> V {
+        if let Some((_, value)) = self.entries.iter().find(|(existing, _)| *existing == key) {
+            return value.clone();
+        }
+        let value = build();
+        self.entries.push((key, value.clone()));
+        value
+    }
+}
+
+/// Shader modules, bind group layouts and render pipelines shared by every window on one
+/// device. Creating them dominates the cost of opening a window, and they depend only on the
+/// device and the [`PipelineKey`], not on the window.
+///
+/// The cache belongs to a [`WgpuContext`], so it is dropped together with the device it was
+/// built on: a device recovery replaces the context and with it every cached object.
+#[derive(Default)]
+pub(crate) struct SharedPipelines {
+    layouts: KeyedCache<bool, WgpuBindGroupLayouts>,
+    pipelines: KeyedCache<PipelineKey, WgpuPipelines>,
 }
 
 /// Shared GPU context reference, used to coordinate device recovery across multiple windows.
@@ -1219,16 +1269,33 @@ impl WgpuRendererCore {
         let uses_webgl_instance_data = context.uses_webgl_instance_data();
         let dual_source_blending =
             context.supports_dual_source_blending() && !uses_webgl_instance_data;
-        let bind_group_layouts = Self::create_bind_group_layouts(&device, uses_webgl_instance_data);
-        let pipelines = Self::create_pipelines(
-            &device,
-            &bind_group_layouts,
-            target_format,
-            alpha_mode,
-            rendering_params.path_sample_count,
-            dual_source_blending,
-            uses_webgl_instance_data,
-        );
+        let (bind_group_layouts, pipelines) = {
+            let mut shared = context.shared_pipelines().lock();
+            let layouts = shared
+                .layouts
+                .get_or_insert_with(uses_webgl_instance_data, || {
+                    Self::create_bind_group_layouts(&device, uses_webgl_instance_data)
+                });
+            let key = PipelineKey {
+                target_format,
+                alpha_mode,
+                path_sample_count: rendering_params.path_sample_count,
+                dual_source_blending,
+                uses_webgl_instance_data,
+            };
+            let pipelines = shared.pipelines.get_or_insert_with(key, || {
+                Self::create_pipelines(
+                    &device,
+                    &layouts,
+                    target_format,
+                    alpha_mode,
+                    key.path_sample_count,
+                    dual_source_blending,
+                    uses_webgl_instance_data,
+                )
+            });
+            (layouts, pipelines)
+        };
         let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("atlas_sampler"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -2122,6 +2189,27 @@ impl WgpuRenderer {
         }
     }
 
+    /// Creates a surface for `window` after [`Self::unconfigure_surface`] released the old
+    /// one, with the size, alpha mode and present mode the renderer last used. The device,
+    /// pipelines and atlas are kept, so this is much cheaper than a new renderer.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn restore_surface<W: HasWindowHandle>(&mut self, window: &W) -> anyhow::Result<()> {
+        let instance = self
+            .context
+            .as_ref()
+            .and_then(|context| context.borrow().as_ref().map(|context| context.instance.clone()))
+            .context("the GPU context is gone")?;
+        let config = WgpuSurfaceConfig {
+            size: Size {
+                width: DevicePixels(self.surface_config.width as i32),
+                height: DevicePixels(self.surface_config.height as i32),
+            },
+            transparent: self.surface_config.alpha_mode != wgpu::CompositeAlphaMode::Opaque,
+            preferred_present_mode: Some(self.surface_config.present_mode),
+        };
+        self.replace_surface(window, config, &instance)
+    }
+
     /// Replace the wgpu surface with a new one (e.g. after Android destroys
     /// and recreates the native window).  Keeps the device, queue, atlas, and
     /// all pipelines intact so cached `AtlasTextureId`s remain valid.
@@ -2661,6 +2749,73 @@ mod tests {
                 .all(|(actual, expected)| actual.abs_diff(expected) <= 3),
             "pixel ({x}, {y}) was {actual:?}, expected {expected:?}"
         );
+    }
+
+    #[test]
+    fn keyed_cache_builds_each_key_once() {
+        let mut cache = KeyedCache::<(u32, bool), String>::default();
+        let mut builds = 0;
+        let mut get = |key| {
+            cache.get_or_insert_with(key, || {
+                builds += 1;
+                format!("{key:?}")
+            })
+        };
+        assert_eq!(get((1, true)), "(1, true)");
+        assert_eq!(get((1, true)), "(1, true)");
+        assert_eq!(get((1, false)), "(1, false)");
+        assert_eq!(get((2, true)), "(2, true)");
+        assert_eq!(get((1, false)), "(1, false)");
+        assert_eq!(builds, 3);
+    }
+
+    #[test]
+    fn pipeline_keys_differ_in_every_field() {
+        let key = PipelineKey {
+            target_format: wgpu::TextureFormat::Bgra8Unorm,
+            alpha_mode: wgpu::CompositeAlphaMode::PreMultiplied,
+            path_sample_count: 4,
+            dual_source_blending: true,
+            uses_webgl_instance_data: false,
+        };
+        assert_eq!(key, key);
+        for other in [
+            PipelineKey {
+                target_format: wgpu::TextureFormat::Rgba8Unorm,
+                ..key
+            },
+            PipelineKey {
+                alpha_mode: wgpu::CompositeAlphaMode::Opaque,
+                ..key
+            },
+            PipelineKey {
+                path_sample_count: 1,
+                ..key
+            },
+            PipelineKey {
+                dual_source_blending: false,
+                ..key
+            },
+            PipelineKey {
+                uses_webgl_instance_data: true,
+                ..key
+            },
+        ] {
+            assert_ne!(key, other);
+        }
+    }
+
+    /// Windows on one device must not each compile their own pipelines.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn renderers_on_one_device_share_pipelines() -> anyhow::Result<()> {
+        let first = WgpuHeadlessRenderer::new()?;
+        let second = WgpuHeadlessRenderer::new()?;
+        let (first, second) = (&first.core.resources, &second.core.resources);
+        assert!(first.pipelines.quads == second.pipelines.quads);
+        assert!(first.pipelines.mono_sprites == second.pipelines.mono_sprites);
+        assert!(first.bind_group_layouts.globals == second.bind_group_layouts.globals);
+        Ok(())
     }
 
     #[cfg(target_os = "linux")]

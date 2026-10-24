@@ -51,5 +51,11 @@ elif [[ "${1:-}" == --fullscreen ]]; then
 elif [[ "${1:-}" == --lock ]]; then
     shift
     driver="$repo_root/tools/agent-input/run-lock.py"
+elif [[ "${1:-}" == --launcher-reuse ]]; then
+    shift
+    driver="$repo_root/tools/agent-input/run-launcher-reuse.py"
+elif [[ "${1:-}" == --launcher-open ]]; then
+    shift
+    driver="$repo_root/tools/agent-input/run-launcher-open.py"
 fi
 WAYLAND_DISPLAY="$child_display" NIRI_SOCKET="$child_socket" python3 "$driver" --log "$run_directory/events.jsonl" "$@"

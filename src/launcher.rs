@@ -97,8 +97,53 @@ pub fn benchmark() -> anyhow::Result<()> {
 
 pub struct Launcher {
     worker: SearchWorker,
+    /// The one launcher window. Dismissing it hides the layer surface instead of destroying
+    /// it, so the next opening skips surface, swapchain and renderer creation.
     window: Option<WindowHandle<LauncherView>>,
+    /// The output `window` is bound to. A layer surface cannot change output.
+    window_display: Option<gpui::DisplayId>,
     icon_cache: Arc<dojo_icon_cache::LinuxIcons>,
+}
+
+/// What a toggle did to the existing launcher window.
+#[derive(Debug, PartialEq, Eq)]
+enum Toggled {
+    /// The window began closing, or opened again; the host keeps it.
+    Kept,
+    /// The window is on the wrong output and is going away; open a new one.
+    Replaced,
+}
+
+/// What a toggle should do to a launcher window in `phase`, given whether the request names the
+/// output the window is bound to.
+fn toggle_action(phase: Phase, same_display: bool) -> Action {
+    match (phase, same_display) {
+        (Phase::Open, true) => Action::Dismiss,
+        (Phase::Open, false) => Action::DismissAndRetire,
+        (Phase::Closing, true) | (Phase::Hidden, true) => Action::Reopen,
+        (Phase::Closing, false) => Action::Retire,
+        (Phase::Hidden, false) => Action::Remove,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Phase {
+    /// Visible and revealed (or revealing).
+    Open,
+    /// Visible but animating out.
+    Closing,
+    /// Unmapped and waiting to be shown.
+    Hidden,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Action {
+    Dismiss,
+    DismissAndRetire,
+    Reopen,
+    /// Let the closing animation finish, then destroy the window instead of hiding it.
+    Retire,
+    Remove,
 }
 
 impl Launcher {
@@ -107,6 +152,7 @@ impl Launcher {
             worker: SearchWorker::start()?,
             icon_cache: Arc::new(launcher_icon_cache()?),
             window: None,
+            window_display: None,
         })
     }
 
@@ -118,17 +164,13 @@ impl Launcher {
         let displays = cx.displays();
         let requested_display =
             display_id.and_then(|id| displays.iter().find(|display| display.id() == id).cloned());
-        if let Some(handle) = self.window.take() {
-            if let Ok(current_display) = handle.update(cx, |view, window, cx| {
-                let current_display = window.display(cx).map(|display| display.id());
-                view.dismiss(window);
-                current_display
-            }) {
-                if display_id.is_none()
-                    || current_display == requested_display.as_ref().map(|display| display.id())
-                {
-                    return Ok(());
-                }
+        if let Some(handle) = self.window {
+            let same_display = display_id.is_none()
+                || requested_display.as_ref().map(|display| display.id()) == self.window_display;
+            // An error means the compositor closed the window, for example with its output.
+            match handle.update(cx, |view, window, cx| view.toggle(same_display, window, cx)) {
+                Ok(Toggled::Kept) => return Ok(()),
+                Ok(Toggled::Replaced) | Err(_) => self.window = None,
             }
         }
         let worker = self.worker.clone();
@@ -172,6 +214,8 @@ impl Launcher {
                         ready_generation: None,
                         error: None,
                         launch: LaunchGate::default(),
+                        hidden: false,
+                        retire: false,
                         input_bounds: None,
                         input_line: None,
                         panel_bounds: None,
@@ -193,6 +237,7 @@ impl Launcher {
             },
         )?;
         self.window = Some(handle);
+        self.window_display = Some(display.id());
         Ok(())
     }
 
@@ -201,7 +246,9 @@ impl Launcher {
             return Ok(());
         };
         if let Err(error) = handle.update(cx, |view, window, cx| {
-            view.navigate(navigation, window, cx);
+            if !view.hidden {
+                view.navigate(navigation, window, cx);
+            }
         }) {
             // A dismissed layer-shell window can finish closing before its handle is cleared.
             self.window = None;
@@ -228,6 +275,10 @@ struct LauncherView {
     ready_generation: Option<u64>,
     error: Option<String>,
     launch: LaunchGate,
+    /// The layer surface is unmapped after a dismissal and waits for the next opening.
+    hidden: bool,
+    /// Destroy the window once it has closed rather than hiding it for reuse.
+    retire: bool,
     input_bounds: Option<Bounds<Pixels>>,
     input_line: Option<ShapedLine>,
     panel_bounds: Option<Bounds<Pixels>>,
@@ -265,6 +316,84 @@ impl LauncherView {
     fn dismiss(&mut self, window: &mut Window) {
         self.reveal.set_open(false, std::time::Instant::now());
         window.refresh();
+    }
+
+    fn phase(&self) -> Phase {
+        if self.hidden {
+            Phase::Hidden
+        } else if self.reveal.is_open() {
+            Phase::Open
+        } else {
+            Phase::Closing
+        }
+    }
+
+    fn toggle(
+        &mut self,
+        same_display: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Toggled {
+        match toggle_action(self.phase(), same_display) {
+            Action::Dismiss => {
+                self.dismiss(window);
+                Toggled::Kept
+            }
+            Action::DismissAndRetire | Action::Retire => {
+                self.retire = true;
+                self.dismiss(window);
+                Toggled::Replaced
+            }
+            // If the platform cannot map it again it is gone and the host opens a new one.
+            Action::Reopen => {
+                if self.reopen(window, cx) {
+                    Toggled::Kept
+                } else {
+                    Toggled::Replaced
+                }
+            }
+            Action::Remove => {
+                window.remove_window();
+                Toggled::Replaced
+            }
+        }
+    }
+
+    /// Starts a fresh opening in a window that is hidden, or still closing: the search starts
+    /// empty and the catalogue is refreshed, exactly as in a window created for the purpose.
+    fn reopen(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let now = std::time::Instant::now();
+        self.input = SearchInput::default();
+        self.matches.clear();
+        self.selected = 0;
+        self.error = None;
+        self.launch = LaunchGate::default();
+        self.input_bounds = None;
+        self.input_line = None;
+        if self.hidden {
+            self.panel_bounds = None;
+            self.reveal =
+                crate::design::MenuReveal::opening_for(now, std::time::Duration::from_millis(150));
+            self.hidden = false;
+            if !window.show() {
+                window.remove_window();
+                return false;
+            }
+        } else {
+            self.reveal.set_open(true, now);
+        }
+        window.focus(&self.focus, cx);
+        self.refresh(window, cx);
+        true
+    }
+
+    /// Ends a dismissal: unmap the window for reuse, or destroy it if it cannot be or must not be.
+    fn finish_dismissal(&mut self, window: &mut Window) {
+        if self.retire || !window.hide() {
+            window.remove_window();
+        } else {
+            self.hidden = true;
+        }
     }
 
     fn refresh(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -630,8 +759,8 @@ impl Render for LauncherView {
             .sample_with_motion(std::time::Instant::now(), cx.reduce_motion());
         if moving {
             window.request_animation_frame();
-        } else if !self.reveal.is_open() {
-            window.remove_window();
+        } else if !self.reveal.is_open() && !self.hidden {
+            self.finish_dismissal(window);
         }
         let reveal_height = self
             .panel_bounds
@@ -892,7 +1021,21 @@ impl Render for LauncherView {
 
 #[cfg(test)]
 mod launch_tests {
-    use super::{LaunchGate, Navigation, selection_after};
+    use super::{Action, LaunchGate, Navigation, Phase, selection_after, toggle_action};
+
+    #[test]
+    fn toggling_dismisses_an_open_launcher_and_reopens_a_hidden_one() {
+        assert_eq!(toggle_action(Phase::Open, true), Action::Dismiss);
+        assert_eq!(toggle_action(Phase::Closing, true), Action::Reopen);
+        assert_eq!(toggle_action(Phase::Hidden, true), Action::Reopen);
+    }
+
+    #[test]
+    fn another_output_retires_the_window_because_a_layer_surface_cannot_move() {
+        assert_eq!(toggle_action(Phase::Open, false), Action::DismissAndRetire);
+        assert_eq!(toggle_action(Phase::Closing, false), Action::Retire);
+        assert_eq!(toggle_action(Phase::Hidden, false), Action::Remove);
+    }
 
     #[test]
     fn launcher_navigation_stays_within_results_and_handles_empty_search() {
@@ -932,6 +1075,48 @@ mod launch_tests {
                 .unwrap();
             launcher.toggle(Some(second_external), cx).unwrap();
         });
+    }
+
+    #[gpui::test]
+    fn dismissed_launcher_is_hidden_and_reopens_with_a_clean_search(cx: &mut gpui::TestAppContext) {
+        let display = gpui::DisplayId::from(2);
+        cx.simulate_display_added(display, None);
+        let mut launcher = super::Launcher::new().unwrap();
+        cx.update(|cx| {
+            cx.set_global(crate::config::ThemeColors::default());
+            launcher.toggle(Some(display), cx).unwrap();
+        });
+        let handle = launcher.window.unwrap();
+        let any_handle: gpui::AnyWindowHandle = handle.into();
+        cx.update(|cx| {
+            handle
+                .update(cx, |view, _, _| {
+                    view.input.replace(None, "fire");
+                    view.launch.begin();
+                })
+                .unwrap();
+            launcher.toggle(Some(display), cx).unwrap();
+        });
+        // The dismissal animates for 150 ms and the window hides on the first frame after it.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        cx.update(|cx| {
+            any_handle
+                .update(cx, |_, window, cx| window.draw(cx).clear(cx))
+                .unwrap();
+        });
+        assert!(cx.window_is_hidden(any_handle));
+        cx.update(|cx| {
+            launcher.toggle(Some(display), cx).unwrap();
+            assert_eq!(launcher.window, Some(handle), "the window is reused");
+            handle
+                .update(cx, |view, _, _| {
+                    assert!(!view.hidden);
+                    assert!(view.input.text.is_empty());
+                    assert!(view.launch.begin(), "a new opening can launch again");
+                })
+                .unwrap();
+        });
+        assert!(!cx.window_is_hidden(any_handle));
     }
 
     #[test]

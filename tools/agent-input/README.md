@@ -69,6 +69,13 @@ Run the nested scenario automatically after building the compositor and fixture:
 devenv shell -- tools/agent-input/run-nested.sh
 ```
 
+Two more drivers exercise the launcher's hidden layer surface in the same nested compositor:
+`run-nested.sh --launcher-open [--rounds N]` times openings (screenshot columns always; the
+`WINOPEN` timing columns only for a build that prints them) and measures the idle shell, and
+`DOJO_NESTED_AGENT_INPUT=0 run-nested.sh --launcher-reuse` needs `wtype` and checks that the
+launcher takes and releases the keyboard on every cycle and still draws after the output scale
+changes while hidden.
+
 The helper starts one nested compositor, reads its actual child environment from
 its log, runs the controller, and terminates only that compositor's PID. It saves
 logs and the child environment in a fresh `/tmp/dojo-agent-nested.*` directory.

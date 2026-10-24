@@ -2,6 +2,7 @@
 use anyhow::Context as _;
 #[cfg(not(target_family = "wasm"))]
 use gpui_util::ResultExt;
+use crate::wgpu_renderer::SharedPipelines;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17,6 +18,7 @@ pub struct WgpuContext {
     dual_source_blending: bool,
     color_texture_format: wgpu::TextureFormat,
     errors: Arc<DeviceErrorState>,
+    shared_pipelines: Arc<Mutex<SharedPipelines>>,
 }
 
 /// Errors reported by wgpu's device-wide callbacks.
@@ -313,6 +315,7 @@ impl WgpuContext {
             dual_source_blending,
             color_texture_format,
             errors,
+            shared_pipelines: Arc::default(),
         }
     }
 
@@ -412,6 +415,7 @@ impl WgpuContext {
             dual_source_blending,
             color_texture_format,
             errors,
+            shared_pipelines: Arc::default(),
         };
         Ok(PreparedWebGraphics { context, surface })
     }
@@ -747,6 +751,11 @@ impl WgpuContext {
     /// The device-wide error state, shared with renderers on this device.
     pub fn errors(&self) -> &Arc<DeviceErrorState> {
         &self.errors
+    }
+
+    /// The pipelines every window on this device shares. They live and die with the device.
+    pub(crate) fn shared_pipelines(&self) -> &Mutex<SharedPipelines> {
+        &self.shared_pipelines
     }
 }
 

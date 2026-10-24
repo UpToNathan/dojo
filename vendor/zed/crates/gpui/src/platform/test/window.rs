@@ -34,6 +34,8 @@ pub(crate) struct TestWindowState {
     input_callback: Option<Box<dyn FnMut(PlatformInput) -> DispatchEventResult>>,
     active_status_change_callback: Option<Box<dyn FnMut(bool)>>,
     visibility: WindowVisibility,
+    /// Set by `hide`, cleared by `show`.
+    hidden: bool,
     visibility_callback: Option<Box<dyn FnMut(WindowVisibility)>>,
     hover_status_change_callback: Option<Box<dyn FnMut(bool)>>,
     resize_callback: Option<Box<dyn FnMut(Size<Pixels>, f32)>>,
@@ -108,6 +110,7 @@ impl TestWindow {
             input_callback: None,
             active_status_change_callback: None,
             visibility: WindowVisibility::Visible,
+            hidden: false,
             visibility_callback: None,
             hover_status_change_callback: None,
             resize_callback: None,
@@ -156,6 +159,11 @@ impl TestWindow {
 
     pub fn frame_scheduled(&self) -> bool {
         self.0.lock().frame_scheduled
+    }
+
+    /// Whether the window was unmapped by `hide` and not mapped again by `show`.
+    pub fn is_hidden(&self) -> bool {
+        self.0.lock().hidden
     }
 
     pub fn simulate_visibility_change(&self, visibility: WindowVisibility) {
@@ -426,6 +434,16 @@ impl PlatformWindow for TestWindow {
 
     fn visibility(&self) -> WindowVisibility {
         self.0.lock().visibility
+    }
+
+    fn hide(&self) -> bool {
+        self.0.lock().hidden = true;
+        true
+    }
+
+    fn show(&self) -> bool {
+        self.0.lock().hidden = false;
+        true
     }
 
     fn is_hovered(&self) -> bool {

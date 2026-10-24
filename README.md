@@ -281,6 +281,12 @@ than Dojo's Cargo/devenv environment and have independent launch lifetimes.
 Keyboard activation tokens and IME/
 screen-reader behavior still need broader desktop testing.
 
+Dismissing the launcher unmaps its layer surface instead of destroying it, and the next
+opening maps it again with an empty search; opening on another output creates a new surface.
+`devenv shell -- tools/agent-input/run-nested.sh --launcher-open` times openings in a nested
+Niri and `--launcher-reuse` checks keyboard focus across hide and show; see
+[the performance notes](docs/research/dojo-launcher-performance.md).
+
 `dojo --launcher-benchmark` reports catalogue discovery time and matcher
 p50/p95/p99 for fixed queries. Use an optimized build for performance evaluation;
 these measurements exclude GPUI presentation, input delivery, and IPC, and do
