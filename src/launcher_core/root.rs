@@ -18,6 +18,9 @@ pub struct RootInput<'a> {
     pub hidden: &'a HiddenCommands,
     /// Rows engines produced for this query (a calculation, a bang, ...). They lead the list.
     pub inline: Vec<Row>,
+    /// Rows for triggers that are also ordinary words (`title`, `lower`): extras below the
+    /// results, never in place of an application.
+    pub trailing: Vec<Row>,
 }
 
 fn command_row(command: &Command) -> Row {
@@ -53,6 +56,7 @@ pub fn root_rows(input: RootInput<'_>, matcher: &mut Matcher) -> Vec<Row> {
         commands,
         hidden,
         inline,
+        trailing,
     } = input;
     if query.is_empty() {
         let mut suggestions = commands
@@ -146,6 +150,7 @@ pub fn root_rows(input: RootInput<'_>, matcher: &mut Matcher) -> Vec<Row> {
         Hit::Application(index) => application_row(catalogue, index),
         Hit::Command(position) => command_row(&commands[position]),
     }));
+    rows.extend(trailing);
     rows
 }
 
@@ -183,6 +188,7 @@ mod tests {
                 commands: &commands,
                 hidden,
                 inline: Vec::new(),
+                trailing: Vec::new(),
             },
             &mut Matcher::new(nucleo_matcher::Config::DEFAULT),
         )
@@ -246,6 +252,7 @@ mod tests {
                 commands: &[],
                 hidden: &HiddenCommands::default(),
                 inline: Vec::new(),
+                trailing: Vec::new(),
             },
             &mut Matcher::new(nucleo_matcher::Config::DEFAULT),
         );
@@ -288,6 +295,13 @@ mod tests {
             icon: RowIcon::Glyph("=".into()),
             action: RowAction::Copy("42".into()),
         };
+        let extra = Row {
+            id: String::new(),
+            title: "Title Case".into(),
+            subtitle: "Dev utility".into(),
+            icon: RowIcon::None,
+            action: RowAction::Copy("Title Case".into()),
+        };
         let rows = root_rows(
             RootInput {
                 catalogue: &catalogue,
@@ -297,11 +311,13 @@ mod tests {
                 commands: &commands,
                 hidden: &HiddenCommands::default(),
                 inline: vec![inline.clone()],
+                trailing: vec![extra.clone()],
             },
             &mut Matcher::new(nucleo_matcher::Config::DEFAULT),
         );
         assert_eq!(rows.first(), Some(&inline));
-        assert!(rows.len() > 1);
+        assert_eq!(rows.last(), Some(&extra), "extras follow the results");
+        assert!(rows.len() > 2);
     }
 
     #[test]

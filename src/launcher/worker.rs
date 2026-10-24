@@ -126,6 +126,7 @@ impl SearchWorker {
                     let Some(catalogue) = catalogue.as_ref().cloned() else {
                         continue;
                     };
+                    let extras = inline_rows(&query, &inline);
                     let rows = root_rows(
                         RootInput {
                             catalogue: &catalogue,
@@ -134,7 +135,8 @@ impl SearchWorker {
                             now_ms: launch_history::now_ms(),
                             commands: &available,
                             hidden: &hidden,
-                            inline: inline_rows(&query, &inline),
+                            inline: extras.leading,
+                            trailing: extras.trailing,
                         },
                         &mut matcher,
                     );

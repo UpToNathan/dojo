@@ -670,9 +670,10 @@ impl LauncherView {
                 self.remember(&row, &query, cx);
                 self.run_launch(window, cx, move || dojo::application_launch::open_url(&url));
             }
-            RowAction::AskAgent(_) => {
-                self.error = Some("That action is not available yet".into());
-                cx.notify();
+            RowAction::AskAgent(message) => {
+                self.run_launch(window, cx, move || {
+                    dojo::agent_runtime::send_text(&message).map_err(anyhow::Error::msg)
+                });
             }
             RowAction::Item(_) | RowAction::Header => {}
         }
