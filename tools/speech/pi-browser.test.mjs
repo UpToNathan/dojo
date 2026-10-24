@@ -16,16 +16,21 @@ async function fixture(t, responses, handler = () => result({ value: 'ok' }), ex
   const models = createModels(); models.setProvider(faux.provider); faux.setResponses(responses);
   const calls = [];
   let generation = 0;
-  const mcp = { tools: ['execute', 'execute_cancel', 'session_resume', 'status', 'skill'].map(name => ({ name, inputSchema: { type: 'object', additionalProperties: true } })), closed: false,
-    close() { this.closed = true; }, async call(_method, { name, arguments: args }, options) {
-      calls.push({ name, args });
-      if (name === 'session_resume') return result({ generation: ++generation });
-      return handler(name, args, options);
-    } };
+  const mcps = [];
+  const connect = () => {
+    const client = { tools: ['execute', 'execute_cancel', 'session_resume', 'status', 'skill'].map(name => ({ name, inputSchema: { type: 'object', additionalProperties: true } })), closed: false,
+      close() { this.closed = true; }, async call(_method, { name, arguments: args }, options) {
+        calls.push({ name, args });
+        if (name === 'session_resume') return result({ generation: ++generation });
+        return handler(name, args, options);
+      } };
+    mcps.push(client);
+    return client;
+  };
   const runtime = await PiRuntime.open({ stateDir, root: process.cwd(), memory: { async append() {}, async readyView() { return '<chat>\n</chat>'; } },
-    config: { storage: new MemoryStorage(), models, provider: 'faux', model: 'test', instructions: 'fixed', desktopTools: false, browserClientFactory: async () => mcp, ...extraConfig } });
+    config: { storage: new MemoryStorage(), models, provider: 'faux', model: 'test', instructions: 'fixed', desktopTools: false, browserClientFactory: async () => connect(), ...extraConfig } });
   t.after(async () => { await runtime.close(); await rm(stateDir, { recursive: true, force: true }); });
-  return { runtime, calls, mcp };
+  return { runtime, calls, mcp: mcps[0], mcps };
 }
 async function settled(runtime) { await runtime.queue; await runtime.conversation.waitForIdle(runtime.context); await runtime.archived; }
 const retired = () => result({ nativeRetired: true, extensionAcknowledged: true, unknownCommandIds: [] });
@@ -127,9 +132,51 @@ test('the operator can acknowledge an uncertain browser outcome, after which bro
   const executed = () => calls.filter(call => call.name === 'execute').length;
   assert.equal(executed(), 1, 'the uncertain state blocks the second attempt');
 
-  assert.deepEqual(await runtime.acknowledgeBrowser(), { cleared: true });
+  assert.equal((await runtime.acknowledgeBrowser()).cleared, true);
   assert.equal((await state()).uncertain, false);
   assert.deepEqual(await runtime.acknowledgeBrowser(), { cleared: false }, 'a second acknowledgement has nothing to clear');
   await runtime.submit('Read the URL'); await settled(runtime);
   assert.equal(executed(), 2, 'browser work is admitted again');
+});
+
+const state = runtime => runtime.harness.snapshot(runtime.BrowserState, runtime.id, runtime.context);
+
+test('a cleanup that cannot confirm the native release, with nothing running, is retried and never locks the browser', async t => {
+  let cancels = 0;
+  const { runtime, calls } = await fixture(t, [execute({ code: 'return page.url()' }), fauxAssistantMessage('done'), execute({ code: 'return page.title()' }), fauxAssistantMessage('done')],
+    name => name === 'execute_cancel' ? (++cancels === 1 ? result({ nativeRetired: false, extensionAcknowledged: false, unknownCommandIds: [] }) : retired()) : result({ value: 'ok' }));
+  await runtime.submit('Read URL'); await settled(runtime);
+  assert.equal((await state(runtime)).uncertain, false, 'no command was running, so nothing is unknown');
+  await runtime.submit('Read title'); await settled(runtime);
+  assert.equal((await state(runtime)).uncertain, false);
+  assert.equal(calls.filter(call => call.name === 'execute').length, 2, 'the next task runs');
+  assert(cancels >= 3, 'the unconfirmed release is retried when the next task starts');
+});
+
+test('a cancel that throws with nothing running closes the client, and the next browser call reconnects', async t => {
+  let cancels = 0;
+  const { runtime, calls, mcps } = await fixture(t, [execute({ code: 'return page.url()' }), fauxAssistantMessage('done'), execute({ code: 'return page.title()' }), fauxAssistantMessage('done')],
+    name => { if (name === 'execute_cancel') { if (++cancels === 1) throw new Error('relay went away'); return retired(); } return result({ value: 'ok' }); });
+  await runtime.submit('Read URL'); await settled(runtime);
+  assert.equal(mcps[0].closed, true);
+  assert.equal((await state(runtime)).uncertain, false);
+  await runtime.submit('Read title'); await settled(runtime);
+  assert.equal(mcps.length, 2, 'a fresh client was started');
+  assert.equal(calls.filter(call => call.name === 'execute').length, 2);
+  assert.equal((await state(runtime)).uncertain, false);
+  assert.equal((await runtime.browserStatus()).connected, true);
+});
+
+test('an uncertain outcome records why, and the operator sees it before clearing it', async t => {
+  const { runtime } = await fixture(t, [execute({ code: 'await page.click("button")' }), fauxAssistantMessage('done')],
+    name => name === 'execute_cancel' ? result({ nativeRetired: true, unknownCommandIds: [7] }) : result({}));
+  await runtime.submit('Click'); await settled(runtime);
+  const status = await runtime.browserStatus();
+  assert.equal(status.uncertain, true);
+  assert.match(status.reason, /command 7 had an unknown effect/);
+  assert.match(status.at, /^\d{4}-\d\d-\d\dT/);
+  const cleared = await runtime.acknowledgeBrowser();
+  assert.equal(cleared.cleared, true);
+  assert.match(cleared.reason, /command 7/);
+  assert.equal((await runtime.browserStatus()).uncertain, false);
 });

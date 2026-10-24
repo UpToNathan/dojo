@@ -531,6 +531,9 @@ export class VoiceService {
       case 'history': return { activeThreadId: this.state.activeThreadId, chats: this.state.chats.map(({threadId,title,status}) => ({threadId,title,status})) };
       case 'models': return this.modelCatalog();
       case 'select-model': return this.selectModel(command);
+      case 'browser-status':
+        if (!this.runtime?.browserStatus) throw new Error('The browser extension is not loaded.');
+        return this.runtime.browserStatus();
       case 'acknowledge-browser':
         if (!this.runtime?.acknowledgeBrowser) throw new Error('The browser extension is not loaded.');
         return this.runtime.acknowledgeBrowser();

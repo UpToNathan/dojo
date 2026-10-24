@@ -119,12 +119,18 @@ once (it owns the socket file the socket unit has to bind).
 
 ### The browser-outcome lock
 
-If a browser command's outcome is unknown (the runtime stopped, or the browser could not confirm
-the cancel), the conversation records `uncertain` and refuses every browser and desktop-input
-action. Nothing clears it automatically. After checking the browser, run
-`dojo-voice acknowledge-browser`, which clears the flag for the active conversation and prints
-`{"cleared":true}` (`false` when there was nothing to clear). The agent has no tool for this; only
-the operator can.
+If a browser command may have run but its result is unknown (a command that was in flight when the
+task ended, a call that never answered, or a cancel that failed while one was running), the
+conversation records `uncertain` with the reason and time, and refuses every browser and
+desktop-input action. Nothing clears it automatically. `dojo-voice browser-status` shows the reason;
+after checking the browser, `dojo-voice acknowledge-browser` clears it and prints
+`{"cleared":true,"reason":"..."}` (`{"cleared":false}` when there was nothing to clear). The agent has
+no tool for this; only the operator can.
+
+The lock is only for commands whose effect is unknown. A cleanup that cannot confirm the browser
+lease was released, while nothing was running, is not one: it is retried when the next task starts
+and never persisted. A browser-control client that failed is closed and reconnected by the next
+browser call, not left dead until the runtime restarts.
 
 A Bluetooth headset only has a microphone while it is in its headset (HFP) profile; in the
 music profile it counts as no microphone.

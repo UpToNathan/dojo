@@ -433,4 +433,8 @@ test('the acknowledge command reaches the runtime and refuses when no browser ex
   await assert.rejects(result.handle({ action: 'acknowledge-browser' }), /browser extension is not loaded/);
   result.runtime = { acknowledgeBrowser: async () => ({ cleared: true }) };
   assert.deepEqual(await result.handle({ action: 'acknowledge-browser' }), { cleared: true });
+  result.runtime = {};
+  await assert.rejects(result.handle({ action: 'browser-status' }), /browser extension is not loaded/);
+  result.runtime = { browserStatus: async () => ({ uncertain: false }) };
+  assert.deepEqual(await result.handle({ action: 'browser-status' }), { uncertain: false });
 });
