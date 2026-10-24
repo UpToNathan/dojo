@@ -29,7 +29,8 @@ class UpdateTests(unittest.TestCase):
 
     def test_dry_run_has_no_side_effects_and_prints_age_policy(self):
         with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {"XDG_STATE_HOME": temporary}):
-            code, output, run = self.run_cli(["--dry-run", "--only", "nix,codex,claude,t3code,nvim"])
+            with patch.object(updater.Path, "exists", return_value=True):
+                code, output, run = self.run_cli(["--dry-run", "--only", "nix,codex,claude,t3code,nvim"])
             self.assertEqual(code, 0)
             self.assertIn("--buffer-days 3", output)
             self.assertIn("codex update", output)
@@ -106,6 +107,13 @@ class UpdateTests(unittest.TestCase):
             (Path(home) / ".local/npm").mkdir(parents=True)
             _, _, run = self.run_cli(["--only", "npm"])
             self.assertEqual(run.call_args.args[0][:3], ["env", f"NPM_CONFIG_PREFIX={home}/.local/npm", "npm"])
+
+    def test_t3code_is_skipped_where_the_app_is_not_installed(self):
+        with patch.object(updater.Path, "exists", return_value=False):
+            code, output, run = self.run_cli(["--only", "t3code"])
+        self.assertEqual(code, 0)
+        self.assertIn("t3code: skipped", output)
+        run.assert_not_called()
 
     def test_concurrent_run_rejected(self):
         with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {"XDG_STATE_HOME": temporary}), \
