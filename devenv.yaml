@@ -3,7 +3,7 @@ inputs:
   devenv:
     url: github:cachix/devenv/feb3388b7f1c8398d8c1efde2e3c811b81019d58?dir=src/modules
   nixpkgs:
-    url: github:cachix/devenv-nixpkgs/ae27f26c6eba089c3b656912fa0df544f390796d
+    url: github:cachix/devenv-nixpkgs/cd21031e33a176e314030ab76e0811d0b06758c4
   home-manager:
     url: github:nix-community/home-manager/ec80131710bffcdf3b8498cf41f3a0579833b023
     inputs:

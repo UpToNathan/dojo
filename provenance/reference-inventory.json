@@ -34,8 +34,8 @@
     {
       "name": "nixpkgs",
       "repository": "https://github.com/cachix/devenv-nixpkgs",
-      "commit": "ae27f26c6eba089c3b656912fa0df544f390796d",
-      "narHash": "sha256-cIDEdMBVUCTNOVeUcXgHZbcVBOIfImKTW56eVxfQAPw="
+      "commit": "cd21031e33a176e314030ab76e0811d0b06758c4",
+      "narHash": "sha256-Do4M+9gWvozanf8iU6bImW8vTTHKifnnByydwghO/dY="
     },
     {
       "name": "opencode",
@@ -169,7 +169,7 @@
     },
     {
       "file": "devenv.lock",
-      "sha256": "d45ba8d0f595d7e666d5a05059927343cbba47472aaf2d1603ad8eb11f829523"
+      "sha256": "4cf3fa0860006246a8c24bca1f809693f235ab821a0679c0131c49fec4782195"
     },
     {
       "file": "nvim-config/lazy-lock.json",
@@ -391,7 +391,7 @@
     },
     {
       "file": "devenv.yaml",
-      "sha256": "46cfdc3e776869b1ff3f239f603331f83799effb832ca4f85e01ddd8c9cf3cfd"
+      "sha256": "420af2ed9b442717b221e6ac16e5f7f9dad15507b227354737f12b3e53243d21"
     },
     {
       "file": "home-manager.nix",
@@ -6195,9 +6195,9 @@
     {
       "file": "devenv.yaml",
       "line": 6,
-      "url": "github:cachix/devenv-nixpkgs/ae27f26c6eba089c3b656912fa0df544f390796d",
+      "url": "github:cachix/devenv-nixpkgs/cd21031e33a176e314030ab76e0811d0b06758c4",
       "identity": {
-        "git_commit": "ae27f26c6eba089c3b656912fa0df544f390796d"
+        "git_commit": "cd21031e33a176e314030ab76e0811d0b06758c4"
       },
       "status": "commit-pinned"
     },
@@ -9040,14 +9040,21 @@
     },
     {
       "file": "docs/system-update.md",
-      "line": 45,
+      "line": 47,
       "url": "https://wiki.archlinux.org/title/Arch_Linux_Archive",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "docs/system-update.md",
-      "line": 60,
+      "line": 51,
+      "url": "https://stable-mirror.omarchy.org",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "docs/system-update.md",
+      "line": 70,
       "url": "https://docs.npmjs.com/cli/v11/using-npm/config/#before",
       "identity": null,
       "status": "requires-classification"
@@ -9233,15 +9240,15 @@
     },
     {
       "file": "scripts/arch_packages.py",
-      "line": 21,
-      "url": "https://archive.archlinux.org/repos/{date",
+      "line": 9,
+      "url": "https://stable-mirror.omarchy.org/$repo/os/$arch",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "scripts/arch_packages.py",
-      "line": 29,
-      "url": "https://archive.archlinux.org/",
+      "line": 14,
+      "url": "https://archive.archlinux.org/repos/{date",
       "identity": null,
       "status": "requires-classification"
     },
@@ -9366,22 +9373,36 @@
     },
     {
       "file": "scripts/refresh-update-inputs.py",
-      "line": 20,
+      "line": 23,
       "url": "github:([A-Za-z0-9_.-",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "scripts/refresh-update-inputs.py",
-      "line": 68,
+      "line": 29,
+      "url": "https://cache.nixos.org",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "scripts/refresh-update-inputs.py",
+      "line": 77,
       "url": "github:{owner",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "scripts/refresh-update-inputs.py",
-      "line": 82,
+      "line": 91,
       "url": "https://api.github.com/{endpoint",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "scripts/refresh-update-inputs.py",
+      "line": 125,
+      "url": "github:{owner",
       "identity": null,
       "status": "requires-classification"
     },
@@ -9442,6 +9463,34 @@
       "status": "moving-reference"
     },
     {
+      "file": "scripts/test-dojo-update.py",
+      "line": 88,
+      "url": "https://latest/\\n",
+      "identity": null,
+      "status": "moving-reference"
+    },
+    {
+      "file": "scripts/test-dojo-update.py",
+      "line": 89,
+      "url": "https://stable-mirror.omarchy.org/$repo/os/$arch\\n[extra",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "scripts/test-dojo-update.py",
+      "line": 89,
+      "url": "https://stable-mirror.omarchy.org/$repo/os/$arch\\n",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "scripts/test-dojo-update.py",
+      "line": 91,
+      "url": "https://latest/\\n",
+      "identity": null,
+      "status": "moving-reference"
+    },
+    {
       "file": "scripts/test-refresh-update-inputs.py",
       "line": 25,
       "url": "github:cachix/devenv/{OLD",
@@ -9480,6 +9529,20 @@
       "file": "scripts/test-refresh-update-inputs.py",
       "line": 140,
       "url": "github:anomalyco/opencode/{NEW",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "scripts/test-refresh-update-inputs.py",
+      "line": 160,
+      "url": "github:cachix/devenv-nixpkgs/{OLD",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "scripts/test-refresh-update-inputs.py",
+      "line": 174,
+      "url": "github:cachix/devenv-nixpkgs/{OLD",
       "identity": null,
       "status": "requires-classification"
     },

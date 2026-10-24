@@ -156,6 +156,28 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual(self.run_command(api=lambda request, timeout: contextlib.closing(io.BytesIO(result))), 1)
         self.assertEqual(self.source.read_bytes(), SOURCE)
 
+    def test_nixpkgs_takes_newest_revision_with_cached_canaries(self):
+        self.source.write_bytes(f"inputs:\n  nixpkgs:\n    url: github:cachix/devenv-nixpkgs/{OLD}\n".encode())
+        commits = [{"sha": c * 40, "commit": {"tree": {"sha": c * 39 + "t"}, "committer": {"date": "2026-10-10T16:00:00Z"}}}
+                   for c in "abc"]
+        cached = {"a": False, "b": True, "c": True}
+
+        def api(request, timeout):
+            return contextlib.closing(io.BytesIO(json.dumps(commits).encode()))
+
+        with patch.object(updater.shutil, "which", return_value="/bin/nix"), \
+             patch.object(updater, "store_path_cached", side_effect=lambda o, r, rev, a: cached[rev[0]]):
+            self.assertEqual(self.run_command(api=api), 0)
+        self.assertIn(("b" * 40).encode(), self.source.read_bytes())
+
+    def test_nixpkgs_without_any_cached_revision_prevents_update(self):
+        self.source.write_bytes(f"inputs:\n  nixpkgs:\n    url: github:cachix/devenv-nixpkgs/{OLD}\n".encode())
+        commits = [{"sha": "a" * 40, "commit": {"tree": {"sha": "t" * 40}, "committer": {"date": "2026-10-10T16:00:00Z"}}}]
+        with patch.object(updater.shutil, "which", return_value="/bin/nix"), \
+             patch.object(updater, "store_path_cached", return_value=False):
+            self.assertEqual(self.run_command(api=lambda request, timeout: contextlib.closing(io.BytesIO(json.dumps(commits).encode()))), 1)
+        self.assertIn(OLD.encode(), self.source.read_bytes())
+
     def test_negative_buffer_is_rejected(self):
         with contextlib.redirect_stderr(self.output), self.assertRaises(SystemExit) as error:
             updater.main(["--repo", str(self.repo), "--buffer-days", "-1"])

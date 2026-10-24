@@ -105,17 +105,17 @@
         "nixpkgs-src": "nixpkgs-src"
       },
       "locked": {
-        "lastModified": 1792538425,
-        "narHash": "sha256-cIDEdMBVUCTNOVeUcXgHZbcVBOIfImKTW56eVxfQAPw=",
+        "lastModified": 1792525453,
+        "narHash": "sha256-Do4M+9gWvozanf8iU6bImW8vTTHKifnnByydwghO/dY=",
         "owner": "cachix",
         "repo": "devenv-nixpkgs",
-        "rev": "ae27f26c6eba089c3b656912fa0df544f390796d",
+        "rev": "cd21031e33a176e314030ab76e0811d0b06758c4",
         "type": "github"
       },
       "original": {
         "owner": "cachix",
         "repo": "devenv-nixpkgs",
-        "rev": "ae27f26c6eba089c3b656912fa0df544f390796d",
+        "rev": "cd21031e33a176e314030ab76e0811d0b06758c4",
         "type": "github"
       }
     },

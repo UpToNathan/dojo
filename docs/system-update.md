@@ -60,7 +60,11 @@ restart. The updater does not pull this checkout or replace the vendored Niri fo
   packages are not downgraded. The machine's mirror configuration is unchanged,
   and `--buffer-days 0` uses it directly.
 - Nix input declarations use default-branch GitHub commits at or before the
-  cutoff, except the exempt input names. The helper atomically changes only
+  cutoff, except the exempt input names. The `nixpkgs` input (devenv-nixpkgs)
+  instead takes the newest eligible revision whose `qt6.qtbase`, `mesa`, `librsvg`,
+  `gst_all_1.gstreamer` and `glib` are already in `cache.nixos.org`; otherwise every
+  host compiles them for hours. It needs `nix` and fails the refresh when none of
+  the last 40 distinct trees qualifies. The helper atomically changes only
   revision strings in `devenv.yaml` and preserves its formatting. Backups live in
   `$XDG_STATE_HOME/dojo-update`, normally `~/.local/state/dojo-update`.
   `devenv update` then refreshes `devenv.lock`, and
