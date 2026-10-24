@@ -15,7 +15,7 @@ inputs:
       nixpkgs:
         follows: nixpkgs
   zen-browser:
-    url: github:youwen5/zen-browser-flake/458cd16116c362a5e92d5db6bdc3599e4e8b1f4a
+    url: github:youwen5/zen-browser-flake/7f6ce45b162444c324df8874ca1d4c04bfdeb274
     inputs:
       nixpkgs:
         follows: nixpkgs

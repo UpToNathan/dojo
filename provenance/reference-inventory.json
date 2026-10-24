@@ -76,8 +76,8 @@
     {
       "name": "zen-browser",
       "repository": "https://github.com/youwen5/zen-browser-flake",
-      "commit": "458cd16116c362a5e92d5db6bdc3599e4e8b1f4a",
-      "narHash": "sha256-qpJE5ug1T+7LEdXRLI9/ZIwe/rzqjILR9BpMg/sNVtM="
+      "commit": "7f6ce45b162444c324df8874ca1d4c04bfdeb274",
+      "narHash": "sha256-qnUcCAYCcDlrxbw8jUIR9d2IgF1LvY36XipEnktfXcg="
     }
   ],
   "vendored_source_bases": [
@@ -169,7 +169,7 @@
     },
     {
       "file": "devenv.lock",
-      "sha256": "4cf3fa0860006246a8c24bca1f809693f235ab821a0679c0131c49fec4782195"
+      "sha256": "20c566a72513c7858e443aa917e2ee5e01ba0865802b17618d47531af5ab9a9f"
     },
     {
       "file": "nvim-config/lazy-lock.json",
@@ -391,11 +391,11 @@
     },
     {
       "file": "devenv.yaml",
-      "sha256": "420af2ed9b442717b221e6ac16e5f7f9dad15507b227354737f12b3e53243d21"
+      "sha256": "20c3b6d002d597957f53859f17e5b3e4bee99d10e21f8ff8cf8346e79c0f6db7"
     },
     {
       "file": "home-manager.nix",
-      "sha256": "b0e719abd2d7c3bc3ba29ab70de14a18400997c0e79abf49ac86aabba7f54ef8"
+      "sha256": "3e0ecb0e7b4dd6549bf4b846c48e08063d8e8654ca555ffbe7f147780b706b58"
     },
     {
       "file": "tools/agent-input/Cargo.toml",
@@ -6222,9 +6222,9 @@
     {
       "file": "devenv.yaml",
       "line": 18,
-      "url": "github:youwen5/zen-browser-flake/458cd16116c362a5e92d5db6bdc3599e4e8b1f4a",
+      "url": "github:youwen5/zen-browser-flake/7f6ce45b162444c324df8874ca1d4c04bfdeb274",
       "identity": {
-        "git_commit": "458cd16116c362a5e92d5db6bdc3599e4e8b1f4a"
+        "git_commit": "7f6ce45b162444c324df8874ca1d4c04bfdeb274"
       },
       "status": "commit-pinned"
     },
@@ -6347,6 +6347,34 @@
         "git_commit": "b4e4238742fa73daabfb664f1108113e9577849d"
       },
       "status": "commit-pinned"
+    },
+    {
+      "file": "docs/nix-cache.md",
+      "line": 5,
+      "url": "https://github.com/nix-community/harmonia",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "docs/nix-cache.md",
+      "line": 8,
+      "url": "http://jupiter:5000",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "docs/nix-cache.md",
+      "line": 22,
+      "url": "http://jupiter:5000/nix-cache-info",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "docs/nix-cache.md",
+      "line": 23,
+      "url": "http://jupiter:5000",
+      "identity": null,
+      "status": "requires-classification"
     },
     {
       "file": "docs/research/1password-linux-autostart-resume.md",
@@ -9054,7 +9082,7 @@
     },
     {
       "file": "docs/system-update.md",
-      "line": 70,
+      "line": 74,
       "url": "https://docs.npmjs.com/cli/v11/using-npm/config/#before",
       "identity": null,
       "status": "requires-classification"
@@ -9121,21 +9149,28 @@
     },
     {
       "file": "home-manager.nix",
-      "line": 206,
+      "line": 207,
       "url": "https://rubjo.github.io/victor-mono/VictorMonoAll.zip",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "home-manager.nix",
-      "line": 224,
+      "line": 223,
+      "url": "https://rubjo.github.io/victor-mono/VictorMonoAll.zip",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
+      "file": "home-manager.nix",
+      "line": 241,
       "url": "https://codeberg.org/julmajustus/btrbg/archive/2d36d378f7779fb91e29440bca1f701d9b6bfcf8.tar.gz",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "home-manager.nix",
-      "line": 243,
+      "line": 260,
       "url": "https://addons.mozilla.org/en-US/firefox/downloads/latest/1password-x-password-manager/latest.xpi",
       "identity": null,
       "status": "moving-reference"
@@ -9429,42 +9464,35 @@
     },
     {
       "file": "scripts/test-dojo-update.py",
-      "line": 71,
+      "line": 72,
       "url": "https://cache/\\n[extra",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "scripts/test-dojo-update.py",
-      "line": 71,
+      "line": 72,
       "url": "https://latest/\\n",
       "identity": null,
       "status": "moving-reference"
     },
     {
       "file": "scripts/test-dojo-update.py",
-      "line": 72,
+      "line": 73,
       "url": "https://archive.archlinux.org/repos/2026/10/09/$repo/os/$arch\\n[extra",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "scripts/test-dojo-update.py",
-      "line": 72,
+      "line": 73,
       "url": "https://archive.archlinux.org/repos/2026/10/09/$repo/os/$arch\\n",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "scripts/test-dojo-update.py",
-      "line": 76,
-      "url": "https://latest/\\n",
-      "identity": null,
-      "status": "moving-reference"
-    },
-    {
-      "file": "scripts/test-dojo-update.py",
-      "line": 88,
+      "line": 77,
       "url": "https://latest/\\n",
       "identity": null,
       "status": "moving-reference"
@@ -9472,20 +9500,27 @@
     {
       "file": "scripts/test-dojo-update.py",
       "line": 89,
+      "url": "https://latest/\\n",
+      "identity": null,
+      "status": "moving-reference"
+    },
+    {
+      "file": "scripts/test-dojo-update.py",
+      "line": 90,
       "url": "https://stable-mirror.omarchy.org/$repo/os/$arch\\n[extra",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "scripts/test-dojo-update.py",
-      "line": 89,
+      "line": 90,
       "url": "https://stable-mirror.omarchy.org/$repo/os/$arch\\n",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "scripts/test-dojo-update.py",
-      "line": 91,
+      "line": 92,
       "url": "https://latest/\\n",
       "identity": null,
       "status": "moving-reference"
@@ -30196,6 +30231,13 @@
       "status": "requires-classification"
     },
     {
+      "file": "vendor/cua/upstream/libs/cua-driver/tests/fixtures/build/macos.sh",
+      "line": 78,
+      "url": "http://www.apple.com/DTDs/PropertyList-1.0.dtd",
+      "identity": null,
+      "status": "requires-classification"
+    },
+    {
       "file": "vendor/cua/upstream/libs/cua-driver/tests/perception-demo/derived-reel-manifest.schema.json",
       "line": 2,
       "url": "https://json-schema.org/draft/2020-12/schema",
@@ -49285,7 +49327,7 @@
     },
     {
       "file": "vendor/zed/crates/gpui/src/platform.rs",
-      "line": 1668,
+      "line": 1682,
       "url": "https://github.com/microsoft/terminal/blob/1283c0f5b99a2961673249fa77c6b986efb5086c/src/renderer/atlas/dwrite.cpp",
       "identity": {
         "git_commit": "1283c0f5b99a2961673249fa77c6b986efb5086c"
@@ -49294,84 +49336,84 @@
     },
     {
       "file": "vendor/zed/crates/gpui/src/platform.rs",
-      "line": 2246,
+      "line": 2260,
       "url": "https://developer.apple.com/documentation/appkit/nstextinputclient",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/crates/gpui/src/platform.rs",
-      "line": 2249,
+      "line": 2263,
       "url": "https://developer.apple.com/documentation/appkit/nstextinputclient/1438242-selectedrange",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/crates/gpui/src/platform.rs",
-      "line": 2260,
+      "line": 2274,
       "url": "https://developer.apple.com/documentation/appkit/nstextinputclient/1438250-markedrange",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/crates/gpui/src/platform.rs",
-      "line": 2266,
+      "line": 2280,
       "url": "https://developer.apple.com/documentation/appkit/nstextinputclient/1438238-attributedsubstring",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/crates/gpui/src/platform.rs",
-      "line": 2278,
+      "line": 2292,
       "url": "https://developer.apple.com/documentation/appkit/nstextinputclient/1438258-inserttext",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/crates/gpui/src/platform.rs",
-      "line": 2291,
+      "line": 2305,
       "url": "https://developer.apple.com/documentation/appkit/nstextinputclient/1438246-setmarkedtext",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/crates/gpui/src/platform.rs",
-      "line": 2305,
+      "line": 2319,
       "url": "https://developer.apple.com/documentation/appkit/nstextinputclient/1438239-unmarktext",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/crates/gpui/src/platform.rs",
-      "line": 2321,
+      "line": 2335,
       "url": "https://developer.apple.com/documentation/appkit/nstextinputclient/1438240-firstrect",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/crates/gpui/src/platform.rs",
-      "line": 2333,
+      "line": 2347,
       "url": "https://developer.apple.com/documentation/appkit/nstextinputclient/characterindex(for:",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/crates/gpui/src/platform.rs",
-      "line": 2472,
+      "line": 2486,
       "url": "https://html.spec.whatwg.org/multipage/interaction.html#input-modalities:-the-enterkeyhint-attribute",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/crates/gpui/src/platform.rs",
-      "line": 2759,
+      "line": 2773,
       "url": "https://developer.apple.com/documentation/appkit/nsappearance",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/crates/gpui/src/platform.rs",
-      "line": 3483,
+      "line": 3497,
       "url": "http://www.w3.org/2000/svg",
       "identity": null,
       "status": "requires-classification"
@@ -50178,21 +50220,21 @@
     },
     {
       "file": "vendor/zed/crates/gpui_linux/src/linux/wayland/window.rs",
-      "line": 568,
+      "line": 583,
       "url": "https://wayland.app/protocols/xdg-shell#xdg_surface:request:destroy",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/crates/gpui_linux/src/linux/wayland/window.rs",
-      "line": 860,
+      "line": 893,
       "url": "https://wayland.app/protocols/xdg-decoration-unstable-v1#zxdg_toplevel_decoration_v1",
       "identity": null,
       "status": "requires-classification"
     },
     {
       "file": "vendor/zed/crates/gpui_linux/src/linux/wayland/window.rs",
-      "line": 870,
+      "line": 903,
       "url": "https://wayland.app/protocols/viewporter#wp_viewport",
       "identity": null,
       "status": "requires-classification"
@@ -51314,7 +51356,7 @@
     },
     {
       "file": "vendor/zed/crates/gpui_wgpu/src/wgpu_renderer.rs",
-      "line": 689,
+      "line": 739,
       "url": "https://github.com/zed-industries/zed/issues",
       "identity": null,
       "status": "requires-classification"
