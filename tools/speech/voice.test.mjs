@@ -18,10 +18,12 @@ function service() {
   result.state = { version: 1, activeThreadId: null, chats: [], seenMessages: [] };
   result.config = {};
   result.ui = async () => {};
+  result.microphoneCheck = async () => true;
   return result;
 }
 function serviceWithFakeSpeechWorker() {
   const result = service(), commands = [];
+  result.microphone = true;
   result.speechWorker = { stdin: { write(line) { commands.push(JSON.parse(line)); }, end() {} } };
   return { result, commands };
 }
@@ -317,4 +319,100 @@ test('command admission keeps its UTF-16 code-unit bound rather than truncating 
   assert.ok(payload.length < 16_384);
   try { assert.deepEqual(JSON.parse(await socketRequest(join(directory, 'dojo-voice.sock'), { action: 'send', text })), { text }); }
   finally { await owner.shutdown(); }
+});
+
+function fakeWorker() {
+  const stdin = new PassThrough(), commands = [];
+  stdin.on('data', data => commands.push(JSON.parse(data.toString())));
+  const child = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough(), stdin });
+  child.stdin.ended = false;
+  stdin.on('end', () => { child.stdin.ended = true; });
+  return { child, commands };
+}
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+
+test('agent commands run with no microphone and never start the speech worker', async () => {
+  const result = service(); let spawns = 0;
+  result.microphoneCheck = async () => false;
+  result.spawnWorker = () => { spawns++; throw new Error('speech worker must not start'); };
+  const submitted = [];
+  result.runtime = { id: 'conversation', busy: () => false, submit: async text => { submitted.push(text); return { ok: true }; },
+    respondHuman: async () => {}, stop: async () => {}, close: async () => {}, modelRows: [], accounts: [], reloadAccountCatalog: async () => {} };
+  assert.deepEqual(await result.handle({ action: 'send', text: 'hello' }), { threadId: 'conversation' });
+  assert.deepEqual(submitted, ['hello']);
+  assert.equal((await result.handle({ action: 'history' })).chats.length, 1);
+  assert.deepEqual((await result.handle({ action: 'models' })).models, []);
+  result.state.chats[0].activeRunId = null;
+  await result.handle({ action: 'new' });
+  await result.handle({ action: 'stop' });
+  await result.handle({ action: 'cancel' });
+  await result.handle({ action: 'finish' });
+  assert.equal((await result.handle({ action: 'status' })).recording, false);
+  assert.equal(spawns, 0);
+  assert.equal(result.speechWorker, undefined);
+  await result.shutdown();
+});
+
+test('voice actions say there is no microphone instead of starting the worker', async () => {
+  const result = service(); let spawns = 0;
+  result.microphoneCheck = async () => false;
+  result.spawnWorker = () => { spawns++; throw new Error('speech worker must not start'); };
+  const owner = '4b43d7be-e2f7-4d91-a08e-0e6741e65b92';
+  await assert.rejects(result.handle({ action: 'toggle' }), /No microphone is available/);
+  await assert.rejects(result.handle({ action: 'controller-begin', owner }), /No microphone is available/);
+  assert.equal(result.capture, undefined);
+  assert.equal(spawns, 0);
+  // A microphone that appears without the watcher noticing is found on the next keypress.
+  result.microphoneCheck = async () => true;
+  const { child } = fakeWorker();
+  result.spawnWorker = () => { spawns++; return child; };
+  await result.handle({ action: 'toggle' });
+  assert.equal(spawns, 1);
+  assert.ok(result.capture);
+  await result.shutdown();
+});
+
+test('voice-input follows microphone hotplug and touches only the speech worker', async () => {
+  const result = service(); let spawns = 0;
+  const { child, commands } = fakeWorker();
+  result.spawnWorker = () => { spawns++; return child; };
+  const runtime = { id: 'conversation', busy: () => false, stop: async () => {}, close: async () => {} };
+  result.runtime = runtime;
+  await assert.rejects(result.handle({ action: 'voice-input' }), /available: true or false/);
+  assert.deepEqual(await result.handle({ action: 'voice-input', available: true }), { microphone: true });
+  await result.handle({ action: 'voice-input', available: true });
+  assert.equal(spawns, 1);
+  await result.handle({ action: 'toggle' });
+  assert.ok(result.capture);
+  // Losing the microphone mid-capture cancels it, ends the worker and leaves the runtime alone.
+  result.microphoneCheck = async () => false;
+  assert.deepEqual(await result.handle({ action: 'voice-input', available: false }), { microphone: false });
+  assert.deepEqual(commands.map(({ action }) => action), ['begin', 'cancel']);
+  assert.equal(result.capture, null);
+  assert.equal(result.speechWorker, null);
+  assert.equal(child.stdin.writableEnded, true);
+  assert.equal(result.runtime, runtime);
+  await assert.rejects(result.handle({ action: 'toggle' }), /No microphone is available/);
+  await result.shutdown();
+});
+
+test('a server without a microphone starts the agent runtime and answers text commands', async () => {
+  const result = service(); let spawns = 0;
+  result.microphoneCheck = async () => false;
+  result.spawnWorker = () => { spawns++; throw new Error('speech worker must not start'); };
+  result.state = undefined;
+  result.openRuntime = async () => ({ id: 'conversation', busy: () => false, resume() {}, scheduleCompaction() {}, close: async () => {},
+    accounts: [], modelRows: [], reloadAccountCatalog: async () => {} });
+  const owner = await serve(result);
+  try {
+    assert.ok(result.runtime, 'the agent runtime is open');
+    assert.ok(!result.speechWorker);
+    assert.equal(JSON.parse(await request('{"action":"status"}\n')).recording, false);
+    assert.deepEqual(JSON.parse(await request('{"action":"history"}\n')).chats.map(chat => chat.threadId), ['conversation']);
+    const catalog = JSON.parse(await request('{"action":"models"}\n'));
+    assert.ok(Array.isArray(catalog.models) && Array.isArray(catalog.accounts));
+    assert.match(JSON.parse(await request('{"action":"toggle"}\n')).error, /No microphone is available/);
+    assert.equal(spawns, 0);
+  } finally { await owner.shutdown(); }
 });

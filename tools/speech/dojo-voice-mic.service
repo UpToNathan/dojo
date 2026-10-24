@@ -1,12 +1,13 @@
 [Unit]
-Description=Run Dojo voice only while a microphone is available
+Description=Turn Dojo voice input on while a microphone is available
 PartOf=graphical-session.target
-After=graphical-session.target pipewire-pulse.service
+# After the runtime, so it is up to be told; the runtime also checks once itself when it starts.
+After=graphical-session.target pipewire-pulse.service dojo-voice.service
+Wants=dojo-voice.service
 
 [Service]
 Type=simple
 ExecStart=@DOJO_ROOT@/tools/speech/dojo-mic-watch
-ExecStopPost=-/usr/bin/systemctl --user stop --no-block dojo-voice.service
 Restart=on-failure
 RestartSec=3
 

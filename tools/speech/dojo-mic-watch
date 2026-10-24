@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# Keeps dojo-voice.service running exactly while a microphone is available, so a machine
-# without one holds no transcription model in memory. Runs as dojo-voice-mic.service.
+# Tells the agent runtime (dojo-voice.service, which runs on every host) whether voice input
+# can run, so a machine without a microphone holds no transcription model in memory. Only the
+# speech worker follows the microphone; the runtime keeps running. Runs as dojo-voice-mic.service.
+# `dojo-voice voice-input` does nothing when the runtime is not running: the runtime checks for
+# a microphone itself when it starts.
 set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-unit=dojo-voice.service
 
 reconcile() {
-    if "$here/dojo-mic-present"; then
-        systemctl --user is-active --quiet "$unit" || systemctl --user start --no-block "$unit"
-    else
-        ! systemctl --user is-active --quiet "$unit" || systemctl --user stop --no-block "$unit"
-    fi
+    local state=off
+    if "$here/dojo-mic-present"; then state=on; fi
+    # A runtime that is restarting or still old must not stop the watcher; the next event retries.
+    "$here/dojo-voice" voice-input "$state" >/dev/null || printf 'dojo-voice voice-input %s failed\n' "$state" >&2
 }
 
 reconcile

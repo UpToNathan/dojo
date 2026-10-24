@@ -85,13 +85,21 @@ pub fn parse_catalog(input: &str) -> Result<ModelCatalog, String> {
     Ok(catalog)
 }
 
-/// One request to the private voice socket. Sign-in requests are write-only: a key is sent once and
-/// never comes back in any response.
+/// One request to the Dojo agent runtime's private socket (`dojo-voice.sock`, served by
+/// `dojo-voice.service`, which runs with or without a microphone). Sign-in requests are
+/// write-only: a key is sent once and never comes back in any response.
 fn socket_call(body: &Value) -> Result<Value, String> {
     let runtime = std::env::var_os("XDG_RUNTIME_DIR").ok_or("XDG_RUNTIME_DIR is required")?;
-    let path = std::path::PathBuf::from(runtime).join("dojo-voice.sock");
-    let mut socket = UnixStream::connect(&path)
-        .map_err(|error| format!("Could not connect to Dojo voice: {error}"))?;
+    socket_call_at(
+        &std::path::PathBuf::from(runtime).join("dojo-voice.sock"),
+        body,
+    )
+}
+
+fn socket_call_at(path: &std::path::Path, body: &Value) -> Result<Value, String> {
+    let mut socket = UnixStream::connect(path).map_err(|error| {
+        format!("Could not connect to the Dojo agent runtime (dojo-voice.service): {error}")
+    })?;
     socket
         .set_read_timeout(Some(Duration::from_secs(45)))
         .map_err(|error| error.to_string())?;
@@ -103,9 +111,9 @@ fn socket_call(body: &Value) -> Result<Value, String> {
     let mut response = String::new();
     BufReader::new(socket)
         .read_line(&mut response)
-        .map_err(|error| format!("Dojo voice did not respond: {error}"))?;
+        .map_err(|error| format!("The Dojo agent runtime did not respond: {error}"))?;
     let value: Value = serde_json::from_str(&response)
-        .map_err(|error| format!("Invalid Dojo voice response: {error}"))?;
+        .map_err(|error| format!("Invalid Dojo agent runtime response: {error}"))?;
     if let Some(error) = value.get("error").and_then(Value::as_str) {
         return Err(error.to_owned());
     }
@@ -1295,6 +1303,39 @@ impl Render for Picker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn socket_in_temp(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("dojo-picker-{}-{name}", std::process::id()))
+    }
+
+    #[test]
+    fn a_missing_runtime_is_named_as_the_agent_runtime_not_as_voice() {
+        let path = socket_in_temp("missing.sock");
+        let error = socket_call_at(&path, &json!({"action": "models"})).unwrap_err();
+        assert!(error.contains("Dojo agent runtime"), "{error}");
+        assert!(!error.contains("voice service"), "{error}");
+    }
+
+    #[test]
+    fn the_runtime_socket_carries_one_json_line_each_way() {
+        let path = socket_in_temp("runtime.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let server = std::thread::spawn(move || {
+            for reply in [r#"{"models":[]}"#, r#"{"error":"Nope."}"#] {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut line = String::new();
+                BufReader::new(&stream).read_line(&mut line).unwrap();
+                assert_eq!(line.trim(), r#"{"action":"models"}"#);
+                writeln!(stream, "{reply}").unwrap();
+            }
+        });
+        let body = json!({"action": "models"});
+        assert_eq!(socket_call_at(&path, &body).unwrap(), json!({"models": []}));
+        assert_eq!(socket_call_at(&path, &body).unwrap_err(), "Nope.");
+        server.join().unwrap();
+        std::fs::remove_file(&path).unwrap();
+    }
+
     #[test]
     fn parses_catalog_without_credentials_and_preserves_unavailable_selection() {
         let catalog = parse_catalog(r#"{"accounts":[{"id":"openai-codex","label":"ChatGPT","state":"unavailable","reason":"Needs renewal."}],"models":[],"selection":{"account":"openai-codex","model":"gpt-6-luna","name":"GPT-6 Luna","available":false,"reason":"Needs renewal."}}"#).unwrap();

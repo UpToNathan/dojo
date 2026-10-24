@@ -73,15 +73,38 @@ compatibility layers, and WirePlumber. The devenv environment uses the Nix
 PipeWire ALSA plugin with the host ALSA configuration, so capture follows the
 system default source without mixing host and Nix C libraries.
 
-## Microphone presence
+## Agent runtime and voice input
 
-The voice service, with its prewarmed transcription model, runs only while a microphone can
-record. `dojo-voice-mic.service` watches PipeWire (`pactl subscribe`) and starts or stops
-`dojo-voice.service` as `tools/speech/dojo-mic-present` changes its answer: output monitors and
-sources whose active port is reported "not available" (an unplugged jack) do not count; sources
-without ports, such as USB headsets, do. The service's `ExecCondition` runs the same check.
-With no microphone the voice keybindings print "No microphone is available" and start nothing,
-and the model picker has no service to reach.
+`dojo-voice.service` is the Dojo agent runtime: the Pi conversation, memory, sign-in, the model
+catalog and the command socket (`$XDG_RUNTIME_DIR/dojo-voice.sock`) that the model picker and
+`tools/speech/dojo-voice` use. It starts with the graphical session on every host, with or
+without a microphone, so `send`, `models`, `select-model`, `history`, `new` and the sign-in
+commands always work. Voice is one input to it: microphone capture and the prewarmed
+transcription model.
+
+Decision: one runtime process whose speech worker is started only when a microphone exists,
+rather than a second service that forwards transcripts over the socket. The speech model already
+lives in its own native process (`dojo-speech`), so a mic-less runtime never starts it and holds
+only the Node runtime. A second service would have to share capture state with the runtime (a
+response must wait for an open capture, the Niri input handoff, the listening and transcribing
+phases), which a socket round trip per event would only make fragile. The socket and its
+commands did not change, except for the new `voice-input` command below. The names
+`dojo-voice.service` and `dojo-voice.sock` stayed so installed hosts, the Rust clients and the
+keybindings keep working; the name now covers the runtime and its voice input.
+
+`dojo-voice-mic.service` watches PipeWire (`pactl subscribe`) and, as `tools/speech/dojo-mic-present`
+changes its answer, runs `dojo-voice voice-input on|off`. `on` loads the speech worker; `off`
+cancels any capture and ends the worker, releasing the model. Only the speech worker follows the
+microphone; the runtime and its conversation are never restarted by it. The runtime also checks
+once when it starts and again when a voice action finds no microphone, so a missed event heals
+on the next keypress. Output monitors and sources whose active port is reported "not available"
+(an unplugged jack) do not count as microphones; sources without ports, such as USB headsets, do.
+With no microphone the voice keybindings print "No microphone is available" and the rest of the
+runtime keeps working.
+
+On a host that upgrades from the earlier layout, run `systemctl --user restart dojo-voice.service`
+once (or log in again) so the runtime that is already running picks up the new code; Home Manager
+enables and starts the unit but does not restart a running one.
 
 A Bluetooth headset only has a microphone while it is in its headset (HFP) profile; in the
 music profile it counts as no microphone.
