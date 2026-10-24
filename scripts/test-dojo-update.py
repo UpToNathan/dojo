@@ -80,9 +80,22 @@ class UpdateTests(unittest.TestCase):
         with patch.object(updater.shutil, "which", return_value="/bin/tool"), \
              patch.object(Path, "read_text", return_value="[options]\n[core]\nInclude = /mirrorlist\n"), \
              contextlib.redirect_stdout(io.StringIO()) as output:
-            updater.update_arch(runner, 3, dt.datetime(2026, 10, 13, 12, tzinfo=dt.timezone.utc))
+            updater.update_arch(runner, 3, dt.datetime(2026, 10, 13, 12, tzinfo=dt.timezone.utc), "archive")
         self.assertIn("<snapshot-2026/10/09>", output.getvalue())
         self.assertEqual(runner.results, [("arch", "planned", "")])
+
+    def test_omarchy_stable_replaces_every_official_mirror(self):
+        actual = updater.omarchy_stable_config("[options]\nSigLevel = Required DatabaseOptional\n[core]\nInclude = /etc/pacman.d/mirrorlist\n[extra]\nServer = https://latest/\n")
+        self.assertEqual(actual, "[options]\nSigLevel = Required DatabaseOptional\n[core]\nServer = https://stable-mirror.omarchy.org/$repo/os/$arch\n[extra]\nServer = https://stable-mirror.omarchy.org/$repo/os/$arch\n")
+        with self.assertRaisesRegex(ValueError, "no supported dated snapshot"):
+            updater.omarchy_stable_config("[options]\n[custom]\nServer = https://latest/\n")
+
+    def test_arch_defaults_to_omarchy_stable_and_archive_is_selectable(self):
+        with patch.object(Path, "read_text", return_value="[options]\n[core]\nInclude = /mirrorlist\n"):
+            _, output, _ = self.run_cli(["--dry-run", "--only", "arch"])
+            self.assertIn("<omarchy-stable>", output)
+            _, output, _ = self.run_cli(["--dry-run", "--only", "arch", "--arch-source", "archive"])
+            self.assertIn("<snapshot-", output)
 
     def test_concurrent_run_rejected(self):
         with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {"XDG_STATE_HOME": temporary}), \
