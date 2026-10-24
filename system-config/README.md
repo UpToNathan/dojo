@@ -28,8 +28,8 @@ other managed policies intact.
 The Nix graphics updater is the source for generated runtime state such as
 `/etc/environment.d/99-nix-gl.conf` and `/etc/opengl-driver`; those generated
 files stay outside version control. `pam.d/system-local-login` adds fingerprint
-authentication before the normal system-login stack. `nix/nix.conf` contains a
-public Cachix signing key, not a secret.
+authentication before the normal system-login stack. `nix/nix.conf` contains public
+Cachix and cache-host signing keys, not secrets (see `docs/nix-cache.md`).
 
 `pam.d/dojo-login` is the display manager's password login stack. Stock PAM
 logins list `pam_gnome_keyring.so` as optional with a leading `-`, so it is
