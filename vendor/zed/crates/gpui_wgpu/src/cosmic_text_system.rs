@@ -1,8 +1,9 @@
 use anyhow::{Context as _, Ok, Result};
 use collections::HashMap;
 use cosmic_text::{
-    Attrs, AttrsList, Ellipsize, Family, Font as CosmicTextFont,
-    FontFeatures as CosmicFontFeatures, FontSystem, ShapeBuffer, ShapeLine, Stretch, Style, Weight,
+    Attrs, AttrsList, Ellipsize, Fallback, Family, Font as CosmicTextFont,
+    FontFeatures as CosmicFontFeatures, FontSystem, PlatformFallback, ShapeBuffer, ShapeLine,
+    Stretch, Style, Weight,
 };
 use gpui::{
     Bounds, DevicePixels, FallbackFontClass, Font, FontFallbacks, FontFeatures, FontId,
@@ -22,6 +23,62 @@ use swash::{
 use unicode_segmentation::UnicodeSegmentation;
 
 pub struct CosmicTextSystem(RwLock<CosmicTextSystemState>);
+
+// Dojo patch (vendor/zed/DOJO-EMOJI-FALLBACK.md): cosmic-text's Unix fallback list tries
+// "DejaVu Sans" before "Noto Color Emoji", and DejaVu Sans carries monochrome outline faces for the
+// whole Emoticons block, so 😀 and its neighbours drew as text. An emoji font cannot be named as
+// a primary font here (a face without an 'm' is not accepted as one), so the only way to get
+// colour emoji is to put the colour face ahead of DejaVu in the fallback order.
+const COMMON_FALLBACK: &[&str] = &[
+    "Noto Sans",
+    "Noto Color Emoji",
+    "DejaVu Sans",
+    "FreeSans",
+    "Noto Sans Mono",
+    "DejaVu Sans Mono",
+    "FreeMono",
+    "Noto Sans Symbols",
+    "Noto Sans Symbols2",
+];
+
+static PLATFORM_FALLBACK: PlatformFallback = PlatformFallback;
+
+/// The platform's fallback lists with the colour emoji face moved ahead of DejaVu Sans.
+struct ColorEmojiFirstFallback;
+
+impl Fallback for ColorEmojiFirstFallback {
+    fn common_fallback(&self) -> &[&'static str] {
+        COMMON_FALLBACK
+    }
+
+    fn forbidden_fallback(&self) -> &[&'static str] {
+        PLATFORM_FALLBACK.forbidden_fallback()
+    }
+
+    fn script_fallback(&self, script: unicode_script::Script, locale: &str) -> &[&'static str] {
+        PLATFORM_FALLBACK.script_fallback(script, locale)
+    }
+}
+
+/// `FontSystem::new()` with the fallback above: the same database, default families and locale
+/// lookup, so only the fallback order differs.
+fn font_system_with_color_emoji_first() -> FontSystem {
+    let mut db = cosmic_text::fontdb::Database::new();
+    db.load_system_fonts();
+    db.set_monospace_family("Noto Sans Mono");
+    db.set_sans_serif_family("Open Sans");
+    db.set_serif_family("DejaVu Serif");
+    let locale = ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .into_iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .find(|value| !value.is_empty() && value != "C" && value != "POSIX")
+        .and_then(|value| {
+            let language = value.split(['.', '@']).next()?.replace('_', "-");
+            (!language.is_empty()).then_some(language)
+        })
+        .unwrap_or_else(|| "en-US".to_string());
+    FontSystem::new_with_locale_and_db_and_fallback(locale, db, ColorEmojiFirstFallback)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct FontKey {
@@ -129,7 +186,7 @@ impl CosmicTextSystem {
     }
 
     pub fn new(system_font_fallback: &str) -> Self {
-        let font_system = FontSystem::new();
+        let font_system = font_system_with_color_emoji_first();
 
         Self(RwLock::new(CosmicTextSystemState {
             font_system,
@@ -1207,6 +1264,18 @@ fn check_is_known_emoji_font(postscript_name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn colour_emoji_is_tried_before_dejavu_sans_and_nothing_else_is_lost() {
+        let list = ColorEmojiFirstFallback.common_fallback();
+        let position = |name: &str| list.iter().position(|family| *family == name);
+        assert!(position("Noto Color Emoji") < position("DejaVu Sans"));
+        let platform = PlatformFallback.common_fallback();
+        for family in platform {
+            assert!(list.contains(family), "{family} dropped from the fallback list");
+        }
+        assert_eq!(list.len(), platform.len(), "no family appears twice");
+    }
+
     #[cfg(feature = "test-support")]
     use std::{cell::RefCell, rc::Rc};
 

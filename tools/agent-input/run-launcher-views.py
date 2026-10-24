@@ -42,6 +42,12 @@ def main():
     env["XDG_CONFIG_HOME"] = str(directory / "shell-config")
     env["XDG_DATA_HOME"] = str(directory / "shell-data")
     env.pop("DBUS_SESSION_BUS_ADDRESS", None)
+    # The shell gets its own config directory, which hides the user's fonts, and the emoji face is
+    # one of them; link the real fontconfig in so colour emoji can be seen.
+    real_fontconfig = Path(os.environ.get("HOME", "")) / ".config/fontconfig"
+    if real_fontconfig.is_dir():
+        (directory / "shell-config").mkdir(exist_ok=True)
+        (directory / "shell-config/fontconfig").symlink_to(real_fontconfig)
     query = Peer(os.environ["NIRI_SOCKET"])
     binary = os.environ.get("DOJO_BINARY", str(root / "target/debug/dojo"))
     fixture = os.environ.get("DOJO_FIXTURE", str(Path(__file__).parent / "target/debug/dojo-agent-input-fixture"))
