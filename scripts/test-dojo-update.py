@@ -97,6 +97,16 @@ class UpdateTests(unittest.TestCase):
             _, output, _ = self.run_cli(["--dry-run", "--only", "arch", "--arch-source", "omarchy-stable"])
             self.assertIn("<omarchy-stable>", output)
 
+    def test_npm_skips_hosts_without_a_global_prefix_and_pins_the_prefix(self):
+        with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {"HOME": home}, clear=False), \
+             patch.dict(os.environ, {"NPM_CONFIG_PREFIX": ""}):
+            _, output, run = self.run_cli(["--only", "npm"])
+            self.assertIn("npm: skipped", output)
+            run.assert_not_called()
+            (Path(home) / ".local/npm").mkdir(parents=True)
+            _, _, run = self.run_cli(["--only", "npm"])
+            self.assertEqual(run.call_args.args[0][:3], ["env", f"NPM_CONFIG_PREFIX={home}/.local/npm", "npm"])
+
     def test_concurrent_run_rejected(self):
         with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {"XDG_STATE_HOME": temporary}), \
              updater.update_lock(False), contextlib.redirect_stderr(io.StringIO()) as error:

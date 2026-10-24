@@ -92,7 +92,16 @@ def update_group(group, runner, args, now):
         ready = runner.command("nix-lock", ["devenv", "update"], ready)
         runner.command("nix-home", ["devenv", "machines", "deploy", socket.gethostname()], ready)
     elif group == "npm":
-        runner.command("npm", ["npm", "update", "--global", f"--before={cutoff}"])
+        # home-manager.nix sets NPM_CONFIG_PREFIX for desktop sessions, not for ssh logins. Without it
+        # npm targets the read-only Nix store.
+        prefix = Path(os.environ.get("NPM_CONFIG_PREFIX") or Path.home() / ".local/npm")
+        if not shutil.which("npm"):
+            runner.report("npm", "skipped", "npm is not installed")
+        elif not prefix.is_dir():
+            runner.report("npm", "skipped", f"no global packages installed under {prefix}")
+        else:
+            runner.command("npm", ["env", f"NPM_CONFIG_PREFIX={prefix}", "npm", "update", "--global",
+                                   f"--before={cutoff}"])
     elif group == "cargo":
         runner.command("cargo", [sys.executable, str(runner.repo / "scripts/update-cargo-tools.py"),
                                  "--buffer-days", str(days)])
