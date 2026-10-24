@@ -63,9 +63,26 @@ fn exchange(socket: &Path, action: &str) -> std::io::Result<String> {
     Ok(line)
 }
 
+/// Whether `dojo-voice.service` is up. The runtime is socket activated, so connecting to its
+/// socket starts it; a release or cancel that finds it idle must not do that.
+fn service_active() -> bool {
+    std::process::Command::new("systemctl")
+        .args(["--user", "is-active", "--quiet", "dojo-voice.service"])
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
 /// The held marker is what lets a release that races its press cancel the press, so it is
 /// written before the request and removed before the request, exactly as the full client does.
 fn run(runtime_dir: &Path, action: &str) -> std::io::Result<Outcome> {
+    run_with(runtime_dir, action, service_active)
+}
+
+fn run_with(
+    runtime_dir: &Path,
+    action: &str,
+    service_active: impl Fn() -> bool,
+) -> std::io::Result<Outcome> {
     if !ACTIONS.contains(&action) {
         return Ok(Outcome::Fallback);
     }
@@ -85,12 +102,23 @@ fn run(runtime_dir: &Path, action: &str) -> std::io::Result<Outcome> {
         },
         _ => {}
     }
+    // Nothing to finish or cancel in a runtime that is not running, and asking would start it. A
+    // runtime that is still starting counts as not running: the press that started it sees the
+    // cleared held marker and cancels itself.
+    if matches!(action, "finish" | "cancel") && !service_active() {
+        return Ok(Outcome::Nothing);
+    }
     match exchange(&socket_path(runtime_dir), action) {
         Ok(line) => Ok(Outcome::Reply {
             error: is_error(&line),
             line,
         }),
-        Err(error) if matches!(error.kind(), ErrorKind::NotFound | ErrorKind::ConnectionRefused) => {
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::NotFound | ErrorKind::ConnectionRefused
+            ) =>
+        {
             Ok(if matches!(action, "finish" | "cancel") {
                 Outcome::Nothing
             } else {
@@ -139,7 +167,8 @@ mod tests {
 
     impl Runtime {
         fn new(name: &str) -> Self {
-            let path = std::env::temp_dir().join(format!("dojo-voice-ctl-{}-{name}", std::process::id()));
+            let path =
+                std::env::temp_dir().join(format!("dojo-voice-ctl-{}-{name}", std::process::id()));
             fs::create_dir_all(&path).unwrap();
             Self(path)
         }
@@ -169,7 +198,10 @@ mod tests {
         let outcome = run(&runtime.0, "begin").unwrap();
         assert_eq!(
             outcome,
-            Outcome::Reply { line: "{\"recording\":true}".into(), error: false }
+            Outcome::Reply {
+                line: "{\"recording\":true}".into(),
+                error: false
+            }
         );
         assert_eq!(server.join().unwrap(), "{\"action\":\"begin\"}\n");
         assert!(held_path(&runtime.0).exists());
@@ -180,9 +212,59 @@ mod tests {
         for action in ["finish", "cancel"] {
             let runtime = Runtime::new(action);
             fs::write(held_path(&runtime.0), "").unwrap();
-            assert_eq!(run(&runtime.0, action).unwrap(), Outcome::Nothing);
+            assert_eq!(
+                run_with(&runtime.0, action, || true).unwrap(),
+                Outcome::Nothing
+            );
             assert!(!held_path(&runtime.0).exists());
         }
+    }
+
+    #[test]
+    fn finish_and_cancel_never_connect_to_an_idle_runtime() {
+        // A socket that would answer: reaching it would start the socket-activated runtime.
+        for action in ["finish", "cancel"] {
+            let runtime = Runtime::new(&format!("idle-{action}"));
+            let listener = UnixListener::bind(socket_path(&runtime.0)).unwrap();
+            listener.set_nonblocking(true).unwrap();
+            fs::write(held_path(&runtime.0), "").unwrap();
+            assert_eq!(
+                run_with(&runtime.0, action, || false).unwrap(),
+                Outcome::Nothing
+            );
+            assert!(
+                listener.accept().is_err(),
+                "{action} connected to the socket"
+            );
+            assert!(
+                !held_path(&runtime.0).exists(),
+                "the marker is still cleared"
+            );
+        }
+    }
+
+    #[test]
+    fn finish_and_cancel_reach_a_running_runtime() {
+        let runtime = Runtime::new("running");
+        let server = serve_once(&runtime.0, "{}\n");
+        assert_eq!(
+            run_with(&runtime.0, "finish", || true).unwrap(),
+            Outcome::Reply {
+                line: "{}".into(),
+                error: false
+            }
+        );
+        assert_eq!(server.join().unwrap(), "{\"action\":\"finish\"}\n");
+    }
+
+    #[test]
+    fn begin_toggle_and_status_wake_an_idle_runtime_because_they_need_it() {
+        let runtime = Runtime::new("wake");
+        let server = serve_once(&runtime.0, "{\"recording\":true}\n");
+        // The activity check is not consulted for them: the connection is the wake-up.
+        let outcome = run_with(&runtime.0, "toggle", || panic!("must not ask")).unwrap();
+        assert!(matches!(outcome, Outcome::Reply { .. }));
+        server.join().unwrap();
     }
 
     #[test]
@@ -202,7 +284,15 @@ mod tests {
     #[test]
     fn other_actions_are_left_to_the_full_client() {
         let runtime = Runtime::new("other");
-        for action in ["send", "resume", "select-model", "sign-out", "trace", "stop", ""] {
+        for action in [
+            "send",
+            "resume",
+            "select-model",
+            "sign-out",
+            "trace",
+            "stop",
+            "",
+        ] {
             assert_eq!(run(&runtime.0, action).unwrap(), Outcome::Fallback);
         }
         assert!(!held_path(&runtime.0).exists());
@@ -224,7 +314,10 @@ mod tests {
     fn a_silent_close_is_an_error() {
         let runtime = Runtime::new("silent");
         let server = serve_once(&runtime.0, "");
-        assert_eq!(run(&runtime.0, "status").unwrap_err().kind(), ErrorKind::UnexpectedEof);
+        assert_eq!(
+            run(&runtime.0, "status").unwrap_err().kind(),
+            ErrorKind::UnexpectedEof
+        );
         server.join().unwrap();
     }
 }

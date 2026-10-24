@@ -18,8 +18,9 @@ in
   home.activation.dojoVoiceService = lib.hm.dag.entryAfter [ "reloadSystemd" ] ''
     systemctl=${pkgs.systemd}/bin/systemctl
     $systemctl --user daemon-reload
-    # The service no longer starts at login; drop the old link, and the one the old units made.
-    $systemctl --user disable dojo-voice.service 2>/dev/null || true
+    # The service no longer starts at login. Remove the login link the old layout made; `systemctl
+    # disable` would also delete the unit file, which is itself a link into the Nix store.
+    rm -f ${config.xdg.configHome}/systemd/user/graphical-session.target.wants/dojo-voice.service
     $systemctl --user enable dojo-voice.socket dojo-voice-mic.service
     # A runtime started the old way owns the socket file, which the socket unit then cannot bind.
     # Stop it once; socket activation starts it again when it is needed.
