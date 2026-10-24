@@ -1,8 +1,10 @@
 NetworkManager-dispatcher.service
 NetworkManager-wait-online.service
 NetworkManager.service
+autovt@tty2.service
 bluetooth.service
 chronyd.service
+dojo-dm.service
 firewalld.service
 getty@.service
 nix-daemon.socket
