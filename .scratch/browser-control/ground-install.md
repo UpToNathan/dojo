@@ -44,7 +44,7 @@ For agent config, prefer the pinned manual MCP path and shared skill. Upstream's
 
 ## Extension installation and reversibility
 
-Helium 0.19.2.1 is an AppImage wrapped by Home Manager. Its wrapper explicitly mounts `/etc/chromium/policies` read-only into its FHS environment. The actual existing profile directory is `~/.config/net.imput.helium`, with `Default` and `Local State` present. This task inspected directory existence only and did not read profile state. `~/.config/helium` does not exist here.
+Helium 0.20.1.1 is an AppImage wrapped by Home Manager. Its wrapper explicitly mounts `/etc/chromium/policies` read-only into its FHS environment. The actual existing profile directory is `~/.config/net.imput.helium`, with `Default` and `Local State` present. This task inspected directory existence only and did not read profile state. `~/.config/helium` does not exist here.
 
 Upstream currently distributes an unpacked extension and documents Developer mode -> Load unpacked -> supplied directory. Its README expressly describes this as a user-approved installation. There is no published Chrome Web Store installation endpoint in the reviewed source. `ExtensionInstallForcelist` cannot install the unpacked folder merely by pointing at it. A force-install design would need a valid signed CRX and update manifest, or an actual Store entry; neither exists in the pinned distribution. Reusing managed policy infrastructure does not supply those missing artifacts.
 

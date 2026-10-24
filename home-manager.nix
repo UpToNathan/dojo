@@ -10,10 +10,10 @@ let
       builtins.fromJSON (builtins.readFile nvidiaDriverFile)
     else
       null;
-  heliumVersion = "0.19.2.1";
+  heliumVersion = "0.20.1.1";
   heliumAppImage = pkgs.fetchurl {
     url = "https://github.com/imputnet/helium-linux/releases/download/${heliumVersion}/helium-${heliumVersion}-x86_64.AppImage";
-    hash = "sha256-oEVQo8fHC9rTrNOkQw7ajSr8C/cXOpxYpAP+q5UXCH8=";
+    hash = "sha256-1LeJsl0KmuEsdmceRE6Khe3Pgo4EGcZ40YxB+xrDAw4=";
   };
   heliumApp = pkgs.appimageTools.wrapType2 {
     pname = "helium";
@@ -214,6 +214,23 @@ in
             find . -name '*.ttf' -exec cp {} $out/share/fonts \;
           '';
         })
+        # Victor Mono with ss01 (single-storey a) frozen in as the default, as "Victor Mono SS01".
+        # Chromium and Electron apps such as T3 Code cannot be handed OpenType features from
+        # outside, so they select this family in their font setting instead. The files carry an SS01- prefix
+        # because the plain victor-mono package installs the same filenames into the same profile.
+        (pkgs.runCommand "victor-mono-ss01" {
+          nativeBuildInputs = [ pkgs.python3Packages.opentype-feature-freezer ];
+          src = pkgs.fetchzip {
+            url = "https://rubjo.github.io/victor-mono/VictorMonoAll.zip";
+            sha256 = "sha256-sTehXK6qqGwgXyUgTTQPTu/fmnbPPrY5w+qLDyYvvtA=";
+            stripRoot = false;
+          };
+        } ''
+          mkdir -p $out/share/fonts
+          find $src -name '*.ttf' | while read -r font; do
+            pyftfeatfreeze -f ss01 -S -U SS01 "$font" "$out/share/fonts/SS01-$(basename "$font")"
+          done
+        '')
         # Colour emoji: GPUI falls back to a system "NotoColorEmoji" face for them, and without
         # one every emoji in the shell's speech bubbles draws as an empty box.
         pkgs.noto-fonts-color-emoji
