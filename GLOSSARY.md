@@ -86,3 +86,14 @@ _Avoid_: Bind, registration
 **Binding panel**:
 The shell surface where the user picks the keys an app's global shortcuts get.
 _Avoid_: Shortcut dialog
+
+### Launcher
+
+**Command**:
+A built-in launcher entry that opens a view, such as Emoji, Clipboard History or Windows. Commands show as suggestions in the empty launcher and rank like any result when typed.
+
+**View**:
+A screen pushed inside the launcher with its own search box, list and action. It reuses the launcher's surface; Esc pops it.
+
+**Inline row**:
+A launcher result produced by an explicit trigger in the query, such as a calculation, a bang or a `?` agent prompt. It never appears for ordinary text.

@@ -8,6 +8,7 @@ pub mod dm;
 pub mod extraction;
 pub mod geometry;
 pub mod launch_history;
+pub mod launcher_core;
 pub mod lock;
 pub mod power;
 pub mod session;
