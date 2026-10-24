@@ -20,7 +20,7 @@ use catalogue::Catalogue;
 use dojo::launcher_core::commands::{self, CommandId, HiddenCommands};
 use dojo::launcher_core::rows::{Row, RowAction, RowIcon, Step, first_selectable, step_selection};
 use input::SearchInput;
-use views::{Host, Notify, Outcome, View, ViewFactory};
+use views::{Host, Notify, Outcome, Secondary, View, ViewFactory};
 use worker::SearchWorker;
 
 pub use dojo::control::LauncherNavigation as Navigation;
@@ -620,6 +620,70 @@ impl LauncherView {
         }));
     }
 
+    fn host(&self, cx: &mut Context<Self>) -> Host {
+        Host {
+            clipboard: cx.read_from_clipboard().and_then(|item| item.text()),
+        }
+    }
+
+    /// Carries out what a view said should happen after a row was activated.
+    fn apply_outcome(
+        &mut self,
+        outcome: Outcome,
+        row: &Row,
+        query: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match outcome {
+            Outcome::Stay => self.view_rows(window, cx),
+            Outcome::Notice(message) => {
+                self.view_rows(window, cx);
+                self.status = Some(message);
+                cx.notify();
+            }
+            Outcome::After(job) => {
+                self.dismiss(window);
+                cx.background_executor()
+                    .spawn(async move { job() })
+                    .detach();
+            }
+            Outcome::Close => self.dismiss(window),
+            Outcome::Copy(text) => {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+                self.remember(row, query, cx);
+                self.dismiss(window);
+            }
+            Outcome::Error(message) => {
+                self.error = Some(message);
+                cx.notify();
+            }
+        }
+    }
+
+    /// A secondary key (Ctrl+P, Ctrl+D, Shift+Enter) on the selected row of an open view.
+    fn secondary(&mut self, key: Secondary, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.launch.busy || self.stack.is_empty() {
+            return false;
+        }
+        let Some(row) = self.rows.get(self.selected).cloned() else {
+            return false;
+        };
+        let query = self.input.text.clone();
+        let host = self.host(cx);
+        let outcome = self
+            .stack
+            .last_mut()
+            .and_then(|open| open.view.secondary(key, &row, &host));
+        match outcome {
+            Some(outcome) => {
+                self.apply_outcome(outcome, &row, &query, window, cx);
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Enter (or a click) on the selected row.
     fn activate_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.launch.busy {
@@ -629,27 +693,14 @@ impl LauncherView {
             return;
         };
         let query = self.input.text.clone();
-        if let Some(open) = self.stack.last_mut() {
-            let host = Host {
-                clipboard: cx.read_from_clipboard().and_then(|item| item.text()),
-            };
-            match open.view.activate(&row, &query, &host) {
-                Outcome::Stay => self.view_rows(window, cx),
-                Outcome::Notice(message) => {
-                    self.view_rows(window, cx);
-                    self.status = Some(message);
-                    cx.notify();
-                }
-                Outcome::Close => self.dismiss(window),
-                Outcome::Copy(text) => {
-                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
-                    self.remember(&row, &query, cx);
-                    self.dismiss(window);
-                }
-                Outcome::Error(message) => {
-                    self.error = Some(message);
-                    cx.notify();
-                }
+        if self.stack.last().is_some() {
+            let host = self.host(cx);
+            let outcome = self
+                .stack
+                .last_mut()
+                .map(|open| open.view.activate(&row, &query, &host));
+            if let Some(outcome) = outcome {
+                self.apply_outcome(outcome, &row, &query, window, cx);
             }
             return;
         }
@@ -789,6 +840,9 @@ impl LauncherView {
             return;
         };
         self.rows = open.view.rows(&self.input.text);
+        if let Some(status) = open.view.status() {
+            self.status = Some(status);
+        }
         self.selected = if self.rows.get(self.selected).is_some_and(Row::is_selectable) {
             self.selected
         } else {
@@ -864,7 +918,9 @@ impl LauncherView {
         let modifiers = event.keystroke.modifiers;
         match event.keystroke.key.as_str() {
             "escape" => self.back_or_dismiss(window, cx),
-            "enter" if !event.is_held => self.navigate(Navigation::Activate, window, cx),
+            "enter" if !event.is_held && (!modifiers.shift || self.stack.is_empty()) => {
+                self.navigate(Navigation::Activate, window, cx)
+            }
             "down" => self.navigate(Navigation::Down, window, cx),
             "up" => self.navigate(Navigation::Up, window, cx),
             "backspace" if self.input.text.is_empty() && !self.stack.is_empty() => {
@@ -875,6 +931,21 @@ impl LauncherView {
                 self.search(window, cx);
             }
             "h" if modifiers.control => self.toggle_suggestion(window, cx),
+            "p" if modifiers.control => {
+                if !self.secondary(Secondary::Pin, window, cx) {
+                    return;
+                }
+            }
+            "d" if modifiers.control => {
+                if !self.secondary(Secondary::Delete, window, cx) {
+                    return;
+                }
+            }
+            "enter" if modifiers.shift && !event.is_held && !self.stack.is_empty() => {
+                if !self.secondary(Secondary::Alternate, window, cx) {
+                    return;
+                }
+            }
             "tab" => {
                 let Some(status) = self.stack.last_mut().and_then(|open| open.view.tab()) else {
                     return;
@@ -1262,7 +1333,12 @@ impl Render for LauncherView {
                 _ => "↑ ↓ select · Enter launch · Esc close".into(),
             }
         } else {
-            "↑ ↓ select · Enter choose · Esc back".into()
+            let hint = self.stack.last().map_or("", |open| open.view.hint());
+            if hint.is_empty() {
+                "↑ ↓ select · Enter choose · Esc back".into()
+            } else {
+                format!("↑ ↓ select · Enter choose · {hint} · Esc back")
+            }
         };
         let panel = div()
             .id("launcher-panel")

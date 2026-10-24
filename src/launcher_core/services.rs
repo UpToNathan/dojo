@@ -342,33 +342,39 @@ pub fn search(units: &[ServiceUnit], query: &str, matcher: &mut Matcher) -> Vec<
     for (index, unit) in units.iter().enumerate() {
         let full = Utf32String::from(unit.display_name().as_str());
         let short = Utf32String::from(unit.short_name().as_str());
-        let tier = if exact.score(full.slice(..), matcher).is_some()
+        let (tier, score) = if exact.score(full.slice(..), matcher).is_some()
             || exact.score(short.slice(..), matcher).is_some()
         {
-            0
+            (0, 0)
         } else if prefix.score(full.slice(..), matcher).is_some() {
-            1
-        } else if pattern.score(full.slice(..), matcher).is_some() {
-            2
-        } else if pattern
-            .score(
-                Utf32String::from(unit.description.as_str()).slice(..),
-                matcher,
-            )
-            .is_some()
+            (1, 0)
+        } else if let Some(score) = [&full, &short]
+            .into_iter()
+            .filter_map(|name| pattern.score(name.slice(..), matcher))
+            .max()
         {
-            3
+            (2, score)
+        } else if let Some(score) = pattern.score(
+            Utf32String::from(unit.description.as_str()).slice(..),
+            matcher,
+        ) {
+            (3, score)
         } else {
             continue;
         };
-        matched.push((tier, index));
+        matched.push((tier, score, index));
     }
-    matched.sort_by(|&(left_tier, left), &(right_tier, right)| {
-        left_tier
-            .cmp(&right_tier)
-            .then_with(|| default_order(&units[left], &units[right]))
-    });
-    matched.into_iter().map(|(_, index)| index).collect()
+    // Within a fuzzy tier the better match comes first; units that match equally well keep the
+    // default order (failed, active, then by name).
+    matched.sort_by(
+        |&(left_tier, left_score, left), &(right_tier, right_score, right)| {
+            left_tier
+                .cmp(&right_tier)
+                .then_with(|| right_score.cmp(&left_score))
+                .then_with(|| default_order(&units[left], &units[right]))
+        },
+    );
+    matched.into_iter().map(|(_, _, index)| index).collect()
 }
 
 // ---------------------------------------------------------------------------------------------

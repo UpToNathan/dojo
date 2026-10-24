@@ -3,8 +3,14 @@
 //! A view is plain data plus logic. It never touches the window, so it can be tested alone; the
 //! launcher draws its rows and carries out the [`Outcome`] of an activation.
 
+mod clipboard;
+mod color;
 mod emoji;
+mod loader;
+mod processes;
+mod services;
 mod snippets;
+mod windows;
 
 use std::sync::Arc;
 
@@ -22,10 +28,18 @@ pub struct Host {
     pub clipboard: Option<String>,
 }
 
+/// Keys a view can claim besides Enter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Secondary {
+    /// Ctrl+P: pin or favourite the row.
+    Pin,
+    /// Ctrl+D: delete the row, or the stronger form of its action.
+    Delete,
+    /// Shift+Enter: the alternative to Enter (for example, show a unit's log).
+    Alternate,
+}
+
 /// What the launcher does after a row of a view is activated.
-// No view ships with the foundation; each command's view constructs the variants it needs.
-#[cfg_attr(not(test), allow(dead_code))]
-#[derive(Debug, PartialEq, Eq)]
 pub enum Outcome {
     /// Keep the view open (the row changed state, or was refused with nothing to say).
     Stay,
@@ -37,6 +51,35 @@ pub enum Outcome {
     Error(String),
     /// Say something in the status line without it being an error, and ask for the rows again.
     Notice(String),
+    /// Close the launcher, then run the job on another thread. For work that needs the screen
+    /// clear, such as picking a colour from it.
+    After(Box<dyn FnOnce() + Send>),
+}
+
+impl std::fmt::Debug for Outcome {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Stay => formatter.write_str("Stay"),
+            Self::Close => formatter.write_str("Close"),
+            Self::Copy(text) => formatter.debug_tuple("Copy").field(text).finish(),
+            Self::Error(message) => formatter.debug_tuple("Error").field(message).finish(),
+            Self::Notice(message) => formatter.debug_tuple("Notice").field(message).finish(),
+            Self::After(_) => formatter.write_str("After(..)"),
+        }
+    }
+}
+
+/// Outcomes compare by what they say. A job to run afterwards equals nothing, itself included.
+impl PartialEq for Outcome {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Stay, Self::Stay) | (Self::Close, Self::Close) => true,
+            (Self::Copy(left), Self::Copy(right))
+            | (Self::Error(left), Self::Error(right))
+            | (Self::Notice(left), Self::Notice(right)) => left == right,
+            _ => false,
+        }
+    }
 }
 
 pub trait View {
@@ -61,6 +104,23 @@ pub trait View {
         None
     }
 
+    /// A claimed secondary key on `row`. `None` means the view does not use that key.
+    fn secondary(&mut self, key: Secondary, row: &Row, host: &Host) -> Option<Outcome> {
+        let _ = (key, row, host);
+        None
+    }
+
+    /// Key hints appended to the status line, such as "Ctrl+P pin".
+    fn hint(&self) -> &str {
+        ""
+    }
+
+    /// A message the view wants in the status line after its rows were requested, such as the
+    /// result of work it did in the background. Taken, so it shows once.
+    fn status(&mut self) -> Option<String> {
+        None
+    }
+
     /// Shown in the status line when `rows` is empty.
     fn empty_text(&self, query: &str) -> String {
         if query.is_empty() {
@@ -80,6 +140,10 @@ pub fn default_factory() -> ViewFactory {
     Arc::new(|command| match command {
         CommandId::Emoji => Some(Box::new(emoji::EmojiView::new())),
         CommandId::Snippets => Some(Box::new(snippets::SnippetsView::new())),
-        _ => None,
+        CommandId::ClipboardHistory => Some(Box::new(clipboard::ClipboardView::new())),
+        CommandId::Windows => Some(Box::new(windows::WindowsView::new())),
+        CommandId::PickColor => Some(Box::new(color::ColorView::new())),
+        CommandId::Processes => Some(Box::new(processes::ProcessesView::new())),
+        CommandId::Services => Some(Box::new(services::ServicesView::new())),
     })
 }
