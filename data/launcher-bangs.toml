@@ -1,0 +1,263 @@
+# Tracked bang list for the launcher (src/launcher_core/bangs.rs embeds this file).
+#
+# Every search `url` was requested with a test query on 2026-10-24. Comments mark entries that
+# answered curl with 403, a captcha or a login wall; those could not be checked further.
+# `{}` is the query and appears exactly once, after the host. `home` is what a bare bang opens;
+# it defaults to the template's scheme and host. Entries with best_effort = true are sites that may
+# stop honouring the query.
+# The user file ~/.config/dojo/bangs.toml uses the same format and wins on a clash.
+
+default_engine = "ddg"
+
+
+# Search engines
+
+[[bang]]
+trigger = "g"
+name = "Google"
+url = "https://www.google.com/search?q={}"
+
+[[bang]]
+trigger = "ddg"
+name = "DuckDuckGo"
+url = "https://duckduckgo.com/?q={}"
+
+[[bang]]
+trigger = "b"
+name = "Bing"
+url = "https://www.bing.com/search?q={}"
+
+[[bang]]
+trigger = "brave"
+name = "Brave Search"
+url = "https://search.brave.com/search?q={}"
+
+# redirects to the login page without a Kagi session
+[[bang]]
+trigger = "kagi"
+name = "Kagi"
+url = "https://kagi.com/search?q={}"
+
+[[bang]]
+trigger = "gi"
+name = "Google Images"
+url = "https://www.google.com/search?tbm=isch&q={}"
+home = "https://images.google.com/"
+
+
+# Dev
+
+[[bang]]
+trigger = "gh"
+name = "GitHub"
+url = "https://github.com/search?q={}"
+
+# curl is redirected to a captcha page (bot blocking)
+[[bang]]
+trigger = "so"
+name = "Stack Overflow"
+url = "https://stackoverflow.com/search?q={}"
+
+[[bang]]
+trigger = "mdn"
+name = "MDN"
+url = "https://developer.mozilla.org/en-US/search?q={}"
+home = "https://developer.mozilla.org/"
+
+# 404 to curl unless an Accept header is sent; 200 with one
+[[bang]]
+trigger = "crates"
+name = "crates.io"
+url = "https://crates.io/search?q={}"
+
+[[bang]]
+trigger = "docsrs"
+name = "docs.rs"
+url = "https://docs.rs/releases/search?query={}"
+home = "https://docs.rs/"
+
+[[bang]]
+trigger = "std"
+name = "Rust std"
+url = "https://doc.rust-lang.org/std/?search={}"
+home = "https://doc.rust-lang.org/std/"
+
+# 403 to curl (bot blocking); not checked in a browser
+[[bang]]
+trigger = "npm"
+name = "npm"
+url = "https://www.npmjs.com/search?q={}"
+
+[[bang]]
+trigger = "pypi"
+name = "PyPI"
+url = "https://pypi.org/search/?q={}"
+
+[[bang]]
+trigger = "go"
+name = "pkg.go.dev"
+url = "https://pkg.go.dev/search?q={}"
+
+[[bang]]
+trigger = "cpp"
+name = "cppreference"
+url = "https://en.cppreference.com/index.php?search={}"
+
+[[bang]]
+trigger = "hn"
+name = "Hacker News"
+url = "https://hn.algolia.com/?q={}"
+
+
+# Linux, Arch and Nix
+
+[[bang]]
+trigger = "aw"
+name = "ArchWiki"
+url = "https://wiki.archlinux.org/index.php?search={}"
+
+[[bang]]
+trigger = "aur"
+name = "AUR"
+url = "https://aur.archlinux.org/packages?K={}"
+
+[[bang]]
+trigger = "pkg"
+name = "Arch packages"
+url = "https://archlinux.org/packages/?q={}"
+
+[[bang]]
+trigger = "man"
+name = "Arch man pages"
+url = "https://man.archlinux.org/search?q={}"
+
+[[bang]]
+trigger = "nix"
+name = "nixpkgs packages"
+url = "https://search.nixos.org/packages?query={}"
+
+[[bang]]
+trigger = "nixo"
+name = "NixOS options"
+url = "https://search.nixos.org/options?query={}"
+
+[[bang]]
+trigger = "hm"
+name = "Home Manager options"
+url = "https://home-manager-options.extranix.com/?query={}"
+
+[[bang]]
+trigger = "flat"
+name = "Flathub"
+url = "https://flathub.org/en/apps/search?q={}"
+home = "https://flathub.org/"
+
+
+# Reference
+
+[[bang]]
+trigger = "w"
+name = "Wikipedia"
+url = "https://en.wikipedia.org/w/index.php?search={}"
+
+[[bang]]
+trigger = "wt"
+name = "Wiktionary"
+url = "https://en.wiktionary.org/w/index.php?search={}"
+
+[[bang]]
+trigger = "wa"
+name = "Wolfram Alpha"
+url = "https://www.wolframalpha.com/input?i={}"
+
+[[bang]]
+trigger = "tr"
+name = "Google Translate"
+url = "https://translate.google.com/?sl=auto&text={}"
+
+# 202 to curl (bot challenge); not checked in a browser
+[[bang]]
+trigger = "imdb"
+name = "IMDb"
+url = "https://www.imdb.com/find/?q={}"
+
+
+# Media and social
+
+[[bang]]
+trigger = "yt"
+name = "YouTube"
+url = "https://www.youtube.com/results?search_query={}"
+
+[[bang]]
+trigger = "ytm"
+name = "YouTube Music"
+url = "https://music.youtube.com/search?q={}"
+
+# query goes in the path, so spaces become %20
+[[bang]]
+trigger = "sp"
+name = "Spotify"
+url = "https://open.spotify.com/search/{}"
+
+[[bang]]
+trigger = "tw"
+name = "Twitch"
+url = "https://www.twitch.tv/search?term={}"
+
+[[bang]]
+trigger = "r"
+name = "Reddit"
+url = "https://www.reddit.com/search/?q={}"
+
+# asks for a login without a session
+[[bang]]
+trigger = "x"
+name = "X"
+url = "https://x.com/search?q={}"
+
+
+# Maps and shopping
+
+[[bang]]
+trigger = "maps"
+name = "Google Maps"
+url = "https://www.google.com/maps/search/{}"
+home = "https://www.google.com/maps"
+
+[[bang]]
+trigger = "osm"
+name = "OpenStreetMap"
+url = "https://www.openstreetmap.org/search?query={}"
+
+[[bang]]
+trigger = "a"
+name = "Amazon"
+url = "https://www.amazon.com/s?k={}"
+
+# 403 to curl (bot blocking); not checked in a browser
+[[bang]]
+trigger = "ebay"
+name = "eBay"
+url = "https://www.ebay.com/sch/i.html?_nkw={}"
+
+
+# AI (best effort: these sites may ignore the prefilled query or change the parameter)
+
+[[bang]]
+trigger = "gpt"
+name = "ChatGPT"
+url = "https://chatgpt.com/?q={}"
+best_effort = true
+
+[[bang]]
+trigger = "claude"
+name = "Claude"
+url = "https://claude.ai/new?q={}"
+best_effort = true
+
+[[bang]]
+trigger = "pplx"
+name = "Perplexity"
+url = "https://www.perplexity.ai/search/new?q={}"
+best_effort = true
