@@ -54,7 +54,7 @@ class Runner:
         return result.returncode == 0
 
 
-def update_arch(runner, days, now, source="omarchy-stable"):
+def update_arch(runner, days, now, source="archive"):
     if not shutil.which("pacman"):
         runner.report("arch", "skipped", "pacman is not installed")
         return
@@ -140,9 +140,9 @@ def main(argv=None):
     parser.add_argument("--only", help="comma-separated groups to run")
     parser.add_argument("--skip", default="", help="comma-separated groups to skip")
     parser.add_argument("--buffer-days", type=nonnegative, default=3, help="minimum version age in days (default: 3); pi/opencode/codex/claude/t3code are exempt")
-    parser.add_argument("--arch-source", choices=("omarchy-stable", "archive"), default="omarchy-stable",
-                        help="snapshot for buffered Arch updates: Omarchy's delayed stable mirror (default) "
-                             "or an Arch Linux Archive snapshot at least --buffer-days old")
+    parser.add_argument("--arch-source", choices=("archive", "omarchy-stable"), default="archive",
+                        help="snapshot for buffered Arch updates: an Arch Linux Archive snapshot at least "
+                             "--buffer-days old (default), or Omarchy's faster, unsigned stable mirror")
     parser.add_argument("--keep-pins", action="store_true", help="use existing devenv.yaml input revisions")
     args = parser.parse_args(argv)
     if args.list:

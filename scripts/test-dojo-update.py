@@ -90,12 +90,12 @@ class UpdateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no supported dated snapshot"):
             updater.omarchy_stable_config("[options]\n[custom]\nServer = https://latest/\n")
 
-    def test_arch_defaults_to_omarchy_stable_and_archive_is_selectable(self):
+    def test_arch_defaults_to_archive_and_omarchy_stable_is_opt_in(self):
         with patch.object(Path, "read_text", return_value="[options]\n[core]\nInclude = /mirrorlist\n"):
             _, output, _ = self.run_cli(["--dry-run", "--only", "arch"])
-            self.assertIn("<omarchy-stable>", output)
-            _, output, _ = self.run_cli(["--dry-run", "--only", "arch", "--arch-source", "archive"])
             self.assertIn("<snapshot-", output)
+            _, output, _ = self.run_cli(["--dry-run", "--only", "arch", "--arch-source", "omarchy-stable"])
+            self.assertIn("<omarchy-stable>", output)
 
     def test_concurrent_run_rejected(self):
         with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {"XDG_STATE_HOME": temporary}), \
