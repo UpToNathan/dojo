@@ -8,9 +8,12 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import stat
+import subprocess
 import sys
 import tempfile
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -19,6 +22,12 @@ INPUT = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
 URL = re.compile(r"^(    url:\s*)([^\r\n]*)(\r?\n)?$")
 PIN = re.compile(r"github:([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/([0-9a-fA-F]{40})(\?[^\s'\"]*)?")
 UNBUFFERED = {"pi", "opencode", "codex", "claude", "t3code"}
+# A nixpkgs revision is only useful here once Hydra has built the heavy packages; otherwise every
+# host compiles Qt, Mesa and GStreamer for hours. These packages stand in for the rest.
+CACHED_INPUT = "nixpkgs"
+CANARIES = ("qt6.qtbase", "mesa", "librsvg", "gst_all_1.gstreamer", "glib")
+CACHE = "https://cache.nixos.org"
+CACHE_CANDIDATES = 40
 
 
 def parse_pins(source):
@@ -112,6 +121,46 @@ def default_revision(owner, repository, cutoff):
     return revision
 
 
+def store_path_cached(owner, repository, revision, attribute):
+    result = subprocess.run(["nix", "eval", "--raw", f"github:{owner}/{repository}/{revision}#{attribute}.outPath"],
+                            capture_output=True, text=True, timeout=300, check=False)
+    path = result.stdout.strip()
+    if result.returncode != 0 or not path.startswith("/nix/store/"):
+        return False
+    digest = path.split("/")[-1].split("-", 1)[0]
+    try:
+        with urlopen(Request(f"{CACHE}/{digest}.narinfo", method="HEAD", headers={"User-Agent": "dojo-update"}),
+                     timeout=30):
+            return True
+    except HTTPError as error:
+        if error.code == 404:
+            return False
+        raise
+
+
+def cached_revision(owner, repository, cutoff):
+    """Newest eligible revision whose canary packages are in the binary cache."""
+    if not shutil.which("nix"):
+        raise ValueError("nix is required to check which nixpkgs revision is cached")
+    parameters = {"per_page": "100", "until": cutoff.isoformat().replace("+00:00", "Z")}
+    commits = github_json(f"repos/{owner}/{repository}/commits?{urlencode(parameters)}")
+    if not isinstance(commits, list):
+        raise ValueError(f"GitHub returned no commits for {owner}/{repository}")
+    trees = set()
+    for commit in commits:
+        revision = commit.get("sha")
+        tree = commit.get("commit", {}).get("tree", {}).get("sha")
+        if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision) or tree in trees:
+            continue
+        trees.add(tree)
+        if len(trees) > CACHE_CANDIDATES:
+            break
+        if all(store_path_cached(owner, repository, revision, attribute) for attribute in CANARIES):
+            return revision
+    raise ValueError(f"No {owner}/{repository} revision in the last {CACHE_CANDIDATES} trees has "
+                     f"{', '.join(CANARIES)} in {CACHE}")
+
+
 def snapshot(path):
     with path.open("rb") as source:
         metadata = os.fstat(source.fileno())
@@ -179,8 +228,11 @@ def refresh(repo, dry_run=False, buffer_days=3):
         for name, index, start, owner, repository, old in pins:
             input_cutoff = None if name in UNBUFFERED else cutoff
             key = (owner, repository, input_cutoff)
+            if name == CACHED_INPUT and input_cutoff is not None:
+                key = key + ("cached",)
             if key not in revisions:
-                revisions[key] = default_revision(*key)
+                revisions[key] = cached_revision(*key[:3]) if name == CACHED_INPUT and input_cutoff is not None \
+                    else default_revision(*key)
             new = revisions[key]
             lines[index] = lines[index][:start] + new + lines[index][start + 40:]
             changes.append((name, old, new))

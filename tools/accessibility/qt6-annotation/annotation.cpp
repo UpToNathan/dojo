@@ -185,7 +185,7 @@ private:
         auto *root = window->accessibleRoot();
         if (!surface || !root || !root->isValid() || root->role() == QAccessible::Application)
             return std::nullopt;
-        // Qt 6.11.2 AtSpiAdaptor::pathForInterface, also reused by Qt change 717474.
+        // Qt 6.12.0 AtSpiAdaptor::pathForInterface, also reused by Qt change 717474.
         const auto id = QAccessible::uniqueId(root);
         if (static_cast<int>(id) >= 0)
             return std::nullopt;
@@ -288,7 +288,7 @@ public:
     {
         if (key != QString::fromUtf8(DOJO_ANNOTATION_KEY)) {
             if (key == QStringLiteral("dojo-qt5-annotation-5.15.19")
-                || key == QStringLiteral("dojo-qt6-annotation-6.11.2"))
+                || key == QStringLiteral("dojo-qt6-annotation-6.12.0"))
                 return new QObject;
             return nullptr;
         }

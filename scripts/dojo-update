@@ -14,7 +14,7 @@ import subprocess
 import sys
 import tempfile
 
-from arch_packages import archive_config
+from arch_packages import archive_config, omarchy_stable_config
 
 
 GROUPS = ("arch", "nix", "npm", "cargo", "mise", "codex", "claude", "t3code", "nvim", "inventory", "dojo")
@@ -54,18 +54,24 @@ class Runner:
         return result.returncode == 0
 
 
-def update_arch(runner, days, now):
+def update_arch(runner, days, now, source="archive"):
     if not shutil.which("pacman"):
         runner.report("arch", "skipped", "pacman is not installed")
         return
     if days == 0:
         runner.command("arch", ["sudo", "pacman", "-Syu"])
         return
-    # Use the previous UTC day's snapshot to guarantee at least N full days.
-    date = (now - dt.timedelta(days=days + 1)).strftime("%Y/%m/%d")
-    config = archive_config(Path("/etc/pacman.conf").read_text(), date)
+    if source == "omarchy-stable":
+        # Omarchy's delay is its own, not --buffer-days.
+        label = "<omarchy-stable>"
+        config = omarchy_stable_config(Path("/etc/pacman.conf").read_text())
+    else:
+        # Use the previous UTC day's snapshot to guarantee at least N full days.
+        date = (now - dt.timedelta(days=days + 1)).strftime("%Y/%m/%d")
+        label = f"<snapshot-{date}>"
+        config = archive_config(Path("/etc/pacman.conf").read_text(), date)
     if runner.dry_run:
-        runner.command("arch", ["sudo", "pacman", "--config", f"<snapshot-{date}>", "-Syyu"])
+        runner.command("arch", ["sudo", "pacman", "--config", label, "-Syyu"])
         return
     with tempfile.NamedTemporaryFile(mode="w", prefix="dojo-pacman-", suffix=".conf") as stream:
         stream.write(config)
@@ -77,7 +83,7 @@ def update_group(group, runner, args, now):
     days = args.buffer_days
     cutoff = (now - dt.timedelta(days=days)).isoformat()
     if group == "arch":
-        update_arch(runner, days, now)
+        update_arch(runner, days, now, args.arch_source)
     elif group == "nix":
         ready = True
         if not args.keep_pins:
@@ -86,7 +92,16 @@ def update_group(group, runner, args, now):
         ready = runner.command("nix-lock", ["devenv", "update"], ready)
         runner.command("nix-home", ["devenv", "machines", "deploy", socket.gethostname()], ready)
     elif group == "npm":
-        runner.command("npm", ["npm", "update", "--global", f"--before={cutoff}"])
+        # home-manager.nix sets NPM_CONFIG_PREFIX for desktop sessions, not for ssh logins. Without it
+        # npm targets the read-only Nix store.
+        prefix = Path(os.environ.get("NPM_CONFIG_PREFIX") or Path.home() / ".local/npm")
+        if not shutil.which("npm"):
+            runner.report("npm", "skipped", "npm is not installed")
+        elif not prefix.is_dir():
+            runner.report("npm", "skipped", f"no global packages installed under {prefix}")
+        else:
+            runner.command("npm", ["env", f"NPM_CONFIG_PREFIX={prefix}", "npm", "update", "--global",
+                                   f"--before={cutoff}"])
     elif group == "cargo":
         runner.command("cargo", [sys.executable, str(runner.repo / "scripts/update-cargo-tools.py"),
                                  "--buffer-days", str(days)])
@@ -95,7 +110,11 @@ def update_group(group, runner, args, now):
         runner.report("mise-self", "manual", "packslip owns mise; its installer has no release-age filter")
     elif group in ("codex", "claude", "t3code"):
         tool = "t3" if group == "t3code" else group
-        runner.command(group, [tool, "update"])
+        # The t3 wrapper is installed everywhere, but the app it runs is placed by hand.
+        if group == "t3code" and not (Path.home() / ".local/opt/t3code/t3code").exists():
+            runner.report(group, "skipped", "T3 Code is not installed in ~/.local/opt/t3code")
+        else:
+            runner.command(group, [tool, "update"])
     elif group == "nvim":
         if days:
             runner.report("nvim", "held", "Lazy has no release-age filter; use --buffer-days 0 --only nvim")
@@ -134,6 +153,9 @@ def main(argv=None):
     parser.add_argument("--only", help="comma-separated groups to run")
     parser.add_argument("--skip", default="", help="comma-separated groups to skip")
     parser.add_argument("--buffer-days", type=nonnegative, default=3, help="minimum version age in days (default: 3); pi/opencode/codex/claude/t3code are exempt")
+    parser.add_argument("--arch-source", choices=("archive", "omarchy-stable"), default="archive",
+                        help="snapshot for buffered Arch updates: an Arch Linux Archive snapshot at least "
+                             "--buffer-days old (default), or Omarchy's faster, unsigned stable mirror")
     parser.add_argument("--keep-pins", action="store_true", help="use existing devenv.yaml input revisions")
     args = parser.parse_args(argv)
     if args.list:

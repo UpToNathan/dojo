@@ -1,5 +1,5 @@
 Qt source notices retained for adapted AtSpiAdaptor and bridge code.
-Source: qtbase ef55f427f2c8b410d34f8a7681020a3000cf6866
+Source: qtbase 025bdad181de241e81bf853c8a2d7bf3d19261a9
 src/gui/accessible/linux/atspiadaptor.cpp
 src/gui/accessible/linux/qspiaccessiblebridge.cpp
 

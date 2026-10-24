@@ -1,8 +1,8 @@
 {
   "qt": {
-    "version": "6.11.2",
+    "version": "6.12.0",
     "repository": "https://code.qt.io/qt/qtbase.git",
-    "commit": "ef55f427f2c8b410d34f8a7681020a3000cf6866",
+    "commit": "025bdad181de241e81bf853c8a2d7bf3d19261a9",
     "reused": [
       "src/gui/accessible/linux/atspiadaptor.cpp:pathForInterface",
       "src/gui/accessible/linux/qspiaccessiblebridge.cpp:dBusConnection and instance",
@@ -16,7 +16,7 @@
     "change": 717474,
     "patchset": 3,
     "commit": "57b655a0621457aa75e8f4dd4cde914f6a91c254",
-    "adaptations": "Move exact root/owner/surface publication into QGenericPlugin using existing Qt 6.11.2 private exports; track lifecycle and verify root asynchronously before announcing. Use canonical newer XML."
+    "adaptations": "Move exact root/owner/surface publication into QGenericPlugin using existing Qt 6.12.0 private exports; track lifecycle and verify root asynchronously before announcing. Use canonical newer XML."
   },
   "protocol": {
     "repository": "https://gitlab.freedesktop.org/wayland/wayland-protocols",
@@ -30,17 +30,17 @@
   "license_files": [
     {
       "path": "licenses/LGPL-3.0-only.txt",
-      "upstream_url": "https://code.qt.io/cgit/qt/qtbase.git/plain/LICENSES/LGPL-3.0-only.txt?id=ef55f427f2c8b410d34f8a7681020a3000cf6866",
+      "upstream_url": "https://code.qt.io/cgit/qt/qtbase.git/plain/LICENSES/LGPL-3.0-only.txt?id=025bdad181de241e81bf853c8a2d7bf3d19261a9",
       "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
     },
     {
       "path": "licenses/GPL-3.0-only.txt",
-      "upstream_url": "https://code.qt.io/cgit/qt/qtbase.git/plain/LICENSES/GPL-3.0-only.txt?id=ef55f427f2c8b410d34f8a7681020a3000cf6866",
+      "upstream_url": "https://code.qt.io/cgit/qt/qtbase.git/plain/LICENSES/GPL-3.0-only.txt?id=025bdad181de241e81bf853c8a2d7bf3d19261a9",
       "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
     }
   ],
   "upstream_notice": {
     "path": "licenses/UPSTREAM-NOTICE.txt",
-    "sha256": "63af9e4b58a38be524483b702b315611c318247cc88697396d8535b2d9d33949"
+    "sha256": "1ae52300b8a95648232497a9114f78693a9045931d08d62e6a9d5e78496f1ce8"
   }
 }

@@ -40,7 +40,7 @@ int main(int argc, char **argv)
                 || QAccessible::uniqueId(firstRoot) == QAccessible::uniqueId(secondRoot))
                 qFatal("Fixture roots must be distinct within one application");
             const auto plugins = qgetenv("QT_QPA_GENERIC_PLUGINS");
-            const bool pluginExpected = plugins.contains("dojo-qt6-annotation-6.11.2")
+            const bool pluginExpected = plugins.contains("dojo-qt6-annotation-6.12.0")
                 || plugins.contains("dojo-qt5-annotation-5.15.19");
             const bool loaded = app.property("dojoQt6AnnotationLoaded").toBool();
             const bool expectRefusal = app.arguments().contains("--expect-plugin-refusal");

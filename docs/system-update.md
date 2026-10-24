@@ -42,15 +42,29 @@ restart. The updater does not pull this checkout or replace the vendored Niri fo
 
 ## Version selection
 
-- Arch uses a complete [Arch Linux Archive](https://wiki.archlinux.org/title/Arch_Linux_Archive)
-  snapshot from the UTC date before the cutoff date. This guarantees at least
-  three full days of delay, sometimes longer. The temporary pacman configuration
-  preserves signing settings and repository order, replaces all official mirrors,
-  and performs a full system upgrade. Unsupported custom repositories fail the
-  step instead of mixing snapshots with current mirrors. Already-installed newer
-  packages are not downgraded. The machine's mirror configuration is unchanged.
+- Arch upgrades from one complete snapshot of the official repositories, chosen
+  with `--arch-source`. The default, `archive`, is an
+  [Arch Linux Archive](https://wiki.archlinux.org/title/Arch_Linux_Archive)
+  snapshot from the UTC date before the cutoff, which guarantees at least
+  `--buffer-days` full days of delay and has signed databases, but it can download
+  slowly. `--arch-source omarchy-stable` is faster: it uses Omarchy's stable channel
+  (`https://stable-mirror.omarchy.org`, pinned in `scripts/arch_packages.py`, so no
+  Omarchy install is needed). It runs about two days behind current when measured,
+  with no published guarantee, and `--buffer-days` does not apply to it. Its
+  databases are unsigned. Packages are still checked against the Arch keyring, but
+  the mirror could replay older signed packages or withhold updates, so use it only
+  if you trust Omarchy. Either way the temporary pacman configuration preserves
+  signing settings and repository order, replaces all official mirrors, and
+  performs a full system upgrade. Unsupported custom repositories fail the step
+  instead of mixing snapshots with current mirrors. Already-installed newer
+  packages are not downgraded. The machine's mirror configuration is unchanged,
+  and `--buffer-days 0` uses it directly.
 - Nix input declarations use default-branch GitHub commits at or before the
-  cutoff, except the exempt input names. The helper atomically changes only
+  cutoff, except the exempt input names. The `nixpkgs` input (devenv-nixpkgs)
+  instead takes the newest eligible revision whose `qt6.qtbase`, `mesa`, `librsvg`,
+  `gst_all_1.gstreamer` and `glib` are already in `cache.nixos.org`; otherwise every
+  host compiles them for hours. It needs `nix` and fails the refresh when none of
+  the last 40 distinct trees qualifies. The helper atomically changes only
   revision strings in `devenv.yaml` and preserves its formatting. Backups live in
   `$XDG_STATE_HOME/dojo-update`, normally `~/.local/state/dojo-update`.
   `devenv update` then refreshes `devenv.lock`, and

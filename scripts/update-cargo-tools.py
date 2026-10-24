@@ -216,6 +216,9 @@ def install_command(name, info, version):
 
 
 def update(home, buffer_days=3, dry_run=False, now=None):
+    if not (home / ".crates.toml").exists():
+        print("cargo: no crates.io binaries are installed")
+        return 0
     installs = load_installs(home)
     now = now or dt.datetime.now(dt.timezone.utc)
     failures = 0

@@ -1,11 +1,11 @@
-# Qt 6.11.2 accessibility annotations
+# Qt 6.12.0 accessibility annotations
 
 This generic Qt plugin associates each visible native Wayland QWindow with that
 window's existing AT-SPI root. It uses the built-in accessibility bridge's actual
 connection and QWindow::accessibleRoot(). It does not select a window by PID,
 name, title, bounds, or enumeration order.
 
-The plugin requires the pinned Qt 6.11.2 package and its private ABI. CMake
+The plugin requires the pinned Qt 6.12.0 package and its private ABI. CMake
 requires the exact version; runtime setup also checks the Qt library directory.
 The source pins and copied protocol hash are in provenance.json. The small
 AtSpiAdaptor path conversion and annotation publication follow the pinned Qt
@@ -46,7 +46,7 @@ devenv shell -- cmake --build /tmp/dojo-qt6-annotation-build -j4
 
 The plugin is under the build directory's plugins/generic. Launch the fixture
 with QT_PLUGIN_PATH including that plugins directory and
-QT_QPA_GENERIC_PLUGINS including dojo-qt6-annotation-6.11.2. Preserve existing
+QT_QPA_GENERIC_PLUGINS including dojo-qt6-annotation-6.12.0. Preserve existing
 values. QT_QPA_PLATFORM=wayland selects the native backend. Enable AT-SPI with
 the session's accessibility settings or QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1.
 
@@ -71,7 +71,7 @@ session list does not produce a missing-key warning on supported runtimes.
 The Qt6 producer itself does not bind Qt5 accessibility.
 Bundled, sandboxed, differently built, or differently versioned Qt6 runtimes do
 not gain support automatically. The runtime package directory guard deliberately
-refuses a different Qt build even if it reports 6.11.2. Electron and GPUI clients
+refuses a different Qt build even if it reports 6.12.0. Electron and GPUI clients
 need their own producer.
 
 A successful build and fixture run prove loading and fixture lifecycle only.
