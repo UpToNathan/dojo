@@ -8,7 +8,7 @@ use dojo::launch_history::{self, LaunchHistory};
 use dojo::launcher_core::commands::{self, HiddenCommands};
 use dojo::launcher_core::inline::{InlineState, fallback_rows, inline_rows};
 use dojo::launcher_core::root::{RootInput, root_rows};
-use dojo::launcher_core::rows::{Row, RowAction};
+use dojo::launcher_core::rows::Row;
 
 use super::catalogue::Catalogue;
 
@@ -229,6 +229,7 @@ fn notify_ready(listeners: &mut Vec<async_channel::Sender<()>>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dojo::launcher_core::rows::RowAction;
     use std::fs;
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
