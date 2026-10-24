@@ -5,6 +5,10 @@ use anyhow::Context as _;
 use nucleo_matcher::Matcher;
 
 use dojo::launch_history::{self, LaunchHistory};
+use dojo::launcher_core::commands::{self, HiddenCommands};
+use dojo::launcher_core::inline::inline_rows;
+use dojo::launcher_core::root::{RootInput, root_rows};
+use dojo::launcher_core::rows::Row;
 
 use super::catalogue::Catalogue;
 
@@ -12,7 +16,7 @@ use super::catalogue::Catalogue;
 pub struct SearchResults {
     pub generation: u64,
     pub catalogue: Arc<Catalogue>,
-    pub matches: Vec<usize>,
+    pub rows: Vec<Row>,
 }
 
 #[derive(Default)]
@@ -71,6 +75,8 @@ impl SearchWorker {
             .spawn(move || {
                 let mut catalogue = None;
                 let mut history = LaunchHistory::default();
+                let mut hidden = HiddenCommands::default();
+                let available = commands::available();
                 let mut matcher = Matcher::new(nucleo_matcher::Config::DEFAULT);
                 loop {
                     let (generation, query, refresh_catalogue) = {
@@ -99,6 +105,10 @@ impl SearchWorker {
                             |_| LaunchHistory::default(),
                             |path| LaunchHistory::load(&path),
                         );
+                        hidden = commands::hidden_path().map_or_else(
+                            |_| HiddenCommands::default(),
+                            |path| HiddenCommands::load(&path),
+                        );
                         match discover() {
                             Ok(discovered) => catalogue = Some(Arc::new(discovered)),
                             Err(error) => {
@@ -114,11 +124,17 @@ impl SearchWorker {
                     let Some(catalogue) = catalogue.as_ref().cloned() else {
                         continue;
                     };
-                    let matches = catalogue.search_ranked(
-                        &query,
+                    let rows = root_rows(
+                        RootInput {
+                            catalogue: &catalogue,
+                            query: &query,
+                            history: &history,
+                            now_ms: launch_history::now_ms(),
+                            commands: &available,
+                            hidden: &hidden,
+                            inline: inline_rows(&query),
+                        },
                         &mut matcher,
-                        &history,
-                        launch_history::now_ms(),
                     );
                     let Ok(mut state) = worker_shared.0.lock() else {
                         return;
@@ -128,7 +144,7 @@ impl SearchWorker {
                         state.results = Some(SearchResults {
                             generation,
                             catalogue,
-                            matches,
+                            rows,
                         });
                         notify_ready(&mut state.listeners);
                     }
@@ -249,8 +265,8 @@ mod tests {
             .context("current launcher has no results")?;
         assert_eq!(results.generation, generation);
         assert_eq!(
-            results.catalogue.applications[results.matches[0]].name,
-            "Visible App"
+            results.rows.first().map(|row| row.title.as_str()),
+            Some("Visible App")
         );
         worker.stop();
         Ok(())
@@ -282,11 +298,8 @@ mod tests {
             .map_err(anyhow::Error::msg)?;
         let refreshed = wait_for_results(&worker, refreshed_generation)?;
 
-        assert_eq!(refreshed.matches.len(), 1);
-        assert_eq!(
-            refreshed.catalogue.applications[refreshed.matches[0]].name,
-            "New App"
-        );
+        assert_eq!(refreshed.rows.len(), 1);
+        assert_eq!(refreshed.rows[0].title, "New App");
         worker.stop();
         fs::remove_dir_all(root)?;
         Ok(())

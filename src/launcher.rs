@@ -1,5 +1,6 @@
 use dojo::application_catalogue as catalogue;
 mod input;
+mod views;
 mod worker;
 
 use std::collections::HashMap;
@@ -16,7 +17,10 @@ use gpui::{
 
 use crate::config::ThemeColors;
 use catalogue::Catalogue;
+use dojo::launcher_core::commands::{self, CommandId, HiddenCommands};
+use dojo::launcher_core::rows::{Row, RowAction, RowIcon, Step, first_selectable, step_selection};
 use input::SearchInput;
+use views::{Notify, Outcome, View, ViewFactory};
 use worker::SearchWorker;
 
 pub use dojo::control::LauncherNavigation as Navigation;
@@ -103,6 +107,7 @@ pub struct Launcher {
     /// The output `window` is bound to. A layer surface cannot change output.
     window_display: Option<gpui::DisplayId>,
     icon_cache: Arc<dojo_icon_cache::LinuxIcons>,
+    views: ViewFactory,
 }
 
 /// What a toggle did to the existing launcher window.
@@ -153,12 +158,38 @@ impl Launcher {
             icon_cache: Arc::new(launcher_icon_cache()?),
             window: None,
             window_display: None,
+            views: views::default_factory(),
         })
     }
 
     pub fn toggle(
         &mut self,
         display_id: Option<gpui::DisplayId>,
+        cx: &mut App,
+    ) -> anyhow::Result<()> {
+        self.show(display_id, None, cx)
+    }
+
+    /// Opens the launcher straight into a command's view, and keeps it open if it already is.
+    pub fn open_view(
+        &mut self,
+        display_id: Option<gpui::DisplayId>,
+        command: CommandId,
+        cx: &mut App,
+    ) -> anyhow::Result<()> {
+        self.show(display_id, Some(command), cx)
+    }
+
+    #[cfg(test)]
+    fn with_views(mut self, views: ViewFactory) -> Self {
+        self.views = views;
+        self
+    }
+
+    fn show(
+        &mut self,
+        display_id: Option<gpui::DisplayId>,
+        initial: Option<CommandId>,
         cx: &mut App,
     ) -> anyhow::Result<()> {
         let displays = cx.displays();
@@ -168,13 +199,16 @@ impl Launcher {
             let same_display = display_id.is_none()
                 || requested_display.as_ref().map(|display| display.id()) == self.window_display;
             // An error means the compositor closed the window, for example with its output.
-            match handle.update(cx, |view, window, cx| view.toggle(same_display, window, cx)) {
+            match handle.update(cx, |view, window, cx| {
+                view.toggle(same_display, initial, window, cx)
+            }) {
                 Ok(Toggled::Kept) => return Ok(()),
                 Ok(Toggled::Replaced) | Err(_) => self.window = None,
             }
         }
         let worker = self.worker.clone();
         let icon_cache = self.icon_cache.clone();
+        let views = self.views.clone();
         let display = requested_display
             .or_else(|| cx.primary_display())
             .or_else(|| displays.into_iter().next())
@@ -208,7 +242,10 @@ impl Launcher {
                         input: SearchInput::default(),
                         worker,
                         catalogue: None,
-                        matches: Vec::new(),
+                        rows: Vec::new(),
+                        stack: Vec::new(),
+                        views,
+                        status: None,
                         selected: 0,
                         generation: 0,
                         ready_generation: None,
@@ -232,6 +269,9 @@ impl Launcher {
                     };
                     view.listen_for_results(window, cx);
                     view.refresh(window, cx);
+                    if let Some(command) = initial {
+                        view.open_command(command, window, cx);
+                    }
                     view
                 })
             },
@@ -269,7 +309,13 @@ struct LauncherView {
     input: SearchInput,
     worker: SearchWorker,
     catalogue: Option<Arc<Catalogue>>,
-    matches: Vec<usize>,
+    /// What the list shows: the root list, or the open view's rows.
+    rows: Vec<Row>,
+    /// Open views, outermost first. Empty means the root list.
+    stack: Vec<OpenView>,
+    views: ViewFactory,
+    /// A line for the status bar that outlives one render (a hidden suggestion, a refusal).
+    status: Option<String>,
     selected: usize,
     generation: u64,
     ready_generation: Option<u64>,
@@ -291,6 +337,12 @@ struct LauncherView {
     icon_scale: Option<u16>,
 }
 
+/// A view the launcher has pushed, and the task that listens for its data changes.
+struct OpenView {
+    view: Box<dyn View>,
+    _listener: gpui::Task<()>,
+}
+
 impl LauncherView {
     fn navigate(&mut self, navigation: Navigation, window: &mut Window, cx: &mut Context<Self>) {
         if self.input.marked.is_some() {
@@ -298,17 +350,16 @@ impl LauncherView {
         }
         match navigation {
             Navigation::Up => {
-                self.selected = selection_after(self.selected, self.matches.len(), Navigation::Up);
+                self.selected = step_selection(&self.rows, self.selected, Step::Up);
                 self.load_icons(window, cx);
                 cx.notify();
             }
             Navigation::Down => {
-                self.selected =
-                    selection_after(self.selected, self.matches.len(), Navigation::Down);
+                self.selected = step_selection(&self.rows, self.selected, Step::Down);
                 self.load_icons(window, cx);
                 cx.notify();
             }
-            Navigation::Activate => self.launch_selected(window, cx),
+            Navigation::Activate => self.activate_selected(window, cx),
             Navigation::Dismiss => self.dismiss(window),
         }
     }
@@ -316,6 +367,14 @@ impl LauncherView {
     fn dismiss(&mut self, window: &mut Window) {
         self.reveal.set_open(false, std::time::Instant::now());
         window.refresh();
+    }
+
+    fn placeholder(&self) -> String {
+        match self.stack.last() {
+            Some(open) => open.view.placeholder().to_owned(),
+            None if commands::available().is_empty() => "Search applications…".into(),
+            None => "Search apps and commands…".into(),
+        }
     }
 
     fn phase(&self) -> Phase {
@@ -331,12 +390,18 @@ impl LauncherView {
     fn toggle(
         &mut self,
         same_display: bool,
+        initial: Option<CommandId>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Toggled {
         match toggle_action(self.phase(), same_display) {
+            // Asking for a view on a visible launcher goes there; it never closes the launcher.
             Action::Dismiss => {
-                self.dismiss(window);
+                if let Some(command) = initial {
+                    self.open_command(command, window, cx);
+                } else {
+                    self.dismiss(window);
+                }
                 Toggled::Kept
             }
             Action::DismissAndRetire | Action::Retire => {
@@ -347,6 +412,9 @@ impl LauncherView {
             // If the platform cannot map it again it is gone and the host opens a new one.
             Action::Reopen => {
                 if self.reopen(window, cx) {
+                    if let Some(command) = initial {
+                        self.open_command(command, window, cx);
+                    }
                     Toggled::Kept
                 } else {
                     Toggled::Replaced
@@ -364,9 +432,11 @@ impl LauncherView {
     fn reopen(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let now = std::time::Instant::now();
         self.input = SearchInput::default();
-        self.matches.clear();
+        self.stack.clear();
+        self.rows.clear();
         self.selected = 0;
         self.error = None;
+        self.status = None;
         self.launch = LaunchGate::default();
         self.input_bounds = None;
         self.input_line = None;
@@ -400,6 +470,7 @@ impl LauncherView {
         self.ready_generation = None;
         self.selected = 0;
         self.error = None;
+        self.status = None;
         match self.worker.refresh(self.input.text.clone()) {
             Ok(generation) => self.generation = generation,
             Err(error) => self.error = Some(error),
@@ -407,10 +478,16 @@ impl LauncherView {
         cx.notify();
     }
 
-    fn search(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    fn search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.error = None;
+        self.status = None;
+        if !self.stack.is_empty() {
+            self.selected = 0;
+            self.view_rows(window, cx);
+            return;
+        }
         self.ready_generation = None;
         self.selected = 0;
-        self.error = None;
         match self.worker.query(self.input.text.clone()) {
             Ok(generation) => self.generation = generation,
             Err(error) => self.error = Some(error),
@@ -434,8 +511,12 @@ impl LauncherView {
                                 this.icons.clear();
                             }
                             this.catalogue = Some(results.catalogue);
-                            this.matches = results.matches;
                             this.ready_generation = Some(this.generation);
+                            // A view's rows are not the root list's; the root list returns on pop.
+                            if this.stack.is_empty() {
+                                this.rows = results.rows;
+                                this.selected = first_selectable(&this.rows);
+                            }
                             this.load_icons(window, cx);
                             cx.notify();
                         }
@@ -466,14 +547,18 @@ impl LauncherView {
             return;
         };
         let requested = self
-            .matches
+            .rows
             .iter()
             .skip(self.selected.saturating_sub(9))
             .take(10)
+            .filter_map(|row| match row.icon {
+                RowIcon::Application(index) => Some(index),
+                _ => None,
+            })
             .filter(|index| {
                 !self.icons.contains_key(index) && !self.icon_misses.contains_key(index)
             })
-            .filter_map(|&index| {
+            .filter_map(|index| {
                 catalogue
                     .applications
                     .get(index)
@@ -535,13 +620,68 @@ impl LauncherView {
         }));
     }
 
-    fn launch_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.launch.busy || self.ready_generation != Some(self.generation) {
+    /// Enter (or a click) on the selected row.
+    fn activate_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.launch.busy {
             return;
         }
-        let Some(index) = self.matches.get(self.selected).copied() else {
+        let Some(row) = self.rows.get(self.selected).cloned() else {
             return;
         };
+        let query = self.input.text.clone();
+        if let Some(open) = self.stack.last_mut() {
+            match open.view.activate(&row, &query) {
+                Outcome::Stay => self.view_rows(window, cx),
+                Outcome::Close => self.dismiss(window),
+                Outcome::Copy(text) => {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+                    self.remember(&row, &query, cx);
+                    self.dismiss(window);
+                }
+                Outcome::Error(message) => {
+                    self.error = Some(message);
+                    cx.notify();
+                }
+            }
+            return;
+        }
+        if self.ready_generation != Some(self.generation) {
+            return;
+        }
+        match row.action {
+            RowAction::Launch(index) => self.launch_application(index, window, cx),
+            RowAction::Open(command) => {
+                self.remember(&row, &query, cx);
+                self.open_command(command, window, cx);
+            }
+            RowAction::Copy(text) => {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+                self.dismiss(window);
+            }
+            RowAction::OpenUrl(_) | RowAction::AskAgent(_) => {
+                self.error = Some("That action is not available yet".into());
+                cx.notify();
+            }
+            RowAction::Item(_) | RowAction::Header => {}
+        }
+    }
+
+    /// Remembers a row the user chose, so it ranks higher next time. Runs off the UI thread.
+    fn remember(&self, row: &Row, query: &str, cx: &mut Context<Self>) {
+        if row.id.is_empty() {
+            return;
+        }
+        let (id, query) = (row.id.clone(), query.to_owned());
+        cx.background_executor()
+            .spawn(async move {
+                if let Err(error) = dojo::launch_history::record_launch(&id, &query) {
+                    eprintln!("Dojo could not record the choice: {error:#}");
+                }
+            })
+            .detach();
+    }
+
+    fn launch_application(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(catalogue) = self.catalogue.clone() else {
             return;
         };
@@ -583,20 +723,138 @@ impl LauncherView {
         cx.notify();
     }
 
+    /// Pushes a command's view; says whether it opened. A command with no view reports why.
+    fn open_command(
+        &mut self,
+        command: CommandId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(mut view) = (self.views)(command) else {
+            self.error = Some(format!("{} is not available", command.command().title));
+            cx.notify();
+            return false;
+        };
+        let (changed, listen) = async_channel::bounded::<()>(1);
+        let notify: Notify = Arc::new(move || {
+            let _ = changed.try_send(());
+        });
+        view.open(notify);
+        let listener = cx.spawn_in(window, async move |this, cx| {
+            while listen.recv().await.is_ok() {
+                if this
+                    .update_in(cx, |this, window, cx| this.view_rows(window, cx))
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        });
+        self.stack.push(OpenView {
+            view,
+            _listener: listener,
+        });
+        self.input = SearchInput::default();
+        self.input_line = None;
+        self.error = None;
+        self.status = None;
+        self.selected = 0;
+        self.view_rows(window, cx);
+        true
+    }
+
+    /// Asks the open view for the rows matching the search box and shows them.
+    fn view_rows(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(open) = self.stack.last_mut() else {
+            return;
+        };
+        self.rows = open.view.rows(&self.input.text);
+        self.selected = if self.rows.get(self.selected).is_some_and(Row::is_selectable) {
+            self.selected
+        } else {
+            first_selectable(&self.rows)
+        };
+        self.ready_generation = Some(self.generation);
+        self.load_icons(window, cx);
+        cx.notify();
+    }
+
+    /// Leaves the open view for the one below it, or for the root list.
+    fn pop_view(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.stack.pop().is_none() {
+            return;
+        }
+        self.input = SearchInput::default();
+        self.input_line = None;
+        self.error = None;
+        self.status = None;
+        if self.stack.is_empty() {
+            // The root list for an empty search comes from the worker again.
+            self.refresh(window, cx);
+        } else {
+            self.view_rows(window, cx);
+        }
+    }
+
+    /// Escape: back out of a view, or close the launcher from the root list.
+    fn back_or_dismiss(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.stack.is_empty() {
+            self.dismiss(window);
+        } else {
+            self.pop_view(window, cx);
+        }
+    }
+
+    /// Ctrl+H on a command: take it out of (or put it back into) the empty launcher's suggestions.
+    fn toggle_suggestion(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(RowAction::Open(command)) =
+            self.rows.get(self.selected).map(|row| row.action.clone())
+        else {
+            return;
+        };
+        if !self.stack.is_empty() {
+            return;
+        }
+        let result = commands::hidden_path().and_then(|path| {
+            let mut hidden = HiddenCommands::load(&path);
+            let now_hidden = hidden.toggle(command);
+            hidden.save(&path).map(|()| now_hidden)
+        });
+        self.status = Some(match result {
+            Ok(true) => format!("{} hidden from suggestions", command.command().title),
+            Ok(false) => format!("{} shown in suggestions", command.command().title),
+            Err(error) => format!("Could not save that: {error:#}"),
+        });
+        // The worker reloads the hidden set whenever the catalogue refreshes.
+        match self.worker.refresh(self.input.text.clone()) {
+            Ok(generation) => {
+                self.generation = generation;
+                self.ready_generation = None;
+            }
+            Err(error) => self.error = Some(error),
+        }
+        let _ = window;
+        cx.notify();
+    }
+
     fn key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if self.input.marked.is_some() {
             return;
         }
         let modifiers = event.keystroke.modifiers;
         match event.keystroke.key.as_str() {
-            "escape" => self.navigate(Navigation::Dismiss, window, cx),
+            "escape" => self.back_or_dismiss(window, cx),
             "enter" if !event.is_held => self.navigate(Navigation::Activate, window, cx),
             "down" => self.navigate(Navigation::Down, window, cx),
             "up" => self.navigate(Navigation::Up, window, cx),
+            "backspace" if self.input.text.is_empty() && !self.stack.is_empty() => {
+                self.pop_view(window, cx);
+            }
             "backspace" => {
                 self.input.backspace();
                 self.search(window, cx);
             }
+            "h" if modifiers.control => self.toggle_suggestion(window, cx),
             "delete" => {
                 self.input.delete();
                 self.search(window, cx);
@@ -642,16 +900,6 @@ impl LauncherView {
         }
         window.prevent_default();
         cx.stop_propagation();
-    }
-}
-
-fn selection_after(selected: usize, matches_len: usize, navigation: Navigation) -> usize {
-    match navigation {
-        Navigation::Up => selected.saturating_sub(1),
-        Navigation::Down => selected
-            .saturating_add(1)
-            .min(matches_len.saturating_sub(1)),
-        Navigation::Activate | Navigation::Dismiss => selected,
     }
 }
 
@@ -782,7 +1030,7 @@ impl Render for LauncherView {
                 let view = input_entity.read(cx);
                 let focus = view.focus.clone();
                 let text: SharedString = if view.input.text.is_empty() {
-                    "Search applications…".into()
+                    view.placeholder().into()
                 } else {
                     view.input.text.clone().into()
                 };
@@ -875,71 +1123,119 @@ impl Render for LauncherView {
 
         let start = self.selected.saturating_sub(9);
         let mut rows = Vec::new();
-        if let Some(catalogue) = &self.catalogue {
-            for (position, &index) in self.matches.iter().enumerate().skip(start).take(10) {
-                let Some(app) = catalogue.applications.get(index) else {
-                    continue;
-                };
-                let icon: gpui::AnyElement = if let Some(Some(source)) = self.icons.get(&index) {
-                    gpui::img(source.clone()).size(px(22.)).into_any_element()
-                } else {
-                    div()
-                        .size(px(22.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_color(colors.foreground_muted.rgb())
-                        .child("◇")
-                        .into_any_element()
-                };
+        for (position, row) in self.rows.iter().enumerate().skip(start).take(10) {
+            if row.action == RowAction::Header {
                 rows.push(
                     div()
-                        .id(("launcher-result", position))
-                        .aria_label(format!("Launch {} ({})", app.name, app.id))
-                        .h(px(34.))
+                        .id(("launcher-header", position))
+                        .h(px(24.))
                         .px(px(8.))
-                        .rounded(px(17.))
                         .flex()
-                        .items_center()
-                        .gap(px(10.))
-                        .bg(if position == self.selected {
-                            colors.background_highlight.rgb()
-                        } else {
-                            colors.background.rgb()
-                        })
-                        .text_color(if position == self.selected {
-                            colors.selection_foreground.rgb()
-                        } else {
-                            colors.foreground.rgb()
-                        })
-                        .hover(|style| {
-                            style
-                                .bg(colors.background_highlight.rgb())
-                                .text_color(colors.selection_foreground.rgb())
-                        })
-                        .child(icon)
-                        .child(div().flex_1().overflow_hidden().child(app.name.clone()))
-                        .child(div().text_size(px(11.)).child(app.description.clone()))
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(move |this, _, window, cx| {
-                                this.selected = position;
-                                this.launch_selected(window, cx);
-                            }),
-                        ),
+                        .items_end()
+                        .text_size(px(11.))
+                        .text_color(colors.foreground_muted.rgb())
+                        .child(row.title.clone()),
                 );
+                continue;
             }
+            let muted = colors.foreground_muted.rgb();
+            let icon: gpui::AnyElement = match &row.icon {
+                RowIcon::Application(index) => {
+                    if let Some(Some(source)) = self.icons.get(index) {
+                        gpui::img(source.clone()).size(px(22.)).into_any_element()
+                    } else {
+                        div()
+                            .size(px(22.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_color(muted)
+                            .child("◇")
+                            .into_any_element()
+                    }
+                }
+                RowIcon::Glyph(text) => div()
+                    .size(px(22.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(text.clone())
+                    .into_any_element(),
+                RowIcon::Swatch([r, g, b]) => div()
+                    .size(px(18.))
+                    .m(px(2.))
+                    .rounded(px(5.))
+                    .bg(gpui::rgb(
+                        (u32::from(*r) << 16) | (u32::from(*g) << 8) | u32::from(*b),
+                    ))
+                    .border_1()
+                    .border_color(colors.border.rgb())
+                    .into_any_element(),
+                RowIcon::None => div().size(px(22.)).into_any_element(),
+            };
+            let label = match row.action {
+                RowAction::Launch(_) => format!("Launch {} ({})", row.title, row.id),
+                _ => row.title.clone(),
+            };
+            rows.push(
+                div()
+                    .id(("launcher-result", position))
+                    .aria_label(label)
+                    .h(px(34.))
+                    .px(px(8.))
+                    .rounded(px(17.))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .bg(if position == self.selected {
+                        colors.background_highlight.rgb()
+                    } else {
+                        colors.background.rgb()
+                    })
+                    .text_color(if position == self.selected {
+                        colors.selection_foreground.rgb()
+                    } else {
+                        colors.foreground.rgb()
+                    })
+                    .hover(|style| {
+                        style
+                            .bg(colors.background_highlight.rgb())
+                            .text_color(colors.selection_foreground.rgb())
+                    })
+                    .child(icon)
+                    .child(div().flex_1().overflow_hidden().child(row.title.clone()))
+                    .child(div().text_size(px(11.)).child(row.subtitle.clone()))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, window, cx| {
+                            this.selected = position;
+                            this.activate_selected(window, cx);
+                        }),
+                    ),
+            );
         }
         let status = if let Some(error) = &self.error {
             error.clone()
+        } else if let Some(status) = &self.status {
+            status.clone()
         } else if self.launch.busy {
             "Launching…".into()
         } else if self.ready_generation != Some(self.generation) {
             "Searching…".into()
-        } else if self.matches.is_empty() {
-            "No applications found".into()
+        } else if self.rows.iter().all(|row| !row.is_selectable()) {
+            match self.stack.last() {
+                Some(open) => open.view.empty_text(&self.input.text),
+                None => "No results found".into(),
+            }
+        } else if self.stack.is_empty() {
+            match self.rows.get(self.selected).map(|row| &row.action) {
+                Some(RowAction::Open(_)) => {
+                    "↑ ↓ select · Enter open · Ctrl+H hide · Esc close".into()
+                }
+                _ => "↑ ↓ select · Enter launch · Esc close".into(),
+            }
         } else {
-            "↑ ↓ select · Enter launch · Esc close".into()
+            "↑ ↓ select · Enter choose · Esc back".into()
         };
         let panel = div()
             .id("launcher-panel")
@@ -1028,7 +1324,7 @@ impl Render for LauncherView {
 
 #[cfg(test)]
 mod launch_tests {
-    use super::{Action, LaunchGate, Navigation, Phase, selection_after, toggle_action};
+    use super::{Action, LaunchGate, Phase, toggle_action};
 
     #[test]
     fn toggling_dismisses_an_open_launcher_and_reopens_a_hidden_one() {
@@ -1042,17 +1338,6 @@ mod launch_tests {
         assert_eq!(toggle_action(Phase::Open, false), Action::DismissAndRetire);
         assert_eq!(toggle_action(Phase::Closing, false), Action::Retire);
         assert_eq!(toggle_action(Phase::Hidden, false), Action::Remove);
-    }
-
-    #[test]
-    fn launcher_navigation_stays_within_results_and_handles_empty_search() {
-        assert_eq!(selection_after(0, 4, Navigation::Up), 0);
-        assert_eq!(selection_after(1, 4, Navigation::Up), 0);
-        assert_eq!(selection_after(2, 4, Navigation::Down), 3);
-        assert_eq!(selection_after(3, 4, Navigation::Down), 3);
-        assert_eq!(selection_after(0, 0, Navigation::Down), 0);
-        assert_eq!(selection_after(2, 4, Navigation::Activate), 2);
-        assert_eq!(selection_after(2, 4, Navigation::Dismiss), 2);
     }
 
     #[gpui::test]
@@ -1124,6 +1409,234 @@ mod launch_tests {
                 .unwrap();
         });
         assert!(!cx.window_is_hidden(any_handle));
+    }
+
+    mod fake {
+        use std::sync::{Arc, Mutex};
+
+        use dojo::launcher_core::commands::CommandId;
+        use dojo::launcher_core::rows::{Row, RowAction, RowIcon};
+
+        use super::super::views::{Notify, Outcome, View, ViewFactory};
+
+        /// What the fake view saw, shared with the test that built it.
+        #[derive(Default)]
+        pub struct Seen {
+            pub queries: Vec<String>,
+            pub activated: Vec<String>,
+            pub notify: Option<Notify>,
+        }
+
+        pub struct FakeView {
+            pub seen: Arc<Mutex<Seen>>,
+            pub outcome: fn(&Row) -> Outcome,
+        }
+
+        impl View for FakeView {
+            fn placeholder(&self) -> &str {
+                "Search fake…"
+            }
+
+            fn open(&mut self, notify: Notify) {
+                self.seen.lock().unwrap().notify = Some(notify);
+            }
+
+            fn rows(&mut self, query: &str) -> Vec<Row> {
+                self.seen.lock().unwrap().queries.push(query.to_owned());
+                let mut rows = vec![Row::header("Fake")];
+                for title in ["alpha", "beta"] {
+                    if title.contains(query) {
+                        rows.push(Row {
+                            id: format!("fake:{title}"),
+                            title: title.to_owned(),
+                            subtitle: String::new(),
+                            icon: RowIcon::Glyph("*".into()),
+                            action: RowAction::Item(rows.len()),
+                        });
+                    }
+                }
+                rows
+            }
+
+            fn activate(&mut self, row: &Row, _query: &str) -> Outcome {
+                self.seen.lock().unwrap().activated.push(row.title.clone());
+                (self.outcome)(row)
+            }
+        }
+
+        pub fn factory(seen: Arc<Mutex<Seen>>, outcome: fn(&Row) -> Outcome) -> ViewFactory {
+            Arc::new(move |command| {
+                (command == CommandId::Emoji).then(|| {
+                    Box::new(FakeView {
+                        seen: seen.clone(),
+                        outcome,
+                    }) as Box<dyn View>
+                })
+            })
+        }
+    }
+
+    fn launcher_with_fake_view(
+        cx: &mut gpui::TestAppContext,
+        outcome: fn(&dojo::launcher_core::rows::Row) -> super::Outcome,
+    ) -> (
+        super::Launcher,
+        gpui::WindowHandle<super::LauncherView>,
+        std::sync::Arc<std::sync::Mutex<fake::Seen>>,
+        gpui::DisplayId,
+    ) {
+        let display = gpui::DisplayId::from(2);
+        cx.simulate_display_added(display, None);
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(fake::Seen::default()));
+        let mut launcher = super::Launcher::new()
+            .unwrap()
+            .with_views(fake::factory(seen.clone(), outcome));
+        cx.update(|cx| {
+            cx.set_global(crate::config::ThemeColors::default());
+            launcher
+                .open_view(Some(display), super::CommandId::Emoji, cx)
+                .unwrap();
+        });
+        let handle = launcher.window.unwrap();
+        (launcher, handle, seen, display)
+    }
+
+    #[gpui::test]
+    fn opening_a_view_shows_its_rows_and_escape_and_backspace_leave_it(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (mut launcher, handle, seen, display) =
+            launcher_with_fake_view(cx, |_| super::Outcome::Stay);
+        cx.update(|cx| {
+            handle
+                .update(cx, |view, window, cx| {
+                    assert_eq!(view.stack.len(), 1);
+                    assert_eq!(view.placeholder(), "Search fake…");
+                    assert_eq!(view.rows.len(), 3, "a header and two rows");
+                    assert_eq!(view.selected, 1, "the header is skipped");
+                    view.input.replace(None, "alp");
+                    view.search(window, cx);
+                    assert_eq!(view.rows.len(), 2);
+                    assert_eq!(view.selected, 1);
+                    // Escape leaves the view for the root list without closing the launcher.
+                    view.back_or_dismiss(window, cx);
+                    assert!(view.stack.is_empty() && view.input.text.is_empty());
+                    assert!(view.reveal.is_open());
+                    // Backspace in an empty search leaves an open view too.
+                    assert!(view.open_command(super::CommandId::Emoji, window, cx));
+                    view.key_down(&backspace(), window, cx);
+                    assert!(view.stack.is_empty());
+                    // From the root list Escape closes.
+                    view.back_or_dismiss(window, cx);
+                    assert!(!view.reveal.is_open());
+                })
+                .unwrap();
+        });
+        assert!(seen.lock().unwrap().queries.iter().any(|q| q == "alp"));
+        let _ = (&mut launcher, display);
+    }
+
+    fn backspace() -> gpui::KeyDownEvent {
+        gpui::KeyDownEvent {
+            keystroke: gpui::Keystroke::parse("backspace").unwrap(),
+            is_held: false,
+            prefer_character_input: false,
+        }
+    }
+
+    #[gpui::test]
+    fn activating_a_view_row_carries_out_its_outcome(cx: &mut gpui::TestAppContext) {
+        let (_launcher, handle, seen, _display) = launcher_with_fake_view(cx, |row| {
+            if row.title == "beta" {
+                super::Outcome::Error("beta is refused".into())
+            } else {
+                super::Outcome::Copy(row.title.clone())
+            }
+        });
+        cx.update(|cx| {
+            handle
+                .update(cx, |view, window, cx| {
+                    // beta is refused: an error shows and the view stays open.
+                    view.selected = 2;
+                    view.activate_selected(window, cx);
+                    assert_eq!(view.error.as_deref(), Some("beta is refused"));
+                    assert!(view.reveal.is_open() && view.stack.len() == 1);
+                    // alpha is copied to the clipboard and the launcher closes.
+                    view.selected = 1;
+                    view.activate_selected(window, cx);
+                    assert!(!view.reveal.is_open());
+                })
+                .unwrap();
+            assert_eq!(
+                cx.read_from_clipboard()
+                    .and_then(|item| item.text())
+                    .as_deref(),
+                Some("alpha")
+            );
+        });
+        assert_eq!(seen.lock().unwrap().activated, ["beta", "alpha"]);
+    }
+
+    #[gpui::test]
+    fn a_view_data_change_refreshes_its_rows_and_unknown_commands_report_why(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (_launcher, handle, seen, _display) =
+            launcher_with_fake_view(cx, |_| super::Outcome::Stay);
+        let notify = seen
+            .lock()
+            .unwrap()
+            .notify
+            .clone()
+            .expect("the view was opened");
+        let before = seen.lock().unwrap().queries.len();
+        notify();
+        cx.run_until_parked();
+        assert!(
+            seen.lock().unwrap().queries.len() > before,
+            "a notification asks for rows again"
+        );
+        cx.update(|cx| {
+            handle
+                .update(cx, |view, window, cx| {
+                    assert!(!view.open_command(super::CommandId::Services, window, cx));
+                    assert_eq!(view.stack.len(), 1, "nothing was pushed");
+                    assert_eq!(view.error.as_deref(), Some("Services is not available"));
+                })
+                .unwrap();
+        });
+    }
+
+    #[gpui::test]
+    fn reopening_the_launcher_returns_to_the_root_list_and_opening_a_view_keeps_it_open(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (mut launcher, handle, _seen, display) =
+            launcher_with_fake_view(cx, |_| super::Outcome::Stay);
+        cx.update(|cx| {
+            // Asking for a view on a visible launcher does not close it.
+            launcher
+                .open_view(Some(display), super::CommandId::Emoji, cx)
+                .unwrap();
+            handle
+                .update(cx, |view, _, _| {
+                    assert!(view.reveal.is_open());
+                    assert_eq!(view.stack.len(), 2, "pushed again on top");
+                })
+                .unwrap();
+            // A plain toggle closes it, and the next opening starts at the root.
+            launcher.toggle(Some(display), cx).unwrap();
+            handle
+                .update(cx, |view, _, _| assert!(!view.reveal.is_open()))
+                .unwrap();
+            launcher.toggle(Some(display), cx).unwrap();
+            handle
+                .update(cx, |view, _, _| {
+                    assert!(view.stack.is_empty(), "reopening clears the views");
+                    assert!(view.reveal.is_open());
+                })
+                .unwrap();
+        });
     }
 
     #[test]

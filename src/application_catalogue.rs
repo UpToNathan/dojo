@@ -27,6 +27,100 @@ pub struct Application {
     searchable: Utf32String,
 }
 
+impl Application {
+    /// An entry with no desktop file behind it, for tests and synthetic catalogues.
+    pub fn new(id: &str, name: &str, description: &str) -> Self {
+        Self {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            description: description.to_owned(),
+            path: PathBuf::new(),
+            icon: None,
+            launch_command: None,
+            startup_wm_class: None,
+            last_used: None,
+            searchable_name: Utf32String::from(name),
+            searchable: Utf32String::from(format!("{name} {description}").as_str()),
+        }
+    }
+}
+
+/// One search result with what ordering needs. Lower tiers are better: 0 exact name or learned
+/// term, 1 name prefix or learned prefix, 2 fuzzy name, 3 fuzzy match on the other metadata.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Scored {
+    pub index: usize,
+    pub tier: u8,
+    pub score: u32,
+    pub frecency: f64,
+}
+
+impl Scored {
+    /// Best first: tier, then how much it has been launched, then the fuzzy score, then position.
+    pub fn compare(&self, other: &Self) -> std::cmp::Ordering {
+        self.tier
+            .cmp(&other.tier)
+            .then_with(|| other.frecency.total_cmp(&self.frecency))
+            .then_with(|| other.score.cmp(&self.score))
+            .then_with(|| self.index.cmp(&other.index))
+    }
+}
+
+/// The patterns a query compiles to, shared by applications and launcher commands so both rank
+/// by the same tiers.
+pub struct QueryPatterns {
+    fuzzy: Pattern,
+    exact: Atom,
+    prefix: Atom,
+}
+
+impl QueryPatterns {
+    pub fn new(query: &str) -> Self {
+        let atom = |kind| {
+            Atom::new(
+                query,
+                CaseMatching::Smart,
+                Normalization::Smart,
+                kind,
+                false,
+            )
+        };
+        Self {
+            fuzzy: Pattern::new(
+                query,
+                CaseMatching::Smart,
+                Normalization::Smart,
+                AtomKind::Fuzzy,
+            ),
+            exact: atom(AtomKind::Exact),
+            prefix: atom(AtomKind::Prefix),
+        }
+    }
+
+    /// Tier and score of a name plus its other searchable text, or `None` when neither matches.
+    pub fn score(
+        &self,
+        name: &Utf32String,
+        metadata: &Utf32String,
+        matcher: &mut Matcher,
+    ) -> Option<(u8, u32)> {
+        if let Some(score) = self.fuzzy.score(name.slice(..), matcher) {
+            let tier = if self.exact.score(name.slice(..), matcher).is_some() {
+                0
+            } else if self.prefix.score(name.slice(..), matcher).is_some() {
+                1
+            } else {
+                2
+            };
+            Some((tier, score))
+        } else {
+            self.fuzzy
+                .score(metadata.slice(..), matcher)
+                .map(|score| (3, score))
+        }
+    }
+}
+
 pub struct Catalogue {
     pub applications: Vec<Application>,
 }
@@ -159,52 +253,26 @@ impl Catalogue {
             order.truncate(RESULT_LIMIT);
             return order;
         }
-        let pattern = Pattern::new(
-            query,
-            CaseMatching::Smart,
-            Normalization::Smart,
-            AtomKind::Fuzzy,
-        );
-        let exact = Atom::new(
-            query,
-            CaseMatching::Smart,
-            Normalization::Smart,
-            AtomKind::Exact,
-            false,
-        );
-        let prefix = Atom::new(
-            query,
-            CaseMatching::Smart,
-            Normalization::Smart,
-            AtomKind::Prefix,
-            false,
-        );
-        let mut scores = self
-            .applications
+        let mut scored = self.scored(query, matcher, history, now_ms);
+        scored.sort_unstable_by(Scored::compare);
+        scored.truncate(RESULT_LIMIT);
+        scored.into_iter().map(|scored| scored.index).collect()
+    }
+
+    /// Every application that matches a non-empty `query`, unordered, with what ranking needs.
+    pub fn scored(
+        &self,
+        query: &str,
+        matcher: &mut Matcher,
+        history: &LaunchHistory,
+        now_ms: u64,
+    ) -> Vec<Scored> {
+        let patterns = QueryPatterns::new(query);
+        self.applications
             .iter()
             .enumerate()
             .filter_map(|(index, app)| {
-                let matched =
-                    if let Some(score) = pattern.score(app.searchable_name.slice(..), matcher) {
-                        let tier = if exact
-                            .score(app.searchable_name.slice(..), matcher)
-                            .is_some()
-                        {
-                            0
-                        } else if prefix
-                            .score(app.searchable_name.slice(..), matcher)
-                            .is_some()
-                        {
-                            1
-                        } else {
-                            2
-                        };
-                        Some((tier, score))
-                    } else {
-                        pattern
-                            .score(app.searchable.slice(..), matcher)
-                            .map(|score| (3, score))
-                    };
+                let matched = patterns.score(&app.searchable_name, &app.searchable, matcher);
                 // A learned search term can promote a match or find an application the text
                 // alone would not.
                 let learned = match history.term_match(&app.id, query, now_ms) {
@@ -218,21 +286,14 @@ impl Catalogue {
                     (None, Some(learned)) => (learned, 0),
                     (None, None) => return None,
                 };
-                Some((index, tier, score, history.frecency(&app.id, now_ms)))
+                Some(Scored {
+                    index,
+                    tier,
+                    score,
+                    frecency: history.frecency(&app.id, now_ms),
+                })
             })
-            .collect::<Vec<_>>();
-        scores.sort_unstable_by(
-            |(left, left_tier, left_score, left_weight),
-             (right, right_tier, right_score, right_weight)| {
-                left_tier
-                    .cmp(right_tier)
-                    .then_with(|| right_weight.total_cmp(left_weight))
-                    .then_with(|| right_score.cmp(left_score))
-                    .then_with(|| left.cmp(right))
-            },
-        );
-        scores.truncate(RESULT_LIMIT);
-        scores.into_iter().map(|(index, ..)| index).collect()
+            .collect()
     }
 }
 

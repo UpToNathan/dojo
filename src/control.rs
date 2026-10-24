@@ -34,6 +34,8 @@ pub enum ControlCommand {
     Disable,
     Quit,
     Launcher,
+    /// Open the launcher straight into one command's view.
+    LauncherView(crate::launcher_core::commands::CommandId),
     LauncherNavigation(LauncherNavigation),
     Theme,
     Displays,
@@ -56,6 +58,7 @@ impl ControlCommand {
             Self::Speech(event) => {
                 return serde_json::to_string(event).expect("speech events serialize");
             }
+            Self::LauncherView(command) => return format!("launcher-view {}", command.key()),
             Self::Leave(departure) => return format!("leave {}", departure.word()),
             Self::Farewell(occasion) => return format!("farewell {}", occasion.key()),
             Self::Toggle => "toggle",
@@ -98,6 +101,10 @@ impl ControlCommand {
             "terminal-closed" => Some(Self::TerminalClosed),
             _ => {
                 use crate::session::action::Departure;
+                if let Some(key) = value.strip_prefix("launcher-view ") {
+                    return crate::launcher_core::commands::CommandId::from_key(key)
+                        .map(Self::LauncherView);
+                }
                 if let Some(word) = value.strip_prefix("leave ") {
                     return Departure::parse(word).map(Self::Leave);
                 }
@@ -409,7 +416,15 @@ mod tests {
         };
         assert_eq!(departure.occasion(), Occasion::Suspend);
         assert_eq!(departure.action(), Action::SuspendThenHibernate);
-        for invalid in ["leave", "leave ", "leave unlock", "leave login", "leave reboot", "leave  lock", "leave Lock"] {
+        for invalid in [
+            "leave",
+            "leave ",
+            "leave unlock",
+            "leave login",
+            "leave reboot",
+            "leave  lock",
+            "leave Lock",
+        ] {
             assert!(ControlCommand::parse(invalid).is_none(), "{invalid:?}");
         }
         let (sender, receiver) = async_channel::bounded(1);
@@ -456,7 +471,8 @@ mod tests {
     }
 
     #[test]
-    fn a_farewell_is_acknowledged_at_once_and_settled_when_the_closing_has_played() -> anyhow::Result<()> {
+    fn a_farewell_is_acknowledged_at_once_and_settled_when_the_closing_has_played()
+    -> anyhow::Result<()> {
         static PLAYING: AtomicBool = AtomicBool::new(false);
         let (sender, receiver) = async_channel::bounded(1);
         let (server, client) = UnixStream::pair()?;
@@ -467,16 +483,26 @@ mod tests {
             receiver.try_recv()?,
             ControlCommand::Farewell(crate::session::Occasion::Shutdown)
         );
-        assert!(PLAYING.load(Ordering::Acquire), "set before the shell looks at it");
+        assert!(
+            PLAYING.load(Ordering::Acquire),
+            "set before the shell looks at it"
+        );
         let mut reader = BufReader::new(client);
         let mut line = String::new();
         reader.read_line(&mut line)?;
         assert_eq!(line, "queued\n");
-        reader.get_ref().set_read_timeout(Some(Duration::from_millis(100)))?;
+        reader
+            .get_ref()
+            .set_read_timeout(Some(Duration::from_millis(100)))?;
         line.clear();
-        assert!(reader.read_line(&mut line).is_err(), "not settled while playing");
+        assert!(
+            reader.read_line(&mut line).is_err(),
+            "not settled while playing"
+        );
         PLAYING.store(false, Ordering::Release);
-        reader.get_ref().set_read_timeout(Some(Duration::from_secs(2)))?;
+        reader
+            .get_ref()
+            .set_read_timeout(Some(Duration::from_secs(2)))?;
         reader.read_line(&mut line)?;
         assert_eq!(line, "settled\n");
         Ok(())
@@ -530,6 +556,28 @@ mod tests {
             assert!(ControlCommand::parse(&format!("{token} ")).is_none());
         }
         assert!(ControlCommand::parse("launcher-next").is_none());
+    }
+
+    #[test]
+    fn launcher_view_commands_name_a_known_command_exactly() {
+        use crate::launcher_core::commands::{ALL, CommandId};
+        for command in ALL {
+            let token = format!("launcher-view {}", command.id.key());
+            assert_eq!(
+                ControlCommand::parse(&token),
+                Some(ControlCommand::LauncherView(command.id))
+            );
+            assert_eq!(ControlCommand::LauncherView(command.id).as_str(), token);
+        }
+        assert_eq!(CommandId::from_key("emoji"), Some(CommandId::Emoji));
+        for bad in [
+            "launcher-view",
+            "launcher-view ",
+            "launcher-view nonsense",
+            "launcher-view emoji ",
+        ] {
+            assert!(ControlCommand::parse(bad).is_none(), "{bad:?}");
+        }
     }
 
     #[test]

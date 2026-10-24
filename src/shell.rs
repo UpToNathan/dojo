@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::process::Command;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -612,6 +611,11 @@ fn run_with_surfaces(
                             ControlCommand::Launcher => {
                                 controller.launcher.toggle(focused_display_id(cx), cx)
                             }
+                            ControlCommand::LauncherView(command) => {
+                                controller
+                                    .launcher
+                                    .open_view(focused_display_id(cx), command, cx)
+                            }
                             ControlCommand::LauncherNavigation(navigation) => {
                                 controller.launcher.navigate(navigation, cx)
                             }
@@ -745,7 +749,14 @@ mod focused_display_tests {
     use niri_ipc::{LogicalOutput, Transform};
 
     fn logical(x: i32, y: i32, scale: f64) -> LogicalOutput {
-        LogicalOutput { x, y, width: 1645, height: 1028, scale, transform: Transform::Normal }
+        LogicalOutput {
+            x,
+            y,
+            width: 1645,
+            height: 1028,
+            scale,
+            transform: Transform::Normal,
+        }
     }
 
     #[test]

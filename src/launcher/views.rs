@@ -1,0 +1,63 @@
+//! Views a launcher command pushes: a search box, a list of rows and an action on Enter.
+//!
+//! A view is plain data plus logic. It never touches the window, so it can be tested alone; the
+//! launcher draws its rows and carries out the [`Outcome`] of an activation.
+
+use std::sync::Arc;
+
+use dojo::launcher_core::commands::CommandId;
+use dojo::launcher_core::rows::Row;
+
+/// Tells the launcher that a view's data changed (a background load finished) so it asks the view
+/// for its rows again. Safe to call from any thread.
+pub type Notify = Arc<dyn Fn() + Send + Sync>;
+
+/// What the launcher does after a row of a view is activated.
+// No view ships with the foundation; each command's view constructs the variants it needs.
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// Keep the view open (the row changed state, or was refused with nothing to say).
+    Stay,
+    /// Close the launcher.
+    Close,
+    /// Copy the text to the clipboard and close.
+    Copy(String),
+    /// Show the message in the status line and keep the view open.
+    Error(String),
+}
+
+pub trait View {
+    /// Text shown in the empty search box.
+    fn placeholder(&self) -> &str;
+
+    /// Called once when the view is pushed. A view that loads slowly starts its work here and calls
+    /// `notify` when it has something new.
+    fn open(&mut self, notify: Notify) {
+        let _ = notify;
+    }
+
+    /// The rows for `query`. Called on every change to the search and after a notification.
+    fn rows(&mut self, query: &str) -> Vec<Row>;
+
+    /// Enter (or a click) on `row`, one of the rows last returned.
+    fn activate(&mut self, row: &Row, query: &str) -> Outcome;
+
+    /// Shown in the status line when `rows` is empty.
+    fn empty_text(&self, query: &str) -> String {
+        if query.is_empty() {
+            "Nothing here yet".into()
+        } else {
+            "No results found".into()
+        }
+    }
+}
+
+/// Builds the view for a command, or `None` when that command has no view yet.
+pub type ViewFactory = Arc<dyn Fn(CommandId) -> Option<Box<dyn View>> + Send + Sync>;
+
+/// The views Dojo ships. A command joins [`dojo::launcher_core::commands::IMPLEMENTED`] in the
+/// same change that adds its arm here.
+pub fn default_factory() -> ViewFactory {
+    Arc::new(|_command| None)
+}

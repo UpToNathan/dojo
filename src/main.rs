@@ -67,6 +67,18 @@ fn run() -> anyhow::Result<()> {
         Some("--models") => ControlCommand::Models,
         Some("--terminal") => ControlCommand::Terminal,
         Some("--terminal-closed") => ControlCommand::TerminalClosed,
+        Some("--launcher-view") => {
+            let key = arguments
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("missing launcher view"))?;
+            let command = dojo::launcher_core::commands::CommandId::from_key(&key)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "unknown launcher view {key:?}; use emoji, clipboard, windows, snippets, color, processes or services"
+                    )
+                })?;
+            ControlCommand::LauncherView(command)
+        }
         Some("--leave") => {
             let word = arguments
                 .next()
@@ -136,6 +148,7 @@ fn run() -> anyhow::Result<()> {
         ControlCommand::LauncherNavigation(_) => {
             bail!("start Dojo and open the launcher before navigating it")
         }
+        ControlCommand::LauncherView(_) => bail!("start Dojo before opening a launcher view"),
         ControlCommand::Theme => shell::run_with_theme_picker(None),
         ControlCommand::Models => shell::run_with_models(None),
         ControlCommand::Displays | ControlCommand::Wifi | ControlCommand::SystemMenu => {
