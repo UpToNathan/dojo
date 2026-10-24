@@ -1,0 +1,12 @@
+[Unit]
+Description=Dojo agent runtime socket
+# systemd holds this socket and starts dojo-voice.service when something connects to it (a message
+# from the launcher, the talk key, the model picker). The runtime exits again after
+# DOJO_VOICE_IDLE_SECONDS without work, and the next connection starts it.
+
+[Socket]
+ListenStream=%t/dojo-voice.sock
+SocketMode=0600
+
+[Install]
+WantedBy=sockets.target

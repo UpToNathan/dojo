@@ -77,9 +77,9 @@ system default source without mixing host and Nix C libraries.
 
 `dojo-voice.service` is the Dojo agent runtime: the Pi conversation, memory, sign-in, the model
 catalog and the command socket (`$XDG_RUNTIME_DIR/dojo-voice.sock`) that the model picker and
-`tools/speech/dojo-voice` use. It starts with the graphical session on every host, with or
-without a microphone, so `send`, `models`, `select-model`, `history`, `new` and the sign-in
-commands always work. Voice is one input to it: microphone capture and the prewarmed
+`tools/speech/dojo-voice` use. It runs on every host, with or without a microphone, so `send`,
+`models`, `select-model`, `history`, `new`, `acknowledge-browser` and the sign-in commands always
+work, but it is not always running: see "Socket activation" below. Voice is one input to it: microphone capture and the prewarmed
 transcription model.
 
 Decision: one runtime process whose speech worker is started only when a microphone exists,
@@ -102,9 +102,29 @@ on the next keypress. Output monitors and sources whose active port is reported 
 With no microphone the voice keybindings print "No microphone is available" and the rest of the
 runtime keeps working.
 
-On a host that upgrades from the earlier layout, run `systemctl --user restart dojo-voice.service`
-once (or log in again) so the runtime that is already running picks up the new code; Home Manager
-enables and starts the unit but does not restart a running one.
+### Socket activation
+
+systemd owns `dojo-voice.sock` (`tools/speech/dojo-voice.socket`) and starts `dojo-voice.service`
+on the first connection: a launcher `?` message, the talk key, the model picker. The runtime exits
+after ten idle minutes (`DOJO_VOICE_IDLE_SECONDS=600` in the unit; idle means no run, recording or
+request in progress) and the next connection starts it again, so an idle desktop holds no agent
+process and no speech model. The cost is a short start on first use. Things that would only wake it
+for nothing do not connect to the socket while it is down: `dojo-voice cancel`, `finish`,
+`voice-input` and `trace` ask systemd whether the service is up first and return as if it were not,
+`dojo-mic-watch` does not start it, and the shell's five-minute account check skips an idle runtime
+(the account glyph updates the next time the model picker is opened).
+
+Home Manager installs the socket unit, enables it, and stops a runtime that was started the old way
+once (it owns the socket file the socket unit has to bind).
+
+### The browser-outcome lock
+
+If a browser command's outcome is unknown (the runtime stopped, or the browser could not confirm
+the cancel), the conversation records `uncertain` and refuses every browser and desktop-input
+action. Nothing clears it automatically. After checking the browser, run
+`dojo-voice acknowledge-browser`, which clears the flag for the active conversation and prints
+`{"cleared":true}` (`false` when there was nothing to clear). The agent has no tool for this; only
+the operator can.
 
 A Bluetooth headset only has a microphone while it is in its headset (HFP) profile; in the
 music profile it counts as no microphone.

@@ -1,9 +1,9 @@
 [Unit]
 Description=Turn Dojo voice input on while a microphone is available
 PartOf=graphical-session.target
-# After the runtime, so it is up to be told; the runtime also checks once itself when it starts.
-After=graphical-session.target pipewire-pulse.service dojo-voice.service
-Wants=dojo-voice.service
+# It does not start the runtime: `dojo-voice voice-input` does nothing while the runtime is idle, and
+# the runtime checks for a microphone itself each time it starts.
+After=graphical-session.target pipewire-pulse.service
 
 [Service]
 Type=simple

@@ -17,6 +17,15 @@ const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const runtimeDir = process.env.XDG_RUNTIME_DIR;
 if (!runtimeDir) throw new Error('XDG_RUNTIME_DIR is required.');
 const socketPath = join(runtimeDir, 'dojo-voice.sock');
+
+/**
+ * The socket systemd opened for us, as a listen target, or null when we are not socket-activated.
+ * systemd passes it as file descriptor 3 and names this process in LISTEN_PID.
+ */
+export function inheritedSocket(env = process.env, pid = process.pid) {
+  if (env.LISTEN_PID !== String(pid) || env.LISTEN_FDS !== '1') return null;
+  return { fd: 3 };
+}
 const heldPath = join(runtimeDir, 'dojo-voice-held');
 const statePath = join(dataDir, 'conversations.json');
 const maxCommandCodeUnits = 16_384;
@@ -522,6 +531,9 @@ export class VoiceService {
       case 'history': return { activeThreadId: this.state.activeThreadId, chats: this.state.chats.map(({threadId,title,status}) => ({threadId,title,status})) };
       case 'models': return this.modelCatalog();
       case 'select-model': return this.selectModel(command);
+      case 'acknowledge-browser':
+        if (!this.runtime?.acknowledgeBrowser) throw new Error('The browser extension is not loaded.');
+        return this.runtime.acknowledgeBrowser();
       case 'begin-chatgpt-login': return this.beginChatGPTLogin(command);
       case 'login-status': return this.loginProgress();
       case 'cancel-login': return this.cancelLogin(command);
@@ -586,7 +598,10 @@ export async function serve(service = new VoiceService()) {
   lock.once('exit', () => { if (!stopped) shutdown().catch(error => console.error(error.message)); });
   try {
     await service.start();
-    await unlink(socketPath).catch(error => { if (error.code !== 'ENOENT') throw error; });
+    // A socket-activated runtime listens on the socket systemd holds, which also outlives it. One
+    // that was started directly owns its socket file and removes it again.
+    const inherited = inheritedSocket();
+    if (!inherited) await unlink(socketPath).catch(error => { if (error.code !== 'ENOENT') throw error; });
     server = net.createServer(socket => {
       if (connections.size >= 32 || stopped) { socket.destroy(); return; }
       connections.add(socket);
@@ -612,9 +627,11 @@ export async function serve(service = new VoiceService()) {
         });
       });
     });
-    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socketPath, resolve); });
-    socketIdentity = await stat(socketPath);
-    await chmod(socketPath, 0o600);
+    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(inherited ?? socketPath, resolve); });
+    if (!inherited) {
+      socketIdentity = await stat(socketPath);
+      await chmod(socketPath, 0o600);
+    }
     service.scheduleDeadline();
     for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, () => {
       shutdown().then(() => process.exit(0), error => { console.error(error.message); process.exit(1); });
@@ -632,7 +649,19 @@ export const microphoneAvailable = () => new Promise(resolve => {
   child.once('exit', code => resolve(code === 0));
 });
 
+/** Whether the runtime is up right now. Asking systemd does not start it, which connecting would. */
+export const runtimeActive = () => new Promise(resolve => {
+  const child = spawn('systemctl', ['--user', 'is-active', '--quiet', 'dojo-voice.service'], { stdio: 'ignore' });
+  child.once('error', () => resolve(false));
+  child.once('exit', code => resolve(code === 0));
+});
+
+// Commands that only mean something to a runtime that is already running; sent to an idle one they
+// would wake it for nothing, so they return what a missing runtime always returned.
+const wakesNothing = { cancel: {}, finish: {}, 'voice-input': {}, trace: { error: 'Dojo voice service is not running. No trace was exported.' } };
+
 async function request(command) {
+  if (Object.hasOwn(wakesNothing, command.action) && !(await runtimeActive())) return wakesNothing[command.action];
   try { return JSON.parse(await socketRequest(socketPath, command)); }
   catch (error) {
     if (!['ENOENT', 'ECONNREFUSED'].includes(error.code)) throw error;

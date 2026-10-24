@@ -31,6 +31,18 @@ export async function openBrowserExtension(runtime) {
       (await tx.doc(runtime.BrowserState, runtime.id)).uncertain = true;
     }, runtime.context);
   };
+  // The operator's own word that they looked at the browser: the only way the flag goes away.
+  // The agent has no tool for this.
+  runtime.acknowledgeBrowser = async () => {
+    if (!runtime.conversation) throw new Error('No conversation is active.');
+    let wasUncertain = false;
+    await runtime.conversation.commit(async tx => {
+      const state = await tx.doc(runtime.BrowserState, runtime.id);
+      wasUncertain = state.uncertain === true;
+      state.uncertain = false;
+    }, runtime.context);
+    return { cleared: wasUncertain };
+  };
   runtime.finishBrowserInput = () => {
     if (cancellation) return cancellation;
     if (!active && !resume) return Promise.resolve();
@@ -61,7 +73,7 @@ export async function openBrowserExtension(runtime) {
   const ensureActive = async (api, context) => {
     if (runtime.closed || runtime.browserStopping || stopping || retired || mcp.closed) throw new Error('Browser task is stopped');
     const state = await api.snapshot(runtime.BrowserState, api.conversationId, context);
-    if (state?.uncertain) throw new Error('An earlier browser command has an uncertain outcome. Ask the operator to review it; do not retry or switch to desktop input.');
+    if (state?.uncertain) throw new Error('An earlier browser command has an uncertain outcome. Tell the operator to check the browser, then run `dojo-voice acknowledge-browser` to clear it; do not retry or switch to desktop input.');
     if (!active) {
       resume ??= (async () => {
         const result = await call('session_resume');

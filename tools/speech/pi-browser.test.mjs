@@ -117,3 +117,19 @@ test('an unknown browser outcome cannot be bypassed with native desktop input', 
   await runtime.submit('Click'); await settled(runtime);
   assert(native.every(call => call.name === 'desktop_action' && call.args.action === 'reset'));
 });
+
+test('the operator can acknowledge an uncertain browser outcome, after which browser work runs again', async t => {
+  const { runtime, calls } = await fixture(t, [execute({ code: 'await page.click("button")' }), fauxAssistantMessage('done'), execute({ code: 'await page.click("button")' }), fauxAssistantMessage('blocked'), execute({ code: 'return page.url()' }), fauxAssistantMessage('ran')], name => name === 'execute_cancel' ? retired() : (calls => result({ effect: 'unknown', unknownCommandIds: [4] }))());
+  await runtime.submit('Click'); await settled(runtime);
+  await runtime.submit('Again'); await settled(runtime);
+  const state = () => runtime.harness.snapshot(runtime.BrowserState, runtime.id, runtime.context);
+  assert.equal((await state()).uncertain, true);
+  const executed = () => calls.filter(call => call.name === 'execute').length;
+  assert.equal(executed(), 1, 'the uncertain state blocks the second attempt');
+
+  assert.deepEqual(await runtime.acknowledgeBrowser(), { cleared: true });
+  assert.equal((await state()).uncertain, false);
+  assert.deepEqual(await runtime.acknowledgeBrowser(), { cleared: false }, 'a second acknowledgement has nothing to clear');
+  await runtime.submit('Read the URL'); await settled(runtime);
+  assert.equal(executed(), 2, 'browser work is admitted again');
+});

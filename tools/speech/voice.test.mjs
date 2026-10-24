@@ -416,3 +416,21 @@ test('a server without a microphone starts the agent runtime and answers text co
     assert.equal(spawns, 0);
   } finally { await owner.shutdown(); }
 });
+
+test('a runtime started by systemd listens on the socket systemd passes it, and only then', async () => {
+  const { inheritedSocket } = await import('./voice.mjs');
+  assert.deepEqual(inheritedSocket({ LISTEN_PID: '42', LISTEN_FDS: '1' }, 42), { fd: 3 });
+  assert.equal(inheritedSocket({}, 42), null, 'started directly');
+  assert.equal(inheritedSocket({ LISTEN_PID: '41', LISTEN_FDS: '1' }, 42), null, 'the variables were meant for another process');
+  assert.equal(inheritedSocket({ LISTEN_PID: '42', LISTEN_FDS: '2' }, 42), null, 'more than the one socket this runtime expects');
+  assert.equal(inheritedSocket({ LISTEN_PID: '42' }, 42), null);
+});
+
+test('the acknowledge command reaches the runtime and refuses when no browser extension is loaded', async () => {
+  const result = service();
+  chat(result);
+  result.runtime = {};
+  await assert.rejects(result.handle({ action: 'acknowledge-browser' }), /browser extension is not loaded/);
+  result.runtime = { acknowledgeBrowser: async () => ({ cleared: true }) };
+  assert.deepEqual(await result.handle({ action: 'acknowledge-browser' }), { cleared: true });
+});

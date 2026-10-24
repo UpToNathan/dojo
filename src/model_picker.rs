@@ -161,8 +161,18 @@ fn record_setup(catalog: &ModelCatalog, cx: &mut App) {
     }
 }
 
+/// Whether `dojo-voice.service` is up right now. Asking systemd does not start it; connecting to
+/// its socket would, and a poll that woke an idle runtime every few minutes would keep it alive.
+fn runtime_active() -> bool {
+    std::process::Command::new("systemctl")
+        .args(["--user", "is-active", "--quiet", "dojo-voice.service"])
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
 /// Reads account state once at startup and then every few minutes, so the glyph reflects reality
-/// without opening the menu. A voice service that is not running leaves the glyph unchanged.
+/// without opening the menu. The runtime is socket activated and exits when idle; one that is not
+/// running is not woken for this and leaves the glyph unchanged until the menu is opened.
 pub fn watch_setup(cx: &mut App) {
     cx.spawn(async move |cx| {
         loop {
@@ -170,6 +180,9 @@ pub fn watch_setup(cx: &mut App) {
                 .background_executor()
                 .spawn(async {
                     std::thread::spawn(|| {
+                        if !runtime_active() {
+                            return Err("The agent runtime is idle".to_string());
+                        }
                         socket_call(&json!({"action": "models"})).and_then(catalog_from)
                     })
                     .join()
