@@ -153,14 +153,8 @@ impl QuickTerminal {
             self.panel = None;
         }
         let (output_name, output) = focused_output()?;
-        let display = cx
-            .displays()
-            .into_iter()
-            .find(|d| {
-                let bounds = d.bounds();
-                (f32::from(bounds.origin.x) - output.x as f32).abs() < 2.
-                    && (f32::from(bounds.origin.y) - output.y as f32).abs() < 2.
-            })
+        let display = crate::shell::focused_display_id(cx)
+            .and_then(|id| cx.displays().into_iter().find(|d| d.id() == id))
             .context("focused output has no Dojo display")?;
         let placement = Placement::new(output.width as f32, output.height as f32);
         let args = placement.kitty_args(&output_name);

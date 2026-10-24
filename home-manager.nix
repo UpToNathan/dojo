@@ -293,6 +293,9 @@ in
       fonts.fontconfig.enable = true;
       xdg.configFile."nvim".source = ./nvim-config;
       xdg.configFile."rush/config.rush".source = ./rush-config/config.rush;
+      # uwsm app -T (the launcher's terminal-app path) picks its terminal through xdg-terminal-exec and
+      # ignores $TERMINAL; without this list it falls back to whichever terminal sorts first.
+      xdg.configFile."xdg-terminals.list".text = "kitty.desktop\n";
 
       services.wluma = {
         # Paused pending power measurements of screen-content capture.
@@ -668,12 +671,9 @@ in
         window-show-tab-bar = never
         window-padding-x = 8
         window-padding-y = 3
-        quick-terminal-position = center
-        quick-terminal-size = 50%,50%
         initial-window = true
         gtk-single-instance = true
         quit-after-last-window-closed = false
-        keybind = global:ctrl+f11=toggle_quick_terminal
         keybind = all:f9=reload_config
         keybind = ctrl+g>shift+backslash=new_split:right
         keybind = ctrl+g>-=new_split:down
