@@ -299,7 +299,7 @@ try {
     { runtime: 'GTK 4.22.4 fixture', binding: 'exact GTK7 root', invoke: true, replace_text: true, set_numeric: true, select: true, sibling_isolation: true },
   ];
   for (const [major, version, qtPackage] of [
-    [6, '6.11.2', process.env.DOJO_TEST_QT6_ANNOTATION_PACKAGE ?? '/nix/store/5gk3mlfs2jswgngkvbf31fycbq1qfd7g-dojo-qt6-annotation-6.11.2'],
+    [6, '6.12.0', process.env.DOJO_TEST_QT6_ANNOTATION_PACKAGE ?? '/nix/store/jq4fk4abi2ayx39l83ach2ci6lifc7q3-dojo-qt6-annotation-6.12.0'],
     [5, '5.15.19', process.env.DOJO_TEST_QT5_ANNOTATION_PACKAGE ?? '/nix/store/pkazn6a91rwcsvg1751paxvlchxx8rf2-dojo-qt5-annotation-5.15.19'],
   ]) {
     assert(qtPackage.startsWith('/nix/store/'), 'Qt fixture package must be immutable');
