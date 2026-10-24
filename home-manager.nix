@@ -83,6 +83,7 @@ in
         ./yazi-home-manager.nix
         ./stasis-home-manager.nix
         ./update-home-manager.nix
+        ./cache-home-manager.nix
       ];
       home.username = username;
       dojo.root = root;
