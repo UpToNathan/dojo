@@ -512,3 +512,9 @@ deny: [desktop_action, desktop_launch, desktop_browser_navigate]
 ```
 
 This policy narrows the existing rules. It cannot authorize a stale capture, transfer human ownership, grant browser profile consent or resolve an unknown external effect. Deny entries take precedence. Tools omitted from the allow list are denied. Release, browser close and internal session status remain available for cleanup. The shared service socket and handshake include the policy fingerprint; changed policy files require a new connection before dispatch. This is operator configuration, not a model-visible permission grant.
+
+## Placing the pointer at once
+
+`AgentInput::Jump` puts the seat's pointer at a place on an output immediately, with no animation and
+nothing to wait for. `Move` animates (at least 0.12 s) and answers `AgentInputMoving`; use `Jump` to
+follow a live pointer, as remote input does, and `Move` when acting and waiting for arrival.
