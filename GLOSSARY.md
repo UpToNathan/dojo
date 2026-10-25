@@ -121,7 +121,7 @@ The signed list of a mesh's members: each one's name, node key, host key and exp
 _Avoid_: Registry, directory
 
 **Operator signing key**:
-The key, normally on a YubiKey, whose signature makes a roster entry count. It is used to enroll, renew, rotate and revoke, never for ordinary connections.
+The key, held in 1Password or optionally on a YubiKey, whose signature makes a roster entry count. It is used to enroll, renew, rotate and revoke, never for ordinary connections.
 _Avoid_: Admin key, root key
 
 **Node key**:
