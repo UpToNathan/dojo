@@ -15,3 +15,7 @@ Spec: [spec.md](spec.md). Decision: [ADR-0009](../../docs/adr/0009-a-signed-rost
 ## Order
 
 01 seams, then 02 and 05 in parallel, 03, 04 and 06, then 07.
+
+## Progress (2026-10-25)
+
+Tickets 01 to 07 are resolved in the repository. Applied on Jupiter: the `sshd` hardening (ticket 05). Still to do by a person at the machines: the 1Password sign-in and agent on Jupiter, enrolment of both nodes, a reachable `sshd` route for Jupiter, and a login on each machine to load the new Niri.

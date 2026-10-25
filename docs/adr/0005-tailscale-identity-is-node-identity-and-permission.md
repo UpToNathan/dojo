@@ -6,6 +6,9 @@ status: accepted
 
 A node admits a peer when Tailscale reports that the device carries the mesh's membership tag, minus or plus the node's own membership overrides, and trusts Tailscale's word for which device is connecting. Dojo adds no authentication of its own, and what a node may do on a peer is exactly what the tailnet's policy grants it: the policy file is the mesh's permission system. This keeps one source of truth the operator already edits and audits, rather than a second set of keys and rules that can drift from it.
 
+
+[ADR-0009](0009-a-signed-roster-is-a-second-membership-method-over-openssh.md) adds the signed-roster method for meshes without Tailscale. This decision still governs a Tailscale mesh.
+
 ## Considered options
 
 - **Pinned SSH host keys per peer, alone or required alongside the tag.** Not now: it duplicates what Tailscale already proves, and every new node would need a key exchange. It stays available as a later membership method for meshes without Tailscale; nothing in the mesh core may assume Tailscale.

@@ -1,6 +1,6 @@
 # Mesh
 
-A Dojo node can see which other devices belong to its mesh, reach them, and use what they offer. One node on its own is a complete mesh. Terms are in [GLOSSARY.md](../GLOSSARY.md#mesh); the decisions behind them are [ADR-0005](adr/0005-tailscale-identity-is-node-identity-and-permission.md) (identity and permission are Tailscale's) and [ADR-0006](adr/0006-peers-are-reached-with-tailscale-ssh.md) (how peers are reached).
+A Dojo node can see which other devices belong to its mesh, reach them, and use what they offer. One node on its own is a complete mesh. Terms are in [GLOSSARY.md](../GLOSSARY.md#mesh); the decisions behind them are [ADR-0005](adr/0005-tailscale-identity-is-node-identity-and-permission.md) (identity and permission are Tailscale's) and [ADR-0006](adr/0006-peers-are-reached-with-tailscale-ssh.md) (how peers are reached), for a mesh formed by Tailscale. A mesh can instead be formed by a signed roster over the system OpenSSH ([ADR-0009](adr/0009-a-signed-roster-is-a-second-membership-method-over-openssh.md)); `method` in the configuration chooses, and Tailscale is the default.
 
 ## Commands
 
@@ -18,7 +18,8 @@ dojo-mesh close-source --window ID [--tab-title TITLE]
 dojo-mesh remote PEER                  # drive a peer with this cursor and keyboard
 dojo-mesh pause | resume               # the agent's peer access
 dojo-mesh audit [--last N] [--json]    # what this node has sent to peers
-dojo-mesh roster [check | sync]        # signed-roster method: what counts and what is ignored; pull it
+dojo-mesh roster [check | sync | authorize]   # signed-roster method: what counts and what is ignored; pull it; let the members in
+dojo-mesh init | join | approve | renew | rm | leave | trust   # signed-roster method: enrolment and trust (see below)
 dojo-mesh enroll [--tag TAG] [--expires SECS]            # operator only
 dojo-mesh policy show | validate FILE | apply FILE       # apply is operator only
 dojo-mesh --config PATH <command>      # use another config file
@@ -26,9 +27,9 @@ dojo-mesh --config PATH <command>      # use another config file
 
 Exit status: `0` done; `1` the command ran and failed (the message names the peer's status); `2` usage or configuration; `3` a person has to act; `4` refused or unreachable.
 
-Status 3 means Tailscale asked for a fresh sign-in (the page is in the message), or an operator-only step had no operator. Status 4 covers a peer that is offline, is not in the mesh, is this node, has its call timed out, or an agent call while peer access is paused. An offline peer is refused at once, not after a timeout.
+Status 3 means a person has to act: Tailscale asked for a fresh sign-in (the page is in the message), the SSH agent holding this node's key is locked or off (the step is in the message), a signing key needs its touch or unlock, or an operator-only step had no operator. Status 4 covers a peer that is offline, is not in the mesh, is this node, has its call timed out, or an agent call while peer access is paused. An offline peer is refused at once, not after a timeout.
 
-The launcher has a **Mesh** command listing the same machines; Enter copies `tailscale ssh <name>`.
+The launcher has a **Mesh** command listing the same machines; Enter copies `tailscale ssh <name>` (it knows only the Tailscale method).
 
 ## Configuration
 
@@ -103,7 +104,7 @@ A revocation is `{"v": 1, "kind": "revoke", "key": "ssh-ed25519 AAAA…", "issue
 
 The trusted signing keys are this node's own file, never part of the roster: one line each, `operator namespaces="dojo-mesh-roster" ssh-ed25519 AAAA…`. Without it the node is a mesh of one and says why. An entry counts only if it is signed by one of those keys, has not expired, is not issued in the future, carries no revoked key, is well formed (a lowercase name of two or more characters, keys of one known type on one line, plain route hosts) and is the newest for its name. Everything else is ignored, listed with its reason by `dojo-mesh roster check` and `doctor`, and `roster check` exits 1 while anything is ignored.
 
-`dojo-mesh roster sync` pulls the directory from its git remote, fast-forward only; a rewritten remote history is refused. Whoever can write to that remote can make entries stop counting (by altering or removing them) but cannot add a member or change one, because they cannot sign. A peer's reachability is a short TCP connection to its first route, so an offline peer fails at once; an entry with no routes shows as offline.
+`dojo-mesh roster sync` pulls the directory from its git remote, fast-forward only; a rewritten remote history is refused. Whoever can write to that remote cannot add a member or change one, because they cannot sign. They could try to make members drop out of view by altering or removing entries, so `sync` checks the result and, when files that did not verify before now do not, puts the roster back where it was and says which files (an ordinary revocation or expiry is accepted). A peer's reachability is a short TCP connection to its first route, so an offline peer fails at once; an entry with no routes shows as offline.
 
 ### Reaching peers over OpenSSH
 
@@ -127,11 +128,23 @@ A signing key can be held anywhere an SSH agent or a key file can sign with it: 
 
 A machine that members connect to needs an SSH server that accepts public keys only. `scripts/install-mesh-sshd.sh` (root-owned drop-in, timestamped backup, `sshd -t` before reload; see [system-config/README.md](../system-config/README.md#ssh-for-the-mesh)) turns off passwords and root login and can restrict `ListenAddress` or move `sshd` to another port (`--port`, for a machine where Tailscale already answers port 22 on its tailnet address), and `scripts/check-mesh-sshd.sh HOST [PORT]` run from another machine confirms that passwords are refused. A machine with a default-deny `firewalld` zone also needs the `sshd` port opened on the interface the route uses. Root on a peer is never an SSH login: a member opens a session as the ordinary user and runs `sudo`, which asks for the user's password. A machine whose owner has a security key can also make `sudo` ask for a touch with `scripts/enable-sudo-yubikey.sh`; no node requires it. The node's 1Password needs to be signed in on that machine with the SSH agent turned on (Settings > Developer > Use the SSH agent) and the approval duration chosen there; `dojo-mesh doctor` says "the SSH agent has no keys: unlock 1Password" until it is.
 
+### Moving a Tailscale mesh to a roster
+
+Nothing has to stop working while this is done: a node uses the roster only when its `mesh.toml` says `method = "roster"`, and until then it behaves exactly as before. Do it one node at a time, with Tailscale still carrying the node you are not working on.
+
+1. On every node, install the current `dojo-mesh` and `dojo-input-capture` (`scripts/install-helpers.sh`). On a machine that members will connect to, run `scripts/install-mesh-sshd.sh` ([Setting up a host](#setting-up-a-host)).
+2. On the operator's node, add `method = "roster"`, `node-name` and `signing-keys` to `mesh.toml`, run `dojo-mesh init`, then `dojo-mesh trust add YOUR_SIGNING_KEY.pub --fingerprint SHA256:…` for each signing key, and `dojo-mesh join --route HOST[:PORT]` followed by `dojo-mesh approve NAME.join.json --fingerprint SHA256:…` for itself. Choose the route each peer will be reached at: an address the others can reach, and a port that is the node's own `sshd` (not Tailscale's, which answers port 22 on a tailnet address).
+3. On each other node: the same `method = "roster"` and `node-name`, `dojo-mesh init`, `dojo-mesh join`, hand the request to the operator, `dojo-mesh trust add` the operator's signing key after comparing fingerprints, `dojo-mesh roster sync` (or copy the roster directory), and `dojo-mesh doctor`.
+4. Check with `dojo-mesh status` and `dojo-mesh exec PEER -- true` before relying on it. To go back to Tailscale at any moment, remove `method = "roster"` and run `dojo-mesh leave`; the `membership-tag` and `allow` lists were never touched.
+5. Remote input between roster nodes needs the Niri built with the OpenSSH gate (`scripts/install-niri-fork.sh`, effective at the next login) on the **receiving** node, and `accept-input` naming the sender as before.
+
+Mixed meshes are not supported: a node is on one method, and a Tailscale node and a roster node do not see each other.
+
 ## Reaching peers
 
-`exec`, `cp` and `task` use `tailscale ssh`. The remote command gets `DOJO_FROM`, `DOJO_SESSION` and `DOJO_ORIGIN` in its environment. Arguments are quoted, never interpreted by a shell. `cp` sends one regular file, keeps its permission bits, and replaces the destination atomically; copying from a peer writes through a temporary file, so a failed transfer leaves nothing behind.
+`exec`, `cp` and `task` go through the node's channel: `tailscale ssh` for a Tailscale mesh, the system `ssh` for a roster mesh. The remote command gets `DOJO_FROM`, `DOJO_SESSION` and `DOJO_ORIGIN` in its environment. Arguments are quoted, never interpreted by a shell. `cp` sends one regular file, keeps its permission bits, and replaces the destination atomically; copying from a peer writes through a temporary file, so a failed transfer leaves nothing behind.
 
-Every call is appended to `$XDG_STATE_HOME/dojo/mesh/audit.jsonl` before it starts and again when it ends. The agent's calls are refused if they cannot be logged. `dojo-mesh pause` stops the agent's calls (those marked `DOJO_MESH_ORIGIN=agent`) until `resume`; it is a brake, not a security boundary, because anything running as the user can still run `tailscale ssh` itself.
+Every call is appended to `$XDG_STATE_HOME/dojo/mesh/audit.jsonl` before it starts and again when it ends. The agent's calls are refused if they cannot be logged. `dojo-mesh pause` stops the agent's calls (those marked `DOJO_MESH_ORIGIN=agent`) until `resume`; it is a brake, not a security boundary, because anything running as the user can still run `tailscale ssh` (or, with a roster, `ssh`, if it can reach the agent that holds the key) itself.
 
 ## Capabilities
 
@@ -153,7 +166,7 @@ The peer only opens a web page, a directory, a file at a line, or an application
 
 `dojo-mesh remote PEER` (or the panel: **I** switches to "only my cursor and keyboard", no window sent, and Enter starts it; the "Take my cursor and keyboard" switch, Space, starts it after a window send instead) hands this node's pointer and keyboard to a peer until you press **Super+F11** again, or **Ctrl+Alt+Shift+Esc**, which is always there for when something goes wrong. Neither chord reaches the peer.
 
-On this node `dojo-input-capture` covers the focused output with a transparent surface that has the keyboard exclusively, locks the pointer (so motion keeps coming at the screen's edge) and hides the cursor. It also asks Niri to inhibit its own shortcuts for the surface, so Super+Shift+Space and the rest go to the peer instead of firing here (Niri's `allow-inhibiting=false` binds, if you add any, still fire). Nothing reaches local windows meanwhile. It writes one JSON event per line (relative motion, buttons, scrolling, evdev keys), which `dojo-mesh remote` carries over `tailscale ssh` to `dojo-mesh inject` on the peer. Whatever ends the session returns your input at once: the chord, the connection dropping, the peer refusing, a lock screen taking the surface, or the helper exiting. Held keys and buttons are released on both sides.
+On this node `dojo-input-capture` covers the focused output with a transparent surface that has the keyboard exclusively, locks the pointer (so motion keeps coming at the screen's edge) and hides the cursor. It also asks Niri to inhibit its own shortcuts for the surface, so Super+Shift+Space and the rest go to the peer instead of firing here (Niri's `allow-inhibiting=false` binds, if you add any, still fire). Nothing reaches local windows meanwhile. It writes one JSON event per line (relative motion, buttons, scrolling, evdev keys), which `dojo-mesh remote` carries over the node's channel (with a roster, using the separate input key) to `dojo-mesh inject` on the peer. Whatever ends the session returns your input at once: the chord, the connection dropping, the peer refusing, a lock screen taking the surface, or the helper exiting. Held keys and buttons are released on both sides.
 
 The peer delivers the events to Niri as its own keyboard and pointer (`Request::RemoteInput`, [ADR 0008](adr/0008-remote-input-takes-the-real-seat-only-inside-a-peers-ssh-session.md)): the peer's key binds fire (the launcher, window moves, anything in its `config.kdl`), there is one real cursor that crosses all of its monitors, and keys go to whatever has focus there, including a launcher that just opened. Niri accepts this only from a process inside an SSH session from another machine (a Tailscale SSH session, or an OpenSSH session of the root `sshd` whose connection comes from an address that is not this machine's), only while the screen is unlocked, and lets go of everything held when the connection closes. The person at the peer can end it at any time with **Ctrl+Alt+Shift+Esc** on their own keyboard. A Niri without `RemoteInput` still works through an agent input seat (a second cursor, no peer shortcuts) and says so once; installing the new Niri (`scripts/install-niri-fork.sh`, effective at the next login) on the **peer** is what turns the real input on.
 

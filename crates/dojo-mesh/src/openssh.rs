@@ -270,6 +270,24 @@ impl crate::method::Identity for RosterIdentity {
     }
 }
 
+/// Whether a rejection means the file is not what a signer made, as opposed to an ordinary end of a
+/// statement's life (revoked, superseded, expired). Only the former is a sign of a remote tampering.
+pub fn suspicious(reason: &str) -> bool {
+    ["unsigned", "not signed by", "unreadable", "larger than", "version"].iter().any(|start| reason.starts_with(start))
+}
+
+/// The commit the roster directory is at, when it is a git repository.
+pub fn head(dir: &Path) -> Option<String> {
+    let output = Command::new("git").arg("-C").arg(dir).args(["rev-parse", "HEAD"]).stdin(Stdio::null()).output().ok()?;
+    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Puts the roster directory back at `commit`, undoing a pull.
+pub fn reset(dir: &Path, commit: &str) -> Result<(), String> {
+    let output = Command::new("git").arg("-C").arg(dir).args(["reset", "--hard", "-q", commit]).stdin(Stdio::null()).output().map_err(|error| format!("could not run git: {error}"))?;
+    if output.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&output.stderr).trim().to_string()) }
+}
+
 /// The roster method: membership from the signed roster, calls over the system `ssh`.
 pub fn method(paths: crate::config::RosterPaths, config: MeshConfig, hostname: String, user: String) -> crate::method::Method {
     let membership = std::sync::Arc::new(SignedMembership::new(paths.dir, paths.signers));
@@ -287,5 +305,26 @@ pub fn method(paths: crate::config::RosterPaths, config: MeshConfig, hostname: S
         membership: Box::new(membership.clone()),
         identity: Box::new(RosterIdentity { membership, config, hostname }),
         channel: Box::new(channel),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::suspicious;
+
+    #[test]
+    fn only_rejections_that_mean_the_file_is_not_what_a_signer_made_hold_back_an_update() {
+        for tampered in [
+            "unsigned: there is no signature beside it",
+            "not signed by a trusted signing key (the file does not match its signature)",
+            "unreadable: expected value at line 1",
+            "larger than 64 KiB, which no roster file is",
+            "version 2 is not understood (this node reads version 1)",
+        ] {
+            assert!(suspicious(tampered), "{tampered}");
+        }
+        for ordinary in ["revoked: its key …abc was withdrawn", "superseded by the newer entry in devices/x.json", "expired on 2026-01-01", "issued in the future (2027-01-01 00:00 UTC); check the signer's clock", "it expires before it was issued"] {
+            assert!(!suspicious(ordinary), "{ordinary}");
+        }
     }
 }

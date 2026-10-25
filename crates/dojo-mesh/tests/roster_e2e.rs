@@ -258,8 +258,19 @@ fn a_roster_remote_can_neither_add_nor_change_a_member() {
     git(&attacker, &["commit", "-q", "-m", "innocent"]);
     git(&attacker, &["push", "-q", "origin", "HEAD:main"]);
 
+    // The update is held back: the roster this node believed stays exactly as it was.
+    let head_before = tool("git", &["rev-parse", "HEAD"], &lab.root.join("roster"));
     let (code, out) = lab.run(&["roster", "sync"]);
-    assert_eq!(code, 0, "{out}");
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("refused the update") && out.contains("devices/mallory.json") && out.contains("devices/beta.json"), "{out}");
+    assert_eq!(tool("git", &["rev-parse", "HEAD"], &lab.root.join("roster")), head_before);
+    let (code, out) = lab.run(&["roster", "check"]);
+    assert_eq!((code, out.contains("Accepted (2):")), (0, true), "{out}");
+    let (_, status) = lab.run(&["status"]);
+    assert!(!status.contains("mallory") && status.contains("beta"), "{status}");
+
+    // The same files pulled by hand (not through sync) are still refused entry by the checks.
+    tool("git", &["pull", "-q", "--ff-only"], &lab.root.join("roster"));
     let (code, out) = lab.run(&["roster", "check"]);
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("devices/mallory.json: not signed by a trusted signing key"), "{out}");

@@ -128,6 +128,14 @@ _Avoid_: Admin key, root key
 The key a node uses to prove itself to peers. Its custody is the node's setting; 1Password's SSH agent by default.
 _Avoid_: Machine key, host key (that one identifies the SSH server)
 
+**Input key**:
+A second key per node, used only to send remote input. In a peer's `authorized_keys` it is restricted to running `dojo-mesh inject --as NAME`, so it can carry input and nothing else.
+_Avoid_: Remote key
+
+**Join request**:
+What a new node sends the operator to be enrolled: its name, node key, input key, SSH host key and routes. It carries no authority; the operator compares its fingerprints and signs an entry for it.
+_Avoid_: Invite, enrollment key
+
 **Route**:
 How one node reaches a peer: an address and port, or a command that opens the connection.
 _Avoid_: Address (it may be a command), link

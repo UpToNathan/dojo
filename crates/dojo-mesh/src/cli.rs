@@ -206,13 +206,27 @@ fn roster_command(env: &Env, rest: &[String]) -> Result<u8, Failure> {
         return Err(fail(USAGE_ERROR, "there is nowhere to keep the roster (HOME is not set); set roster-dir"));
     };
     match rest.first().map(String::as_str) {
-        Some("sync") => match crate::openssh::sync(&paths.dir) {
-            Ok(message) => {
-                println!("{message}");
-                authorize(env, &config)
+        Some("sync") => {
+            // What was wrong with the roster before the pull is not the pull's doing.
+            let tampered = |roster: &Roster| -> Vec<String> { roster.rejected.iter().filter(|r| crate::openssh::suspicious(&r.reason)).map(|r| r.label.clone()).collect() };
+            let before = crate::openssh::head(&paths.dir);
+            let known = tampered(&load_roster(env, &config));
+            match crate::openssh::sync(&paths.dir) {
+                Ok(message) => {
+                    println!("{message}");
+                    let now = load_roster(env, &config);
+                    let new: Vec<String> = tampered(&now).into_iter().filter(|label| !known.contains(label)).collect();
+                    if let (false, Some(commit)) = (new.is_empty(), before.as_deref()) {
+                        // An update that makes entries stop verifying is held back, so a remote cannot
+                        // take members out of view; the last roster that was believed stays in place.
+                        crate::openssh::reset(&paths.dir, commit).map_err(|reason| fail(FAILED, format!("the update has entries that do not verify ({}) and could not be undone: {reason}", new.join(", "))))?;
+                        return Err(fail(FAILED, format!("refused the update: {} did not verify, so the roster stays as it was. Whoever controls the roster's remote changed or added files they did not sign for a trusted key", new.join(", "))));
+                    }
+                    authorize(env, &config)
+                }
+                Err(reason) => Err(fail(UNAVAILABLE, format!("could not pull the roster in {}: {reason}", paths.dir.display()))),
             }
-            Err(reason) => Err(fail(UNAVAILABLE, format!("could not pull the roster in {}: {reason}", paths.dir.display()))),
-        },
+        }
         Some("authorize") => authorize(env, &config),
         Some("check") | None => {
             let roster = load_roster(env, &config);

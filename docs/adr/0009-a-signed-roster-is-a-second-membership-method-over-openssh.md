@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # A signed roster is a second membership method, reached over OpenSSH
@@ -15,9 +15,10 @@ Three seams in the mesh core, each with the Tailscale method as one implementati
 - **Trust on first sight is not allowed.** A new device shows its key fingerprint, the operator compares it by eye and approves it on a machine with the signing key, and the device confirms the signing key's fingerprint the same way.
 - **Losing the signing key is recoverable.** Each node can be told locally, after the operator compares a fingerprint, to trust a new signing key. With a single signing key and no hardware key the mesh is never locked out for good.
 - **Node keys.** One ed25519 key per node. Custody is that node's setting: 1Password's SSH agent by default, so each use needs the operator's approval as 1Password is set to ask, or any other SSH agent or key file. Receiving needs nothing: a node only checks `authorized_keys`.
-- **Authorization.** A marked block in the user's own `authorized_keys` lists the members' node keys. A member gets that user's full shell, as in Hona/mesh. A second, dedicated key per node is restricted to `dojo-mesh inject --peer <name>` and carries remote input. The mesh never edits `sshd_config`.
+- **Authorization.** A marked block in the user's own `authorized_keys` lists the members' node keys. A member gets that user's full shell, as in Hona/mesh. A second, dedicated key per node is restricted to `dojo-mesh inject --as <name>` and carries remote input. The mesh never edits `sshd_config`.
 - **Connections.** The system `ssh` runs with a generated configuration kept under Dojo's state directory: strict host keys pinned from the roster, `BatchMode`, `IdentitiesOnly` with the 1Password agent, a short connect timeout and keepalives. The user's own `~/.ssh` is never read or changed. Provenance (`DOJO_FROM`, `DOJO_SESSION`, `DOJO_ORIGIN`) travels in the command as before.
 - **Root.** There is no root over SSH. Root on a peer is the user's login plus `sudo`, which asks for the user's password. A node that has a YubiKey can add `pam_u2f` so each `sudo` also needs a touch; this is optional and per node.
+- **A remote cannot take members out of view.** `roster sync` pulls fast-forward only and checks the result; an update that makes files stop verifying (unsigned, tampered, unreadable) is undone and reported, so the roster the node last believed stays in place. A revocation or an expiry is an ordinary change and is accepted.
 - **Entries expire** (90 days by default) until re-signed, which bounds how long a revoked or stolen device stays trusted if a node is offline.
 - **Remote input** ([ADR-0008](0008-remote-input-takes-the-real-seat-only-inside-a-peers-ssh-session.md)) accepts a session under the root `sshd` from a non-local address as well as one under Tailscale's helper. The sender's name comes from the dedicated key's forced command.
 
@@ -39,3 +40,4 @@ Three seams in the mesh core, each with the Tailscale method as one implementati
 - A signing key held in 1Password is gated by a software approval, which is weaker than a hardware touch: if 1Password is set to remember approvals for a period, any process of the user can sign during that period. Set the signing key to ask every time. `doctor` shows how each signing key is held, in order, and warns when the only ones are the software kind.
 - Each node runs OpenSSH and the operator owns its configuration. A node's `sshd` must accept public keys only and listen only where intended; this is a setup step, not something the mesh changes.
 - ADR-0005 and ADR-0006 stay in force for Tailscale meshes. ADR-0008's gate is amended to cover both transports.
+- Accepted once the method was built and tested with real `ssh-keygen` keys, a real git remote and a fake `ssh`. What has not been exercised is a live 1Password agent, a YubiKey, and a real `sshd` session reaching Niri's gate; the tickets in `.scratch/mesh-openssh` list each.
