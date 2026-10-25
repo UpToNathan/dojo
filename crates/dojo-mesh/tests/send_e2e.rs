@@ -67,6 +67,10 @@ fn fake_niri(path: &Path, windows: &'static str) -> Seen {
                         ok("{\"Outputs\":{\"eDP-1\":{\"name\":\"eDP-1\",\"logical\":{\"x\":0,\"y\":0,\"width\":1000.0,\"height\":500.0}},\"DP-2\":{\"name\":\"DP-2\",\"logical\":{\"x\":1000,\"y\":0,\"width\":800.0,\"height\":500.0}}}}")
                     } else if line == "\"YieldHumanInput\"" {
                         *yielded = true;
+                        if dir.join("yields-seen").exists() {
+                            let _ = std::fs::remove_file(dir.join("human-owns"));
+                        }
+                        let _ = std::fs::write(dir.join("yields-seen"), "");
                         ok("{\"InputCoordination\":{\"revision\":1,\"human_owned_windows\":[]}}")
                     } else if line.contains("\"Jump\"") && dir.join("no-jump").exists() {
                         "{\"Err\":\"unknown variant `Jump`, expected one of `Move`, `Wait`\"}".to_string()
@@ -81,6 +85,9 @@ fn fake_niri(path: &Path, windows: &'static str) -> Seen {
                         }
                         let _ = std::fs::write(dir.join("focused-once"), "");
                         ok("{\"AgentInputFocused\":{\"window_id\":9}}")
+                    } else if line.contains("\"Button\"") && line.contains("Pressed") && dir.join("human-owns").exists() {
+                        // A launcher that took the keyboard is the human's until it is yielded again.
+                        ok("{\"AgentInputPaused\":{\"reason\":\"human owns this application\",\"coordination\":{\"revision\":1,\"human_owned_windows\":[9]}}}")
                     } else if line.contains("\"Create\"") {
                         ok("{\"AgentInputCreated\":{\"peer_id\":1,\"seat_name\":\"seat\"}}")
                     } else if line.contains("\"AgentInput\":{\"Focus\"") && dir.join("paused").exists() && (!*yielded || dir.join("never-yields").exists()) {
@@ -695,4 +702,19 @@ fn a_click_or_key_niri_turns_down_does_not_end_the_session() {
     assert_eq!(requests.iter().filter(|r| **r == key("Pressed")).count(), 2, "the refused key was sent again once its window had focus: {requests:?}");
     assert!(requests.contains(&key("Released")), "{requests:?}");
     assert!(requests.contains(&serde_json::json!({"AgentInput": {"Jump": {"output": "eDP-1", "x": 510.0, "y": 250.0}}})), "the mouse still follows after a refusal: {requests:?}");
+}
+
+#[test]
+fn an_application_the_human_took_is_yielded_again_instead_of_ending_the_session() {
+    let site = Site::new();
+    site.config("beta", BETA_ACCEPTS_ALPHA);
+    std::fs::write(site.root.join("hosts/beta/human-owns"), "").unwrap();
+    let capture = fake_capture(&site, &[r#"{"t":"button","code":272,"pressed":true}"#, r#"{"t":"button","code":272,"pressed":false}"#, r#"{"t":"motion","dx":10,"dy":0}"#]);
+    let result = run_remote(&site, &capture, &[]);
+    assert_eq!(result.status.code(), Some(0), "{}", text(&result));
+    let requests = beta_requests(&site);
+    let click = serde_json::json!({"AgentInput": {"Button": {"button": 272, "state": "Pressed"}}});
+    assert_eq!(requests.iter().filter(|r| **r == click).count(), 2, "the click was sent again after yielding: {requests:?}");
+    assert_eq!(requests.iter().filter(|r| **r == serde_json::json!("YieldHumanInput")).count(), 2, "{requests:?}");
+    assert!(requests.contains(&serde_json::json!({"AgentInput": {"Jump": {"output": "eDP-1", "x": 510.0, "y": 250.0}}})), "{requests:?}");
 }

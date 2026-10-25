@@ -157,9 +157,11 @@ pub fn inject(env: &Env, rest: &[String]) -> Result<u8, Failure> {
 }
 
 /// Niri turns down single events that are not a fault in the session: a click on empty desktop has
-/// no client surface to land on, and a key needs a mapped window to go to. Those are skipped (a key
-/// first gets the focused window as its target, as a click on one would), and only a broken
-/// connection to Niri ends the session.
+/// no client surface to land on, a key needs a mapped window to go to, and an application the
+/// human is using (a launcher that just opened and took the keyboard) pauses the seat. Each gets one
+/// repair, since the person sending is the one at the controls: the focused window becomes the key's
+/// target, and the human's claim on the application is yielded again. Whatever still fails is
+/// skipped. Only a broken connection to Niri ends the session.
 fn apply_or_recover(
     socket: &std::path::Path,
     seat: &mut niri::AgentSeat,
@@ -171,16 +173,19 @@ fn apply_or_recover(
     if !is_refusal(&message) {
         return Err(message);
     }
-    if matches!(action, Action::Key { .. }) && message.contains("focus a mapped window") {
+    let repaired = if message.contains("human owns") {
+        seat.yield_human_input().is_ok()
+    } else if matches!(action, Action::Key { .. }) && message.contains("focus a mapped window") {
         let focused = niri::windows(socket).ok().and_then(|windows| windows.into_iter().find(|window| window.is_focused));
-        if let Some(window) = focused {
-            if seat.focus(window.id).is_ok() {
-                match apply(seat, pointer, action) {
-                    Ok(()) => return Ok(()),
-                    Err(again) if !is_refusal(&again) => return Err(again),
-                    Err(_) => {}
-                }
-            }
+        focused.is_some_and(|window| seat.focus(window.id).is_ok())
+    } else {
+        false
+    };
+    if repaired {
+        match apply(seat, pointer, action) {
+            Ok(()) => return Ok(()),
+            Err(again) if !is_refusal(&again) => return Err(again),
+            Err(_) => {}
         }
     }
     if told.insert(message.clone()) {
@@ -189,9 +194,9 @@ fn apply_or_recover(
     Ok(())
 }
 
-/// A refusal is Niri answering "not this one"; anything else is the connection failing.
+/// A refusal or pause is Niri answering "not this one"; anything else is the connection failing.
 fn is_refusal(message: &str) -> bool {
-    message.starts_with("Niri refused:")
+    message.starts_with("Niri refused:") || message.starts_with("Niri paused the input:")
 }
 
 /// How the receiver places its cursor. Niri's `Jump` puts it there at once; an older Niri lacks it
