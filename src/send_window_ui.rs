@@ -275,6 +275,14 @@ impl Panel {
                     }
                 }));
             }
+            Request::RemoteOnly { peer } => {
+                self.memory = self.model.memory();
+                if let Some(path) = memory_path() {
+                    let _ = self.memory.save(&path);
+                }
+                self.handle(Request::Finish { close: None, remote_to: Some(peer) }, window, cx);
+                return;
+            }
             Request::Finish { close, remote_to } => {
                 // The panel holds the keyboard, so it goes first: the browser needs it to close a
                 // tab, and the capture helper needs it to take the keyboard.
@@ -342,6 +350,10 @@ impl Panel {
             Phase::Choosing => {
                 if let Some(why) = self.model.blocked() {
                     return vec![why.to_owned()];
+                }
+                if self.model.input_only {
+                    let peer = self.model.peers.get(self.model.peer).cloned().unwrap_or_default();
+                    return vec![format!("No window is sent. Enter takes your cursor and keyboard to {peer}; Super+F11 brings them back.")];
                 }
                 match self.model.preview() {
                     Some(Ok(preview)) => {
@@ -478,7 +490,7 @@ impl Render for Panel {
                 .line_height(px(size::HINT))
                 .text_color(colors.foreground_muted.rgb())
                 .truncate()
-                .child("Tab windows/machines · W all tabs · Space cursor and keyboard · Enter send · Esc close"),
+                .child("Tab windows/machines · W all tabs · I only cursor and keyboard · Space take them along · Enter go · Esc close"),
         );
 
         div()

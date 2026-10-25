@@ -57,6 +57,8 @@ pub enum Request {
     /// The send is over: close the original (unless it is kept), then the panel, and then start
     /// taking the cursor and keyboard to the peer if that was asked for.
     Finish { close: Option<(u64, String)>, remote_to: Option<String> },
+    /// No window: only the cursor and keyboard go to the peer.
+    RemoteOnly { peer: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,6 +72,8 @@ pub struct Model {
     pub phase: Phase,
     /// Send every tab of a browser window, not just the one in front.
     pub all_tabs: bool,
+    /// Send no window: only take the cursor and keyboard to the peer.
+    pub input_only: bool,
     /// What each window would send, by window and whether all its tabs, as far as it has been asked.
     pub previews: HashMap<(u64, bool), Result<Preview, String>>,
 }
@@ -102,7 +106,7 @@ impl Memory {
 
 impl Model {
     pub fn loading(memory: &Memory) -> Self {
-        Self { windows: Vec::new(), peers: Vec::new(), window: 0, peer: 0, list: List::Windows, take_input: memory.take_input, phase: Phase::Loading, all_tabs: false, previews: HashMap::new() }
+        Self { windows: Vec::new(), peers: Vec::new(), window: 0, peer: 0, list: List::Windows, take_input: memory.take_input, phase: Phase::Loading, all_tabs: false, input_only: false, previews: HashMap::new() }
     }
 
     /// The windows (focused first is selected) and online peers (the remembered one selected).
@@ -164,7 +168,7 @@ impl Model {
         match self.phase {
             Phase::Loading => Some("Reading windows and machines…"),
             Phase::Sending => Some("Sending…"),
-            _ if self.windows.is_empty() => Some("There are no windows to send"),
+            _ if self.windows.is_empty() && !self.input_only => Some("There are no windows to send"),
             _ if self.peers.is_empty() => Some("No other machine is online"),
             _ => None,
         }
@@ -221,6 +225,14 @@ impl Model {
                 }
                 Request::Nothing
             }
+            "i" => {
+                // Just the cursor and keyboard, no window.
+                self.input_only = !self.input_only;
+                if matches!(self.phase, Phase::Failed(_) | Phase::Missing(_)) {
+                    self.phase = Phase::Choosing;
+                }
+                Request::Nothing
+            }
             "w" => {
                 // All tabs or the front one. Whether the window supports it is the preview's to say.
                 self.all_tabs = !self.all_tabs;
@@ -241,6 +253,9 @@ impl Model {
     pub fn enter(&mut self) -> Request {
         if self.blocked().is_some() {
             return Request::Nothing;
+        }
+        if self.input_only {
+            return Request::RemoteOnly { peer: self.peers[self.peer].clone() };
         }
         let copy_missing = matches!(self.phase, Phase::Missing(_));
         self.phase = Phase::Sending;
@@ -365,6 +380,29 @@ mod tests {
         assert_eq!(model.needs_preview(), Some((3, false)));
         model.set_preview(3, false, Err("no desktop entry".into()));
         assert_eq!(model.preview(), Some(&Err("no desktop entry".to_string())));
+    }
+
+    #[test]
+    fn i_takes_only_the_cursor_and_keyboard_and_needs_no_window() {
+        let mut model = ready(&Memory { peer: Some("beta".into()), take_input: false });
+        model.key("i");
+        assert!(model.input_only);
+        assert_eq!(model.key("enter"), Request::RemoteOnly { peer: "beta".into() });
+        assert_eq!(model.phase, Phase::Choosing, "nothing was sent, so the panel is not mid-send");
+        model.key("i");
+        assert_eq!(model.key("enter"), Request::Send { window: 9, peer: "beta".into(), take_input: false, copy_missing: false, all_tabs: false });
+
+        let mut windowless = Model::loading(&Memory::default());
+        windowless.loaded(vec![], None, vec!["alpha".into()], &Memory::default());
+        assert_eq!(windowless.blocked(), Some("There are no windows to send"));
+        windowless.key("i");
+        assert_eq!(windowless.blocked(), None, "with no window to send the cursor and keyboard can still go");
+        assert_eq!(windowless.key("enter"), Request::RemoteOnly { peer: "alpha".into() });
+
+        let mut alone = Model::loading(&Memory::default());
+        alone.loaded(windows(), None, vec![], &Memory::default());
+        alone.key("i");
+        assert_eq!(alone.key("enter"), Request::Nothing, "still needs a machine");
     }
 
     #[test]

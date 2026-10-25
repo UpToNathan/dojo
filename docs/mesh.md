@@ -94,7 +94,7 @@ The peer only opens a web page, a directory, a file at a line, or an application
 
 ## Taking the cursor and keyboard
 
-`dojo-mesh remote PEER` (or the "Take my cursor and keyboard" switch in the send panel, which starts it after the send) hands this node's pointer and keyboard to a peer until you press **Super+F11** again, or **Ctrl+Alt+Shift+Esc**, which is always there for when something goes wrong. Neither chord reaches the peer.
+`dojo-mesh remote PEER` (or the panel: **I** switches to "only my cursor and keyboard", no window sent, and Enter starts it; the "Take my cursor and keyboard" switch, Space, starts it after a window send instead) hands this node's pointer and keyboard to a peer until you press **Super+F11** again, or **Ctrl+Alt+Shift+Esc**, which is always there for when something goes wrong. Neither chord reaches the peer.
 
 On this node `dojo-input-capture` covers the focused output with a transparent surface that has the keyboard exclusively, locks the pointer (so motion keeps coming at the screen's edge) and hides the cursor. Nothing reaches local windows meanwhile. It writes one JSON event per line (relative motion, buttons, scrolling, evdev keys), which `dojo-mesh remote` carries over `tailscale ssh` to `dojo-mesh inject` on the peer. Whatever ends the session returns your input at once: the chord, the connection dropping, the peer refusing, a lock screen taking the surface, or the helper exiting. Held keys and buttons are released on both sides.
 
