@@ -151,7 +151,7 @@ The operator's pointer and keyboard driving a peer after crossing a boundary, re
 _Avoid_: Input sharing, KVM
 
 **Handoff**:
-Moving what a window shows to a peer by dragging it across a boundary: the peer opens the same thing and the local window closes. The process itself does not move.
+Sending what a window shows to a peer: the peer opens the same thing and the local window closes. The process itself does not move.
 _Avoid_: Migration, transfer
 
 **Handoff adapter**:
