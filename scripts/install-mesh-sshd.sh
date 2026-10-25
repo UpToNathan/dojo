@@ -11,9 +11,10 @@ sshd=${DOJO_SSHD:-sshd}
 systemctl=${DOJO_SYSTEMCTL:-systemctl}
 
 usage() {
-    echo "Usage: $0 [--user NAME] [--listen ADDRESS]... [--allow-no-keys]" >&2
+    echo "Usage: $0 [--user NAME] [--listen ADDRESS]... [--port PORT]... [--allow-no-keys]" >&2
     echo "  --user NAME       the account whose authorized_keys must hold a key (default: the invoking user)" >&2
     echo "  --listen ADDRESS  listen only on this address (repeatable); without it sshd listens as it already does" >&2
+    echo "  --port PORT       listen on this port instead of 22 (repeatable); e.g. where Tailscale SSH owns 22" >&2
     echo "  --allow-no-keys   harden even though NAME has no authorized key yet (sshd then admits nobody)" >&2
 }
 
@@ -32,12 +33,16 @@ as_root() {
 target_user=${SUDO_USER:-$(id -un)}
 allow_no_keys=false
 listen=()
+ports=()
 while [[ $# -gt 0 ]]; do
     case $1 in
         --user) [[ $# -ge 2 ]] || { usage; exit 2; }; target_user=$2; shift 2 ;;
         --listen)
             [[ $# -ge 2 && $2 =~ ^[A-Za-z0-9._:-]+$ ]] || { echo "--listen needs an address or host name" >&2; exit 2; }
             listen+=("$2"); shift 2 ;;
+        --port)
+            [[ $# -ge 2 && $2 =~ ^[0-9]+$ && $2 -ge 1 && $2 -le 65535 ]] || { echo "--port needs a port number from 1 to 65535" >&2; exit 2; }
+            ports+=("$2"); shift 2 ;;
         --allow-no-keys) allow_no_keys=true; shift ;;
         -h|--help) usage; exit 0 ;;
         *) usage; exit 2 ;;
@@ -90,10 +95,11 @@ rollback() {
 hardening=$ssh_dir/sshd_config.d/10-dojo-mesh.conf
 listening=$ssh_dir/sshd_config.d/11-dojo-mesh-listen.conf
 place "$repo_root/system-config/ssh/sshd_config.d/10-dojo-mesh.conf" "$hardening"
-if [[ ${#listen[@]} -gt 0 ]]; then
+if [[ ${#listen[@]} -gt 0 || ${#ports[@]} -gt 0 ]]; then
     {
-        echo '# Dojo mesh: listen only where the mesh is meant to be reached (scripts/install-mesh-sshd.sh --listen).'
-        printf 'ListenAddress %s\n' "${listen[@]}"
+        echo '# Dojo mesh: listen only where the mesh is meant to be reached (scripts/install-mesh-sshd.sh --listen, --port).'
+        if [[ ${#listen[@]} -gt 0 ]]; then printf 'ListenAddress %s\n' "${listen[@]}"; fi
+        if [[ ${#ports[@]} -gt 0 ]]; then printf 'Port %s\n' "${ports[@]}"; fi
     } > "$rendered/listen.conf"
     place "$rendered/listen.conf" "$listening"
 elif [[ -e $listening ]]; then

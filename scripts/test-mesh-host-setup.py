@@ -119,6 +119,15 @@ class InstallMeshSshd(Host):
         self.assertFalse(self.listen.exists())
         self.assertEqual(len(list(self.listen.parent.glob("11-dojo-mesh-listen.conf.backup-*"))), 1)
 
+    def test_a_port_other_than_22_can_be_chosen_for_where_something_else_owns_it(self):
+        self.authorize()
+        result = self.run_script("install-mesh-sshd.sh", "--port", "2222")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Port 2222\n", self.listen.read_text())
+        self.assertNotIn("ListenAddress", self.listen.read_text())
+        for bad in ["0", "65536", "ssh", "22;"]:
+            self.assertEqual(self.run_script("install-mesh-sshd.sh", "--port", bad).returncode, 2, bad)
+
     def test_a_listen_value_that_is_not_an_address_is_refused(self):
         self.authorize()
         for bad in ["a b", "x;y", "$(id)", ""]:
