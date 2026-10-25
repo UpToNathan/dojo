@@ -27,7 +27,7 @@ pub enum Phase {
     Missing(Vec<String>),
     Failed(String),
     /// Sent. What closes here is still pending for a moment, so it can be kept.
-    Sent { peer: String, sent: String, notes: Vec<String>, source: Source },
+    Sent { peer: String, sent: String, notes: Vec<String>, source: Source, take_input: bool },
 }
 
 /// What happens to the original after a send.
@@ -51,8 +51,9 @@ pub enum Request {
     Nothing,
     Close,
     Send { window: u64, peer: String, take_input: bool, copy_missing: bool },
-    /// Close the original now, then the panel.
-    CloseSource { window: u64, tab_title: Option<String> },
+    /// The send is over: close the original (unless it is kept), then the panel, and then start
+    /// taking the cursor and keyboard to the peer if that was asked for.
+    Finish { close: Option<(u64, Option<String>)>, remote_to: Option<String> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -117,8 +118,22 @@ impl Model {
     }
 
     /// `closes_tab` is the window's title when only a tab is to close, `None` for the whole window.
-    pub fn sent(&mut self, peer: String, sent: String, notes: Vec<String>, window: u64, tab_title: Option<String>) {
-        self.phase = Phase::Sent { peer, sent, notes, source: Source::Pending { window, tab_title } };
+    pub fn sent(&mut self, peer: String, sent: String, notes: Vec<String>, window: u64, tab_title: Option<String>, take_input: bool) {
+        self.phase = Phase::Sent { peer, sent, notes, source: Source::Pending { window, tab_title }, take_input };
+    }
+
+    /// What ends the Sent phase now. Esc keeps the original; the cursor and keyboard still go if asked.
+    pub fn finish(&mut self, keep: bool) -> Request {
+        let Phase::Sent { peer, source, take_input, .. } = &mut self.phase else { return Request::Close };
+        let remote_to = take_input.then(|| peer.clone());
+        let close = match (keep, source.clone()) {
+            (false, Source::Pending { window, tab_title }) => Some((window, tab_title)),
+            _ => None,
+        };
+        if keep {
+            *source = Source::Kept;
+        }
+        Request::Finish { close, remote_to }
     }
 
     /// The window selected, if any.
@@ -172,16 +187,9 @@ impl Model {
         if self.phase == Phase::Sending {
             return Request::Nothing;
         }
-        if let Phase::Sent { source, .. } = &mut self.phase {
-            return match (key, source.clone()) {
-                // Esc keeps the original; anything else closes it now.
-                ("escape", Source::Pending { .. }) => {
-                    *source = Source::Kept;
-                    Request::Close
-                }
-                (_, Source::Pending { window, tab_title }) => Request::CloseSource { window, tab_title },
-                (_, Source::Kept) => Request::Close,
-            };
+        if matches!(self.phase, Phase::Sent { .. }) {
+            // Esc keeps the original; anything else closes it now.
+            return self.finish(key == "escape");
         }
         match key {
             "escape" => {
@@ -304,14 +312,26 @@ mod tests {
     fn after_sending_the_original_closes_unless_escape_keeps_it() {
         let mut model = ready(&Memory::default());
         model.key("enter");
-        model.sent("alpha".into(), "the page https://x".into(), vec![], 9, Some("Page - Helium".into()));
-        assert_eq!(model.key("enter"), Request::CloseSource { window: 9, tab_title: Some("Page - Helium".into()) });
-        assert_eq!(model.key("escape"), Request::Close, "Esc closes the panel and leaves the original alone");
+        model.sent("alpha".into(), "the page https://x".into(), vec![], 9, Some("Page - Helium".into()), false);
+        assert_eq!(model.finish(false), Request::Finish { close: Some((9, Some("Page - Helium".into()))), remote_to: None });
+        assert_eq!(model.key("escape"), Request::Finish { close: None, remote_to: None }, "Esc leaves the original alone");
         match &model.phase {
             Phase::Sent { source, .. } => assert_eq!(*source, Source::Kept),
             other => panic!("{other:?}"),
         }
-        assert_eq!(model.key("enter"), Request::Close);
+        assert_eq!(model.key("enter"), Request::Finish { close: None, remote_to: None });
+    }
+
+    #[test]
+    fn taking_the_cursor_and_keyboard_starts_after_the_send_whatever_happens_to_the_original() {
+        let mut model = ready(&Memory::default());
+        model.key("enter");
+        model.sent("alpha".into(), "a terminal in /w".into(), vec![], 9, None, true);
+        assert_eq!(model.key("enter"), Request::Finish { close: Some((9, None)), remote_to: Some("alpha".into()) });
+        let mut kept = ready(&Memory::default());
+        kept.key("enter");
+        kept.sent("alpha".into(), "x".into(), vec![], 9, None, true);
+        assert_eq!(kept.key("escape"), Request::Finish { close: None, remote_to: Some("alpha".into()) });
     }
 
     #[test]

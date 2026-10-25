@@ -15,6 +15,8 @@ pub enum Input {
     File(File),
     /// Written to the call's standard input, which is then closed.
     Bytes(Vec<u8>),
+    /// Another process's output, or any stream, as the call's standard input.
+    Stdio(Stdio),
 }
 
 pub enum Output {
@@ -62,6 +64,7 @@ pub fn run(call: Call) -> Result<Done, String> {
             feed = Some(bytes);
             Stdio::piped()
         }
+        Input::Stdio(stdio) => stdio,
     });
     let capture = matches!(call.output, Output::Capture);
     command.stdout(match call.output {

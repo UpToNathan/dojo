@@ -17,8 +17,11 @@ const STATUS: &str = r#"{"BackendState": "Running",
 const FAKE_TAILSCALE: &str = r#"#!/bin/sh
 case "$1" in
 status) cat "$FAKE_ROOT/status.json" ;;
+whois)
+  [ "$3" = 100.64.0.1 ] && echo '{"Node": {"Name": "alpha.example.ts.net."}}' || exit 1 ;;
 ssh)
   short=${2%%.*}
+  export SSH_CONNECTION="${FAKE_SSH_FROM:-100.64.0.1} 5555 100.64.0.2 22"
   export HOME="$FAKE_ROOT/hosts/$short/home"
   export XDG_CONFIG_HOME="$FAKE_ROOT/hosts/$short/config"
   export XDG_STATE_HOME="$FAKE_ROOT/hosts/$short/state"
@@ -58,6 +61,8 @@ fn fake_niri(path: &Path, windows: &'static str) -> Seen {
                     let ok = |body: &str| format!("{{\"Ok\":{body}}}");
                     let reply = if line == "\"Windows\"" {
                         ok(&format!("{{\"Windows\":{}}}", serde_json::Value::Array(listed.clone())))
+                    } else if line == "\"Outputs\"" {
+                        ok("{\"Outputs\":{\"eDP-1\":{\"name\":\"eDP-1\",\"logical\":{\"x\":0,\"y\":0,\"width\":1000.0,\"height\":500.0}}}}")
                     } else if line == "\"YieldHumanInput\"" {
                         *yielded = true;
                         ok("{\"InputCoordination\":{\"revision\":1,\"human_owned_windows\":[]}}")
@@ -121,6 +126,10 @@ impl Site {
         let alpha = fake_niri(&root.join("hosts/alpha/niri.sock"), ALPHA_WINDOWS);
         let beta = fake_niri(&root.join("hosts/beta/niri.sock"), "[]");
         Self { root, alpha, beta }
+    }
+
+    fn config(&self, host: &str, text: &str) {
+        std::fs::write(self.root.join(format!("hosts/{host}/config/dojo/mesh.toml")), text).unwrap();
     }
 
     fn command(&self) -> Command {
@@ -381,4 +390,147 @@ fn a_seat_niri_still_pauses_leaves_the_tab_open_and_says_why() {
     assert!(text(&result).contains("Niri paused the input: human owns this application"), "{}", text(&result));
     assert!(text(&result).contains("close it yourself"), "{}", text(&result));
     assert!(!alpha_actions(&site).iter().any(|line| line.contains("Targeted") || line.contains("CloseWindow")), "no key and no close: {:?}", alpha_actions(&site));
+}
+
+// ---- remote input ---------------------------------------------------------------------------
+
+const BETA_ACCEPTS_ALPHA: &str = "accept-input = [\"alpha\"]\n";
+
+/// A capture helper that prints these event lines and then ends, as if the operator let go.
+fn fake_capture(site: &Site, lines: &[&str]) -> PathBuf {
+    let path = site.root.join("fake-capture");
+    let body: String = lines.iter().map(|line| format!("{line}\n")).collect();
+    std::fs::write(site.root.join("capture.events"), body).unwrap();
+    std::fs::write(&path, format!("#!/bin/sh\ncat \"{}\"\n", site.root.join("capture.events").display())).unwrap();
+    Command::new("chmod").arg("+x").arg(&path).status().unwrap();
+    path
+}
+
+fn run_remote(site: &Site, capture: &Path, extra_env: &[(&str, &str)]) -> Output {
+    let mut command = site.command();
+    command.env("DOJO_INPUT_CAPTURE", capture).args(["remote", "beta"]).stdin(Stdio::null());
+    for (key, value) in extra_env {
+        command.env(key, value);
+    }
+    command.output().unwrap()
+}
+
+fn beta_requests(site: &Site) -> Vec<serde_json::Value> {
+    Site::requests(&site.beta).iter().map(|line| serde_json::from_str(line).unwrap()).collect()
+}
+
+#[test]
+fn remote_replays_the_operators_input_on_the_peers_seat_and_lets_go_at_the_end() {
+    let site = Site::new();
+    site.config("beta", BETA_ACCEPTS_ALPHA);
+    let capture = fake_capture(
+        &site,
+        &[
+            r#"{"t":"motion","dx":10,"dy":5}"#,
+            r#"{"t":"motion","dx":5,"dy":0}"#,
+            r#"{"t":"button","code":272,"pressed":true}"#,
+            r#"{"t":"button","code":272,"pressed":false}"#,
+            r#"{"t":"axis","h":0,"v":15}"#,
+            r#"{"t":"key","code":30,"pressed":true}"#,
+            r#"{"t":"key","code":30,"pressed":false}"#,
+            r#"{"t":"run","command":"rm -rf ~"}"#,
+        ],
+    );
+    let result = run_remote(&site, &capture, &[]);
+    assert_eq!(result.status.code(), Some(0), "{}", text(&result));
+    assert!(text(&result).contains("taking input from alpha.example.ts.net"), "{}", text(&result));
+    let wanted = [
+        serde_json::json!("YieldHumanInput"),
+        serde_json::json!({"AgentInput": {"Create": {"name": "dojo-remote"}}}),
+        serde_json::json!("Outputs"),
+        serde_json::json!("Windows"),
+        serde_json::json!({"AgentInput": {"Move": {"output": "eDP-1", "x": 515.0, "y": 255.0}}}),
+        serde_json::json!({"AgentInput": "Wait"}),
+        serde_json::json!({"AgentInput": {"Button": {"button": 272, "state": "Pressed"}}}),
+        serde_json::json!({"AgentInput": {"Button": {"button": 272, "state": "Released"}}}),
+        serde_json::json!({"AgentInput": {"Axis": {"horizontal": 0.0, "vertical": 15.0}}}),
+        serde_json::json!({"AgentInput": {"Key": {"evdev": 30, "state": "Pressed"}}}),
+        serde_json::json!({"AgentInput": {"Key": {"evdev": 30, "state": "Released"}}}),
+        serde_json::json!({"AgentInput": "Reset"}),
+        serde_json::json!({"AgentInput": "Destroy"}),
+    ];
+    let order = |requests: &[serde_json::Value]| requests.iter().filter(|r| **r != serde_json::json!("Outputs") && **r != serde_json::json!("Windows")).cloned().collect::<Vec<_>>();
+    assert_eq!(order(&beta_requests(&site)), order(&wanted), "an unknown event was ignored, never run");
+    let audit = text(&site.run(&["audit"]));
+    assert!(audit.contains("-> beta remote cursor and keyboard [exit 0]"), "{audit}");
+}
+
+#[test]
+fn a_peer_that_has_not_named_the_sender_refuses_and_its_seat_is_never_made() {
+    let site = Site::new();
+    let capture = fake_capture(&site, &[r#"{"t":"key","code":30,"pressed":true}"#]);
+    let result = run_remote(&site, &capture, &[]);
+    assert_eq!(result.status.code(), Some(1), "{}", text(&result));
+    assert!(text(&result).contains("this machine does not accept input from alpha.example.ts.net"), "{}", text(&result));
+    assert!(beta_requests(&site).is_empty(), "nothing reached Niri: {:?}", beta_requests(&site));
+}
+
+#[test]
+fn a_connection_tailscale_cannot_name_is_refused() {
+    let site = Site::new();
+    site.config("beta", BETA_ACCEPTS_ALPHA);
+    let capture = fake_capture(&site, &[r#"{"t":"key","code":30,"pressed":true}"#]);
+    let result = run_remote(&site, &capture, &[("FAKE_SSH_FROM", "100.99.99.99")]);
+    assert_eq!(result.status.code(), Some(1), "{}", text(&result));
+    assert!(text(&result).contains("Tailscale did not know the connection"), "{}", text(&result));
+    assert!(beta_requests(&site).is_empty());
+}
+
+#[test]
+fn a_locked_peer_refuses_input() {
+    let site = Site::new();
+    site.config("beta", BETA_ACCEPTS_ALPHA);
+    std::fs::write(site.root.join("hosts/beta/home/locked"), "").unwrap();
+    let capture = fake_capture(&site, &[r#"{"t":"key","code":30,"pressed":true}"#]);
+    let result = run_remote(&site, &capture, &[]);
+    assert_eq!(result.status.code(), Some(1));
+    assert!(text(&result).contains("the screen is locked here"), "{}", text(&result));
+    assert!(beta_requests(&site).is_empty());
+}
+
+#[test]
+fn the_agent_can_neither_send_nor_inject_input() {
+    let site = Site::new();
+    site.config("beta", BETA_ACCEPTS_ALPHA);
+    let capture = fake_capture(&site, &[r#"{"t":"key","code":30,"pressed":true}"#]);
+    let sending = site.command().env("DOJO_MESH_ORIGIN", "agent").env("DOJO_INPUT_CAPTURE", &capture).args(["remote", "beta"]).stdin(Stdio::null()).output().unwrap();
+    assert_eq!(sending.status.code(), Some(3), "{}", text(&sending));
+    assert!(text(&sending).contains("is for the operator"), "{}", text(&sending));
+    let receiving = site.command().env("DOJO_ORIGIN", "agent").env("SSH_CONNECTION", "100.64.0.1 1 100.64.0.2 22").arg("inject").stdin(Stdio::null()).output().unwrap();
+    assert_eq!(receiving.status.code(), Some(3), "{}", text(&receiving));
+    assert!(text(&receiving).contains("input from the agent is never accepted"), "{}", text(&receiving));
+    assert!(Site::requests(&site.alpha).is_empty() && beta_requests(&site).is_empty());
+}
+
+#[test]
+fn inject_run_directly_is_refused_because_it_is_not_a_peers_connection() {
+    let site = Site::new();
+    let result = site.command().arg("inject").stdin(Stdio::null()).output().unwrap();
+    assert_eq!(result.status.code(), Some(3), "{}", text(&result));
+    assert!(text(&result).contains("not started over a peer's connection"), "{}", text(&result));
+}
+
+#[test]
+fn without_the_capture_helper_remote_says_how_to_install_it() {
+    let site = Site::new();
+    let result = site.command().env("DOJO_INPUT_CAPTURE", site.root.join("absent")).args(["remote", "beta"]).stdin(Stdio::null()).output().unwrap();
+    assert_eq!(result.status.code(), Some(4), "{}", text(&result));
+    assert!(text(&result).contains("dojo-input-capture is not installed"), "{}", text(&result));
+}
+
+#[test]
+fn a_peer_outside_the_mesh_is_refused_before_the_helper_starts() {
+    let site = Site::new();
+    let capture = site.root.join("fake-capture-marker");
+    std::fs::write(&capture, format!("#!/bin/sh\ntouch \"{}\"\n", site.root.join("helper-ran").display())).unwrap();
+    Command::new("chmod").arg("+x").arg(&capture).status().unwrap();
+    let result = site.command().env("DOJO_INPUT_CAPTURE", &capture).args(["remote", "stranger"]).stdin(Stdio::null()).output().unwrap();
+    assert_eq!(result.status.code(), Some(4), "{}", text(&result));
+    assert!(text(&result).contains("not a member of this mesh"), "{}", text(&result));
+    assert!(!site.root.join("helper-ran").exists(), "the helper must not capture anyone's input for a call that will be refused");
 }

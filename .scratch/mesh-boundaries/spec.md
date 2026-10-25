@@ -26,7 +26,7 @@ Let the operator send a window to another node of the mesh with a key: the peer 
 ### Taking the cursor and keyboard
 
 - With the switch on, sending also hands the pointer and keyboard to the peer: the local cursor is hidden, local windows get no input, and everything typed or pointed goes to the peer as the operator's own input there.
-- A release key, chosen like the send key, always brings input home; so does losing the connection, the peer refusing, or either side locking. Input never stays captured by a peer that stopped answering.
+- Super+F11 (the send key, pressed again) and Ctrl+Alt+Shift+Esc always bring input home, and neither reaches the peer; so does losing the connection, the peer refusing, or either side locking. Input never stays captured by a peer that stopped answering.
 - A node accepts this input only from peers it names in `accept-input`, and knows who is sending from Tailscale's identity of the connection, never from what the sender says (ADR-0007).
 
 ### Terminal remote control

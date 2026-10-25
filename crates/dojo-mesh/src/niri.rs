@@ -106,6 +106,11 @@ impl AgentSeat {
         self.call(&serde_json::json!("YieldHumanInput")).map(drop)
     }
 
+    /// An agent-input command that moves the pointer or sends a button, key or scroll.
+    pub fn input(&mut self, command: serde_json::Value) -> Result<(), String> {
+        self.call(&serde_json::json!({"AgentInput": command})).map(drop)
+    }
+
     pub fn create(&mut self, name: &str) -> Result<(), String> {
         self.call(&serde_json::json!({"AgentInput": {"Create": {"name": name}}})).map(drop)
     }
@@ -125,6 +130,18 @@ impl AgentSeat {
         let released = self.key(window, KEY_LEFT_CTRL, false);
         pressed.and(released)
     }
+}
+
+/// An output's name and logical size, from Niri's `Outputs` request, sorted by name.
+pub fn outputs(socket: &Path) -> Result<Vec<(String, f64, f64)>, String> {
+    let ok = request(socket, &serde_json::json!("Outputs"))?;
+    let listed = ok.get("Outputs").and_then(|outputs| outputs.as_object()).ok_or("Niri did not list outputs")?;
+    let mut found: Vec<(String, f64, f64)> = listed
+        .iter()
+        .filter_map(|(name, output)| Some((name.clone(), output["logical"]["width"].as_f64()?, output["logical"]["height"].as_f64()?)))
+        .collect();
+    found.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(found)
 }
 
 /// Starts `command` as a child of Niri, so it runs in the operator's session with its environment.

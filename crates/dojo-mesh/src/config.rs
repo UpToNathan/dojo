@@ -17,6 +17,8 @@ pub struct MeshConfig {
     /// Devices refused whether or not they carry the tag. Wins over `allow`.
     pub deny: Vec<String>,
     pub capabilities: Capabilities,
+    /// Peers whose remote input (cursor and keyboard) this node accepts. Normalised names.
+    pub accept_input: Vec<String>,
     /// Where to reach the network's control plane, for the operator-only commands. Never holds a secret itself.
     pub control_plane: Option<ControlPlane>,
 }
@@ -94,6 +96,8 @@ struct Raw {
     deny: Vec<String>,
     #[serde(default)]
     capability: BTreeMap<String, BTreeMap<String, toml::Value>>,
+    #[serde(default)]
+    accept_input: Vec<String>,
     control_plane: Option<RawControlPlane>,
 }
 
@@ -129,8 +133,9 @@ impl MeshConfig {
             return Err(ConfigError::Invalid(format!("{both:?} is listed in both allow and deny")));
         }
         let capabilities = capabilities(raw.capability)?;
+        let accept_input = names("accept-input", &raw.accept_input)?;
         let control_plane = raw.control_plane.map(control_plane).transpose()?;
-        Ok(Self { membership_tag, allow, deny, capabilities, control_plane })
+        Ok(Self { membership_tag, allow, deny, capabilities, accept_input, control_plane })
     }
 
     /// Loads the file at `path`. A missing file is the empty configuration, a mesh of one.
@@ -332,6 +337,14 @@ mod tests {
         ] {
             assert!(matches!(MeshConfig::parse(text), Err(ConfigError::Invalid(_))), "{text}");
         }
+    }
+
+    #[test]
+    fn reads_the_peers_whose_input_is_accepted() {
+        let config = MeshConfig::parse("accept-input = [\"Beta\", \"gamma.example.ts.net.\", \"beta\"]").unwrap();
+        assert_eq!(config.accept_input, ["beta", "gamma.example.ts.net"]);
+        assert!(MeshConfig::default().accept_input.is_empty(), "nobody may send input unless named");
+        assert!(MeshConfig::parse("accept-input = [\" \"]").is_err());
     }
 
     #[test]

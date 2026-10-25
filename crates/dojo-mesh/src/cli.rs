@@ -38,6 +38,7 @@ usage: dojo-mesh [--config PATH] <command>
   windows [--json]                 this node's windows
   send [--window ID] (--to PEER | --dry-run) [--copy-missing] [--keep-source] [--json]
                                    open a window on a peer and close it here (exit 5: files missing there)
+  remote PEER                      drive a peer with this cursor and keyboard (Super+F11 returns)
   pause | resume                   switch the agent's peer access off or on
   audit [--last N] [--json]        what this node has sent to peers
   enroll [--tag TAG] [--expires SECS]
@@ -215,6 +216,8 @@ pub fn run(env: &Env, args: &[String]) -> Result<u8, Failure> {
         "windows" => crate::send_cli::windows(rest),
         "send" => crate::send_cli::send(env, rest),
         "receive" => crate::send_cli::receive(rest),
+        "remote" => crate::remote_cli::remote(env, rest),
+        "inject" => crate::remote_cli::inject(env, rest),
         "close-source" => crate::send_cli::close_source(env, rest),
         "enroll" | "policy" => crate::control_cli::run(env, command, rest),
         "help" | "--help" | "-h" => {
@@ -269,7 +272,7 @@ fn record(env: &Env, from: &str, peer: &str, action: &str, detail: &str, result:
     }
 }
 
-fn refuse(env: &Env, from: &str, peer: &str, action: &str, detail: &str, why: &Refusal) -> Failure {
+pub(crate) fn refuse(env: &Env, from: &str, peer: &str, action: &str, detail: &str, why: &Refusal) -> Failure {
     let _ = record(env, from, peer, action, detail, &format!("refused: {why}"));
     fail(UNAVAILABLE, format!("{peer}: {why}"))
 }

@@ -15,6 +15,7 @@ dojo-mesh task PEER TEXT...            # hand a task to the peer's own agent
 dojo-mesh windows [--json]             # this node's windows
 dojo-mesh send [--window ID] (--to PEER | --dry-run) [--copy-missing] [--keep-source] [--json]
 dojo-mesh close-source --window ID [--tab-title TITLE]
+dojo-mesh remote PEER                  # drive a peer with this cursor and keyboard
 dojo-mesh pause | resume               # the agent's peer access
 dojo-mesh audit [--last N] [--json]    # what this node has sent to peers
 dojo-mesh enroll [--tag TAG] [--expires SECS]            # operator only
@@ -35,6 +36,9 @@ The launcher has a **Mesh** command listing the same machines; Enter copies `tai
 ```toml
 # The Tailscale tag that marks a device as a candidate node.
 membership-tag = "tag:dojo"
+
+# Peers whose cursor and keyboard this node accepts (ADR-0007). Nobody is accepted unless named.
+accept-input = ["laptop"]
 
 # Admitted whether or not they carry the tag. Short host names or full network names, any case.
 allow = ["laptop"]
@@ -83,6 +87,16 @@ Every call is appended to `$XDG_STATE_HOME/dojo/mesh/audit.jsonl` before it star
 What moves depends on the application. A **Helium** window sends only the page in front, found by matching the window's title in the browser's history, and **only that tab closes** here: the window is checked to still show that page, then sent Ctrl+W through an input seat of its own (Niri's agent input, which needs `niri msg yield-human-input` first because you have just used that window; only your own calls do that, never the agent's). The window and its other tabs stay, and your focus doesn't move. **kitty** sends its directory, and nvim's file and line, or yazi's directory, when one of those is in front; the window closes whole, the shell starts fresh and anything else that was running is named as staying behind. Any other application is relaunched from its desktop entry. kitty is read through its remote control, which is limited to `ls` with a per-machine password in `~/.config/kitty/dojo-remote-control.conf`; see the spec in `.scratch/mesh-boundaries/spec.md`.
 
 The peer only opens a web page, a directory, a file at a line, or an application it already has; it never runs a command it is sent, and it refuses while its screen is locked. It reports success only once a new window appears (a page opens as a tab in a running browser, which makes no new window). If the peer lacks a file, nothing is sent; `--copy-missing` copies the file across first. The panel sends with `--keep-source`, shows what was sent, then closes the original after a few seconds unless you press Esc, and lets go of the keyboard before closing it.
+
+## Taking the cursor and keyboard
+
+`dojo-mesh remote PEER` (or the "Take my cursor and keyboard" switch in the send panel, which starts it after the send) hands this node's pointer and keyboard to a peer until you press **Super+F11** again, or **Ctrl+Alt+Shift+Esc**, which is always there for when something goes wrong. Neither chord reaches the peer.
+
+On this node `dojo-input-capture` covers the focused output with a transparent surface that has the keyboard exclusively, locks the pointer (so motion keeps coming at the screen's edge) and hides the cursor. Nothing reaches local windows meanwhile. It writes one JSON event per line (relative motion, buttons, scrolling, evdev keys), which `dojo-mesh remote` carries over `tailscale ssh` to `dojo-mesh inject` on the peer. Whatever ends the session returns your input at once: the chord, the connection dropping, the peer refusing, a lock screen taking the surface, or the helper exiting. Held keys and buttons are released on both sides.
+
+The peer replays the events through an agent input seat in Niri: a cursor of its own that moves, clicks, scrolls and types into whatever it is over, without changing the peer's own focus. Two consequences of using the seat: it is a second cursor, drawn in the seat's style, not the peer's own; and it cannot type Niri's own shortcuts (Super binds), since seat keys never reach compositor shortcuts. Typing into applications works.
+
+The peer accepts this only from nodes it names in `accept-input`, and learns who is sending from Tailscale's answer about the connection (`tailscale whois` of the SSH session), never from what the sender says. It refuses while its screen is locked, refuses the agent, and refuses anything not started over a peer's connection. It asks Niri to end its pause on windows its person has used (`yield-human-input`), as the operator's own call. The agent has no tool for any of this.
 
 ## The agent
 

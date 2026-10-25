@@ -1,0 +1,21 @@
+[package]
+name = "dojo-input-capture"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Takes the pointer and keyboard of this desktop and writes them as events, one JSON line each, for dojo-mesh remote"
+
+[workspace]
+
+[dependencies]
+dojo-mesh = { path = "../dojo-mesh" }
+libc = "0.2"
+wayland-client = "=0.31.15"
+wayland-protocols = { version = "=0.32.13", features = ["client", "unstable"] }
+wayland-protocols-wlr = { version = "=0.3.12", features = ["client"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+panic = "abort"
+strip = true

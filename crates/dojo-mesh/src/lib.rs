@@ -26,4 +26,6 @@ pub mod source;
 pub mod ssh;
 pub mod tailscale;
 pub mod transport;
+pub mod remote;
+pub mod remote_cli;
 pub mod report;

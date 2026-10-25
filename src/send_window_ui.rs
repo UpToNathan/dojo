@@ -257,12 +257,7 @@ impl Panel {
                     let sent = matches!(outcome, Outcome::Sent { .. });
                     let _ = this.update(cx, |panel: &mut Panel, cx| {
                         match outcome {
-                            Outcome::Sent { sent, mut notes, tab_title } => {
-                                if take_input {
-                                    notes.push("Taking the cursor and keyboard along is not built yet".into());
-                                }
-                                panel.model.sent(peer, sent, notes, id, tab_title);
-                            }
+                            Outcome::Sent { sent, notes, tab_title } => panel.model.sent(peer, sent, notes, id, tab_title, take_input),
                             Outcome::Missing(files) => panel.model.missing(files),
                             Outcome::Failed(message) => panel.model.failed(message),
                         }
@@ -272,21 +267,35 @@ impl Panel {
                         // Time to read what was sent, and to press Esc to keep the original.
                         cx.background_executor().timer(SENT_LINGER).await;
                         let _ = this.update_in(cx, |panel: &mut Panel, window, cx| {
-                            if let Phase::Sent { source: Source::Pending { window: original, tab_title }, .. } = panel.model.phase.clone() {
-                                panel.handle(Request::CloseSource { window: original, tab_title }, window, cx);
+                            if let Phase::Sent { source: Source::Pending { .. }, .. } = panel.model.phase.clone() {
+                                let request = panel.model.finish(false);
+                                panel.handle(request, window, cx);
                             }
                         });
                     }
                 }));
             }
-            Request::CloseSource { window: original, tab_title } => {
-                // The panel holds the keyboard, so it goes first; the browser needs it to close a tab.
+            Request::Finish { close, remote_to } => {
+                // The panel holds the keyboard, so it goes first: the browser needs it to close a
+                // tab, and the capture helper needs it to take the keyboard.
                 self.close(window, cx);
                 std::thread::spawn(move || {
                     // Let go of Enter first, or Niri holds the browser's input back as still being typed.
                     std::thread::sleep(Duration::from_millis(300));
-                    if let Err(message) = run_close_source(original, tab_title.as_deref()) {
-                        eprintln!("Dojo send window: the original was not closed: {message}");
+                    if let Some((original, tab_title)) = close {
+                        if let Err(message) = run_close_source(original, tab_title.as_deref()) {
+                            eprintln!("Dojo send window: the original was not closed: {message}");
+                        }
+                    }
+                    if let Some(peer) = remote_to {
+                        // Runs until the operator lets go (Super+F11) or the connection ends.
+                        match Command::new(mesh_binary()).args(["remote", &peer]).output() {
+                            Ok(output) if !output.status.success() => {
+                                eprintln!("Dojo send window: remote input ended: {}", String::from_utf8_lossy(&output.stderr).trim());
+                            }
+                            Err(error) => eprintln!("Dojo send window: could not start remote input: {error}"),
+                            Ok(_) => {}
+                        }
                     }
                 });
             }
@@ -318,9 +327,12 @@ impl Panel {
                 lines.extend(files.iter().take(3).cloned());
                 lines
             }
-            Phase::Sent { peer, sent, notes, source } => {
+            Phase::Sent { peer, sent, notes, source, take_input } => {
                 let mut lines = vec![format!("Sent to {peer}: {sent}.")];
                 lines.extend(notes.iter().cloned());
+                if *take_input {
+                    lines.push(format!("Your cursor and keyboard go to {peer} next. Super+F11 brings them back."));
+                }
                 lines.push(match source {
                     Source::Pending { .. } => "Closing the original in a moment · Enter closes it now · Esc keeps it".into(),
                     Source::Kept => "The original is kept.".into(),
