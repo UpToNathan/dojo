@@ -24,6 +24,7 @@ pub mod send_cli;
 pub mod session;
 pub mod source;
 pub mod ssh;
+pub mod tabs;
 pub mod tailscale;
 pub mod transport;
 pub mod remote;

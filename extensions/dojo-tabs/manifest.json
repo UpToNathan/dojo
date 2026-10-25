@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Dojo Tabs",
+  "version": "1.0.0",
+  "description": "Tells Dojo which tabs each browser window holds, so a whole window can be sent to another machine. It changes nothing in the browser.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3wIyALyrObg13zvCEUm9l0cWFhfJiPS7jEAx8a0uMw0noEMc8t0ZwvqAC2CjAADe9UcS1odHD7/mAZl6IwObbKrwE9Mf7U9FgOzDL7L34FPdSO2ASYtkMkW0BA7fRi66DUar01BWFk7DehCXr8RI2kkChjw+stxHhmi6AQe4ROn0YNWjxifXzx2BOvmzdkHU6sj/kOrZglXJ748tzjmQNFb48L53NFRKHow+TCzQCLpjmaAqwZjtJFz8l4J4DF6ox/SccBsYVvUEt0P6qotPsQc0mbfi3uLsDWuYCYgkc9Opz+4wesYh/UfS+A6Yo2pJESHfNsBe9cL2Ccfng0TKQQIDAQAB",
+  "minimum_chrome_version": "110",
+  "permissions": ["tabs", "nativeMessaging"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "incognito": "not_allowed"
+}

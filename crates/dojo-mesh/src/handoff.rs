@@ -14,9 +14,38 @@ pub enum Handoff {
     Page { url: String },
     /// A terminal in a directory, optionally running one known program.
     Terminal { directory: String, program: Option<Program> },
+    /// All the tabs of a browser window, opened together in a new window of the receiver's own
+    /// browser (a Chromium-family one, found by its desktop entry).
+    BrowserWindow { desktop_entry: String, urls: Vec<String> },
     /// The same application, started fresh from the receiver's own desktop entry.
     Relaunch { desktop_entry: String },
 }
+
+/// How much of a browser window is sent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Scope {
+    /// The tab in front.
+    Tab,
+    /// Every tab of the window.
+    Window,
+}
+
+impl Scope {
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "tab" => Some(Self::Tab),
+            "window" => Some(Self::Window),
+            _ => None,
+        }
+    }
+}
+
+/// Browsers whose `--new-window` is known, by desktop entry id.
+const NEW_WINDOW_BROWSERS: &[&str] = &["helium", "chromium", "google-chrome", "brave-browser", "microsoft-edge", "vivaldi-stable"];
+
+/// The most tabs sent in one window.
+pub const MAX_TABS: usize = 100;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
@@ -35,6 +64,11 @@ pub enum Closes {
     Window,
     /// The tab in front, which gives the window its title.
     Tab { title: String },
+    /// A browser window, but only while it still holds exactly the tabs that were sent: a tab
+    /// opened since must not be lost with it.
+    BrowserWindow { title: String, browser: String, urls: Vec<String> },
+    /// Nothing closes; the original stays, and `why` says why.
+    Nothing { why: String },
 }
 
 /// One line saying exactly what is being sent and what closes here.
@@ -44,11 +78,14 @@ pub fn summary(handoff: &Handoff, closes: &Closes) -> String {
         Handoff::Terminal { directory, program: None } => format!("a terminal in {directory}"),
         Handoff::Terminal { program: Some(Program::Editor { file, line, .. }), .. } => format!("nvim on {file} at line {line}"),
         Handoff::Terminal { directory, program: Some(Program::Files { directory: shown }) } => format!("yazi in {shown} (terminal in {directory})"),
+        Handoff::BrowserWindow { urls, .. } => format!("a browser window with {} tab{}", urls.len(), if urls.len() == 1 { "" } else { "s" }),
         Handoff::Relaunch { desktop_entry } => format!("a fresh {desktop_entry}"),
     };
     match closes {
         Closes::Window => format!("{what}; the window closes here"),
         Closes::Tab { .. } => format!("{what}; only this tab closes here, the window's other tabs stay"),
+        Closes::BrowserWindow { .. } => format!("{what}; the window closes here if its tabs are unchanged"),
+        Closes::Nothing { why } => format!("{what}; the original stays ({why})"),
     }
 }
 
@@ -73,12 +110,22 @@ pub fn required_files(handoff: &Handoff) -> Vec<String> {
 /// The command that opens a handoff here, with notes on what differs from the sender's window.
 /// `exists` and `has_entry` ask this machine; they are parameters so the rule can be tested.
 pub fn plan(handoff: &Handoff, exists: impl Fn(&Path) -> bool, has_entry: impl Fn(&str) -> bool) -> Result<(Vec<String>, Vec<String>), Reply> {
+    plan_with(handoff, exists, has_entry, |_| None)
+}
+
+/// Like [`plan`], with `exec_of` giving a desktop entry's `Exec` line (a browser window is opened
+/// by the browser's own launcher).
+pub fn plan_with(
+    handoff: &Handoff,
+    exists: impl Fn(&Path) -> bool,
+    has_entry: impl Fn(&str) -> bool,
+    exec_of: impl Fn(&str) -> Option<String>,
+) -> Result<(Vec<String>, Vec<String>), Reply> {
     let refuse = |reason: String| Reply::Refused { reason };
     let mut notes = Vec::new();
     let command = match handoff {
         Handoff::Page { url } => {
-            let scheme = url.split_once("://").map(|(scheme, _)| scheme.to_ascii_lowercase());
-            if !matches!(scheme.as_deref(), Some("http" | "https")) || url.contains(char::is_control) {
+            if !is_web_url(url) {
                 return Err(refuse(format!("only http and https pages can be sent, not {url:?}")));
             }
             vec!["xdg-open".into(), url.clone()]
@@ -108,6 +155,22 @@ pub fn plan(handoff: &Handoff, exists: impl Fn(&Path) -> bool, has_entry: impl F
             }
             command
         }
+        Handoff::BrowserWindow { desktop_entry, urls } => {
+            if !NEW_WINDOW_BROWSERS.contains(&desktop_entry.as_str()) {
+                return Err(refuse(format!("{desktop_entry:?} is not a browser whose new window can be opened this way")));
+            }
+            if urls.is_empty() || urls.len() > MAX_TABS {
+                return Err(refuse(format!("a window of {} tabs cannot be sent (1 to {MAX_TABS})", urls.len())));
+            }
+            if let Some(bad) = urls.iter().find(|url| !is_web_url(url)) {
+                return Err(refuse(format!("only http and https pages can be sent, not {bad:?}")));
+            }
+            let exec = exec_of(desktop_entry).ok_or_else(|| refuse(format!("this machine has no {desktop_entry} browser")))?;
+            let mut command = exec_command(&exec).ok_or_else(|| refuse(format!("{desktop_entry}'s launcher could not be read")))?;
+            command.push("--new-window".into());
+            command.extend(urls.iter().cloned());
+            command
+        }
         Handoff::Relaunch { desktop_entry } => {
             if desktop_entry.is_empty() || !desktop_entry.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')) {
                 return Err(refuse(format!("{desktop_entry:?} is not a desktop entry name")));
@@ -120,6 +183,50 @@ pub fn plan(handoff: &Handoff, exists: impl Fn(&Path) -> bool, has_entry: impl F
         }
     };
     Ok((command, notes))
+}
+
+/// An http or https address with no control characters or spaces.
+pub fn is_web_url(url: &str) -> bool {
+    let scheme = url.split_once("://").map(|(scheme, _)| scheme.to_ascii_lowercase());
+    matches!(scheme.as_deref(), Some("http" | "https")) && !url.contains(|c: char| c.is_control() || c == ' ')
+}
+
+/// The program and arguments of a desktop entry's `Exec` line, without its field codes (`%U` and
+/// the like, which the caller supplies itself). `None` if it is empty or its quoting is broken.
+pub fn exec_command(exec: &str) -> Option<Vec<String>> {
+    let mut words: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut started = false;
+    let mut chars = exec.trim().chars().peekable();
+    let mut quoted = false;
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => {
+                quoted = !quoted;
+                started = true;
+            }
+            '\\' if quoted => current.push(chars.next()?),
+            c if c.is_whitespace() && !quoted => {
+                if started {
+                    words.push(std::mem::take(&mut current));
+                    started = false;
+                }
+            }
+            c => {
+                current.push(c);
+                started = true;
+            }
+        }
+    }
+    if quoted {
+        return None;
+    }
+    if started {
+        words.push(current);
+    }
+    // Field codes stand for what the caller passes; `%%` is a literal percent sign.
+    let words: Vec<String> = words.into_iter().filter(|word| !(word.len() == 2 && word.starts_with('%') && word != "%%")).map(|word| word.replace("%%", "%")).collect();
+    (!words.is_empty()).then_some(words)
 }
 
 fn absolute(path: &str) -> Option<PathBuf> {
@@ -164,6 +271,43 @@ mod tests {
         assert_eq!(summary(&Handoff::Terminal { directory: "/w".into(), program: None }, &Closes::Window), "a terminal in /w; the window closes here");
         assert_eq!(summary(&Handoff::Relaunch { desktop_entry: "app".into() }, &Closes::Window), "a fresh app; the window closes here");
         assert_eq!(serde_json::to_string(&Closes::Tab { title: "T".into() }).unwrap(), r#"{"scope":"tab","title":"T"}"#);
+    }
+
+    #[test]
+    fn a_browser_window_opens_all_its_tabs_together_in_a_new_window_of_the_browser() {
+        let handoff = Handoff::BrowserWindow { desktop_entry: "helium".into(), urls: vec!["https://a.example/".into(), "https://b.example/x?y=1".into()] };
+        let (command, _) = plan_with(&handoff, world(&[]), |_| true, |entry| (entry == "helium").then(|| "env X=1 helium --flag %U".to_string())).unwrap();
+        assert_eq!(command, ["env", "X=1", "helium", "--flag", "--new-window", "https://a.example/", "https://b.example/x?y=1"]);
+        assert_eq!(summary(&handoff, &Closes::BrowserWindow { title: "T".into(), browser: "Helium".into(), urls: vec![] }), "a browser window with 2 tabs; the window closes here if its tabs are unchanged");
+    }
+
+    #[test]
+    fn a_browser_window_is_refused_unless_it_is_a_known_browser_with_only_web_tabs() {
+        let exec = |_: &str| Some("helium %U".to_string());
+        let window = |entry: &str, urls: Vec<&str>| Handoff::BrowserWindow { desktop_entry: entry.into(), urls: urls.into_iter().map(String::from).collect() };
+        for handoff in [
+            window("kitty", vec!["https://a.example/"]),
+            window("helium", vec![]),
+            window("helium", vec!["file:///etc/passwd"]),
+            window("helium", vec!["https://a.example/", "chrome://settings"]),
+            window("helium", vec!["https://a.example/ b"]),
+        ] {
+            assert!(matches!(plan_with(&handoff, world(&[]), |_| true, exec), Err(Reply::Refused { .. })), "{handoff:?}");
+        }
+        let many = Handoff::BrowserWindow { desktop_entry: "helium".into(), urls: vec!["https://a.example/".into(); MAX_TABS + 1] };
+        assert!(matches!(plan_with(&many, world(&[]), |_| true, exec), Err(Reply::Refused { .. })));
+        let ok = window("helium", vec!["https://a.example/"]);
+        assert!(matches!(plan_with(&ok, world(&[]), |_| true, |_| None), Err(Reply::Refused { .. })), "no such browser here");
+    }
+
+    #[test]
+    fn exec_lines_lose_their_field_codes_and_keep_their_quoting() {
+        assert_eq!(exec_command("helium %U").unwrap(), ["helium"]);
+        assert_eq!(exec_command("\"/opt/My App/run\" --x=\"a b\" %u %f 100%%").unwrap(), ["/opt/My App/run", "--x=a b", "100%"]);
+        assert_eq!(exec_command("  a   b  ").unwrap(), ["a", "b"]);
+        assert_eq!(exec_command("%U"), None);
+        assert_eq!(exec_command("\"unclosed"), None);
+        assert_eq!(exec_command(""), None);
     }
 
     #[test]

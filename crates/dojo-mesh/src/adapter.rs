@@ -3,7 +3,7 @@
 //! Everything an adapter reads from this machine goes through [`Probe`], so the rules are tested
 //! without a browser, kitty or nvim running.
 
-use crate::handoff::{Closes, Handoff, Program};
+use crate::handoff::{Closes, Handoff, MAX_TABS, Program, Scope, is_web_url};
 use crate::niri::Window;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -15,6 +15,11 @@ pub struct Captured {
     pub handoff: Handoff,
     /// What closes here once the peer has opened it.
     pub closes: Closes,
+    /// The ways this window could be sent, when there is a choice (a browser window: its front tab
+    /// or all of it). Empty when there is only one way.
+    pub scopes: Vec<Scope>,
+    /// How many tabs the whole window holds, when the browser said.
+    pub tab_count: Option<usize>,
     /// What the receiver will not have, said to the operator.
     pub notes: Vec<String>,
 }
@@ -32,6 +37,8 @@ pub trait Probe {
     fn nvim_state(&self, socket: &Path) -> Result<String, String>;
     /// Recent history of a Chromium-family profile: (url, title), newest first.
     fn history(&self, profile: &Path) -> Result<Vec<(String, String)>, String>;
+    /// The Dojo Tabs extension's live report, if it is connected.
+    fn tabs(&self, runtime_dir: &Path) -> Option<crate::tabs::Snapshot>;
     fn read(&self, path: &Path) -> Option<String>;
     fn list(&self, dir: &Path) -> Vec<String>;
 }
@@ -44,12 +51,15 @@ pub struct Context<'a> {
 }
 
 /// The best handoff for a window.
-pub fn capture(window: &Window, context: &Context) -> Result<Captured, String> {
+pub fn capture(window: &Window, context: &Context, scope: Scope) -> Result<Captured, String> {
     let app_id = window.app_id.as_deref().unwrap_or_default();
     let specific = match app_id {
         "kitty" => Some(kitty(window, context)),
-        _ => browser_profile(app_id, context).map(|profile| browser(window, &profile, context)),
+        _ => browser_profile(app_id, context).map(|profile| browser(window, &profile, context, scope)),
     };
+    if scope == Scope::Window && specific.is_none() || scope == Scope::Window && app_id == "kitty" {
+        return Err("this window has only one way to be sent".into());
+    }
     match specific {
         Some(Ok(captured)) => Ok(captured),
         Some(Err(Fallback::Refuse(reason))) => Err(reason),
@@ -70,7 +80,7 @@ enum Fallback {
 
 fn relaunch(app_id: &str, context: &Context) -> Result<Captured, String> {
     let entry = crate::desktop::for_app(app_id, context.entries).ok_or_else(|| format!("{} has no desktop entry here, so it cannot be started elsewhere", if app_id.is_empty() { "this window" } else { app_id }))?;
-    Ok(Captured { handoff: Handoff::Relaunch { desktop_entry: entry }, closes: Closes::Window, notes: vec!["it is started fresh: what the window was showing does not carry over".into()] })
+    Ok(Captured { handoff: Handoff::Relaunch { desktop_entry: entry }, closes: Closes::Window, scopes: Vec::new(), tab_count: None, notes: vec!["it is started fresh: what the window was showing does not carry over".into()] })
 }
 
 // ---- browsers ---------------------------------------------------------------------------------
@@ -83,23 +93,65 @@ fn browser_profile(app_id: &str, context: &Context) -> Option<(PathBuf, &'static
     Some((context.config_dir.as_ref()?.join(dir), name))
 }
 
-/// The page a browser window shows. The window's title is the page's title, so the newest visit
-/// with that title is the page; a page without a title cannot be found this way.
-fn browser(window: &Window, (root, name): &(PathBuf, &str), context: &Context) -> Result<Captured, Fallback> {
+/// What a browser window shows. With the Dojo Tabs extension connected the browser itself says which
+/// window this is and what it holds, so the front tab's address is exact and the whole window can
+/// be sent. Without it only the front tab can be sent, found by matching the window's title in the
+/// browser's history.
+fn browser(window: &Window, (root, name): &(PathBuf, &str), context: &Context, scope: Scope) -> Result<Captured, Fallback> {
     let title = window.title.as_deref().unwrap_or_default();
     let page_title = title.strip_suffix(&format!(" - {name}")).unwrap_or(title);
     if page_title.is_empty() {
         return Err(Fallback::Relaunch("the page could not be identified".into()));
     }
-    let profiles: Vec<PathBuf> = context.probe.list(root).into_iter().filter(|entry| entry == "Default" || entry.starts_with("Profile ")).map(|entry| root.join(entry)).collect();
-    for profile in profiles {
-        if let Ok(history) = context.probe.history(&profile)
-            && let Some((url, _)) = history.iter().find(|(url, title)| title == page_title && (url.starts_with("https://") || url.starts_with("http://")))
-        {
-            return Ok(Captured { handoff: Handoff::Page { url: url.clone() }, closes: Closes::Tab { title: title.to_string() }, notes: Vec::new() });
+    let reported = context.runtime_dir.as_deref().and_then(|dir| context.probe.tabs(dir));
+    let live = reported.as_ref().and_then(|snapshot| crate::tabs::window_for(snapshot, title, name));
+    let entry = crate::desktop::for_app(window.app_id.as_deref().unwrap_or_default(), context.entries);
+    let can_send_window = live.is_some() && entry.is_some();
+    let scopes = if can_send_window { vec![Scope::Tab, Scope::Window] } else { Vec::new() };
+    let tab_count = live.map(|window| window.tabs.len());
+
+    if scope == Scope::Window {
+        let (Some(live), Some(entry)) = (live, entry) else {
+            return Err(Fallback::Refuse("the whole window can be sent only while the Dojo Tabs extension is connected and sees this window; the front tab can still be sent".into()));
+        };
+        let all: Vec<&crate::tabs::Tab> = live.tabs.iter().collect();
+        if all.len() > MAX_TABS {
+            return Err(Fallback::Refuse(format!("{} tabs is more than the {MAX_TABS} that can be sent at once", all.len())));
         }
+        let urls: Vec<String> = all.iter().filter(|tab| is_web_url(&tab.url)).map(|tab| tab.url.clone()).collect();
+        let others = all.len() - urls.len();
+        if urls.is_empty() {
+            return Err(Fallback::Refuse("none of this window's tabs is a web page that can be sent".into()));
+        }
+        let all_urls: Vec<String> = all.iter().map(|tab| tab.url.clone()).collect();
+        let closes = if others == 0 {
+            Closes::BrowserWindow { title: title.to_string(), browser: name.to_string(), urls: all_urls }
+        } else {
+            Closes::Nothing { why: format!("{others} tab{} cannot be sent: browser pages such as settings", if others == 1 { "" } else { "s" }) }
+        };
+        let mut notes = vec!["pinned tabs and tab groups do not carry over".to_string()];
+        if others > 0 {
+            notes.push(format!("{others} tab{} (browser pages) {} not sent", if others == 1 { "" } else { "s" }, if others == 1 { "was" } else { "were" }));
+        }
+        return Ok(Captured { handoff: Handoff::BrowserWindow { desktop_entry: entry, urls }, closes, scopes, tab_count, notes });
     }
-    Err(Fallback::Relaunch(format!("the page \"{page_title}\" could not be found in {name}'s history")))
+
+    // The front tab: exact when the browser reported it, otherwise the newest visit with its title.
+    let reported_url = live.and_then(|window| window.tabs.iter().find(|tab| tab.active)).map(|tab| tab.url.clone()).filter(|url| is_web_url(url));
+    let url = match reported_url {
+        Some(url) => Some(url),
+        None => {
+            let profiles: Vec<PathBuf> = context.probe.list(root).into_iter().filter(|entry| entry == "Default" || entry.starts_with("Profile ")).map(|entry| root.join(entry)).collect();
+            profiles.iter().find_map(|profile| {
+                let history = context.probe.history(profile).ok()?;
+                history.into_iter().find(|(url, visit)| visit == page_title && is_web_url(url)).map(|(url, _)| url)
+            })
+        }
+    };
+    match url {
+        Some(url) => Ok(Captured { handoff: Handoff::Page { url }, closes: Closes::Tab { title: title.to_string() }, scopes, tab_count, notes: Vec::new() }),
+        None => Err(Fallback::Relaunch(format!("the page \"{page_title}\" could not be found in {name}'s history"))),
+    }
 }
 
 // ---- kitty, nvim and yazi ---------------------------------------------------------------------
@@ -193,7 +245,7 @@ fn kitty(window: &Window, context: &Context) -> Result<Captured, Fallback> {
     if directory.is_empty() {
         return Err(relaunch("kitty did not say which directory the terminal is in"));
     }
-    Ok(Captured { handoff: Handoff::Terminal { directory, program }, closes: Closes::Window, notes })
+    Ok(Captured { handoff: Handoff::Terminal { directory, program }, closes: Closes::Window, scopes: Vec::new(), tab_count: None, notes })
 }
 
 /// The active window of an OS window's active tab.
@@ -304,6 +356,10 @@ impl Probe for System {
         Ok(rows.into_iter().map(|row| (row.url, row.title)).collect())
     }
 
+    fn tabs(&self, runtime_dir: &Path) -> Option<crate::tabs::Snapshot> {
+        crate::tabs::load(&crate::tabs::snapshot_path(runtime_dir))
+    }
+
     fn read(&self, path: &Path) -> Option<String> {
         std::fs::read_to_string(path).ok()
     }
@@ -325,6 +381,7 @@ mod tests {
         history: Vec<(String, String)>,
         files: HashMap<PathBuf, String>,
         dirs: HashMap<PathBuf, Vec<String>>,
+        snapshot: Option<crate::tabs::Snapshot>,
     }
 
     impl Probe for Fake {
@@ -349,11 +406,30 @@ mod tests {
             assert!(profile.ends_with("Default"));
             Ok(self.history.clone())
         }
+        fn tabs(&self, _: &Path) -> Option<crate::tabs::Snapshot> {
+            self.snapshot.clone()
+        }
         fn read(&self, path: &Path) -> Option<String> {
             self.files.get(path).cloned()
         }
         fn list(&self, dir: &Path) -> Vec<String> {
             self.dirs.get(dir).cloned().unwrap_or_default()
+        }
+    }
+
+    fn capture_tab(window: &Window, context: &Context) -> Result<Captured, String> {
+        capture(window, context, Scope::Tab)
+    }
+
+    fn live_snapshot(tabs: &[(&str, &str, bool)]) -> crate::tabs::Snapshot {
+        crate::tabs::Snapshot {
+            v: 1,
+            at: 0,
+            windows: vec![crate::tabs::BrowserWindow {
+                id: 4,
+                focused: true,
+                tabs: tabs.iter().enumerate().map(|(index, (url, title, active))| crate::tabs::Tab { id: index as i64, active: *active, pinned: false, url: url.to_string(), title: title.to_string() }).collect(),
+            }],
         }
     }
 
@@ -383,7 +459,7 @@ mod tests {
     fn a_shell_in_kitty_moves_as_its_directory() {
         let fake = kitty_fake(r#"{"pid": 50, "cmdline": ["/bin/rush"], "cwd": "/home/a/project"}"#);
         let entries = entries();
-        let captured = capture(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
+        let captured = capture_tab(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
         assert_eq!(captured.handoff, Handoff::Terminal { directory: "/home/a/project".into(), program: None });
         assert!(captured.notes[0].contains("shell starts fresh"));
     }
@@ -393,7 +469,7 @@ mod tests {
         let mut fake = kitty_fake(r#"{"pid": 77, "cmdline": ["nvim", "a.rs"], "cwd": "/home/a/project"}"#);
         fake.nvim = Some(r#"["/home/a/project/a.rs", 12, 5, 0]"#.into());
         let entries = entries();
-        let captured = capture(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
+        let captured = capture_tab(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
         assert_eq!(captured.handoff, Handoff::Terminal { directory: "/home/a/project".into(), program: Some(Program::Editor { file: "/home/a/project/a.rs".into(), line: 12, column: 5 }) });
         assert!(captured.notes.is_empty());
     }
@@ -403,7 +479,7 @@ mod tests {
         let mut fake = kitty_fake(r#"{"pid": 77, "cmdline": ["nvim"], "cwd": "/w"}"#);
         fake.nvim = Some(r#"["/w/a.rs", 1, 1, 2]"#.into());
         let entries = entries();
-        let error = capture(&window("kitty", "x"), &with(&fake, &entries)).unwrap_err();
+        let error = capture_tab(&window("kitty", "x"), &with(&fake, &entries)).unwrap_err();
         assert!(error.contains("2 unsaved buffers"), "{error}");
     }
 
@@ -411,7 +487,7 @@ mod tests {
     fn yazi_moves_as_the_directory_it_shows() {
         let fake = kitty_fake(r#"{"pid": 60, "cmdline": ["yazi"], "cwd": "/home/a"}"#);
         let entries = entries();
-        let captured = capture(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
+        let captured = capture_tab(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
         assert_eq!(captured.handoff, Handoff::Terminal { directory: "/home/a".into(), program: Some(Program::Files { directory: "/home/a/pics".into() }) });
     }
 
@@ -419,7 +495,7 @@ mod tests {
     fn another_program_is_named_as_not_moving() {
         let fake = kitty_fake(r#"{"pid": 61, "cmdline": ["/usr/bin/cargo", "build"], "cwd": "/w"}"#);
         let entries = entries();
-        let captured = capture(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
+        let captured = capture_tab(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
         assert_eq!(captured.handoff, Handoff::Terminal { directory: "/w".into(), program: None });
         assert!(captured.notes[0].starts_with("cargo was running there"), "{:?}", captured.notes);
     }
@@ -429,7 +505,7 @@ mod tests {
         let mut fake = kitty_fake(r#"{"pid": 50, "cmdline": ["rush"], "cwd": "/w"}"#);
         fake.files.clear();
         let entries = entries();
-        let captured = capture(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
+        let captured = capture_tab(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
         assert_eq!(captured.handoff, Handoff::Relaunch { desktop_entry: "kitty".into() });
         assert!(captured.notes[0].contains("remote control is not set up"), "{:?}", captured.notes);
     }
@@ -448,7 +524,7 @@ mod tests {
         fake.dirs.insert("/home/a/.config/net.imput.helium".into(), vec!["Default".into(), "Local State".into()]);
         fake.history = vec![("https://new.example/x".into(), "Other".into()), ("https://example.com/page".into(), "The Page".into()), ("https://old.example/".into(), "The Page".into())];
         let entries = entries();
-        let captured = capture(&window("helium", "The Page - Helium"), &with(&fake, &entries)).unwrap();
+        let captured = capture_tab(&window("helium", "The Page - Helium"), &with(&fake, &entries)).unwrap();
         assert_eq!(captured.handoff, Handoff::Page { url: "https://example.com/page".into() });
     }
 
@@ -458,7 +534,7 @@ mod tests {
         fake.dirs.insert("/home/a/.config/net.imput.helium".into(), vec!["Default".into()]);
         fake.history = vec![("file:///etc/x".into(), "Secret".into())];
         let entries = entries();
-        let captured = capture(&window("helium", "Secret - Helium"), &with(&fake, &entries)).unwrap();
+        let captured = capture_tab(&window("helium", "Secret - Helium"), &with(&fake, &entries)).unwrap();
         assert_eq!(captured.handoff, Handoff::Relaunch { desktop_entry: "helium".into() });
         assert!(captured.notes[0].contains("could not be found"), "{:?}", captured.notes);
     }
@@ -467,8 +543,70 @@ mod tests {
     fn an_application_without_its_own_adapter_is_relaunched() {
         let fake = Fake::default();
         let entries = vec![("org.example.App".to_string(), "[Desktop Entry]\n".to_string())];
-        let captured = capture(&window("org.example.App", "t"), &with(&fake, &entries)).unwrap();
+        let captured = capture_tab(&window("org.example.App", "t"), &with(&fake, &entries)).unwrap();
         assert_eq!(captured.handoff, Handoff::Relaunch { desktop_entry: "org.example.App".into() });
-        assert!(capture(&window("mystery", "t"), &with(&fake, &entries)).unwrap_err().contains("mystery has no desktop entry"));
+        assert!(capture_tab(&window("mystery", "t"), &with(&fake, &entries)).unwrap_err().contains("mystery has no desktop entry"));
+    }
+
+    #[test]
+    fn with_the_extension_the_front_tab_is_exact_and_the_whole_window_can_be_sent() {
+        let mut fake = Fake::default();
+        fake.snapshot = Some(live_snapshot(&[("https://a.example/", "A", false), ("https://b.example/page", "The Page", true), ("https://c.example/", "C", false)]));
+        let entries = entries();
+        let context = with(&fake, &entries);
+        let tab = capture(&window("helium", "The Page - Helium"), &context, Scope::Tab).unwrap();
+        assert_eq!(tab.handoff, Handoff::Page { url: "https://b.example/page".into() }, "no history was needed");
+        assert_eq!(tab.closes, Closes::Tab { title: "The Page - Helium".into() });
+        assert_eq!((tab.scopes.clone(), tab.tab_count), (vec![Scope::Tab, Scope::Window], Some(3)));
+
+        let all = capture(&window("helium", "The Page - Helium"), &context, Scope::Window).unwrap();
+        let urls: Vec<String> = ["https://a.example/", "https://b.example/page", "https://c.example/"].iter().map(|u| u.to_string()).collect();
+        assert_eq!(all.handoff, Handoff::BrowserWindow { desktop_entry: "helium".into(), urls: urls.clone() });
+        assert_eq!(all.closes, Closes::BrowserWindow { title: "The Page - Helium".into(), browser: "Helium".into(), urls });
+        assert!(all.notes[0].contains("pinned tabs and tab groups do not carry over"));
+    }
+
+    #[test]
+    fn a_window_with_browser_pages_is_sent_without_them_and_stays_open() {
+        let mut fake = Fake::default();
+        fake.snapshot = Some(live_snapshot(&[("https://a.example/", "The Page", true), ("chrome://settings/", "Settings", false), ("https://c.example/", "C", false)]));
+        let entries = entries();
+        let all = capture(&window("helium", "The Page - Helium"), &with(&fake, &entries), Scope::Window).unwrap();
+        assert_eq!(all.handoff, Handoff::BrowserWindow { desktop_entry: "helium".into(), urls: vec!["https://a.example/".into(), "https://c.example/".into()] });
+        assert!(matches!(&all.closes, Closes::Nothing { why } if why.contains("1 tab cannot be sent")), "{:?}", all.closes);
+        assert!(all.notes.iter().any(|note| note.contains("1 tab (browser pages) was not sent")), "{:?}", all.notes);
+    }
+
+    #[test]
+    fn without_the_extension_only_the_front_tab_can_be_sent() {
+        let mut fake = Fake::default();
+        fake.dirs.insert("/home/a/.config/net.imput.helium".into(), vec!["Default".into()]);
+        fake.history = vec![("https://example.com/page".into(), "The Page".into())];
+        let entries = entries();
+        let context = with(&fake, &entries);
+        let tab = capture(&window("helium", "The Page - Helium"), &context, Scope::Tab).unwrap();
+        assert_eq!(tab.handoff, Handoff::Page { url: "https://example.com/page".into() });
+        assert!(tab.scopes.is_empty(), "there is no choice to offer");
+        let error = capture(&window("helium", "The Page - Helium"), &context, Scope::Window).unwrap_err();
+        assert!(error.contains("Dojo Tabs extension"), "{error}");
+    }
+
+    #[test]
+    fn other_applications_have_one_way_to_be_sent() {
+        let fake = kitty_fake(r#"{"pid": 50, "cmdline": ["rush"], "cwd": "/w"}"#);
+        let entries = entries();
+        assert!(capture(&window("kitty", "x"), &with(&fake, &entries), Scope::Window).unwrap_err().contains("only one way"));
+        assert!(capture(&window("org.example.App", "t"), &with(&Fake::default(), &entries), Scope::Window).unwrap_err().contains("only one way"));
+    }
+
+    #[test]
+    fn an_oversized_window_is_refused_not_cut() {
+        let mut fake = Fake::default();
+        let many: Vec<(String, String, bool)> = (0..=MAX_TABS).map(|i| (format!("https://e.example/{i}"), format!("T{i}"), i == 0)).collect();
+        let borrowed: Vec<(&str, &str, bool)> = many.iter().map(|(u, t, a)| (u.as_str(), t.as_str(), *a)).collect();
+        fake.snapshot = Some(live_snapshot(&borrowed));
+        let entries = entries();
+        let error = capture(&window("helium", "T0 - Helium"), &with(&fake, &entries), Scope::Window).unwrap_err();
+        assert!(error.contains("more than the 100"), "{error}");
     }
 }

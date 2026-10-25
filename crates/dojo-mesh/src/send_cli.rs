@@ -2,7 +2,7 @@
 
 use crate::adapter;
 use crate::cli::{self, Env, FAILED, Failure, UNAVAILABLE, USAGE_ERROR, fail};
-use crate::handoff::{self, Closes, Handoff, Reply};
+use crate::handoff::{self, Closes, Handoff, Reply, Scope};
 use crate::transport::Origin;
 use crate::{desktop, niri, source};
 use serde::Serialize;
@@ -46,6 +46,7 @@ pub fn send(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     let mut window_id: Option<u64> = None;
     let mut peer: Option<String> = None;
     let (mut copy_missing, mut json, mut dry_run, mut keep_source) = (false, false, false, false);
+    let mut scope = Scope::Tab;
     let mut args = rest.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -57,8 +58,12 @@ pub fn send(env: &Env, rest: &[String]) -> Result<u8, Failure> {
             "--copy-missing" => copy_missing = true,
             "--json" => json = true,
             "--dry-run" => dry_run = true,
+            "--scope" => {
+                let text = args.next().ok_or_else(|| fail(USAGE_ERROR, "--scope needs tab or window"))?;
+                scope = Scope::parse(text).ok_or_else(|| fail(USAGE_ERROR, format!("--scope needs tab or window, not {text:?}")))?;
+            }
             "--keep-source" => keep_source = true,
-            other => return Err(fail(USAGE_ERROR, format!("unknown option {other}; usage: dojo-mesh send [--window ID] (--to PEER | --dry-run) [--copy-missing] [--keep-source] [--json]"))),
+            other => return Err(fail(USAGE_ERROR, format!("unknown option {other}; usage: dojo-mesh send [--window ID] (--to PEER | --dry-run) [--scope tab|window] [--copy-missing] [--keep-source] [--json]"))),
         }
     }
     if peer.is_none() && !dry_run {
@@ -79,14 +84,17 @@ pub fn send(env: &Env, rest: &[String]) -> Result<u8, Failure> {
         runtime_dir: var("XDG_RUNTIME_DIR"),
         config_dir: var("XDG_CONFIG_HOME").or_else(|| var("HOME").map(|home| home.join(".config"))),
     };
-    let captured = adapter::capture(window, &context).map_err(|message| fail(FAILED, message))?;
+    let captured = adapter::capture(window, &context, scope).map_err(|message| fail(FAILED, message))?;
     if dry_run {
         let sent = handoff::summary(&captured.handoff, &captured.closes);
-        let preview = serde_json::json!({ "window": window.id, "handoff": captured.handoff, "closes": captured.closes, "sent": sent, "notes": captured.notes });
+        let preview = serde_json::json!({ "window": window.id, "handoff": captured.handoff, "closes": captured.closes, "sent": sent, "scopes": captured.scopes, "tab_count": captured.tab_count, "notes": captured.notes });
         if json {
             println!("{preview}");
         } else {
             println!("{sent}");
+            if captured.scopes.contains(&Scope::Window) {
+                println!("  (this window can also be sent whole: --scope window)");
+            }
             for note in &captured.notes {
                 println!("  {note}");
             }
@@ -129,7 +137,7 @@ pub fn send(env: &Env, rest: &[String]) -> Result<u8, Failure> {
             let source = if keep_source {
                 "left open here".to_string()
             } else {
-                match source::close(&source::System { socket: socket.clone(), operator: env.origin == Origin::Operator }, window.id, &captured.closes) {
+                match source::close(&source::System { socket: socket.clone(), runtime_dir: context.runtime_dir.clone(), operator: env.origin == Origin::Operator }, window.id, &captured.closes) {
                     Ok(done) => done,
                     Err(message) => {
                         notes.push(message);
@@ -208,6 +216,7 @@ fn open(socket: &std::path::Path, handoff: &Handoff, command: &[String], notes: 
 pub fn close_source(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     let mut window: Option<u64> = None;
     let mut title: Option<String> = None;
+    let mut explicit: Option<Closes> = None;
     let mut args = rest.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -216,15 +225,21 @@ pub fn close_source(env: &Env, rest: &[String]) -> Result<u8, Failure> {
                 window = Some(text.parse().map_err(|_| fail(USAGE_ERROR, format!("--window needs a number, not {text:?}")))?);
             }
             "--tab-title" => title = Some(args.next().ok_or_else(|| fail(USAGE_ERROR, "--tab-title needs the tab's window title"))?.clone()),
-            other => return Err(fail(USAGE_ERROR, format!("unknown option {other}; usage: dojo-mesh close-source --window ID [--tab-title TITLE]"))),
+            "--closes" => {
+                let text = args.next().ok_or_else(|| fail(USAGE_ERROR, "--closes needs the closes object from `send --json`"))?;
+                explicit = Some(serde_json::from_str::<Closes>(text).map_err(|error| fail(USAGE_ERROR, format!("--closes is not understood: {error}")))?);
+            }
+            other => return Err(fail(USAGE_ERROR, format!("unknown option {other}; usage: dojo-mesh close-source --window ID [--tab-title TITLE | --closes JSON]"))),
         }
     }
     let window = window.ok_or_else(|| fail(USAGE_ERROR, "close-source needs --window ID"))?;
-    let closes = match title {
-        Some(title) => Closes::Tab { title },
-        None => Closes::Window,
+    let closes = match (explicit, title) {
+        (Some(closes), _) => closes,
+        (None, Some(title)) => Closes::Tab { title },
+        (None, None) => Closes::Window,
     };
-    let done = source::close(&source::System { socket: local_niri()?, operator: env.origin == Origin::Operator }, window, &closes).map_err(|message| fail(FAILED, message))?;
+    let runtime_dir = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).filter(|dir| dir.is_absolute());
+    let done = source::close(&source::System { socket: local_niri()?, runtime_dir, operator: env.origin == Origin::Operator }, window, &closes).map_err(|message| fail(FAILED, message))?;
     println!("{done}");
     Ok(0)
 }
@@ -240,7 +255,7 @@ pub fn receive(rest: &[String]) -> Result<u8, Failure> {
         Err(error) => Reply::Refused { reason: format!("not a handoff: {error}") },
         Ok(handoff) => {
             let dirs = desktop::from_process();
-            match handoff::plan(&handoff, |path| path.exists(), |entry| desktop::has(entry, &dirs)) {
+            match handoff::plan_with(&handoff, |path| path.exists(), |entry| desktop::has(entry, &dirs), |entry| desktop::exec_of(entry, &dirs)) {
                 Err(reply) => reply,
                 Ok((command, notes)) => match niri::socket() {
                     None => Reply::Refused { reason: "there is no desktop session on this machine".into() },

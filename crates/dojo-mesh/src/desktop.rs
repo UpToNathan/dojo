@@ -51,6 +51,16 @@ pub fn for_app(app_id: &str, entries: &[(String, String)]) -> Option<String> {
     by_name.or_else(by_class).map(|(id, _)| id.clone())
 }
 
+/// The `Exec` line of an entry that is not marked deleted, searching `dirs` in order.
+pub fn exec_of(id: &str, dirs: &[PathBuf]) -> Option<String> {
+    let text = dirs.iter().find_map(|dir| std::fs::read_to_string(dir.join(format!("{id}.desktop"))).ok())?;
+    if text.lines().any(|line| line.trim() == "Hidden=true") {
+        return None;
+    }
+    let in_entry = text.lines().skip_while(|line| line.trim() != "[Desktop Entry]").skip(1).take_while(|line| !line.trim_start().starts_with('['));
+    in_entry.into_iter().find_map(|line| line.strip_prefix("Exec=")).map(|exec| exec.trim().to_string())
+}
+
 pub fn has(id: &str, dirs: &[PathBuf]) -> bool {
     dirs.iter().any(|dir| dir.join(format!("{id}.desktop")).is_file())
 }
@@ -104,6 +114,7 @@ mod tests {
         found.sort();
         assert_eq!(found, [("app".to_string(), "first".to_string()), ("other".to_string(), "x".to_string())]);
         assert!(has("other", &dirs) && !has("missing", &dirs));
+        assert_eq!(exec_of("other", &dirs), None, "no Exec line");
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

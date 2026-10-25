@@ -113,6 +113,7 @@ impl Site {
         for dir in ["bin", "data/dojo/bin", "hosts/alpha/home", "hosts/alpha/config/dojo", "hosts/alpha/share/applications", "hosts/beta/home", "hosts/beta/config/dojo", "hosts/beta/share/applications"] {
             std::fs::create_dir_all(root.join(dir)).unwrap();
         }
+        std::fs::create_dir_all(root.join("hosts/alpha/run/dojo")).unwrap();
         std::fs::write(root.join("bin/tailscale"), FAKE_TAILSCALE).unwrap();
         std::fs::write(root.join("bin/loginctl"), FAKE_LOGINCTL).unwrap();
         Command::new("chmod").arg("+x").arg(root.join("bin/tailscale")).arg(root.join("bin/loginctl")).status().unwrap();
@@ -120,7 +121,7 @@ impl Site {
         std::fs::write(root.join("status.json"), STATUS).unwrap();
         std::fs::write(root.join("hosts/alpha/config/dojo/mesh.toml"), "membership-tag = \"tag:mesh\"\n").unwrap();
         for host in ["alpha", "beta"] {
-            std::fs::write(root.join(format!("hosts/{host}/share/applications/helium.desktop")), "[Desktop Entry]\nName=Helium\nExec=helium\n").unwrap();
+            std::fs::write(root.join(format!("hosts/{host}/share/applications/helium.desktop")), "[Desktop Entry]\nName=Helium\nExec=helium %U\n").unwrap();
             std::fs::write(root.join(format!("hosts/{host}/share/applications/org.example.App.desktop")), "[Desktop Entry]\nName=Example\nExec=example\n").unwrap();
         }
         let alpha = fake_niri(&root.join("hosts/alpha/niri.sock"), ALPHA_WINDOWS);
@@ -144,6 +145,7 @@ impl Site {
             .env("XDG_DATA_HOME", self.root.join("data"))
             .env("XDG_DATA_DIRS", self.root.join("hosts/alpha/share"))
             .env("NIRI_SOCKET", self.root.join("hosts/alpha/niri.sock"))
+            .env("XDG_RUNTIME_DIR", self.root.join("hosts/alpha/run"))
             .env("USER", "tester")
             .env("DOJO_MESH_WINDOW_WAIT_MS", "600");
         command
@@ -533,4 +535,89 @@ fn a_peer_outside_the_mesh_is_refused_before_the_helper_starts() {
     assert_eq!(result.status.code(), Some(4), "{}", text(&result));
     assert!(text(&result).contains("not a member of this mesh"), "{}", text(&result));
     assert!(!site.root.join("helper-ran").exists(), "the helper must not capture anyone's input for a call that will be refused");
+}
+
+// ---- sending a whole browser window ---------------------------------------------------------
+
+fn report(site: &Site, tabs: &[(&str, &str, bool)]) {
+    let tabs: Vec<serde_json::Value> = tabs.iter().enumerate().map(|(i, (url, title, active))| serde_json::json!({"id": i, "active": active, "pinned": i == 0, "url": url, "title": title})).collect();
+    let snapshot = serde_json::json!({"v": 1, "at": 1, "windows": [{"id": 4, "focused": true, "tabs": tabs}]});
+    std::fs::write(site.root.join("hosts/alpha/run/dojo/browser-tabs.json"), snapshot.to_string()).unwrap();
+}
+
+const THREE_TABS: [(&str, &str, bool); 3] = [("https://a.example/", "A", false), ("https://b.example/page", "The Page", true), ("https://c.example/x?y=1", "C", false)];
+
+#[test]
+fn a_dry_run_offers_the_whole_window_when_the_extension_reports_it() {
+    let site = Site::new();
+    report(&site, &THREE_TABS);
+    let result = site.run(&["send", "--window", "9", "--dry-run", "--json"]);
+    assert_eq!(result.status.code(), Some(0), "{}", text(&result));
+    let value: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(value["handoff"], serde_json::json!({"kind": "page", "url": "https://b.example/page"}), "the front tab's address came from the browser, not its history");
+    assert_eq!(value["scopes"], serde_json::json!(["tab", "window"]));
+    assert_eq!(value["tab_count"], 3);
+    let whole = site.run(&["send", "--window", "9", "--scope", "window", "--dry-run", "--json"]);
+    let value: serde_json::Value = serde_json::from_slice(&whole.stdout).unwrap();
+    assert_eq!(value["sent"], "a browser window with 3 tabs; the window closes here if its tabs are unchanged");
+}
+
+#[test]
+fn sending_a_whole_window_opens_every_tab_together_then_closes_the_window_here() {
+    let site = Site::new();
+    report(&site, &THREE_TABS);
+    let result = site.run(&["send", "--window", "9", "--scope", "window", "--to", "beta"]);
+    assert_eq!(result.status.code(), Some(0), "{}", text(&result));
+    assert!(text(&result).contains("Sent to beta: a browser window with 3 tabs"), "{}", text(&result));
+    assert!(text(&result).contains("here: closed the window here"), "{}", text(&result));
+    assert!(text(&result).contains("pinned tabs and tab groups do not carry over"), "{}", text(&result));
+    let spawned: Vec<String> = Site::requests(&site.beta).into_iter().filter(|line| line.contains("Spawn")).collect();
+    assert_eq!(spawned, [r#"{"Action":{"Spawn":{"command":["helium","--new-window","https://a.example/","https://b.example/page","https://c.example/x?y=1"]}}}"#]);
+    assert_eq!(alpha_actions(&site), [r#"{"Action":{"CloseWindow":{"id":9}}}"#]);
+}
+
+#[test]
+fn tabs_that_cannot_be_sent_keep_the_original_window_open() {
+    let site = Site::new();
+    report(&site, &[("https://a.example/", "The Page", true), ("chrome://settings/", "Settings", false)]);
+    let result = site.run(&["send", "--window", "9", "--scope", "window", "--to", "beta"]);
+    assert_eq!(result.status.code(), Some(0), "{}", text(&result));
+    assert!(text(&result).contains("left it open here (1 tab cannot be sent: browser pages such as settings)"), "{}", text(&result));
+    let spawned: Vec<String> = Site::requests(&site.beta).into_iter().filter(|line| line.contains("Spawn")).collect();
+    assert_eq!(spawned.len(), 1);
+    assert!(spawned[0].contains("https://a.example/") && !spawned[0].contains("chrome://"), "{spawned:?}");
+    assert!(alpha_actions(&site).is_empty(), "the window was not closed: {:?}", alpha_actions(&site));
+}
+
+#[test]
+fn a_tab_opened_after_the_list_was_taken_keeps_the_window_open() {
+    let site = Site::new();
+    report(&site, &[("https://a.example/", "The Page", true), ("https://new.example/", "New", false)]);
+    let closes = r#"{"scope":"browser-window","title":"The Page - Helium","browser":"Helium","urls":["https://a.example/"]}"#;
+    let result = site.run(&["close-source", "--window", "9", "--closes", closes]);
+    assert_eq!(result.status.code(), Some(1), "{}", text(&result));
+    assert!(text(&result).contains("tabs changed while sending"), "{}", text(&result));
+    assert!(alpha_actions(&site).is_empty());
+    report(&site, &[("https://a.example/", "The Page", true)]);
+    let ok = site.run(&["close-source", "--window", "9", "--closes", closes]);
+    assert_eq!(ok.status.code(), Some(0), "{}", text(&ok));
+    assert_eq!(alpha_actions(&site), [r#"{"Action":{"CloseWindow":{"id":9}}}"#]);
+}
+
+#[test]
+fn without_the_extension_the_whole_window_is_refused_with_the_reason() {
+    let site = Site::new();
+    let result = site.run(&["send", "--window", "9", "--scope", "window", "--to", "beta"]);
+    assert_eq!(result.status.code(), Some(1), "{}", text(&result));
+    assert!(text(&result).contains("Dojo Tabs extension"), "{}", text(&result));
+    assert!(!Site::requests(&site.beta).iter().any(|line| line.contains("Spawn")));
+}
+
+#[test]
+fn the_tabs_host_serves_only_the_dojo_tabs_extension() {
+    let site = Site::new();
+    let result = site.command().args(["tabs-host", "chrome-extension://abcdefghijklmnopabcdefghijklmnop/"]).stdin(Stdio::null()).output().unwrap();
+    assert_eq!(result.status.code(), Some(1), "{}", text(&result));
+    assert!(text(&result).contains("serves only the Dojo Tabs extension"), "{}", text(&result));
+    assert!(!site.root.join("hosts/alpha/run/dojo/browser-tabs.json").exists());
 }

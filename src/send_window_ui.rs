@@ -119,15 +119,15 @@ fn online_peers() -> Vec<String> {
 
 /// What `dojo-mesh send` said.
 enum Outcome {
-    Sent { sent: String, notes: Vec<String>, tab_title: Option<String> },
+    Sent { sent: String, notes: Vec<String>, closes: String },
     Missing(Vec<String>),
     Failed(String),
 }
 
 /// What `dojo-mesh send --dry-run` says a window would send.
-fn run_preview(window: u64) -> Result<Preview, String> {
+fn run_preview(window: u64, all_tabs: bool) -> Result<Preview, String> {
     let output = Command::new(mesh_binary())
-        .args(["send", "--window", &window.to_string(), "--dry-run", "--json"])
+        .args(["send", "--window", &window.to_string(), "--scope", if all_tabs { "window" } else { "tab" }, "--dry-run", "--json"])
         .output()
         .map_err(|error| format!("dojo-mesh could not run: {error}"))?;
     if !output.status.success() {
@@ -139,16 +139,16 @@ fn run_preview(window: u64) -> Result<Preview, String> {
     Ok(Preview {
         sent: value["sent"].as_str().unwrap_or_default().to_owned(),
         notes: value["notes"].as_array().map(|notes| notes.iter().filter_map(|note| note.as_str().map(String::from)).collect()).unwrap_or_default(),
+        can_send_window: value["scopes"].as_array().is_some_and(|scopes| scopes.iter().any(|scope| scope == "window")),
+        tab_count: value["tab_count"].as_u64().map(|count| count as usize),
     })
 }
 
-/// Closes the original after the peer opened the handoff: the window, or only the tab sent.
-fn run_close_source(window: u64, tab_title: Option<&str>) -> Result<(), String> {
+/// Closes the original after the peer opened the handoff, as `closes` (from `send --json`) says: the
+/// window, only the tab sent, a browser window still holding the tabs sent, or nothing.
+fn run_close_source(window: u64, closes: &str) -> Result<(), String> {
     let mut command = Command::new(mesh_binary());
-    command.args(["close-source", "--window", &window.to_string()]);
-    if let Some(title) = tab_title {
-        command.args(["--tab-title", title]);
-    }
+    command.args(["close-source", "--window", &window.to_string(), "--closes", closes]);
     let output = command.output().map_err(|error| format!("dojo-mesh could not run: {error}"))?;
     if output.status.success() {
         return Ok(());
@@ -157,10 +157,10 @@ fn run_close_source(window: u64, tab_title: Option<&str>) -> Result<(), String> 
     Err(stderr.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("it could not be closed").trim_start_matches("dojo-mesh: ").to_owned())
 }
 
-fn run_send(window: u64, peer: &str, copy_missing: bool) -> Outcome {
+fn run_send(window: u64, peer: &str, copy_missing: bool, all_tabs: bool) -> Outcome {
     let mut command = Command::new(mesh_binary());
     // The original stays until the panel has shown what was sent and let go of the keyboard.
-    command.args(["send", "--window", &window.to_string(), "--to", peer, "--keep-source", "--json"]);
+    command.args(["send", "--window", &window.to_string(), "--to", peer, "--scope", if all_tabs { "window" } else { "tab" }, "--keep-source", "--json"]);
     if copy_missing {
         command.arg("--copy-missing");
     }
@@ -178,7 +178,7 @@ fn run_send(window: u64, peer: &str, copy_missing: bool) -> Outcome {
             Outcome::Sent {
                 sent: value.and_then(|r| r["sent"].as_str()).unwrap_or_default().to_owned(),
                 notes: strings(value.and_then(|r| r.get("notes"))),
-                tab_title: value.and_then(|r| r["closes"]["title"].as_str()).map(String::from),
+                closes: value.map(|r| r["closes"].to_string()).unwrap_or_else(|| "{\"scope\":\"window\"}".into()),
             }
         }
         Some("missing") => Outcome::Missing(strings(reply.as_ref().and_then(|r| r.get("files")))),
@@ -221,13 +221,13 @@ impl Panel {
 
     /// Asks what the selected window would send, once per window.
     fn fetch_preview(&mut self, cx: &mut Context<Self>) {
-        let Some(window) = self.model.needs_preview() else { return };
+        let Some((window, all_tabs)) = self.model.needs_preview() else { return };
         // Marked as asked at once, so a second selection of the same window does not ask again.
-        self.model.set_preview(window, Err("Reading what this window would send…".into()));
+        self.model.set_preview(window, all_tabs, Err("Reading what this window would send…".into()));
         self.preview_task = Some(cx.spawn(async move |this, cx| {
-            let preview = cx.background_executor().spawn(async move { run_preview(window) }).await;
+            let preview = cx.background_executor().spawn(async move { run_preview(window, all_tabs) }).await;
             let _ = this.update(cx, |panel: &mut Panel, cx| {
-                panel.model.set_preview(window, preview);
+                panel.model.set_preview(window, all_tabs, preview);
                 cx.notify();
             });
         }));
@@ -246,18 +246,18 @@ impl Panel {
         match request {
             Request::Nothing => {}
             Request::Close => self.close(window, cx),
-            Request::Send { window: id, peer, take_input, copy_missing } => {
+            Request::Send { window: id, peer, take_input, copy_missing, all_tabs } => {
                 self.memory = self.model.memory();
                 if let Some(path) = memory_path() {
                     let _ = self.memory.save(&path);
                 }
                 self.task = Some(cx.spawn_in(window, async move |this, cx| {
                     let target = peer.clone();
-                    let outcome = cx.background_executor().spawn(async move { run_send(id, &target, copy_missing) }).await;
+                    let outcome = cx.background_executor().spawn(async move { run_send(id, &target, copy_missing, all_tabs) }).await;
                     let sent = matches!(outcome, Outcome::Sent { .. });
                     let _ = this.update(cx, |panel: &mut Panel, cx| {
                         match outcome {
-                            Outcome::Sent { sent, notes, tab_title } => panel.model.sent(peer, sent, notes, id, tab_title, take_input),
+                            Outcome::Sent { sent, notes, closes } => panel.model.sent(peer, sent, notes, id, closes, take_input),
                             Outcome::Missing(files) => panel.model.missing(files),
                             Outcome::Failed(message) => panel.model.failed(message),
                         }
@@ -282,8 +282,8 @@ impl Panel {
                 std::thread::spawn(move || {
                     // Let go of Enter first, or Niri holds the browser's input back as still being typed.
                     std::thread::sleep(Duration::from_millis(300));
-                    if let Some((original, tab_title)) = close {
-                        if let Err(message) = run_close_source(original, tab_title.as_deref()) {
+                    if let Some((original, closes)) = close {
+                        if let Err(message) = run_close_source(original, &closes) {
                             eprintln!("Dojo send window: the original was not closed: {message}");
                         }
                     }
@@ -347,6 +347,10 @@ impl Panel {
                     Some(Ok(preview)) => {
                         let mut lines = vec![format!("Sends {}.", preview.sent)];
                         lines.extend(preview.notes.iter().take(2).cloned());
+                        if preview.can_send_window {
+                            let all = preview.tab_count.map(|count| format!("all {count} tabs")).unwrap_or_else(|| "the whole window".into());
+                            lines.push(if self.model.all_tabs { "W sends only the tab in front instead.".into() } else { format!("W sends {all} instead.") });
+                        }
                         lines
                     }
                     Some(Err(message)) if message.starts_with("Reading") => vec![message.clone()],
@@ -474,7 +478,7 @@ impl Render for Panel {
                 .line_height(px(size::HINT))
                 .text_color(colors.foreground_muted.rgb())
                 .truncate()
-                .child("Tab windows/machines · Space cursor and keyboard · Enter send · Esc close"),
+                .child("Tab windows/machines · W all tabs · Space cursor and keyboard · Enter send · Esc close"),
         );
 
         div()

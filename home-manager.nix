@@ -28,7 +28,7 @@ let
   };
   helium = pkgs.writeShellScriptBin "helium" ''
     exec ${heliumApp}/bin/helium \
-      --load-extension=${homeDirectory}/.local/share/dojo/browser-control/extension "$@"
+      --load-extension=${homeDirectory}/.local/share/dojo/browser-control/extension,${homeDirectory}/.local/share/dojo/tabs-extension "$@"
   '';
   heliumContents = pkgs.appimageTools.extractType2 {
     pname = "helium";
@@ -85,6 +85,7 @@ in
         ./update-home-manager.nix
         ./cache-home-manager.nix
         ./kitty-remote-control-home-manager.nix
+        ./tabs-home-manager.nix
       ];
       home.username = username;
       dojo.root = root;

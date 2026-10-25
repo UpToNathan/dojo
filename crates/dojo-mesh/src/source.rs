@@ -13,6 +13,9 @@ pub trait Desktop {
     fn close_window(&self, id: u64) -> Result<(), String>;
     /// Presses Ctrl+W in that window.
     fn press_close_tab(&self, window: u64) -> Result<(), String>;
+    /// The addresses of the tabs the browser window titled `title` holds now, in order, if the
+    /// browser can say (its Dojo Tabs extension is connected and the window is identifiable).
+    fn browser_tab_urls(&self, title: &str, browser: &str) -> Option<Vec<String>>;
 }
 
 /// Closes what was sent and says what it closed. An error means nothing was closed.
@@ -21,6 +24,23 @@ pub fn close(desktop: &dyn Desktop, window: u64, closes: &Closes) -> Result<Stri
         Closes::Window => {
             desktop.close_window(window)?;
             Ok("closed the window here".into())
+        }
+        Closes::Nothing { why } => Ok(format!("left it open here ({why})")),
+        Closes::BrowserWindow { title, browser, urls } => {
+            // The tabs are re-read now: one opened since the list was taken would be lost with the window.
+            let windows = desktop.windows()?;
+            let found = windows.iter().find(|candidate| candidate.id == window).ok_or("the window is gone, so there was nothing to close")?;
+            if found.title.as_deref() != Some(title.as_str()) {
+                return Err(format!("the window no longer shows \"{title}\", so it was left open"));
+            }
+            match desktop.browser_tab_urls(title, browser) {
+                Some(now) if now == *urls => {
+                    desktop.close_window(window)?;
+                    Ok("closed the window here".into())
+                }
+                Some(_) => Err("the window's tabs changed while sending, so it was left open".into()),
+                None => Err("the browser could not confirm the window's tabs, so it was left open".into()),
+            }
         }
         Closes::Tab { title } => {
             let windows = desktop.windows()?;
@@ -36,6 +56,8 @@ pub fn close(desktop: &dyn Desktop, window: u64, closes: &Closes) -> Result<Stri
 
 pub struct System {
     pub socket: PathBuf,
+    /// The runtime directory the Dojo Tabs report is kept in.
+    pub runtime_dir: Option<PathBuf>,
     /// Whether the operator started this. Closing a tab needs Niri to end its pause on windows the
     /// person has used, which only the operator may ask for: the agent must not override that.
     pub operator: bool,
@@ -48,6 +70,12 @@ impl Desktop for System {
 
     fn close_window(&self, id: u64) -> Result<(), String> {
         crate::niri::close_window(&self.socket, id)
+    }
+
+    fn browser_tab_urls(&self, title: &str, browser: &str) -> Option<Vec<String>> {
+        let snapshot = crate::tabs::load(&crate::tabs::snapshot_path(self.runtime_dir.as_ref()?))?;
+        let window = crate::tabs::window_for(&snapshot, title, browser)?;
+        Some(window.tabs.iter().map(|tab| tab.url.clone()).collect())
     }
 
     fn press_close_tab(&self, window: u64) -> Result<(), String> {
@@ -71,11 +99,12 @@ mod tests {
     struct Fake {
         log: RefCell<Vec<String>>,
         title_now: RefCell<String>,
+        urls: RefCell<Option<Vec<String>>>,
     }
 
     impl Fake {
         fn new(title: &str) -> Self {
-            Self { log: RefCell::new(Vec::new()), title_now: RefCell::new(title.into()) }
+            Self { log: RefCell::new(Vec::new()), title_now: RefCell::new(title.into()), urls: RefCell::new(None) }
         }
     }
 
@@ -90,6 +119,9 @@ mod tests {
         fn press_close_tab(&self, window: u64) -> Result<(), String> {
             self.log.borrow_mut().push(format!("ctrl+w {window}"));
             Ok(())
+        }
+        fn browser_tab_urls(&self, _: &str, _: &str) -> Option<Vec<String>> {
+            self.urls.borrow().clone()
         }
     }
 
@@ -128,7 +160,50 @@ mod tests {
             fn press_close_tab(&self, _: u64) -> Result<(), String> {
                 unreachable!()
             }
+            fn browser_tab_urls(&self, _: &str, _: &str) -> Option<Vec<String>> {
+                None
+            }
         }
         assert!(close(&Empty, 7, &Closes::Tab { title: "T".into() }).unwrap_err().contains("the window is gone"));
+    }
+
+    fn whole_window(urls: &[&str]) -> Closes {
+        Closes::BrowserWindow { title: "Page - Helium".into(), browser: "Helium".into(), urls: urls.iter().map(|url| url.to_string()).collect() }
+    }
+
+    #[test]
+    fn a_browser_window_closes_only_while_it_holds_exactly_the_tabs_that_were_sent() {
+        let fake = Fake::new("Page - Helium");
+        *fake.urls.borrow_mut() = Some(vec!["https://a.example/".into(), "https://b.example/".into()]);
+        assert_eq!(close(&fake, 7, &whole_window(&["https://a.example/", "https://b.example/"])).unwrap(), "closed the window here");
+        assert_eq!(*fake.log.borrow(), ["close-window 7"]);
+    }
+
+    #[test]
+    fn a_tab_opened_while_sending_keeps_the_window_open() {
+        let fake = Fake::new("Page - Helium");
+        *fake.urls.borrow_mut() = Some(vec!["https://a.example/".into(), "https://new.example/".into()]);
+        let error = close(&fake, 7, &whole_window(&["https://a.example/"])).unwrap_err();
+        assert!(error.contains("tabs changed while sending"), "{error}");
+        assert!(fake.log.borrow().is_empty(), "nothing was closed");
+    }
+
+    #[test]
+    fn a_browser_that_cannot_confirm_its_tabs_keeps_the_window_open() {
+        let fake = Fake::new("Page - Helium");
+        let error = close(&fake, 7, &whole_window(&["https://a.example/"])).unwrap_err();
+        assert!(error.contains("could not confirm"), "{error}");
+        assert!(fake.log.borrow().is_empty());
+        let moved = Fake::new("Other - Helium");
+        *moved.urls.borrow_mut() = Some(vec!["https://a.example/".into()]);
+        assert!(close(&moved, 7, &whole_window(&["https://a.example/"])).unwrap_err().contains("no longer shows"));
+    }
+
+    #[test]
+    fn nothing_closes_when_the_original_is_to_stay() {
+        let fake = Fake::new("T");
+        let done = close(&fake, 7, &Closes::Nothing { why: "2 tabs are browser pages".into() }).unwrap();
+        assert!(done.contains("left it open here (2 tabs are browser pages)"), "{done}");
+        assert!(fake.log.borrow().is_empty());
     }
 }

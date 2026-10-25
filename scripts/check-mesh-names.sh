@@ -12,7 +12,7 @@ command -v jq >/dev/null 2>&1 || { printf 'check-mesh-names: jq is required; run
 paths=(
     crates/dojo-mesh docs/mesh.md docs/nix-cache.md docs/adr/0005-tailscale-identity-is-node-identity-and-permission.md
     docs/adr/0006-peers-are-reached-with-tailscale-ssh.md .scratch/mesh scripts/update-nix-cache.sh cache-home-manager.nix
-    src/launcher/views/mesh.rs tools/speech/mesh-extension.mjs tools/speech/mesh-extension.test.mjs
+    extensions/dojo-tabs tabs-home-manager.nix src/launcher/views/mesh.rs tools/speech/mesh-extension.mjs tools/speech/mesh-extension.test.mjs
 )
 names=()
 if command -v tailscale >/dev/null 2>&1 && report=$(tailscale status --json 2>/dev/null); then

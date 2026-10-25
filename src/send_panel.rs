@@ -33,8 +33,8 @@ pub enum Phase {
 /// What happens to the original after a send.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Source {
-    /// Closes soon; Esc keeps it.
-    Pending { window: u64, tab_title: Option<String> },
+    /// Closes soon; Esc keeps it. `closes` is what `dojo-mesh send --json` said closes, as JSON.
+    Pending { window: u64, closes: String },
     Kept,
 }
 
@@ -43,6 +43,9 @@ pub enum Source {
 pub struct Preview {
     pub sent: String,
     pub notes: Vec<String>,
+    /// The window could be sent whole (a browser window the extension reports): W switches to that.
+    pub can_send_window: bool,
+    pub tab_count: Option<usize>,
 }
 
 /// What the panel asks its owner to do after a key.
@@ -50,10 +53,10 @@ pub struct Preview {
 pub enum Request {
     Nothing,
     Close,
-    Send { window: u64, peer: String, take_input: bool, copy_missing: bool },
+    Send { window: u64, peer: String, take_input: bool, copy_missing: bool, all_tabs: bool },
     /// The send is over: close the original (unless it is kept), then the panel, and then start
     /// taking the cursor and keyboard to the peer if that was asked for.
-    Finish { close: Option<(u64, Option<String>)>, remote_to: Option<String> },
+    Finish { close: Option<(u64, String)>, remote_to: Option<String> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,8 +68,10 @@ pub struct Model {
     pub list: List,
     pub take_input: bool,
     pub phase: Phase,
-    /// What each window would send, as far as it has been asked.
-    pub previews: HashMap<u64, Result<Preview, String>>,
+    /// Send every tab of a browser window, not just the one in front.
+    pub all_tabs: bool,
+    /// What each window would send, by window and whether all its tabs, as far as it has been asked.
+    pub previews: HashMap<(u64, bool), Result<Preview, String>>,
 }
 
 /// What the panel remembers between uses.
@@ -97,7 +102,7 @@ impl Memory {
 
 impl Model {
     pub fn loading(memory: &Memory) -> Self {
-        Self { windows: Vec::new(), peers: Vec::new(), window: 0, peer: 0, list: List::Windows, take_input: memory.take_input, phase: Phase::Loading, previews: HashMap::new() }
+        Self { windows: Vec::new(), peers: Vec::new(), window: 0, peer: 0, list: List::Windows, take_input: memory.take_input, phase: Phase::Loading, all_tabs: false, previews: HashMap::new() }
     }
 
     /// The windows (focused first is selected) and online peers (the remembered one selected).
@@ -117,9 +122,9 @@ impl Model {
         self.phase = Phase::Missing(files);
     }
 
-    /// `closes_tab` is the window's title when only a tab is to close, `None` for the whole window.
-    pub fn sent(&mut self, peer: String, sent: String, notes: Vec<String>, window: u64, tab_title: Option<String>, take_input: bool) {
-        self.phase = Phase::Sent { peer, sent, notes, source: Source::Pending { window, tab_title }, take_input };
+    /// `closes` is the close rule `dojo-mesh send --json` reported, as JSON text.
+    pub fn sent(&mut self, peer: String, sent: String, notes: Vec<String>, window: u64, closes: String, take_input: bool) {
+        self.phase = Phase::Sent { peer, sent, notes, source: Source::Pending { window, closes }, take_input };
     }
 
     /// What ends the Sent phase now. Esc keeps the original; the cursor and keyboard still go if asked.
@@ -127,7 +132,7 @@ impl Model {
         let Phase::Sent { peer, source, take_input, .. } = &mut self.phase else { return Request::Close };
         let remote_to = take_input.then(|| peer.clone());
         let close = match (keep, source.clone()) {
-            (false, Source::Pending { window, tab_title }) => Some((window, tab_title)),
+            (false, Source::Pending { window, closes }) => Some((window, closes)),
             _ => None,
         };
         if keep {
@@ -142,16 +147,16 @@ impl Model {
     }
 
     /// The selected window, when what it would send has not been asked yet.
-    pub fn needs_preview(&self) -> Option<u64> {
-        self.selected_window().filter(|id| !self.previews.contains_key(id))
+    pub fn needs_preview(&self) -> Option<(u64, bool)> {
+        self.selected_window().map(|id| (id, self.all_tabs)).filter(|key| !self.previews.contains_key(key))
     }
 
     pub fn preview(&self) -> Option<&Result<Preview, String>> {
-        self.selected_window().and_then(|id| self.previews.get(&id))
+        self.selected_window().and_then(|id| self.previews.get(&(id, self.all_tabs)))
     }
 
-    pub fn set_preview(&mut self, window: u64, preview: Result<Preview, String>) {
-        self.previews.insert(window, preview);
+    pub fn set_preview(&mut self, window: u64, all_tabs: bool, preview: Result<Preview, String>) {
+        self.previews.insert((window, all_tabs), preview);
     }
 
     /// Why Enter does nothing right now, if it does nothing.
@@ -216,6 +221,14 @@ impl Model {
                 }
                 Request::Nothing
             }
+            "w" => {
+                // All tabs or the front one. Whether the window supports it is the preview's to say.
+                self.all_tabs = !self.all_tabs;
+                if matches!(self.phase, Phase::Failed(_) | Phase::Missing(_)) {
+                    self.phase = Phase::Choosing;
+                }
+                Request::Nothing
+            }
             "space" => {
                 self.take_input = !self.take_input;
                 Request::Nothing
@@ -231,7 +244,7 @@ impl Model {
         }
         let copy_missing = matches!(self.phase, Phase::Missing(_));
         self.phase = Phase::Sending;
-        Request::Send { window: self.windows[self.window].id, peer: self.peers[self.peer].clone(), take_input: self.take_input, copy_missing }
+        Request::Send { window: self.windows[self.window].id, peer: self.peers[self.peer].clone(), take_input: self.take_input, copy_missing, all_tabs: self.all_tabs }
     }
 }
 
@@ -266,7 +279,7 @@ mod tests {
         model.key("tab");
         model.key("down");
         model.key("space");
-        assert_eq!(model.key("enter"), Request::Send { window: 9, peer: "beta".into(), take_input: true, copy_missing: false });
+        assert_eq!(model.key("enter"), Request::Send { window: 9, peer: "beta".into(), take_input: true, copy_missing: false, all_tabs: false });
         assert_eq!(model.phase, Phase::Sending);
         assert_eq!(model.key("enter"), Request::Nothing, "one send at a time");
         assert_eq!(model.memory(), Memory { peer: Some("beta".into()), take_input: true });
@@ -277,7 +290,7 @@ mod tests {
         let mut model = ready(&Memory::default());
         model.key("enter");
         model.missing(vec!["/w/a.rs".into()]);
-        assert_eq!(model.key("enter"), Request::Send { window: 9, peer: "alpha".into(), take_input: false, copy_missing: true });
+        assert_eq!(model.key("enter"), Request::Send { window: 9, peer: "alpha".into(), take_input: false, copy_missing: true, all_tabs: false });
         model.missing(vec!["/w/a.rs".into()]);
         assert_eq!(model.key("escape"), Request::Nothing);
         assert_eq!(model.phase, Phase::Choosing);
@@ -312,8 +325,8 @@ mod tests {
     fn after_sending_the_original_closes_unless_escape_keeps_it() {
         let mut model = ready(&Memory::default());
         model.key("enter");
-        model.sent("alpha".into(), "the page https://x".into(), vec![], 9, Some("Page - Helium".into()), false);
-        assert_eq!(model.finish(false), Request::Finish { close: Some((9, Some("Page - Helium".into()))), remote_to: None });
+        model.sent("alpha".into(), "the page https://x".into(), vec![], 9, r#"{"scope":"tab","title":"Page - Helium"}"#.into(), false);
+        assert_eq!(model.finish(false), Request::Finish { close: Some((9, r#"{"scope":"tab","title":"Page - Helium"}"#.into())), remote_to: None });
         assert_eq!(model.key("escape"), Request::Finish { close: None, remote_to: None }, "Esc leaves the original alone");
         match &model.phase {
             Phase::Sent { source, .. } => assert_eq!(*source, Source::Kept),
@@ -326,25 +339,39 @@ mod tests {
     fn taking_the_cursor_and_keyboard_starts_after_the_send_whatever_happens_to_the_original() {
         let mut model = ready(&Memory::default());
         model.key("enter");
-        model.sent("alpha".into(), "a terminal in /w".into(), vec![], 9, None, true);
-        assert_eq!(model.key("enter"), Request::Finish { close: Some((9, None)), remote_to: Some("alpha".into()) });
+        model.sent("alpha".into(), "a terminal in /w".into(), vec![], 9, r#"{"scope":"window"}"#.into(), true);
+        assert_eq!(model.key("enter"), Request::Finish { close: Some((9, r#"{"scope":"window"}"#.into())), remote_to: Some("alpha".into()) });
         let mut kept = ready(&Memory::default());
         kept.key("enter");
-        kept.sent("alpha".into(), "x".into(), vec![], 9, None, true);
+        kept.sent("alpha".into(), "x".into(), vec![], 9, r#"{"scope":"window"}"#.into(), true);
         assert_eq!(kept.key("escape"), Request::Finish { close: None, remote_to: Some("alpha".into()) });
     }
 
     #[test]
-    fn each_window_is_previewed_once_when_selected() {
+    fn each_window_is_previewed_once_per_scope_when_selected() {
         let mut model = ready(&Memory::default());
-        assert_eq!(model.needs_preview(), Some(9));
-        model.set_preview(9, Ok(Preview { sent: "a terminal in /w".into(), notes: vec![] }));
+        let plain = |sent: &str| Preview { sent: sent.into(), notes: vec![], can_send_window: false, tab_count: None };
+        assert_eq!(model.needs_preview(), Some((9, false)));
+        model.set_preview(9, false, Ok(Preview { can_send_window: true, tab_count: Some(4), ..plain("the page https://x") }));
         assert_eq!(model.needs_preview(), None);
-        assert!(matches!(model.preview(), Some(Ok(_))));
+        assert!(matches!(model.preview(), Some(Ok(preview)) if preview.can_send_window));
+        model.key("w");
+        assert!(model.all_tabs);
+        assert_eq!(model.needs_preview(), Some((9, true)), "all tabs is previewed separately");
+        model.set_preview(9, true, Ok(plain("a browser window with 4 tabs")));
+        model.key("w");
+        assert_eq!(model.needs_preview(), None, "going back needs no new question");
         model.key("down");
-        assert_eq!(model.needs_preview(), Some(3));
-        model.set_preview(3, Err("no desktop entry".into()));
+        assert_eq!(model.needs_preview(), Some((3, false)));
+        model.set_preview(3, false, Err("no desktop entry".into()));
         assert_eq!(model.preview(), Some(&Err("no desktop entry".to_string())));
+    }
+
+    #[test]
+    fn w_sends_all_tabs() {
+        let mut model = ready(&Memory::default());
+        model.key("w");
+        assert_eq!(model.key("enter"), Request::Send { window: 9, peer: "alpha".into(), take_input: false, copy_missing: false, all_tabs: true });
     }
 
     #[test]

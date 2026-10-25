@@ -36,7 +36,7 @@ usage: dojo-mesh [--config PATH] <command>
   cp SRC DST                       copy one file; exactly one side is PEER:PATH
   task PEER TEXT...                give a peer's agent a task
   windows [--json]                 this node's windows
-  send [--window ID] (--to PEER | --dry-run) [--copy-missing] [--keep-source] [--json]
+  send [--window ID] (--to PEER | --dry-run) [--scope tab|window] [--copy-missing] [--keep-source] [--json]
                                    open a window on a peer and close it here (exit 5: files missing there)
   remote PEER                      drive a peer with this cursor and keyboard (Super+F11 returns)
   pause | resume                   switch the agent's peer access off or on
@@ -216,6 +216,11 @@ pub fn run(env: &Env, args: &[String]) -> Result<u8, Failure> {
         "windows" => crate::send_cli::windows(rest),
         "send" => crate::send_cli::send(env, rest),
         "receive" => crate::send_cli::receive(rest),
+        "tabs-host" => {
+            // Started by the browser, not typed: it reads native-messaging frames on stdin.
+            let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
+            crate::tabs::host(rest.first().map(String::as_str), runtime).map(|()| 0).map_err(|message| fail(FAILED, message))
+        }
         "remote" => crate::remote_cli::remote(env, rest),
         "inject" => crate::remote_cli::inject(env, rest),
         "close-source" => crate::send_cli::close_source(env, rest),
