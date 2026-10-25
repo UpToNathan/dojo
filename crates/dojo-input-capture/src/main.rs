@@ -4,7 +4,7 @@
 //!
 //! It covers the focused output with a transparent layer-shell surface that has the keyboard
 //! exclusively, locks the pointer to it (so motion keeps coming at the screen's edge) and hides the
-//! cursor. Nothing reaches local windows meanwhile. It ends, giving everything back, on Super+F11 or
+//! cursor, and asks the compositor to leave its own shortcuts to it. Nothing reaches local windows meanwhile. It ends, giving everything back, on Super+F11 or
 //! Ctrl+Alt+Shift+Esc, when the compositor takes the surface or the pointer lock away, or when its
 //! output is closed.
 
@@ -16,6 +16,8 @@ use dojo_mesh::remote::{Event, ReleaseChords};
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::{wl_buffer, wl_compositor, wl_keyboard, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface};
 use wayland_client::{Connection, Dispatch, QueueHandle, WEnum};
+use wayland_protocols::wp::keyboard_shortcuts_inhibit::zv1::client::zwp_keyboard_shortcuts_inhibit_manager_v1::ZwpKeyboardShortcutsInhibitManagerV1;
+use wayland_protocols::wp::keyboard_shortcuts_inhibit::zv1::client::zwp_keyboard_shortcuts_inhibitor_v1::ZwpKeyboardShortcutsInhibitorV1;
 use wayland_protocols::wp::pointer_constraints::zv1::client::zwp_locked_pointer_v1::{self, ZwpLockedPointerV1};
 use wayland_protocols::wp::pointer_constraints::zv1::client::zwp_pointer_constraints_v1::{Lifetime, ZwpPointerConstraintsV1};
 use wayland_protocols::wp::relative_pointer::zv1::client::zwp_relative_pointer_manager_v1::ZwpRelativePointerManagerV1;
@@ -30,6 +32,9 @@ struct State {
     viewport: WpViewport,
     buffer: wl_buffer::WlBuffer,
     _seat: wl_seat::WlSeat,
+    // Held for as long as the capture runs: while it lives, the compositor's own shortcuts (Super
+    // and the rest) go to this helper, and so to the peer, instead of firing here.
+    _inhibitor: ZwpKeyboardShortcutsInhibitorV1,
     constraints: ZwpPointerConstraintsV1,
     relative_manager: ZwpRelativePointerManagerV1,
     pointer: Option<wl_pointer::WlPointer>,
@@ -83,7 +88,10 @@ fn run() -> Result<(), String> {
     let constraints = globals.bind::<ZwpPointerConstraintsV1, _, _>(&qh, 1..=1, ()).map_err(|e| missing("zwp_pointer_constraints_v1", e))?;
     let relative_manager = globals.bind::<ZwpRelativePointerManagerV1, _, _>(&qh, 1..=1, ()).map_err(|e| missing("zwp_relative_pointer_manager_v1", e))?;
 
+    let inhibit_manager = globals.bind::<ZwpKeyboardShortcutsInhibitManagerV1, _, _>(&qh, 1..=1, ()).map_err(|e| missing("zwp_keyboard_shortcuts_inhibit_manager_v1", e))?;
+
     let surface = compositor.create_surface(&qh, ());
+    let inhibitor = inhibit_manager.inhibit_shortcuts(&surface, &seat, &qh, ());
     let viewport = viewporter.get_viewport(&surface, &qh, ());
     let layer = layer_shell.get_layer_surface(&surface, None, zwlr_layer_shell_v1::Layer::Overlay, "dojo-input-capture".into(), &qh, ());
     layer.set_anchor(Anchor::Top | Anchor::Bottom | Anchor::Left | Anchor::Right);
@@ -98,6 +106,7 @@ fn run() -> Result<(), String> {
         viewport,
         buffer,
         _seat: seat,
+        _inhibitor: inhibitor,
         constraints,
         relative_manager,
         pointer: None,
@@ -270,4 +279,6 @@ ignore_events!(
     WpViewport,
     ZwpPointerConstraintsV1,
     ZwpRelativePointerManagerV1,
+    ZwpKeyboardShortcutsInhibitManagerV1,
+    ZwpKeyboardShortcutsInhibitorV1,
 );
