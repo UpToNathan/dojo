@@ -9,6 +9,8 @@ pub enum Admission {
     This,
     Tag,
     Allowed,
+    /// Listed in the signed roster by an entry a trusted signing key vouched for.
+    Signed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -49,6 +51,9 @@ pub struct Roster {
     pub membership_tag: Option<String>,
     pub members: Vec<Member>,
     pub excluded: Vec<Excluded>,
+    /// Signed-roster entries that were found but do not count, with why.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub rejected: Vec<crate::signed::Rejected>,
 }
 
 impl Roster {
@@ -67,6 +72,7 @@ impl Roster {
             membership_tag: config.membership_tag.clone(),
             members: vec![Member { device: this, admitted_by: Admission::This }],
             excluded: Vec::new(),
+            rejected: Vec::new(),
         }
     }
 }
@@ -95,7 +101,7 @@ pub fn admit_from(source: Source, this: Device, others: Vec<Device>, config: &Me
     }
     members[1..].sort_by_key(|member| crate::config::name_key(&member.device.name));
     excluded.sort_by_key(|entry| crate::config::name_key(&entry.device.name));
-    Roster { source, membership_tag: config.membership_tag.clone(), members, excluded }
+    Roster { source, membership_tag: config.membership_tag.clone(), members, excluded, rejected: Vec::new() }
 }
 
 #[cfg(test)]

@@ -58,6 +58,7 @@ impl Node {
             online: self.online.unwrap_or(default_online),
             key_expiry,
             key_expired: self.expired.unwrap_or(false),
+            routes: Vec::new(),
         })
     }
 }
@@ -94,7 +95,7 @@ pub fn roster(report: Result<String, String>, config: &MeshConfig, fallback_name
     match report.and_then(|json| parse_status(&json)) {
         Ok((this, others)) => admit(this, others, config),
         Err(reason) => Roster::alone(
-            Device { name: fallback_name.into(), dns_name: None, tags: Vec::new(), online: true, key_expiry: None, key_expired: false },
+            Device { name: fallback_name.into(), dns_name: None, tags: Vec::new(), online: true, key_expiry: None, key_expired: false, routes: Vec::new() },
             config,
             reason,
         ),

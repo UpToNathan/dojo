@@ -20,7 +20,7 @@ pub fn status(roster: &Roster, show_excluded: bool) -> String {
         let note = match member.admitted_by {
             Admission::This => " (this node)",
             Admission::Allowed => " (allowed)",
-            Admission::Tag => "",
+            Admission::Tag | Admission::Signed => "",
         };
         let _ = writeln!(out, "  {}{note}  {state}", member.device.name);
     }
@@ -34,6 +34,26 @@ pub fn status(roster: &Roster, show_excluded: bool) -> String {
         }
     } else if !roster.excluded.is_empty() {
         let _ = writeln!(out, "  {} other device{} not in the mesh (--all lists them)", roster.excluded.len(), if roster.excluded.len() == 1 { "" } else { "s" });
+    }
+    out
+}
+
+/// What the signed roster contains: the members that count, and the files ignored with why.
+pub fn roster_check(roster: &Roster) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "Accepted ({}):", roster.members.len());
+    for member in &roster.members {
+        let expires = member.device.key_expiry.map(|at| format!(", expires {}", at.format("%Y-%m-%d"))).unwrap_or_default();
+        let note = if member.admitted_by == Admission::This { " (this node)" } else { "" };
+        let _ = writeln!(out, "  {}{note}{expires}", member.device.name);
+    }
+    if roster.rejected.is_empty() {
+        let _ = writeln!(out, "Ignored: nothing");
+    } else {
+        let _ = writeln!(out, "Ignored ({}):", roster.rejected.len());
+        for rejected in &roster.rejected {
+            let _ = writeln!(out, "  {}: {}", rejected.label, rejected.reason);
+        }
     }
     out
 }

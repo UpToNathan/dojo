@@ -18,6 +18,7 @@ dojo-mesh close-source --window ID [--tab-title TITLE]
 dojo-mesh remote PEER                  # drive a peer with this cursor and keyboard
 dojo-mesh pause | resume               # the agent's peer access
 dojo-mesh audit [--last N] [--json]    # what this node has sent to peers
+dojo-mesh roster [check | sync]        # signed-roster method: what counts and what is ignored; pull it
 dojo-mesh enroll [--tag TAG] [--expires SECS]            # operator only
 dojo-mesh policy show | validate FILE | apply FILE       # apply is operator only
 dojo-mesh --config PATH <command>      # use another config file
@@ -34,6 +35,9 @@ The launcher has a **Mesh** command listing the same machines; Enter copies `tai
 `$XDG_CONFIG_HOME/dojo/mesh.toml` (`~/.config/dojo/mesh.toml`). A missing file is an empty configuration. Every key is optional and every node decides alone whom it admits.
 
 ```toml
+# How this node forms its mesh: "tailscale" (the default) or "roster" (see Membership).
+method = "tailscale"
+
 # The Tailscale tag that marks a device as a candidate node.
 membership-tag = "tag:dojo"
 
@@ -66,11 +70,37 @@ client-secret = "op://Personal/Tailscale OAuth/credential"
 
 A node is always a member of its own mesh. Without a tag or an allow list it admits no one.
 
+The roster method adds `roster-dir`, `signers-file` and `node-name`; see [The signed roster](#the-signed-roster).
+
 ## Membership
 
 A mesh method fills three seams (`crates/dojo-mesh/src/method.rs`): **membership** (who the members are and how to reach them), **identity** (which node an incoming connection is, taken from the network, never from the caller) and the **channel** (running a command or copying a file on a peer, over a **route**: a name and port, or a command that opens the connection). Everything above them sees only these. Tailscale is the one method today; a node with no method is a mesh of one. [ADR-0009](adr/0009-a-signed-roster-is-a-second-membership-method-over-openssh.md) proposes a second.
 
 The Tailscale method reads `tailscale status --json` from the local client, so it needs no API credentials. It looks only at host names, tags, online state and key expiry. A stopped, logged-out or missing client leaves the node alone in its mesh, and `doctor` says why. The tailnet's policy decides what a node may then do on a peer: Dojo adds no permission layer.
+
+### The signed roster
+
+With `method = "roster"` the members are not read from a network but from signed files, so the mesh works on any network ([ADR-0009](adr/0009-a-signed-roster-is-a-second-membership-method-over-openssh.md)). This step covers membership only: `status`, `doctor` and `roster` work, and a call to a peer reports that the OpenSSH channel is not built yet.
+
+```toml
+method = "roster"
+roster-dir = "/home/me/.local/share/dojo/mesh/roster"        # the default if omitted
+signers-file = "/home/me/.config/dojo/mesh/allowed_signers"  # the default if omitted
+node-name = "orchard"                                        # this node's name in the roster; default: the host name
+```
+
+The roster directory holds `devices/NAME.json` and `revocations/NAME.json`, each with its signature beside it as `NAME.json.sig`. A device entry:
+
+```json
+{"v": 1, "kind": "device", "name": "orchard", "node_key": "ssh-ed25519 AAAA…", "host_key": "ssh-ed25519 AAAA…",
+ "routes": [{"host": "192.0.2.10", "port": 22}], "issued": "2026-10-25T12:00:00Z", "expires": "2027-01-23T12:00:00Z"}
+```
+
+A revocation is `{"v": 1, "kind": "revoke", "key": "ssh-ed25519 AAAA…", "issued": "…"}`; any entry carrying that key stops counting. Entries are signed with `ssh-keygen -Y sign -f SIGNING_KEY -n dojo-mesh-roster FILE`, which writes `FILE.sig`; a key on a YubiKey, in 1Password's agent or in a file all work the same way.
+
+The trusted signing keys are this node's own file, never part of the roster: one line each, `operator namespaces="dojo-mesh-roster" ssh-ed25519 AAAA…`. Without it the node is a mesh of one and says why. An entry counts only if it is signed by one of those keys, has not expired, is not issued in the future, carries no revoked key, is well formed (a lowercase name of two or more characters, keys of one known type on one line, plain route hosts) and is the newest for its name. Everything else is ignored, listed with its reason by `dojo-mesh roster check` and `doctor`, and `roster check` exits 1 while anything is ignored.
+
+`dojo-mesh roster sync` pulls the directory from its git remote, fast-forward only; a rewritten remote history is refused. Whoever can write to that remote can make entries stop counting (by altering or removing them) but cannot add a member or change one, because they cannot sign. A peer's reachability is a short TCP connection to its first route, so an offline peer fails at once; an entry with no routes shows as offline.
 
 ## Reaching peers
 

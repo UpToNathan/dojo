@@ -35,7 +35,12 @@ pub fn diagnose(roster: &Roster, config: &MeshConfig, now: DateTime<Utc>) -> Vec
         return findings;
     }
     let this = roster.this();
+    let tailscale = matches!(roster.source, Source::Tailscale);
+    for rejected in &roster.rejected {
+        findings.push(finding(Severity::Warning, None, format!("Ignored {}: {}", rejected.label, rejected.reason)));
+    }
     match &config.membership_tag {
+        _ if !tailscale => {}
         None if config.allow.is_empty() => findings.push(finding(
             Severity::Warning,
             None,
@@ -57,18 +62,19 @@ pub fn diagnose(roster: &Roster, config: &MeshConfig, now: DateTime<Utc>) -> Vec
         if !device.online && member.admitted_by != Admission::This {
             findings.push(finding(Severity::Warning, name, "Offline."));
         }
+        let what = if tailscale { "Its Tailscale key" } else { "Its roster entry" };
         if device.key_expired {
-            findings.push(finding(Severity::Problem, name, "Its Tailscale key has expired."));
+            findings.push(finding(Severity::Problem, name, format!("{what} has expired.")));
         } else if let Some(expiry) = device.key_expiry {
             let left = expiry - now;
             if left <= EXPIRY_WARNING {
                 let days = left.num_days().max(0);
-                findings.push(finding(Severity::Warning, name, format!("Its Tailscale key expires in {days} day{}.", if days == 1 { "" } else { "s" })));
+                findings.push(finding(Severity::Warning, name, format!("{what} expires in {days} day{}.", if days == 1 { "" } else { "s" })));
             }
         }
     }
     for (list, entries) in [("allow", &config.allow), ("deny", &config.deny)] {
-        for entry in entries {
+        for entry in entries.iter().filter(|_| tailscale || list == "deny") {
             let seen = roster.members.iter().map(|m| &m.device).chain(roster.excluded.iter().map(|e| &e.device)).any(|d| d.answers_to(entry));
             if !seen {
                 findings.push(finding(Severity::Warning, Some(entry), format!("Listed in {list}, but no device by that name is on the network.")));

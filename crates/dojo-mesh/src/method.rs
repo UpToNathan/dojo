@@ -64,7 +64,7 @@ struct Alone;
 impl Membership for Alone {
     fn roster(&self, config: &MeshConfig, hostname: &str) -> Roster {
         Roster::alone(
-            crate::device::Device { name: hostname.into(), dns_name: None, tags: Vec::new(), online: true, key_expiry: None, key_expired: false },
+            crate::device::Device { name: hostname.into(), dns_name: None, tags: Vec::new(), online: true, key_expiry: None, key_expired: false, routes: Vec::new() },
             config,
             NO_METHOD.into(),
         )

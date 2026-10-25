@@ -8,9 +8,9 @@
 
 use crate::audit::{self, Entry};
 use crate::capability::{self, Answer, Description};
-use crate::config::{MeshConfig, default_path};
+use crate::config::{MeshConfig, MethodChoice, default_path, roster_paths};
 use crate::doctor::{Severity, diagnose};
-use crate::roster::Roster;
+use crate::roster::{Roster, Source};
 use crate::channel::{Call, Done, Ended, Input, Output};
 use crate::method::Method;
 use crate::transport::{self, Origin, Provenance, Refusal};
@@ -42,6 +42,7 @@ usage: dojo-mesh [--config PATH] <command>
   remote PEER                      drive a peer with this cursor and keyboard (Super+F11 returns)
   pause | resume                   switch the agent's peer access off or on
   audit [--last N] [--json]        what this node has sent to peers
+  roster [check | sync]            the signed roster: what counts and what is ignored; pull it from its remote
   enroll [--tag TAG] [--expires SECS]
                                    mint a one-use key for a new node (operator only)
   policy show|validate FILE|apply FILE
@@ -79,16 +80,31 @@ impl Env {
             Err(_) => Origin::Operator,
             Ok(text) => Origin::parse(&text).ok_or_else(|| fail(USAGE_ERROR, format!("DOJO_MESH_ORIGIN must be operator or agent, not {text:?}")))?,
         };
+        let config_path = config_override.or_else(|| default_path(var("XDG_CONFIG_HOME"), home.clone()));
+        let method = method_for(config_path.as_deref(), var("XDG_DATA_HOME"), var("XDG_CONFIG_HOME"), home.clone());
         let session = std::env::var("DOJO_MESH_SESSION").ok().filter(|id| !id.is_empty()).unwrap_or_else(random_id);
         Ok(Self {
-            config_path: config_override.or_else(|| default_path(var("XDG_CONFIG_HOME"), home.clone())),
+            config_path,
             state_dir: guard::state_dir(var("XDG_STATE_HOME"), home.clone()),
             home,
             hostname: if hostname.is_empty() { "this-node".into() } else { hostname },
             origin,
             session,
-            method: Method::tailscale(),
+            method,
         })
+    }
+}
+
+/// The method the configuration names. A configuration that cannot be read leaves the default, and
+/// is reported when a command loads it.
+fn method_for(config_path: Option<&Path>, xdg_data_home: Option<PathBuf>, xdg_config_home: Option<PathBuf>, home: Option<PathBuf>) -> Method {
+    let Some(config) = config_path.and_then(|path| MeshConfig::load(path).ok()) else { return Method::tailscale() };
+    match config.method {
+        MethodChoice::Tailscale => Method::tailscale(),
+        MethodChoice::Roster => match roster_paths(&config, xdg_data_home, xdg_config_home, home) {
+            Some((dir, signers)) => crate::openssh::method(dir, signers),
+            None => Method::none(),
+        },
     }
 }
 
@@ -165,6 +181,36 @@ pub(crate) fn load_roster(env: &Env, config: &MeshConfig) -> Roster {
     env.method.membership.roster(config, &env.hostname)
 }
 
+/// `dojo-mesh roster [check | sync]`: only for a node whose method is the signed roster.
+fn roster_command(env: &Env, rest: &[String]) -> Result<u8, Failure> {
+    let config = load_config(env)?;
+    if config.method != MethodChoice::Roster {
+        return Err(fail(USAGE_ERROR, "the roster commands need method = \"roster\" in the mesh configuration"));
+    }
+    let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
+    let Some((dir, _)) = roster_paths(&config, var("XDG_DATA_HOME"), var("XDG_CONFIG_HOME"), env.home.clone()) else {
+        return Err(fail(USAGE_ERROR, "there is nowhere to keep the roster (HOME is not set); set roster-dir"));
+    };
+    match rest.first().map(String::as_str) {
+        Some("sync") => match crate::openssh::sync(&dir) {
+            Ok(message) => {
+                println!("{message}");
+                Ok(0)
+            }
+            Err(reason) => Err(fail(UNAVAILABLE, format!("could not pull the roster in {}: {reason}", dir.display()))),
+        },
+        Some("check") | None => {
+            let roster = load_roster(env, &config);
+            if let Source::Unavailable(reason) = &roster.source {
+                return Err(fail(UNAVAILABLE, reason.clone()));
+            }
+            print!("{}", report::roster_check(&roster));
+            Ok(if roster.rejected.is_empty() { 0 } else { 1 })
+        }
+        Some(other) => Err(fail(USAGE_ERROR, format!("unknown roster command {other:?}; use check or sync"))),
+    }
+}
+
 fn json<T: serde::Serialize>(value: &T) -> Result<String, Failure> {
     serde_json::to_string_pretty(value).map_err(|error| fail(FAILED, error.to_string()))
 }
@@ -187,6 +233,7 @@ pub fn run(env: &Env, args: &[String]) -> Result<u8, Failure> {
             }
             Ok(0)
         }
+        "roster" => roster_command(env, rest),
         "doctor" => {
             let (words, _) = split(rest, &["--json"], &[])?;
             let config = load_config(env)?;

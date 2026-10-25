@@ -12,6 +12,9 @@ pub struct Device {
     pub online: bool,
     pub key_expiry: Option<DateTime<Utc>>,
     pub key_expired: bool,
+    /// How to reach the device when its method knows more than its name; empty means the name.
+    #[serde(skip)]
+    pub routes: Vec<crate::method::Route>,
 }
 
 impl Device {
@@ -35,5 +38,6 @@ pub(crate) fn device(name: &str, tags: &[&str], online: bool) -> Device {
         online,
         key_expiry: None,
         key_expired: false,
+        routes: Vec::new(),
     }
 }
