@@ -66,6 +66,67 @@ pub fn focus_window(socket: &Path, id: u64) -> Result<(), String> {
     request(socket, &serde_json::json!({"Action": {"FocusWindow": {"id": id}}})).map(drop)
 }
 
+/// A seat of its own on a persistent connection, for sending keys to one window without moving the
+/// human's focus. It goes away when dropped, because Niri ties a seat to its connection.
+pub struct AgentSeat {
+    reader: BufReader<UnixStream>,
+    writer: UnixStream,
+}
+
+const KEY_LEFT_CTRL: u32 = 29;
+const KEY_W: u32 = 17;
+
+impl AgentSeat {
+    pub fn connect(socket: &Path) -> Result<Self, String> {
+        let stream = UnixStream::connect(socket).map_err(|error| format!("cannot reach Niri at {}: {error}", socket.display()))?;
+        stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
+        Ok(Self { reader: BufReader::new(stream.try_clone().map_err(|error| error.to_string())?), writer: stream })
+    }
+
+    fn call(&mut self, request: &serde_json::Value) -> Result<serde_json::Value, String> {
+        let mut line = request.to_string();
+        line.push('\n');
+        self.writer.write_all(line.as_bytes()).map_err(|error| format!("cannot talk to Niri: {error}"))?;
+        let mut reply = String::new();
+        self.reader.read_line(&mut reply).map_err(|error| format!("no answer from Niri: {error}"))?;
+        let value: serde_json::Value = serde_json::from_str(&reply).map_err(|error| format!("unreadable answer from Niri: {error}"))?;
+        if let Some(err) = value.get("Err") {
+            return Err(format!("Niri refused: {}", err.as_str().map(str::to_string).unwrap_or_else(|| err.to_string())));
+        }
+        let ok = value.get("Ok").cloned().ok_or("Niri gave an answer without a result")?;
+        if let Some(paused) = ok.get("AgentInputPaused") {
+            return Err(format!("Niri paused the input: {}", paused["reason"].as_str().unwrap_or("someone else owns it")));
+        }
+        Ok(ok)
+    }
+
+    /// Ends the pause Niri puts on agent input into windows the person has just used. This is the
+    /// operator's own command (`niri msg yield-human-input`); callers must not use it for the agent.
+    pub fn yield_human_input(&mut self) -> Result<(), String> {
+        self.call(&serde_json::json!("YieldHumanInput")).map(drop)
+    }
+
+    pub fn create(&mut self, name: &str) -> Result<(), String> {
+        self.call(&serde_json::json!({"AgentInput": {"Create": {"name": name}}})).map(drop)
+    }
+
+    pub fn focus(&mut self, window: u64) -> Result<(), String> {
+        self.call(&serde_json::json!({"AgentInput": {"Focus": {"window_id": window}}})).map(drop)
+    }
+
+    fn key(&mut self, window: u64, evdev: u32, pressed: bool) -> Result<(), String> {
+        let state = if pressed { "Pressed" } else { "Released" };
+        self.call(&serde_json::json!({"AgentInput": {"Targeted": {"window_id": window, "command": {"Key": {"evdev": evdev, "state": state}}}}})).map(drop)
+    }
+
+    /// Ctrl+W in the window, which closes the tab in front in a browser. Releases are always sent.
+    pub fn close_tab_keys(&mut self, window: u64) -> Result<(), String> {
+        let pressed = self.key(window, KEY_LEFT_CTRL, true).and_then(|()| self.key(window, KEY_W, true)).and_then(|()| self.key(window, KEY_W, false));
+        let released = self.key(window, KEY_LEFT_CTRL, false);
+        pressed.and(released)
+    }
+}
+
 /// Starts `command` as a child of Niri, so it runs in the operator's session with its environment.
 pub fn spawn(socket: &Path, command: &[String]) -> Result<(), String> {
     request(socket, &serde_json::json!({"Action": {"Spawn": {"command": command}}})).map(drop)

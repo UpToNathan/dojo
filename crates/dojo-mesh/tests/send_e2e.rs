@@ -30,46 +30,64 @@ esac
 
 type Seen = Arc<Mutex<Vec<String>>>;
 
-/// A Niri that lists `windows`, accepts every action and remembers each request. A spawn adds a
+/// A Niri that lists `windows`, accepts every request and remembers each one. A spawn adds a
 /// window, as a program that starts would, unless the file `silent` exists next to the socket,
-/// which makes it behave like a locked Niri: it answers and does nothing.
+/// which makes it behave like a locked Niri: it answers and does nothing. An agent seat's `Focus`
+/// is answered with Niri's "human owns this application" pause while the file `paused` exists and
+/// no `YieldHumanInput` has come in. Each connection is served for as long as it stays open, as a
+/// seat's is.
 fn fake_niri(path: &Path, windows: &'static str) -> Seen {
     let listener = UnixListener::bind(path).unwrap();
-    let silent = path.with_file_name("silent");
+    let dir = path.parent().unwrap().to_path_buf();
     let seen: Seen = Arc::default();
     let record = seen.clone();
+    let state = Arc::new(Mutex::new((serde_json::from_str::<Vec<serde_json::Value>>(windows).unwrap(), false)));
     std::thread::spawn(move || {
-        let mut listed: Vec<serde_json::Value> = serde_json::from_str(windows).unwrap();
         for stream in listener.incoming().flatten() {
-            let mut line = String::new();
-            if BufReader::new(&stream).read_line(&mut line).is_err() {
-                continue;
-            }
-            let line = line.trim().to_string();
-            let reply = if line == "\"Windows\"" {
-                record.lock().unwrap().push(line.clone());
-                format!("{{\"Ok\":{{\"Windows\":{}}}}}", serde_json::Value::Array(listed.clone()))
-            } else {
-                if let Some(rest) = line.split("\"FocusWindow\":{\"id\":").nth(1) {
-                    let id: u64 = rest.trim_end_matches(|c: char| !c.is_ascii_digit()).parse().unwrap_or(0);
-                    for window in listed.iter_mut() {
-                        window["is_focused"] = serde_json::Value::Bool(window["id"] == id);
+            let (record, state, dir) = (record.clone(), state.clone(), dir.clone());
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                        return;
+                    }
+                    let line = line.trim().to_string();
+                    let mut state = state.lock().unwrap();
+                    let (listed, yielded) = &mut *state;
+                    let ok = |body: &str| format!("{{\"Ok\":{body}}}");
+                    let reply = if line == "\"Windows\"" {
+                        ok(&format!("{{\"Windows\":{}}}", serde_json::Value::Array(listed.clone())))
+                    } else if line == "\"YieldHumanInput\"" {
+                        *yielded = true;
+                        ok("{\"InputCoordination\":{\"revision\":1,\"human_owned_windows\":[]}}")
+                    } else if line.contains("\"Create\"") {
+                        ok("{\"AgentInputCreated\":{\"peer_id\":1,\"seat_name\":\"seat\"}}")
+                    } else if line.contains("\"AgentInput\":{\"Focus\"") && dir.join("paused").exists() && (!*yielded || dir.join("never-yields").exists()) {
+                        ok("{\"AgentInputPaused\":{\"reason\":\"human owns this application\",\"coordination\":{\"revision\":1,\"human_owned_windows\":[9]}}}")
+                    } else {
+                        if let Some(rest) = line.split("\"FocusWindow\":{\"id\":").nth(1) {
+                            let id: u64 = rest.trim_end_matches(|c: char| !c.is_ascii_digit()).parse().unwrap_or(0);
+                            for window in listed.iter_mut() {
+                                window["is_focused"] = serde_json::Value::Bool(window["id"] == id);
+                            }
+                        }
+                        if line.contains("\"Spawn\"") && !dir.join("silent").exists() {
+                            let id = 100 + listed.len();
+                            listed.push(serde_json::json!({"id": id, "title": "new", "app_id": "new", "pid": 1, "is_focused": true}));
+                        }
+                        "{\"Ok\":\"Handled\"}".to_string()
+                    };
+                    record.lock().unwrap().push(line);
+                    if (&stream).write_all(format!("{reply}\n").as_bytes()).is_err() {
+                        return;
                     }
                 }
-                if line.contains("\"Spawn\"") && !silent.exists() {
-                    let id = 100 + listed.len();
-                    listed.push(serde_json::json!({"id": id, "title": "new", "app_id": "new", "pid": 1, "is_focused": true}));
-                }
-                record.lock().unwrap().push(line);
-                "{\"Ok\":\"Handled\"}".to_string()
-            };
-            let _ = (&stream).write_all(format!("{reply}\n").as_bytes());
+            });
         }
     });
     seen
 }
-
-const FAKE_WTYPE: &str = "#!/bin/sh\necho \"$@\" >> \"$FAKE_ROOT/wtype.log\"\n";
 
 const FAKE_LOGINCTL: &str = "#!/bin/sh\ncase \"$1\" in\nshow-user) echo Display=c1 ;;\nshow-session) if [ -f \"$HOME/locked\" ]; then echo LockedHint=yes; else echo LockedHint=no; fi ;;\nesac\n";
 
@@ -92,8 +110,7 @@ impl Site {
         }
         std::fs::write(root.join("bin/tailscale"), FAKE_TAILSCALE).unwrap();
         std::fs::write(root.join("bin/loginctl"), FAKE_LOGINCTL).unwrap();
-        std::fs::write(root.join("bin/wtype"), FAKE_WTYPE).unwrap();
-        Command::new("chmod").arg("+x").arg(root.join("bin/tailscale")).arg(root.join("bin/loginctl")).arg(root.join("bin/wtype")).status().unwrap();
+        Command::new("chmod").arg("+x").arg(root.join("bin/tailscale")).arg(root.join("bin/loginctl")).status().unwrap();
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_dojo-mesh"), root.join("data/dojo/bin/dojo-mesh")).unwrap();
         std::fs::write(root.join("status.json"), STATUS).unwrap();
         std::fs::write(root.join("hosts/alpha/config/dojo/mesh.toml"), "membership-tag = \"tag:mesh\"\n").unwrap();
@@ -125,6 +142,10 @@ impl Site {
 
     fn run(&self, args: &[&str]) -> Output {
         self.command().args(args).stdin(Stdio::null()).output().unwrap()
+    }
+
+    fn run_as(&self, origin: &str, args: &[&str]) -> Output {
+        self.command().env("DOJO_MESH_ORIGIN", origin).args(args).stdin(Stdio::null()).output().unwrap()
     }
 
     fn receive(&self, handoff: &str) -> Output {
@@ -275,6 +296,16 @@ fn alpha_actions(site: &Site) -> Vec<String> {
     Site::requests(&site.alpha).into_iter().filter(|line| line != "\"Windows\"").collect()
 }
 
+const CLOSE_TAB_REQUESTS: [&str; 7] = [
+    "\"YieldHumanInput\"",
+    r#"{"AgentInput":{"Create":{"name":"dojo-mesh"}}}"#,
+    r#"{"AgentInput":{"Focus":{"window_id":9}}}"#,
+    r#"{"AgentInput":{"Targeted":{"command":{"Key":{"evdev":29,"state":"Pressed"}},"window_id":9}}}"#,
+    r#"{"AgentInput":{"Targeted":{"command":{"Key":{"evdev":17,"state":"Pressed"}},"window_id":9}}}"#,
+    r#"{"AgentInput":{"Targeted":{"command":{"Key":{"evdev":17,"state":"Released"}},"window_id":9}}}"#,
+    r#"{"AgentInput":{"Targeted":{"command":{"Key":{"evdev":29,"state":"Released"}},"window_id":9}}}"#,
+];
+
 #[test]
 fn sending_a_browser_tab_closes_only_that_tab_not_the_window() {
     let site = Site::new();
@@ -285,8 +316,7 @@ fn sending_a_browser_tab_closes_only_that_tab_not_the_window() {
     assert_eq!(result.status.code(), Some(0), "{}", text(&result));
     assert!(text(&result).contains("Sent to beta: the page https://example.com/page; only this tab closes here, the window's other tabs stay."), "{}", text(&result));
     assert!(text(&result).contains("here: closed that tab here"), "{}", text(&result));
-    assert_eq!(alpha_actions(&site), [r#"{"Action":{"FocusWindow":{"id":9}}}"#], "the window was focused and never closed");
-    assert_eq!(std::fs::read_to_string(site.root.join("wtype.log")).unwrap().trim(), "-M ctrl w -m ctrl");
+    assert_eq!(alpha_actions(&site), CLOSE_TAB_REQUESTS, "Ctrl+W went to that window through a seat, and the window was never closed");
     let beta: Vec<String> = Site::requests(&site.beta).into_iter().filter(|line| line.contains("Spawn")).collect();
     assert_eq!(beta, [r#"{"Action":{"Spawn":{"command":["xdg-open","https://example.com/page"]}}}"#]);
 }
@@ -304,7 +334,6 @@ fn keeping_the_source_touches_nothing_here() {
     assert_eq!(value["closes"], serde_json::json!({"scope": "tab", "title": "The Page - Helium"}));
     assert_eq!(value["source"], "left open here");
     assert!(alpha_actions(&site).is_empty(), "{:?}", alpha_actions(&site));
-    assert!(!site.root.join("wtype.log").exists());
 }
 
 #[test]
@@ -313,12 +342,11 @@ fn close_source_closes_the_tab_only_while_the_window_still_shows_it() {
     let wrong = site.run(&["close-source", "--window", "9", "--tab-title", "Something else - Helium"]);
     assert_eq!(wrong.status.code(), Some(1), "{}", text(&wrong));
     assert!(text(&wrong).contains("no longer shows"), "{}", text(&wrong));
-    assert!(alpha_actions(&site).is_empty());
-    assert!(!site.root.join("wtype.log").exists(), "no key was sent");
+    assert!(alpha_actions(&site).is_empty(), "no key was sent");
 
     let right = site.run(&["close-source", "--window", "9", "--tab-title", "The Page - Helium"]);
     assert_eq!(right.status.code(), Some(0), "{}", text(&right));
-    assert_eq!(std::fs::read_to_string(site.root.join("wtype.log")).unwrap().trim(), "-M ctrl w -m ctrl");
+    assert_eq!(alpha_actions(&site), CLOSE_TAB_REQUESTS);
 
     let whole = site.run(&["close-source", "--window", "8"]);
     assert_eq!(whole.status.code(), Some(0));
@@ -326,10 +354,31 @@ fn close_source_closes_the_tab_only_while_the_window_still_shows_it() {
 }
 
 #[test]
-fn a_missing_wtype_leaves_the_tab_open_and_says_so() {
+fn a_window_the_person_just_used_is_unpaused_by_the_operators_send_only() {
     let site = Site::new();
-    std::fs::remove_file(site.root.join("bin/wtype")).unwrap();
+    std::fs::write(site.root.join("hosts/alpha/paused"), "").unwrap();
     let result = site.run(&["close-source", "--window", "9", "--tab-title", "The Page - Helium"]);
-    assert_eq!(result.status.code(), Some(1));
-    assert!(text(&result).contains("wtype is not installed"), "{}", text(&result));
+    assert_eq!(result.status.code(), Some(0), "the operator's call yields the person's input first: {}", text(&result));
+}
+
+#[test]
+fn the_agent_cannot_override_the_persons_input_to_close_a_tab() {
+    let site = Site::new();
+    std::fs::write(site.root.join("hosts/alpha/paused"), "").unwrap();
+    let result = site.run_as("agent", &["close-source", "--window", "9", "--tab-title", "The Page - Helium"]);
+    assert_eq!(result.status.code(), Some(1), "{}", text(&result));
+    assert!(text(&result).contains("is for the operator"), "{}", text(&result));
+    assert!(alpha_actions(&site).is_empty(), "the agent never reached Niri's input: {:?}", alpha_actions(&site));
+}
+
+#[test]
+fn a_seat_niri_still_pauses_leaves_the_tab_open_and_says_why() {
+    let site = Site::new();
+    std::fs::write(site.root.join("hosts/alpha/paused"), "").unwrap();
+    std::fs::write(site.root.join("hosts/alpha/never-yields"), "").unwrap();
+    let result = site.run(&["close-source", "--window", "9", "--tab-title", "The Page - Helium"]);
+    assert_eq!(result.status.code(), Some(1), "{}", text(&result));
+    assert!(text(&result).contains("Niri paused the input: human owns this application"), "{}", text(&result));
+    assert!(text(&result).contains("close it yourself"), "{}", text(&result));
+    assert!(!alpha_actions(&site).iter().any(|line| line.contains("Targeted") || line.contains("CloseWindow")), "no key and no close: {:?}", alpha_actions(&site));
 }

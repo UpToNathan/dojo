@@ -1,25 +1,19 @@
 //! Closing what was sent, on the machine it came from, once the peer has opened it. A window
 //! closes whole. A browser window holds tabs and only the one in front was sent, so only that tab
-//! closes: the window is focused, checked to still show that tab, and sent Ctrl+W.
+//! closes: the window is checked to still show that tab, then sent Ctrl+W through an input seat of
+//! its own, so the person's focus does not move.
 
 use crate::handoff::Closes;
 use crate::niri::Window;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
-use std::time::Duration;
 
 /// What closing needs from the desktop; the real one is Niri plus `wtype`.
 pub trait Desktop {
     fn windows(&self) -> Result<Vec<Window>, String>;
-    fn focus(&self, id: u64) -> Result<(), String>;
     fn close_window(&self, id: u64) -> Result<(), String>;
-    /// Presses Ctrl+W in the focused window.
-    fn press_close_tab(&self) -> Result<(), String>;
-    fn wait(&self, milliseconds: u64);
+    /// Presses Ctrl+W in that window.
+    fn press_close_tab(&self, window: u64) -> Result<(), String>;
 }
-
-/// How long the window is given to take focus before the tab is left alone.
-const FOCUS_WAIT_MS: u64 = 1500;
 
 /// Closes what was sent and says what it closed. An error means nothing was closed.
 pub fn close(desktop: &dyn Desktop, window: u64, closes: &Closes) -> Result<String, String> {
@@ -29,31 +23,12 @@ pub fn close(desktop: &dyn Desktop, window: u64, closes: &Closes) -> Result<Stri
             Ok("closed the window here".into())
         }
         Closes::Tab { title } => {
-            let shows = |desktop: &dyn Desktop| -> Result<(bool, bool), String> {
-                let windows = desktop.windows()?;
-                let found = windows.iter().find(|candidate| candidate.id == window).ok_or("the window is gone, so there was nothing to close")?;
-                Ok((found.title.as_deref() == Some(title.as_str()), found.is_focused))
-            };
-            if !shows(desktop)?.0 {
+            let windows = desktop.windows()?;
+            let found = windows.iter().find(|candidate| candidate.id == window).ok_or("the window is gone, so there was nothing to close")?;
+            if found.title.as_deref() != Some(title.as_str()) {
                 return Err(format!("the window no longer shows \"{title}\", so no tab was closed; close it yourself"));
             }
-            desktop.focus(window)?;
-            let mut waited = 0;
-            loop {
-                let (same, focused) = shows(desktop)?;
-                if !same {
-                    return Err(format!("the window no longer shows \"{title}\", so no tab was closed; close it yourself"));
-                }
-                if focused {
-                    break;
-                }
-                if waited >= FOCUS_WAIT_MS {
-                    return Err("the browser window did not take focus, so no tab was closed; close it yourself".into());
-                }
-                desktop.wait(50);
-                waited += 50;
-            }
-            desktop.press_close_tab()?;
+            desktop.press_close_tab(window)?;
             Ok("closed that tab here".into())
         }
     }
@@ -61,6 +36,9 @@ pub fn close(desktop: &dyn Desktop, window: u64, closes: &Closes) -> Result<Stri
 
 pub struct System {
     pub socket: PathBuf,
+    /// Whether the operator started this. Closing a tab needs Niri to end its pause on windows the
+    /// person has used, which only the operator may ask for: the agent must not override that.
+    pub operator: bool,
 }
 
 impl Desktop for System {
@@ -68,27 +46,20 @@ impl Desktop for System {
         crate::niri::windows(&self.socket)
     }
 
-    fn focus(&self, id: u64) -> Result<(), String> {
-        crate::niri::focus_window(&self.socket, id)
-    }
-
     fn close_window(&self, id: u64) -> Result<(), String> {
         crate::niri::close_window(&self.socket, id)
     }
 
-    fn press_close_tab(&self) -> Result<(), String> {
-        let status = Command::new("wtype")
-            .args(["-M", "ctrl", "w", "-m", "ctrl"])
-            .stdin(Stdio::null())
-            .status()
-            .map_err(|error| {
-                if error.kind() == std::io::ErrorKind::NotFound { "wtype is not installed, so the tab was not closed; close it yourself".to_string() } else { format!("could not run wtype: {error}") }
-            })?;
-        status.success().then_some(()).ok_or_else(|| "wtype could not press the key, so the tab was not closed; close it yourself".to_string())
-    }
-
-    fn wait(&self, milliseconds: u64) {
-        std::thread::sleep(Duration::from_millis(milliseconds));
+    fn press_close_tab(&self, window: u64) -> Result<(), String> {
+        if !self.operator {
+            return Err("closing a tab is for the operator, so the tab was not closed; the agent cannot override the person's input".into());
+        }
+        let tab_stays = |message: String| format!("{message}, so the tab was not closed; close it yourself");
+        let mut seat = crate::niri::AgentSeat::connect(&self.socket).map_err(&tab_stays)?;
+        seat.yield_human_input().map_err(&tab_stays)?;
+        seat.create("dojo-mesh").map_err(&tab_stays)?;
+        seat.focus(window).map_err(&tab_stays)?;
+        seat.close_tab_keys(window).map_err(&tab_stays)
     }
 }
 
@@ -98,43 +69,27 @@ mod tests {
     use std::cell::RefCell;
 
     struct Fake {
-        /// Focus is gained after this many waits (None: never).
-        focus_after: Option<u32>,
-        waits: RefCell<u32>,
         log: RefCell<Vec<String>>,
-        change_title_on_focus: Option<String>,
         title_now: RefCell<String>,
     }
 
     impl Fake {
         fn new(title: &str) -> Self {
-            Self { focus_after: Some(0), waits: RefCell::new(0), log: RefCell::new(Vec::new()), change_title_on_focus: None, title_now: RefCell::new(title.into()) }
+            Self { log: RefCell::new(Vec::new()), title_now: RefCell::new(title.into()) }
         }
     }
 
     impl Desktop for Fake {
         fn windows(&self) -> Result<Vec<Window>, String> {
-            let focused = self.log.borrow().iter().any(|entry| entry == "focus") && self.focus_after.is_some_and(|after| *self.waits.borrow() >= after);
-            Ok(vec![Window { id: 7, title: Some(self.title_now.borrow().clone()), app_id: Some("helium".into()), pid: Some(1), is_focused: focused }])
-        }
-        fn focus(&self, id: u64) -> Result<(), String> {
-            assert_eq!(id, 7);
-            self.log.borrow_mut().push("focus".into());
-            if let Some(new) = &self.change_title_on_focus {
-                *self.title_now.borrow_mut() = new.clone();
-            }
-            Ok(())
+            Ok(vec![Window { id: 7, title: Some(self.title_now.borrow().clone()), app_id: Some("helium".into()), pid: Some(1), is_focused: false }])
         }
         fn close_window(&self, id: u64) -> Result<(), String> {
             self.log.borrow_mut().push(format!("close-window {id}"));
             Ok(())
         }
-        fn press_close_tab(&self) -> Result<(), String> {
-            self.log.borrow_mut().push("ctrl+w".into());
+        fn press_close_tab(&self, window: u64) -> Result<(), String> {
+            self.log.borrow_mut().push(format!("ctrl+w {window}"));
             Ok(())
-        }
-        fn wait(&self, _: u64) {
-            *self.waits.borrow_mut() += 1;
         }
     }
 
@@ -146,11 +101,10 @@ mod tests {
     }
 
     #[test]
-    fn a_tab_is_closed_by_focusing_its_window_and_pressing_ctrl_w_never_closing_the_window() {
-        let mut fake = Fake::new("Page - Helium");
-        fake.focus_after = Some(3);
+    fn a_tab_is_closed_with_ctrl_w_in_its_window_never_by_closing_the_window() {
+        let fake = Fake::new("Page - Helium");
         assert_eq!(close(&fake, 7, &Closes::Tab { title: "Page - Helium".into() }).unwrap(), "closed that tab here");
-        assert_eq!(*fake.log.borrow(), ["focus", "ctrl+w"]);
+        assert_eq!(*fake.log.borrow(), ["ctrl+w 7"]);
     }
 
     #[test]
@@ -158,23 +112,23 @@ mod tests {
         let fake = Fake::new("Other - Helium");
         let error = close(&fake, 7, &Closes::Tab { title: "Page - Helium".into() }).unwrap_err();
         assert!(error.contains("no longer shows \"Page - Helium\""), "{error}");
-        assert!(fake.log.borrow().is_empty(), "nothing was pressed or focused");
+        assert!(fake.log.borrow().is_empty(), "no key was sent");
     }
 
     #[test]
-    fn a_tab_that_changes_while_focusing_is_not_closed() {
-        let mut fake = Fake::new("Page - Helium");
-        fake.change_title_on_focus = Some("Switched - Helium".into());
-        assert!(close(&fake, 7, &Closes::Tab { title: "Page - Helium".into() }).is_err());
-        assert_eq!(*fake.log.borrow(), ["focus"], "no key was sent");
-    }
-
-    #[test]
-    fn a_window_that_never_takes_focus_is_not_closed() {
-        let mut fake = Fake::new("Page - Helium");
-        fake.focus_after = None;
-        let error = close(&fake, 7, &Closes::Tab { title: "Page - Helium".into() }).unwrap_err();
-        assert!(error.contains("did not take focus"), "{error}");
-        assert_eq!(*fake.log.borrow(), ["focus"]);
+    fn a_vanished_window_is_reported() {
+        struct Empty;
+        impl Desktop for Empty {
+            fn windows(&self) -> Result<Vec<Window>, String> {
+                Ok(Vec::new())
+            }
+            fn close_window(&self, _: u64) -> Result<(), String> {
+                unreachable!()
+            }
+            fn press_close_tab(&self, _: u64) -> Result<(), String> {
+                unreachable!()
+            }
+        }
+        assert!(close(&Empty, 7, &Closes::Tab { title: "T".into() }).unwrap_err().contains("the window is gone"));
     }
 }

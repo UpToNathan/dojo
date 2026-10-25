@@ -3,6 +3,7 @@
 use crate::adapter;
 use crate::cli::{self, Env, FAILED, Failure, UNAVAILABLE, USAGE_ERROR, fail};
 use crate::handoff::{self, Closes, Handoff, Reply};
+use crate::transport::Origin;
 use crate::{desktop, niri, source};
 use serde::Serialize;
 use std::io::Read;
@@ -128,7 +129,7 @@ pub fn send(env: &Env, rest: &[String]) -> Result<u8, Failure> {
             let source = if keep_source {
                 "left open here".to_string()
             } else {
-                match source::close(&source::System { socket: socket.clone() }, window.id, &captured.closes) {
+                match source::close(&source::System { socket: socket.clone(), operator: env.origin == Origin::Operator }, window.id, &captured.closes) {
                     Ok(done) => done,
                     Err(message) => {
                         notes.push(message);
@@ -204,7 +205,7 @@ fn open(socket: &std::path::Path, handoff: &Handoff, command: &[String], notes: 
 
 /// `dojo-mesh close-source --window ID [--tab-title TITLE]`: close what was sent, after the peer
 /// opened it. With a title only the tab showing it closes (see [`source::close`]).
-pub fn close_source(rest: &[String]) -> Result<u8, Failure> {
+pub fn close_source(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     let mut window: Option<u64> = None;
     let mut title: Option<String> = None;
     let mut args = rest.iter();
@@ -223,7 +224,7 @@ pub fn close_source(rest: &[String]) -> Result<u8, Failure> {
         Some(title) => Closes::Tab { title },
         None => Closes::Window,
     };
-    let done = source::close(&source::System { socket: local_niri()? }, window, &closes).map_err(|message| fail(FAILED, message))?;
+    let done = source::close(&source::System { socket: local_niri()?, operator: env.origin == Origin::Operator }, window, &closes).map_err(|message| fail(FAILED, message))?;
     println!("{done}");
     Ok(0)
 }

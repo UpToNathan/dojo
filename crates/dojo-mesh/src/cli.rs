@@ -215,7 +215,7 @@ pub fn run(env: &Env, args: &[String]) -> Result<u8, Failure> {
         "windows" => crate::send_cli::windows(rest),
         "send" => crate::send_cli::send(env, rest),
         "receive" => crate::send_cli::receive(rest),
-        "close-source" => crate::send_cli::close_source(rest),
+        "close-source" => crate::send_cli::close_source(env, rest),
         "enroll" | "policy" => crate::control_cli::run(env, command, rest),
         "help" | "--help" | "-h" => {
             print!("{USAGE}");

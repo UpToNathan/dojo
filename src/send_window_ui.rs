@@ -283,6 +283,8 @@ impl Panel {
                 // The panel holds the keyboard, so it goes first; the browser needs it to close a tab.
                 self.close(window, cx);
                 std::thread::spawn(move || {
+                    // Let go of Enter first, or Niri holds the browser's input back as still being typed.
+                    std::thread::sleep(Duration::from_millis(300));
                     if let Err(message) = run_close_source(original, tab_title.as_deref()) {
                         eprintln!("Dojo send window: the original was not closed: {message}");
                     }
