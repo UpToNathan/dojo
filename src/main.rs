@@ -11,6 +11,7 @@ mod model_picker;
 mod niri_layout;
 mod picker_menu;
 mod quick_terminal;
+mod send_window_ui;
 mod session_overlay;
 mod shell;
 mod shortcuts_ui;
@@ -67,6 +68,7 @@ fn run() -> anyhow::Result<()> {
         Some("--models") => ControlCommand::Models,
         Some("--terminal") => ControlCommand::Terminal,
         Some("--terminal-closed") => ControlCommand::TerminalClosed,
+        Some("--send-window") => ControlCommand::SendWindow,
         Some("--launcher-view") => {
             let key = arguments
                 .next()
@@ -123,7 +125,7 @@ fn run() -> anyhow::Result<()> {
         }
         Some("--help") | Some("-h") => {
             println!(
-                "Usage: dojo [--toggle|--enable|--disable|--quit|--launcher|--launcher-up|--launcher-down|--launcher-activate|--launcher-dismiss|--theme|--displays|--wifi|--system-menu|--models|--terminal|--leave OCCASION|--farewell OCCASION|--launcher-benchmark|--speech-state STATE|--speech-response TEXT|--speech-transcript TEXT]"
+                "Usage: dojo [--toggle|--enable|--disable|--quit|--launcher|--launcher-up|--launcher-down|--launcher-activate|--launcher-dismiss|--theme|--displays|--wifi|--system-menu|--models|--terminal|--send-window|--leave OCCASION|--farewell OCCASION|--launcher-benchmark|--speech-state STATE|--speech-response TEXT|--speech-transcript TEXT]"
             );
             return Ok(());
         }
@@ -160,5 +162,6 @@ fn run() -> anyhow::Result<()> {
         ControlCommand::Leave(departure) => session_overlay::leave_without_shell(departure),
         ControlCommand::Farewell(_) => Ok(()),
         ControlCommand::Speech(_) => bail!("start Dojo before sending speech events"),
+        ControlCommand::SendWindow => bail!("start Dojo before sending a window"),
     }
 }

@@ -628,6 +628,14 @@ fn run_with_surfaces(
                                     })?;
                                 crate::model_picker::toggle(display, cx)
                             }
+                            ControlCommand::SendWindow => {
+                                let display = focused_display_id(cx)
+                                    .or_else(|| cx.primary_display().map(|display| display.id()))
+                                    .ok_or_else(|| {
+                                        anyhow::anyhow!("no output available for the send panel")
+                                    })?;
+                                crate::send_window_ui::toggle(display, cx)
+                            }
                             ControlCommand::Displays => {
                                 let display = focused_display_id(cx)
                                     .or_else(|| cx.primary_display().map(|display| display.id()))

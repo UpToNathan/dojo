@@ -50,6 +50,8 @@ pub enum ControlCommand {
     /// reply once the closing has played out.
     Farewell(crate::session::Occasion),
     Speech(crate::speech::SpeechEvent),
+    /// Open the panel that sends a window to another machine.
+    SendWindow,
 }
 
 impl ControlCommand {
@@ -77,6 +79,7 @@ impl ControlCommand {
             Self::Models => "models",
             Self::Terminal => "terminal",
             Self::TerminalClosed => "terminal-closed",
+            Self::SendWindow => "send-window",
         }
         .to_owned()
     }
@@ -99,6 +102,7 @@ impl ControlCommand {
             "models" => Some(Self::Models),
             "terminal" => Some(Self::Terminal),
             "terminal-closed" => Some(Self::TerminalClosed),
+            "send-window" => Some(Self::SendWindow),
             _ => {
                 use crate::session::action::Departure;
                 if let Some(key) = value.strip_prefix("launcher-view ") {
@@ -321,6 +325,7 @@ mod tests {
             ("wifi", ControlCommand::Wifi),
             ("system-menu", ControlCommand::SystemMenu),
             ("models", ControlCommand::Models),
+            ("send-window", ControlCommand::SendWindow),
         ] {
             assert_eq!(ControlCommand::parse(token), Some(expected.clone()));
             let (sender, receiver) = async_channel::bounded(1);

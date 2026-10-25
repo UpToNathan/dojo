@@ -511,3 +511,55 @@ pub fn bottom_right_shell_extension(
     .size_full()
     .into_any_element()
 }
+
+/// A panel growing out of the bottom edge of the desktop frame, away from the corners: rounded at
+/// the top, and flared into the frame at both bottom corners.
+pub fn bottom_center_shell_extension(
+    bounds: gpui::Bounds<gpui::Pixels>,
+    color: gpui::Rgba,
+    border: gpui::Rgba,
+) -> gpui::AnyElement {
+    use gpui::{PathBuilder, point, prelude::*, px};
+    gpui::canvas(
+        |_, _, _| (),
+        move |_, (), window, _| {
+            if bounds.size.height <= px(0.) {
+                return;
+            }
+            paint_menu_shadow(window, bounds, color, false, true);
+            let radius = px(SURFACE_RADIUS).min(bounds.size.height / 2.);
+            let left = bounds.left();
+            let right = bounds.right();
+            let top = bounds.top();
+            let bottom = bounds.bottom();
+            for outline in [false, true] {
+                let mut path = if outline {
+                    PathBuilder::stroke(px(BORDER_WIDTH))
+                } else {
+                    PathBuilder::fill()
+                };
+                path.move_to(point(left - radius, bottom));
+                path.arc_to(point(radius, radius), px(0.), false, false, point(left, bottom - radius));
+                path.line_to(point(left, top + radius));
+                path.arc_to(point(radius, radius), px(0.), false, true, point(left + radius, top));
+                path.line_to(point(right - radius, top));
+                path.arc_to(point(radius, radius), px(0.), false, true, point(right, top + radius));
+                path.line_to(point(right, bottom - radius));
+                path.arc_to(point(radius, radius), px(0.), false, false, point(right + radius, bottom));
+                if !outline {
+                    path.line_to(point(right + radius, window.viewport_size().height));
+                    path.line_to(point(left - radius, window.viewport_size().height));
+                    path.close();
+                }
+                if let Ok(path) = path.build() {
+                    window.paint_path(path, if outline { border.opacity(SHELL_BORDER_OPACITY) } else { color });
+                }
+            }
+        },
+    )
+    .absolute()
+    .top(px(0.))
+    .left(px(0.))
+    .size_full()
+    .into_any_element()
+}
