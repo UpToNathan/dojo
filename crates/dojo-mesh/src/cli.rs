@@ -44,6 +44,17 @@ usage: dojo-mesh [--config PATH] <command>
   audit [--last N] [--json]        what this node has sent to peers
   roster [check | sync | authorize]
                                    the signed roster: what counts and what is ignored; pull it from its remote; let its members in
+  init [--custody 1password|existing] [--vault NAME] [--node-key PUB --input-key PUB]
+                                   give this node its keys (roster method)
+  join [--route HOST[:PORT]]... [--host-key-file PATH] [--out FILE]
+                                   write this node's request to be enrolled, with the fingerprints to compare
+  approve REQUEST.json [--fingerprint SHA256:…] [--days N] [--replace]
+                                   sign a node into the roster once its fingerprint has been compared
+  renew NAME [--days N]            sign a node's entry again for a fresh period
+  rm NAME [--reason TEXT]          remove a node and revoke its keys
+  leave                            stop letting the mesh in (removes the authorized_keys block)
+  trust [list | add KEY --fingerprint SHA256:… | remove SHA256:…]
+                                   the signing keys this node believes
   enroll [--tag TAG] [--expires SECS]
                                    mint a one-use key for a new node (operator only)
   policy show|validate FILE|apply FILE
@@ -142,12 +153,12 @@ pub fn main(mut args: Vec<String>) -> ExitCode {
 }
 
 /// Flags that take no value, separated from the positional words.
-struct Words {
-    flags: Vec<String>,
-    positional: Vec<String>,
+pub(crate) struct Words {
+    pub(crate) flags: Vec<String>,
+    pub(crate) positional: Vec<String>,
 }
 
-fn split(args: &[String], switches: &[&str], valued: &[&str]) -> Result<(Words, Vec<(String, String)>), Failure> {
+pub(crate) fn split(args: &[String], switches: &[&str], valued: &[&str]) -> Result<(Words, Vec<(String, String)>), Failure> {
     let mut words = Words { flags: Vec::new(), positional: Vec::new() };
     let mut values = Vec::new();
     let mut iter = args.iter();
@@ -169,7 +180,7 @@ fn split(args: &[String], switches: &[&str], valued: &[&str]) -> Result<(Words, 
     Ok((words, values))
 }
 
-fn has(words: &Words, flag: &str) -> bool {
+pub(crate) fn has(words: &Words, flag: &str) -> bool {
     words.flags.iter().any(|candidate| candidate == flag)
 }
 
@@ -216,7 +227,7 @@ fn roster_command(env: &Env, rest: &[String]) -> Result<u8, Failure> {
 }
 
 /// Puts the roster's members into this user's `authorized_keys` (a marked block), so they can connect.
-fn authorize(env: &Env, config: &MeshConfig) -> Result<u8, Failure> {
+pub(crate) fn authorize(env: &Env, config: &MeshConfig) -> Result<u8, Failure> {
     let home = env.home.clone().ok_or_else(|| fail(USAGE_ERROR, "HOME is not set, so there is no authorized_keys to update"))?;
     let roster = load_roster(env, config);
     if let Source::Unavailable(reason) = &roster.source {
@@ -254,11 +265,21 @@ pub fn run(env: &Env, args: &[String]) -> Result<u8, Failure> {
             Ok(0)
         }
         "roster" => roster_command(env, rest),
+        "init" => crate::enroll_cli::init(env, rest),
+        "join" => crate::enroll_cli::join(env, rest),
+        "approve" => crate::enroll_cli::approve(env, rest),
+        "renew" => crate::enroll_cli::renew(env, rest),
+        "rm" => crate::enroll_cli::rm(env, rest),
+        "leave" => crate::enroll_cli::leave(env, rest),
+        "trust" => crate::enroll_cli::trust(env, rest),
         "doctor" => {
             let (words, _) = split(rest, &["--json"], &[])?;
             let config = load_config(env)?;
             let roster = load_roster(env, &config);
             let mut findings = diagnose(&roster, &config, Utc::now());
+            if config.method == MethodChoice::Roster {
+                findings.extend(crate::enroll_cli::custody_findings(env, &config));
+            }
             if let Some(step) = env.method.channel.blocked() {
                 findings.push(Finding { severity: Severity::Warning, device: None, message: format!("Peers cannot be reached from here yet: {step}.") });
             }

@@ -33,6 +33,9 @@ pub struct MeshConfig {
     pub node_key_file: Option<PathBuf>,
     /// The public half of the key this node sends remote input with, which can send nothing else. Absolute.
     pub input_key_file: Option<PathBuf>,
+    /// The keys this node signs roster entries with, tried in this order: a private key file, or a
+    /// public key file whose private half the agent holds. Absolute; none is required.
+    pub signing_keys: Vec<PathBuf>,
     /// The SSH agent's socket, when it is not the one the environment names. Absolute.
     pub agent_socket: Option<PathBuf>,
 }
@@ -131,6 +134,8 @@ struct Raw {
     node_key_file: Option<PathBuf>,
     input_key_file: Option<PathBuf>,
     agent_socket: Option<PathBuf>,
+    #[serde(default)]
+    signing_keys: Vec<PathBuf>,
 }
 
 #[derive(serde::Deserialize)]
@@ -177,6 +182,9 @@ impl MeshConfig {
                 return Err(ConfigError::Invalid(format!("{key} must be an absolute path")));
             }
         }
+        if let Some(path) = raw.signing_keys.iter().find(|path| !path.is_absolute()) {
+            return Err(ConfigError::Invalid(format!("signing-keys must be absolute paths, not {}", path.display())));
+        }
         let node_name = match raw.node_name.map(|name| name.trim().to_string()) {
             None => None,
             Some(name) => {
@@ -184,7 +192,7 @@ impl MeshConfig {
                 Some(name)
             }
         };
-        Ok(Self { membership_tag, allow, deny, capabilities, accept_input, control_plane, method, roster_dir: raw.roster_dir, signers_file: raw.signers_file, node_name, node_key_file: raw.node_key_file, input_key_file: raw.input_key_file, agent_socket: raw.agent_socket })
+        Ok(Self { membership_tag, allow, deny, capabilities, accept_input, control_plane, method, roster_dir: raw.roster_dir, signers_file: raw.signers_file, node_name, node_key_file: raw.node_key_file, input_key_file: raw.input_key_file, agent_socket: raw.agent_socket, signing_keys: raw.signing_keys })
     }
 
     /// Loads the file at `path`. A missing file is the empty configuration, a mesh of one.

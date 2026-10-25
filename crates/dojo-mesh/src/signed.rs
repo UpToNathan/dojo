@@ -144,11 +144,11 @@ pub fn normalize_key(text: &str) -> Result<String, String> {
 }
 
 fn valid_host(host: &str) -> bool {
-    !host.is_empty() && host.len() <= 253 && host.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':'))
+    !host.is_empty() && !host.starts_with('-') && host.len() <= 253 && host.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':'))
 }
 
 /// Checks one device entry's own contents and returns it with its keys normalized.
-fn well_formed(mut entry: DeviceEntry) -> Result<DeviceEntry, String> {
+pub(crate) fn well_formed(mut entry: DeviceEntry) -> Result<DeviceEntry, String> {
     valid_name(&entry.name)?;
     entry.node_key = normalize_key(&entry.node_key).map_err(|error| format!("node key: {error}"))?;
     entry.host_key = normalize_key(&entry.host_key).map_err(|error| format!("host key: {error}"))?;

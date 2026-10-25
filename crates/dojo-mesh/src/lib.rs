@@ -17,6 +17,8 @@ pub mod control_cli;
 pub mod diff;
 pub mod desktop;
 pub mod device;
+pub mod enroll;
+pub mod enroll_cli;
 pub mod doctor;
 pub mod guard;
 pub mod handoff;

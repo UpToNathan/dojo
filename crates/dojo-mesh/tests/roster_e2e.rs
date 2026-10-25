@@ -430,5 +430,203 @@ fn doctor_warns_when_the_key_holder_is_not_ready() {
     std::fs::write(lab.root.join("agent.sock"), "").unwrap();
     let path = fake_tools(&lab, &format!("{a} alpha"));
     let (code, out) = lab.run_with_path(&["doctor"], &path);
-    assert_eq!((code, out.as_str()), (0, "Healthy.\n"));
+    assert!(code == 0 && !out.contains("Peers cannot be reached"), "{out}");
+}
+
+impl Lab {
+    /// Runs the binary as another node: its own config file and home.
+    fn run_as(&self, config: &Path, home: &Path, args: &[&str], path: &str) -> (i32, String) {
+        let output = Command::new(env!("CARGO_BIN_EXE_dojo-mesh"))
+            .arg("--config")
+            .arg(config)
+            .args(args)
+            .env_clear()
+            .env("PATH", path)
+            .env("HOME", home)
+            .env("USER", "pat")
+            .current_dir(&self.root)
+            .output()
+            .unwrap();
+        (output.status.code().unwrap(), format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)))
+    }
+
+    fn fingerprint(&self, key: &str) -> String {
+        let out = tool("ssh-keygen", &["-l", "-f", self.root.join("keys").join(format!("{key}.pub")).to_str().unwrap()], &self.root);
+        out.split_whitespace().nth(1).unwrap().to_string()
+    }
+}
+
+#[test]
+fn a_node_is_enrolled_renewed_and_removed_with_fingerprints_compared_and_every_change_signed() {
+    let mut lab = Lab::new();
+    let open = lab.port(true);
+    let (a, b) = (lab.key("alpha"), lab.key("beta"));
+    lab.key("beta-input");
+    lab.member("alpha", &a, open, "operator");
+    let path = std::env::var("PATH").unwrap_or_default();
+    // The operator signs with a key file; the roster directory is a git repository with no remote.
+    tool("git", &["init", "-q", "roster"], &lab.root);
+    tool("git", &["config", "user.email", "operator@example.com"], &lab.root.join("roster"));
+    tool("git", &["config", "user.name", "operator"], &lab.root.join("roster"));
+    tool("git", &["config", "commit.gpgsign", "false"], &lab.root.join("roster"));
+    lab.config(&format!("signing-keys = [\"{}\"]\n", lab.root.join("keys/operator").display()));
+
+    // Beta describes itself.
+    let beta_config = lab.root.join("beta.toml");
+    std::fs::write(
+        &beta_config,
+        format!(
+            "method = \"roster\"\nnode-name = \"beta\"\nnode-key-file = \"{}\"\ninput-key-file = \"{}\"\nsigners-file = \"{}\"\nroster-dir = \"{}\"\n",
+            lab.root.join("keys/beta.pub").display(),
+            lab.root.join("keys/beta-input.pub").display(),
+            lab.root.join("allowed_signers").display(),
+            lab.root.join("roster").display()
+        ),
+    )
+    .unwrap();
+    let host_key = lab.root.join("keys/operator.pub");
+    let (code, out) = lab.run_as(&beta_config, &lab.root, &["join", "--route", &format!("127.0.0.1:{open}"), "--host-key-file", host_key.to_str().unwrap(), "--out", "beta.join.json"], &path);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains(&lab.fingerprint("beta")), "{out}");
+    let request = lab.root.join("beta.join.json");
+
+    // Approval needs the fingerprint a person compared.
+    let (code, out) = lab.run(&["approve", request.to_str().unwrap()]);
+    assert_eq!(code, 3, "{out}");
+    assert!(out.contains(&lab.fingerprint("beta")) && !lab.root.join("roster/devices/beta.json").exists(), "{out}");
+    let (code, out) = lab.run(&["approve", request.to_str().unwrap(), "--fingerprint", &lab.fingerprint("alpha")]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("does not match") && !lab.root.join("roster/devices/beta.json").exists(), "{out}");
+    let (code, out) = lab.run(&["approve", request.to_str().unwrap(), "--fingerprint", &lab.fingerprint("beta")]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("approved beta") && out.contains("no remote"), "{out}");
+    let (code, out) = lab.run(&["roster", "check"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("beta") && out.contains("Ignored: nothing"), "{out}");
+    let keys = std::fs::read_to_string(lab.root.join(".ssh/authorized_keys")).unwrap();
+    assert!(keys.contains(&format!("{b} dojo-mesh:beta")), "{keys}");
+    assert!(keys.contains("inject --as beta"), "{keys}");
+
+    // A different machine under the same name is not accepted by accident.
+    let impostor = std::fs::read_to_string(&request).unwrap().replace(&b, &lab.public("stranger"));
+    let impostor_file = lab.root.join("impostor.join.json");
+    std::fs::write(&impostor_file, impostor).unwrap();
+    let (code, out) = lab.run(&["approve", impostor_file.to_str().unwrap(), "--fingerprint", &lab.fingerprint("stranger")]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("different key"), "{out}");
+
+    // Renewal keeps the node and moves its expiry.
+    let (code, out) = lab.run(&["renew", "beta", "--days", "30"]);
+    assert_eq!(code, 0, "{out}");
+    let renewed = std::fs::read_to_string(lab.root.join("roster/devices/beta.json")).unwrap();
+    let expires: chrono::DateTime<Utc> = serde_json::from_str::<serde_json::Value>(&renewed).unwrap()["expires"].as_str().unwrap().parse().unwrap();
+    assert!((expires - Utc::now()).num_days() <= 30 && (expires - Utc::now()).num_days() >= 29);
+    assert_eq!(lab.run(&["roster", "check"]).0, 0);
+
+    // Removal revokes every key it held and lets the node out of authorized_keys.
+    let (code, out) = lab.run(&["rm", "beta", "--reason", "lost"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(!lab.root.join("roster/devices/beta.json").exists());
+    assert_eq!(std::fs::read_dir(lab.root.join("roster/revocations")).unwrap().flatten().filter(|e| e.path().extension().is_some_and(|x| x == "json")).count(), 3);
+    let (_, out) = lab.run(&["roster", "check"]);
+    assert!(!out.contains("beta"), "{out}");
+    assert!(!std::fs::read_to_string(lab.root.join(".ssh/authorized_keys")).unwrap().contains("beta"));
+    let (code, out) = lab.run(&["approve", request.to_str().unwrap(), "--fingerprint", &lab.fingerprint("beta")]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("revoked"), "{out}");
+    // Everything the operator did is in the roster's history.
+    let log = tool("git", &["log", "--format=%s"], &lab.root.join("roster"));
+    assert!(log.contains("Enroll beta") && log.contains("Renew beta") && log.contains("Remove beta"), "{log}");
+}
+
+#[test]
+fn nothing_is_signed_without_a_signing_key_that_works() {
+    let mut lab = Lab::new();
+    let open = lab.port(true);
+    let (a, b) = (lab.key("alpha"), lab.key("beta"));
+    lab.member("alpha", &a, open, "operator");
+    lab.key("beta-input");
+    let request = lab.root.join("beta.join.json");
+    std::fs::write(&request, serde_json::json!({"v": 1, "name": "beta", "node_key": b, "host_key": lab.public("operator")}).to_string()).unwrap();
+    let fp = lab.fingerprint("beta");
+    // No signing keys set.
+    let (code, out) = lab.run(&["approve", request.to_str().unwrap(), "--fingerprint", &fp]);
+    assert_eq!(code, 2, "{out}");
+    assert!(out.contains("no signing key is set") && !lab.root.join("roster/devices/beta.json").exists(), "{out}");
+    // A listed key that cannot sign (an agent-held key with no agent) is a step for a person, and leaves nothing behind.
+    lab.config(&format!("signing-keys = [\"{}\"]\nagent-socket = \"{}\"\n", lab.root.join("keys/operator.pub").display(), lab.root.join("no-agent.sock").display()));
+    let (code, out) = lab.run(&["approve", request.to_str().unwrap(), "--fingerprint", &fp]);
+    assert_eq!(code, 3, "{out}");
+    assert!(out.contains("no signing key could sign") && !lab.root.join("roster/devices/beta.json").exists() && !lab.root.join("roster/devices/beta.json.sig").exists(), "{out}");
+    // The first key that works wins, in the order listed.
+    lab.config(&format!("signing-keys = [\"{}\", \"{}\"]\nagent-socket = \"{}\"\n", lab.root.join("keys/operator.pub").display(), lab.root.join("keys/operator").display(), lab.root.join("no-agent.sock").display()));
+    let (code, out) = lab.run(&["approve", request.to_str().unwrap(), "--fingerprint", &fp]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(lab.run(&["roster", "check"]).0, 0);
+}
+
+#[test]
+fn a_node_trusts_a_signing_key_only_after_the_fingerprint_it_was_shown_matches() {
+    let lab = Lab::new();
+    std::fs::remove_file(lab.root.join("allowed_signers")).unwrap();
+    let new = lab.key("replacement");
+    let fp = lab.fingerprint("replacement");
+    let pub_file = lab.root.join("keys/replacement.pub");
+    let (code, out) = lab.run(&["trust", "add", pub_file.to_str().unwrap()]);
+    assert_eq!(code, 2, "{out}");
+    let (code, out) = lab.run(&["trust", "add", pub_file.to_str().unwrap(), "--fingerprint", &lab.fingerprint("operator")]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("It was not trusted") && !lab.root.join("allowed_signers").exists(), "{out}");
+    let (code, out) = lab.run(&["trust", "add", pub_file.to_str().unwrap(), "--fingerprint", &fp]);
+    assert_eq!(code, 0, "{out}");
+    let (code, out) = lab.run(&["trust", "list"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains(&fp) && out.contains("software"), "{out}");
+    assert!(std::fs::read_to_string(lab.root.join("allowed_signers")).unwrap().contains(&new));
+    // Only software-held keys are trusted, and doctor says so plainly.
+    let (_, out) = lab.run(&["doctor"]);
+    assert!(out.contains("held in software"), "{out}");
+    // The old key can be dropped by its fingerprint.
+    assert_eq!(lab.run(&["trust", "remove", &fp]).0, 0);
+    assert_eq!(std::fs::read_to_string(lab.root.join("allowed_signers")).unwrap(), "");
+    assert_eq!(lab.run(&["trust", "remove", &fp]).0, 1);
+}
+
+#[test]
+fn init_makes_the_keys_in_1password_or_registers_ones_made_elsewhere() {
+    use std::os::unix::fs::PermissionsExt;
+    let lab = Lab::new();
+    let bin = lab.root.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let key = lab.public("operator");
+    let item = serde_json::json!({"id": "i", "fields": [{"id": "public_key", "label": "public key", "value": key}]}).to_string();
+    let op = bin.join("op");
+    std::fs::write(&op, format!("#!/bin/sh\necho \"$@\" >> '{}/op-calls'\necho '{}'\n", lab.root.display(), item)).unwrap();
+    std::fs::set_permissions(&op, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+    lab.config(&format!("node-key-file = \"{}\"\ninput-key-file = \"{}\"\n", lab.root.join("conf/node.pub").display(), lab.root.join("conf/input.pub").display()));
+    let (code, out) = lab.run_with_path(&["init", "--vault", "Private"], &path);
+    assert_eq!(code, 0, "{out}");
+    assert!(std::fs::read_to_string(lab.root.join("conf/node.pub")).unwrap().starts_with(&format!("{key} dojo-mesh:alpha")));
+    assert!(std::fs::read_to_string(lab.root.join("conf/input.pub")).unwrap().contains("dojo-mesh:alpha:input"));
+    let calls = std::fs::read_to_string(lab.root.join("op-calls")).unwrap();
+    assert_eq!(calls.lines().count(), 2, "{calls}");
+    assert!(calls.contains("SSH Key") && calls.contains("--vault Private") && calls.contains("node key (alpha)") && calls.contains("input key (alpha)"), "{calls}");
+    // Keys that exist are never replaced.
+    let (code, out) = lab.run_with_path(&["init"], &path);
+    assert_eq!(code, 2, "{out}");
+    assert!(out.contains("already has keys"), "{out}");
+    // Without 1Password's command line, the way out is named.
+    let (code, out) = lab.run_with_path(&["init", "--custody", "1password"], "/nonexistent");
+    assert_eq!(code, 2);
+    std::fs::remove_dir_all(lab.root.join("conf")).unwrap();
+    let (code, out2) = lab.run_with_path(&["init"], "/nonexistent");
+    assert_eq!(code, 4, "{out2}");
+    assert!(out2.contains("--custody existing"), "{out2}");
+    let _ = out;
+    // Keys made somewhere else (a YubiKey, another agent) are registered by their public halves.
+    let node = lab.root.join("keys/operator.pub");
+    let (code, out) = lab.run_with_path(&["init", "--custody", "existing", "--node-key", node.to_str().unwrap()], &path);
+    assert_eq!(code, 0, "{out}");
+    assert!(lab.root.join("conf/node.pub").exists() && !lab.root.join("conf/input.pub").exists());
 }

@@ -191,11 +191,27 @@ mod tests {
         Call { peer: Peer { name: "orchard".into(), host_key: Some("ssh-ed25519 AAAAhost".into()) }, key: Key::Node, route, remote: "echo hi".into(), input: Input::Null, output: Output::Capture, timeout: None }
     }
 
-    fn scratch(name: &str) -> PathBuf {
+    /// A directory that is removed again when the test ends.
+    struct Scratch(PathBuf);
+
+    impl std::ops::Deref for Scratch {
+        type Target = Path;
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn scratch(name: &str) -> Scratch {
         let dir = std::env::temp_dir().join(format!("dojo-sshchannel-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        dir
+        Scratch(dir)
     }
 
     fn script(path: &Path, body: &str) {
