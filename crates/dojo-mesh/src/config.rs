@@ -22,7 +22,7 @@ pub struct MeshConfig {
 }
 
 /// Where a secret lives. The configuration only ever names it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SecretRef {
     /// An environment variable: `env:NAME`.
@@ -44,7 +44,8 @@ impl SecretRef {
             if Path::new(path).is_absolute() {
                 return Ok(Self::File(path.into()));
             }
-        } else if text.starts_with("op://") && text.len() > "op://".len() && !text.contains(char::is_whitespace) {
+        } else if text.starts_with("op://") && text.len() > "op://".len() && !text.contains(char::is_control) {
+            // Item names may hold spaces ("op://Personal/Some Item/field"), so only control characters are refused.
             return Ok(Self::Op(text.into()));
         }
         Err("not a secret reference; use env:NAME, file:/absolute/path or op://vault/item/field (the secret itself never goes in this file)".into())
@@ -196,7 +197,7 @@ fn control_plane(raw: RawControlPlane) -> Result<ControlPlane, ConfigError> {
     Ok(ControlPlane { tailnet, credential })
 }
 
-fn is_tag(tag: &str) -> bool {
+pub fn is_tag(tag: &str) -> bool {
     tag.strip_prefix("tag:").is_some_and(|rest| {
         !rest.is_empty() && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
     })
@@ -304,7 +305,8 @@ mod tests {
         assert_eq!(SecretRef::parse("env:TS_TOKEN"), Ok(SecretRef::Env("TS_TOKEN".into())));
         assert_eq!(SecretRef::parse("file:/run/secrets/ts"), Ok(SecretRef::File("/run/secrets/ts".into())));
         assert_eq!(SecretRef::parse("op://Vault/Item/field"), Ok(SecretRef::Op("op://Vault/Item/field".into())));
-        for bad in ["tskey-api-abc123", "env:", "env:A B", "file:relative", "op://", "op://a b", ""] {
+        assert_eq!(SecretRef::parse("op://Personal/Some Item/field"), Ok(SecretRef::Op("op://Personal/Some Item/field".into())));
+        for bad in ["tskey-api-abc123", "env:", "env:A B", "file:relative", "op://", "op://a\nb", ""] {
             assert!(SecretRef::parse(bad).is_err(), "{bad}");
         }
     }

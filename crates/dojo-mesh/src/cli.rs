@@ -42,6 +42,7 @@ usage: dojo-mesh [--config PATH] <command>
                                    read, check or replace the network policy (apply is operator only)
 ";
 
+#[derive(Debug)]
 pub struct Failure {
     pub code: u8,
     pub message: String,
