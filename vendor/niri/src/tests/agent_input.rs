@@ -266,6 +266,80 @@ fn agent_commands_validate_and_require_connection_ownership() {
 }
 
 #[test]
+fn jump_places_the_agent_pointer_at_once_where_move_animates() {
+    let mut f = Fixture::with_agent_input();
+    f.add_output(1, (1920, 1080));
+    let output = f.niri_output(1).name();
+    let location = |f: &mut Fixture| {
+        f.niri().agent_seats[&1]
+            .seat
+            .get_pointer()
+            .unwrap()
+            .current_location()
+    };
+    f.niri_state()
+        .apply_agent_input(1, AgentInput::Create { name: "jump".into() })
+        .ok();
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Jump {
+                output: output.clone(),
+                x: 100.,
+                y: 100.,
+            },
+        )
+        .unwrap();
+    // The seat is shown at its first position whichever way it got there.
+    assert_eq!(location(&mut f), (100., 100.).into());
+
+    // A move to somewhere else is an animation: Niri says so and the pointer has not arrived.
+    assert!(matches!(
+        f.niri_state()
+            .apply_agent_input(
+                1,
+                AgentInput::Move {
+                    output: output.clone(),
+                    x: 900.,
+                    y: 600.,
+                }
+            )
+            .unwrap(),
+        niri_ipc::Response::AgentInputMoving
+    ));
+    assert_ne!(location(&mut f), (900., 600.).into());
+
+    // A jump is there already, with nothing to wait for, and it ends the animation under way.
+    assert!(matches!(
+        f.niri_state()
+            .apply_agent_input(
+                1,
+                AgentInput::Jump {
+                    output: output.clone(),
+                    x: 500.,
+                    y: 400.,
+                }
+            )
+            .unwrap(),
+        niri_ipc::Response::Handled
+    ));
+    assert_eq!(location(&mut f), (500., 400.).into());
+    let output_handle = f.niri_output(1);
+    assert!(!f.niri().agent_pointers_are_moving(&output_handle));
+
+    // The same limits as a move.
+    for bad in [
+        AgentInput::Jump { output: "missing".into(), x: 0., y: 0. },
+        AgentInput::Jump { output: output.clone(), x: -1., y: 0. },
+        AgentInput::Jump { output: output.clone(), x: 5000., y: 0. },
+        AgentInput::Jump { output, x: f64::NAN, y: 0. },
+    ] {
+        assert!(f.niri_state().apply_agent_input(1, bad).is_err());
+    }
+    f.niri_state().destroy_agent(1);
+}
+
+#[test]
 fn locking_releases_agent_keys_and_rejects_typing() {
     let mut f = Fixture::with_agent_input();
     f.add_output(1, (1920, 1080));

@@ -147,7 +147,7 @@ fn validate(command: &AgentInput) -> Result<(), String> {
                 );
             }
         }
-        AgentInput::Move { x, y, .. } if !x.is_finite() || !y.is_finite() => {
+        AgentInput::Move { x, y, .. } | AgentInput::Jump { x, y, .. } if !x.is_finite() || !y.is_finite() => {
             return Err("pointer coordinates must be finite".into());
         }
         AgentInput::Button { button, .. } if !(0x110..=0x117).contains(button) => {
@@ -194,7 +194,7 @@ fn is_release(command: &AgentInput) -> bool {
 
 fn is_move(command: &AgentInput) -> bool {
     match command {
-        AgentInput::Move { .. } => true,
+        AgentInput::Move { .. } | AgentInput::Jump { .. } => true,
         AgentInput::Captured { command, .. }
         | AgentInput::Coordinated { command, .. }
         | AgentInput::Targeted { command, .. } => is_move(command),
@@ -509,7 +509,11 @@ impl State {
     ) -> Result<(), String> {
         let pointer = agent.seat.get_pointer().unwrap();
         let keyboard = agent.seat.get_keyboard().unwrap();
-        let redraw_all = !matches!(&command, AgentInput::Move { .. } | AgentInput::Wait);
+        let instant = matches!(&command, AgentInput::Jump { .. });
+        let redraw_all = !matches!(
+            &command,
+            AgentInput::Move { .. } | AgentInput::Jump { .. } | AgentInput::Wait
+        );
         match command {
             AgentInput::Captured { geometry, command } => {
                 if let Err(reason) = self.require_capture_geometry(&geometry) {
@@ -543,7 +547,7 @@ impl State {
                 agent.set_target(self, target);
                 agent.shared_keyboard_focus(self)?;
             }
-            AgentInput::Move { output, x, y } => {
+            AgentInput::Move { output, x, y } | AgentInput::Jump { output, x, y } => {
                 let output = self
                     .niri
                     .global_space
@@ -583,7 +587,8 @@ impl State {
                     .motion
                     .as_ref()
                     .map_or(Point::from((0., 0.)), |motion| motion.sample(now).1);
-                agent.motion = if self.niri.clock.should_complete_instantly()
+                agent.motion = if instant
+                    || self.niri.clock.should_complete_instantly()
                     || (location.x - from.x).hypot(location.y - from.y) < 1.
                 {
                     None

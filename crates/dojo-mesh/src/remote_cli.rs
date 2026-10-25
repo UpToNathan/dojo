@@ -88,7 +88,11 @@ pub fn inject(env: &Env, rest: &[String]) -> Result<u8, Failure> {
         return Err(refuse("the screen is locked here; unlock it first"));
     }
     let socket = niri::socket().ok_or_else(|| refuse("there is no desktop session on this machine"))?;
-    let (output, width, height) = niri::outputs(&socket).map_err(|message| fail(FAILED, message))?.into_iter().next().ok_or_else(|| fail(FAILED, "Niri has no output"))?;
+    let layout: Vec<remote::Rect> = niri::outputs(&socket)
+        .map_err(|message| fail(FAILED, message))?
+        .into_iter()
+        .map(|output| remote::Rect { name: output.name, x: output.x, y: output.y, width: output.width, height: output.height })
+        .collect();
     let focused = niri::windows(&socket).ok().and_then(|windows| windows.into_iter().find(|window| window.is_focused));
 
     let mut seat = niri::AgentSeat::connect(&socket).map_err(|message| fail(UNAVAILABLE, message))?;
@@ -109,8 +113,14 @@ pub fn inject(env: &Env, rest: &[String]) -> Result<u8, Failure> {
         }
     });
 
-    let mut cursor = Cursor::new(width, height);
+    let mut cursor = Cursor::new(layout).ok_or_else(|| fail(FAILED, "Niri has no output"))?;
+    let mut pointer = Pointer { instant: true };
     let mut ended: Result<(), String> = Ok(());
+    // The seat's cursor starts where this one does, so the first movement is relative to something real.
+    if let Err(message) = apply(&mut seat, &mut pointer, &cursor.start()) {
+        let _ = seat.input(serde_json::json!("Destroy"));
+        return Err(fail(FAILED, message));
+    }
     'session: loop {
         // A burst becomes one cursor movement; the stream ending (the sender let go, or the
         // connection dropped) ends the session.
@@ -126,7 +136,7 @@ pub fn inject(env: &Env, rest: &[String]) -> Result<u8, Failure> {
         let events: Vec<Event> = burst.iter().filter_map(|line| Event::parse(line).ok()).collect();
         for event in remote::coalesce(events) {
             for action in cursor.plan(&event) {
-                if let Err(message) = apply(&mut seat, &output, &action) {
+                if let Err(message) = apply(&mut seat, &mut pointer, &action) {
                     ended = Err(message);
                     break 'session;
                 }
@@ -145,13 +155,33 @@ pub fn inject(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     }
 }
 
-fn apply(seat: &mut niri::AgentSeat, output: &str, action: &Action) -> Result<(), String> {
+/// How the receiver places its cursor. Niri's `Jump` puts it there at once; an older Niri lacks it
+/// and only has `Move`, which animates for a tenth of a second or more and so lags behind a live mouse.
+struct Pointer {
+    instant: bool,
+}
+
+fn apply(seat: &mut niri::AgentSeat, pointer: &mut Pointer, action: &Action) -> Result<(), String> {
     let state = |pressed: &bool| if *pressed { "Pressed" } else { "Released" };
-    seat.input(match action {
-        Action::Move { x, y } => serde_json::json!({"Move": {"output": output, "x": x, "y": y}}),
+    let command = match action {
+        Action::Move { output, x, y } => {
+            if pointer.instant {
+                match seat.input(serde_json::json!({"Jump": {"output": output, "x": x, "y": y}})) {
+                    Err(message) if message.contains("unknown variant") => {
+                        eprintln!("dojo-mesh: this Niri cannot place the cursor instantly, so it will lag until Niri is updated");
+                        pointer.instant = false;
+                    }
+                    other => return other,
+                }
+            }
+            serde_json::json!({"Move": {"output": output, "x": x, "y": y}})
+        }
+        // A cursor placed at once has nothing to wait for.
+        Action::Wait if pointer.instant => return Ok(()),
         Action::Wait => serde_json::json!("Wait"),
         Action::Button { code, pressed } => serde_json::json!({"Button": {"button": code, "state": state(pressed)}}),
         Action::Axis { h, v } => serde_json::json!({"Axis": {"horizontal": h, "vertical": v}}),
         Action::Key { code, pressed } => serde_json::json!({"Key": {"evdev": code, "state": state(pressed)}}),
-    })
+    };
+    seat.input(command)
 }

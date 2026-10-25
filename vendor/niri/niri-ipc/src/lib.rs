@@ -306,6 +306,19 @@ pub enum AgentInput {
         /// Vertical logical coordinate within the output.
         y: f64,
     },
+    /// Put the pointer at a place on an output at once, with no animation and nothing to wait for.
+    ///
+    /// For following a live pointer (remote input), where a movement that takes a tenth of a second
+    /// to arrive is a lag. A controller that is acting, not following, should use [`AgentInput::Move`]
+    /// and wait.
+    Jump {
+        /// The output name returned by the Outputs request.
+        output: String,
+        /// Horizontal logical coordinate within the output.
+        x: f64,
+        /// Vertical logical coordinate within the output.
+        y: f64,
+    },
     /// Wait for the current pointer movement to finish. Reset or lock cancels this wait.
     Wait,
     /// Press or release a Linux pointer button.

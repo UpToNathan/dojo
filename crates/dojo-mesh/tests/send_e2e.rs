@@ -62,10 +62,12 @@ fn fake_niri(path: &Path, windows: &'static str) -> Seen {
                     let reply = if line == "\"Windows\"" {
                         ok(&format!("{{\"Windows\":{}}}", serde_json::Value::Array(listed.clone())))
                     } else if line == "\"Outputs\"" {
-                        ok("{\"Outputs\":{\"eDP-1\":{\"name\":\"eDP-1\",\"logical\":{\"x\":0,\"y\":0,\"width\":1000.0,\"height\":500.0}}}}")
+                        ok("{\"Outputs\":{\"eDP-1\":{\"name\":\"eDP-1\",\"logical\":{\"x\":0,\"y\":0,\"width\":1000.0,\"height\":500.0}},\"DP-2\":{\"name\":\"DP-2\",\"logical\":{\"x\":1000,\"y\":0,\"width\":800.0,\"height\":500.0}}}}")
                     } else if line == "\"YieldHumanInput\"" {
                         *yielded = true;
                         ok("{\"InputCoordination\":{\"revision\":1,\"human_owned_windows\":[]}}")
+                    } else if line.contains("\"Jump\"") && dir.join("no-jump").exists() {
+                        "{\"Err\":\"unknown variant `Jump`, expected one of `Move`, `Wait`\"}".to_string()
                     } else if line.contains("\"Create\"") {
                         ok("{\"AgentInputCreated\":{\"peer_id\":1,\"seat_name\":\"seat\"}}")
                     } else if line.contains("\"AgentInput\":{\"Focus\"") && dir.join("paused").exists() && (!*yielded || dir.join("never-yields").exists()) {
@@ -446,8 +448,8 @@ fn remote_replays_the_operators_input_on_the_peers_seat_and_lets_go_at_the_end()
         serde_json::json!({"AgentInput": {"Create": {"name": "dojo-remote"}}}),
         serde_json::json!("Outputs"),
         serde_json::json!("Windows"),
-        serde_json::json!({"AgentInput": {"Move": {"output": "eDP-1", "x": 515.0, "y": 255.0}}}),
-        serde_json::json!({"AgentInput": "Wait"}),
+        serde_json::json!({"AgentInput": {"Jump": {"output": "eDP-1", "x": 500.0, "y": 250.0}}}),
+        serde_json::json!({"AgentInput": {"Jump": {"output": "eDP-1", "x": 515.0, "y": 255.0}}}),
         serde_json::json!({"AgentInput": {"Button": {"button": 272, "state": "Pressed"}}}),
         serde_json::json!({"AgentInput": {"Button": {"button": 272, "state": "Released"}}}),
         serde_json::json!({"AgentInput": {"Axis": {"horizontal": 0.0, "vertical": 15.0}}}),
@@ -620,4 +622,37 @@ fn the_tabs_host_serves_only_the_dojo_tabs_extension() {
     assert_eq!(result.status.code(), Some(1), "{}", text(&result));
     assert!(text(&result).contains("serves only the Dojo Tabs extension"), "{}", text(&result));
     assert!(!site.root.join("hosts/alpha/run/dojo/browser-tabs.json").exists());
+}
+
+#[test]
+fn the_cursor_follows_the_mouse_across_outputs_and_is_placed_without_animation() {
+    let site = Site::new();
+    site.config("beta", BETA_ACCEPTS_ALPHA);
+    let capture = fake_capture(&site, &[r#"{"t":"motion","dx":600,"dy":0}"#, r#"{"t":"button","code":272,"pressed":true}"#, r#"{"t":"button","code":272,"pressed":false}"#]);
+    let result = run_remote(&site, &capture, &[]);
+    assert_eq!(result.status.code(), Some(0), "{}", text(&result));
+    let moves: Vec<serde_json::Value> = beta_requests(&site).into_iter().filter(|r| r.to_string().contains("Jump") || r.to_string().contains("\"Move\"")).collect();
+    assert_eq!(
+        moves,
+        [
+            serde_json::json!({"AgentInput": {"Jump": {"output": "eDP-1", "x": 500.0, "y": 250.0}}}),
+            serde_json::json!({"AgentInput": {"Jump": {"output": "DP-2", "x": 100.0, "y": 250.0}}}),
+        ],
+        "600 pixels right of the middle of the first output is on the second, 100 pixels in"
+    );
+    assert!(!beta_requests(&site).contains(&serde_json::json!({"AgentInput": "Wait"})), "a cursor placed at once is never waited for");
+}
+
+#[test]
+fn an_older_niri_without_jump_still_works_but_says_it_will_lag() {
+    let site = Site::new();
+    site.config("beta", BETA_ACCEPTS_ALPHA);
+    std::fs::write(site.root.join("hosts/beta/no-jump"), "").unwrap();
+    let capture = fake_capture(&site, &[r#"{"t":"motion","dx":10,"dy":0}"#, r#"{"t":"button","code":272,"pressed":true}"#]);
+    let result = run_remote(&site, &capture, &[]);
+    assert_eq!(result.status.code(), Some(0), "{}", text(&result));
+    assert!(text(&result).contains("this Niri cannot place the cursor instantly, so it will lag until Niri is updated"), "{}", text(&result));
+    let requests = beta_requests(&site);
+    assert!(requests.contains(&serde_json::json!({"AgentInput": {"Move": {"output": "eDP-1", "x": 510.0, "y": 250.0}}})), "{requests:?}");
+    assert!(requests.contains(&serde_json::json!({"AgentInput": "Wait"})), "an animated cursor is waited for before a click");
 }

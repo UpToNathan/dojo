@@ -64,20 +64,37 @@ impl ReleaseChords {
 /// What the receiver does to its input seat for an event.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
-    /// Move the cursor to a place on the output.
-    Move { x: f64, y: f64 },
-    /// Let a movement finish, before something happens where the cursor is going.
+    /// Put the cursor at a place on an output (coordinates are within that output).
+    Move { output: String, x: f64, y: f64 },
+    /// Let a movement finish, before something happens where the cursor is going. Only needed when
+    /// the seat animates its cursor; one that places it at once has nothing to wait for.
     Wait,
     Button { code: u32, pressed: bool },
     Axis { h: f64, v: f64 },
     Key { code: u32, pressed: bool },
 }
 
-/// The receiver's cursor on one output, in logical pixels. Remote motion is relative, so the cursor
-/// starts in the middle and stays on the output.
+/// One output's place in the layout, in logical pixels.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Rect {
+    pub name: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+impl Rect {
+    fn contains(&self, x: f64, y: f64) -> bool {
+        x >= self.x && y >= self.y && x < self.x + self.width && y < self.y + self.height
+    }
+}
+
+/// The receiver's cursor on the whole layout of outputs, in global logical pixels. Remote motion is
+/// relative, so it starts in the middle of the first output and moves wherever the layout allows:
+/// across to a neighbouring output when it leaves one, and stopping at the layout's outer edge.
 pub struct Cursor {
-    width: f64,
-    height: f64,
+    outputs: Vec<Rect>,
     x: f64,
     y: f64,
     /// A movement was asked for and not waited for yet.
@@ -85,12 +102,69 @@ pub struct Cursor {
 }
 
 impl Cursor {
-    pub fn new(width: f64, height: f64) -> Self {
-        Self { width, height, x: width / 2., y: height / 2., moving: false }
+    /// `None` when there are no outputs.
+    pub fn new(outputs: Vec<Rect>) -> Option<Self> {
+        let first = outputs.first()?;
+        let (x, y) = (first.x + first.width / 2., first.y + first.height / 2.);
+        Some(Self { outputs, x, y, moving: false })
     }
 
     pub fn position(&self) -> (f64, f64) {
         (self.x, self.y)
+    }
+
+    /// The output the cursor is on, with the cursor's place on it.
+    fn locate(&self) -> Action {
+        let rect = self.outputs.iter().find(|rect| rect.contains(self.x, self.y)).unwrap_or(&self.outputs[0]);
+        Action::Move { output: rect.name.clone(), x: self.x - rect.x, y: self.y - rect.y }
+    }
+
+    fn on_an_output(&self, x: f64, y: f64) -> bool {
+        self.outputs.iter().any(|rect| rect.contains(x, y))
+    }
+
+    /// The furthest point toward `(tx, ty)` that is on an output, found by halving: all the way if
+    /// the target is on one, otherwise right up to the edge of the layout.
+    fn reach(&self, x: f64, y: f64, tx: f64, ty: f64) -> (f64, f64) {
+        if self.on_an_output(tx, ty) {
+            return (tx, ty);
+        }
+        let (mut near, mut far) = (0., 1.);
+        for _ in 0..16 {
+            let middle = (near + far) / 2.;
+            if self.on_an_output(x + (tx - x) * middle, y + (ty - y) * middle) {
+                near = middle;
+            } else {
+                far = middle;
+            }
+        }
+        (x + (tx - x) * near, y + (ty - y) * near)
+    }
+
+    /// Moves by `(dx, dy)` in small steps, so the path is followed, not just its end: it crosses from
+    /// one output to the next where they touch, and where a step would leave every output it goes as
+    /// far as the edge and then slides along it on whichever axis is still free, as a mouse does
+    /// against the side of a screen. A big jump never lands the cursor on some other monitor.
+    fn place(&mut self, dx: f64, dy: f64) {
+        const STEP: f64 = 8.;
+        let steps = (dx.abs().max(dy.abs()) / STEP).ceil().max(1.);
+        let (sx, sy) = (dx / steps, dy / steps);
+        for _ in 0..steps as usize {
+            let (x, y) = (self.x, self.y);
+            if self.on_an_output(x + sx, y + sy) {
+                (self.x, self.y) = (x + sx, y + sy);
+                continue;
+            }
+            // Blocked: slide, one axis at a time, each as far as it goes.
+            let (x, y) = self.reach(x, y, x + sx, y);
+            let (x, y) = self.reach(x, y, x, y + sy);
+            (self.x, self.y) = (x, y);
+        }
+    }
+
+    /// The first position as an action, so the seat's cursor starts where this one does.
+    pub fn start(&mut self) -> Action {
+        self.locate()
     }
 
     /// The seat actions for an event. A button waits for the cursor to arrive first, so a click
@@ -98,10 +172,9 @@ impl Cursor {
     pub fn plan(&mut self, event: &Event) -> Vec<Action> {
         match event {
             Event::Motion { dx, dy } => {
-                self.x = (self.x + dx).clamp(0., (self.width - 1.).max(0.));
-                self.y = (self.y + dy).clamp(0., (self.height - 1.).max(0.));
+                self.place(*dx, *dy);
                 self.moving = true;
-                vec![Action::Move { x: self.x, y: self.y }]
+                vec![self.locate()]
             }
             Event::Button { code, pressed } => {
                 let mut actions = Vec::new();
@@ -205,18 +278,85 @@ mod tests {
         assert!(!chords.feed(KEY_F11, true));
     }
 
+    fn rect(name: &str, x: f64, y: f64, width: f64, height: f64) -> Rect {
+        Rect { name: name.into(), x, y, width, height }
+    }
+
+    fn at(output: &str, x: f64, y: f64) -> Action {
+        Action::Move { output: output.into(), x, y }
+    }
+
+    /// Whether `actions` is one move to `output` within a hundredth of a pixel of `(x, y)`.
+    fn is_at(actions: &[Action], output: &str, x: f64, y: f64) -> bool {
+        matches!(actions, [Action::Move { output: name, x: ax, y: ay }] if name == output && (ax - x).abs() < 0.01 && (ay - y).abs() < 0.01)
+    }
+
     #[test]
-    fn the_cursor_starts_in_the_middle_and_stays_on_the_output() {
-        let mut cursor = Cursor::new(1000., 500.);
+    fn the_cursor_starts_in_the_middle_of_the_first_output_and_stays_on_a_lone_output() {
+        let mut cursor = Cursor::new(vec![rect("A", 0., 0., 1000., 500.)]).unwrap();
         assert_eq!(cursor.position(), (500., 250.));
-        assert_eq!(cursor.plan(&Event::Motion { dx: 10., dy: -5. }), [Action::Move { x: 510., y: 245. }]);
-        assert_eq!(cursor.plan(&Event::Motion { dx: 5000., dy: 5000. }), [Action::Move { x: 999., y: 499. }]);
-        assert_eq!(cursor.plan(&Event::Motion { dx: -5000., dy: -5000. }), [Action::Move { x: 0., y: 0. }]);
+        assert_eq!(cursor.start(), at("A", 500., 250.));
+        assert_eq!(cursor.plan(&Event::Motion { dx: 10., dy: -5. }), [at("A", 510., 245.)]);
+        assert!(is_at(&cursor.plan(&Event::Motion { dx: 5000., dy: 5000. }), "A", 1000., 500.), "stops at the edge");
+        assert!(is_at(&cursor.plan(&Event::Motion { dx: -5000., dy: -5000. }), "A", 0., 0.));
+        assert!(Cursor::new(vec![]).is_none());
+    }
+
+    /// A layout like a real desk: two portrait outputs at the sides and two landscape ones stacked
+    /// between them, none sharing an origin.
+    fn desk() -> Vec<Rect> {
+        vec![
+            rect("LEFT", 1827., 355., 1080., 1920.),
+            rect("TOP", 2907., -112., 1920., 1080.),
+            rect("BOTTOM", 2907., 968., 1920., 1080.),
+            rect("RIGHT", 4827., 355., 1080., 1920.),
+        ]
+    }
+
+    #[test]
+    fn the_cursor_crosses_from_one_output_to_the_next_instead_of_stopping_at_the_edge() {
+        let mut cursor = Cursor::new(desk()).unwrap();
+        assert_eq!(cursor.start(), at("LEFT", 540., 960.), "the first output is the leftmost");
+        // Right across the border into the output beside it (here the lower one, where y 1315 is).
+        let crossing = cursor.plan(&Event::Motion { dx: 600., dy: 0. });
+        assert_eq!(crossing, [at("BOTTOM", 540. + 600. - (2907. - 1827.), 1315. - 968.)]);
+        // Across it and into the output beyond.
+        let beyond = cursor.plan(&Event::Motion { dx: 1900., dy: 0. });
+        assert!(matches!(&beyond[0], Action::Move { output, .. } if output == "RIGHT"), "{beyond:?}");
+        // Back the way it came.
+        let back = cursor.plan(&Event::Motion { dx: -1900., dy: 0. });
+        assert!(matches!(&back[0], Action::Move { output, .. } if output == "BOTTOM"), "{back:?}");
+    }
+
+    #[test]
+    fn the_cursor_moves_between_stacked_outputs_and_stops_at_the_layouts_outer_edge() {
+        let mut cursor = Cursor::new(desk()).unwrap();
+        cursor.plan(&Event::Motion { dx: 1200., dy: -300. });
+        assert_eq!(cursor.position(), (1827. + 540. + 1200., 960. + 355. - 300.));
+        let up = cursor.plan(&Event::Motion { dx: 0., dy: -2000. });
+        assert!(is_at(&up, "TOP", 660., 0.), "stops at the top of the top output: {up:?}");
+        let down = cursor.plan(&Event::Motion { dx: 0., dy: 5000. });
+        assert!(is_at(&down, "BOTTOM", 660., 1080.), "stops at the bottom of the bottom one, not on some other monitor: {down:?}");
+        let left = cursor.plan(&Event::Motion { dx: -9000., dy: 0. });
+        assert!(matches!(&left[..], [Action::Move { output, x, .. }] if output == "LEFT" && x.abs() < 0.01), "{left:?}");
+    }
+
+    #[test]
+    fn a_step_into_a_gap_lands_on_the_nearest_output() {
+        // Two outputs of different heights: the area beside the shorter one is not part of the desk.
+        let mut cursor = Cursor::new(vec![rect("TALL", 0., 0., 1000., 2000.), rect("SHORT", 1000., 0., 1000., 500.)]).unwrap();
+        cursor.plan(&Event::Motion { dx: 0., dy: 700. });
+        let step = cursor.plan(&Event::Motion { dx: 800., dy: 0. });
+        assert!(is_at(&step, "TALL", 1000., 1700.), "pushed against the edge of the tall output, not lost beyond it: {step:?}");
+        let on = cursor.plan(&Event::Motion { dx: 0., dy: -1500. });
+        assert!(is_at(&on, "TALL", 1000., 200.), "{on:?}");
+        let over = cursor.plan(&Event::Motion { dx: 5., dy: 0. });
+        assert!(is_at(&over, "SHORT", 5., 200.), "and over once it is level with the short one: {over:?}");
     }
 
     #[test]
     fn a_click_waits_for_the_cursor_to_arrive_once() {
-        let mut cursor = Cursor::new(100., 100.);
+        let mut cursor = Cursor::new(vec![rect("A", 0., 0., 100., 100.)]).unwrap();
         assert_eq!(cursor.plan(&Event::Button { code: 272, pressed: true }), [Action::Button { code: 272, pressed: true }], "no wait when it has not moved");
         cursor.plan(&Event::Motion { dx: 1., dy: 1. });
         assert_eq!(cursor.plan(&Event::Button { code: 272, pressed: true }), [Action::Wait, Action::Button { code: 272, pressed: true }]);
