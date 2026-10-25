@@ -454,6 +454,30 @@ impl State {
         self.dispatch_agent_targeted(agent, command, None)
     }
 
+    /// A mapped window, or a mapped layer-shell panel: somewhere a key can be typed.
+    fn is_typing_target(&self, surface: &WlSurface) -> bool {
+        let root = self.niri.find_root_shell_surface(surface);
+        self.niri
+            .layout
+            .find_window_and_output(&root)
+            .is_some_and(|(_, output)| output.is_some())
+            || self.is_mapped_panel(&root)
+    }
+
+    fn is_mapped_panel(&self, root: &WlSurface) -> bool {
+        self.niri
+            .mapped_layer_surfaces
+            .keys()
+            .any(|layer| layer.wl_surface() == root)
+    }
+
+    /// The layer-shell panel holding the human's keyboard focus, if that is where it is.
+    fn keyboard_panel(&self) -> Option<WlSurface> {
+        let focus = self.niri.seat.get_keyboard()?.current_focus()?;
+        let root = self.niri.find_root_shell_surface(&focus);
+        self.is_mapped_panel(&root).then_some(root)
+    }
+
     fn require_agent_window(
         &self,
         surface: Option<&WlSurface>,
@@ -679,16 +703,22 @@ impl State {
                 );
             }
             AgentInput::Key { evdev, state } => {
-                if agent.target.as_ref().is_none_or(|surface| {
-                    self.niri
-                        .layout
-                        .find_window_and_output(surface)
-                        .is_none_or(|(_, output)| output.is_none())
-                }) {
+                let pressed = state == AgentInputState::Pressed;
+                // A panel that took the keyboard (a launcher, say) is where a person would type, so
+                // the first key goes there rather than to the window behind it.
+                if pressed && expected.is_none() {
+                    if let Some(panel) = self.keyboard_panel() {
+                        agent.set_target(self, panel);
+                    }
+                }
+                if !agent
+                    .target
+                    .as_ref()
+                    .is_some_and(|surface| self.is_typing_target(surface))
+                {
                     agent.reset(self);
                     return Err("focus a mapped window before typing".into());
                 }
-                let pressed = state == AgentInputState::Pressed;
                 if pressed {
                     if let Some(window_id) = expected {
                         self.require_agent_window(agent.target.as_ref(), window_id)?;
@@ -805,12 +835,10 @@ impl State {
         for peer in peers {
             let _ = self.with_agent(peer, |this, agent| {
                 if !matches!(this.niri.lock_state, LockState::Unlocked)
-                    || agent.target.as_ref().is_some_and(|target| {
-                        this.niri
-                            .layout
-                            .find_window_and_output(target)
-                            .is_none_or(|(_, output)| output.is_none())
-                    })
+                    || agent
+                        .target
+                        .as_ref()
+                        .is_some_and(|target| !this.is_typing_target(target))
                 {
                     agent.reset(this);
                     return;

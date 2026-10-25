@@ -518,3 +518,11 @@ This policy narrows the existing rules. It cannot authorize a stale capture, tra
 `AgentInput::Jump` puts the seat's pointer at a place on an output immediately, with no animation and
 nothing to wait for. `Move` animates (at least 0.12 s) and answers `AgentInputMoving`; use `Jump` to
 follow a live pointer, as remote input does, and `Move` when acting and waiting for arrival.
+
+## Typing into a panel
+
+A seat types into a mapped window, or into a layer-shell panel that holds the human's keyboard focus (a
+launcher that just opened, say). The first key goes to that panel, not to the window behind it, because
+that is where a person would type; once the panel gives up the keyboard, keys go back to the seat's
+window. The seat chooses nothing here: it follows whichever panel Niri has already given the keyboard to,
+and the pointer could already click on panels. Targeted commands, which name a window, are unchanged.

@@ -839,7 +839,10 @@ impl Dispatch<WlKeyboard, WlSeat> for State {
                 group,
                 ..
             } => {
-                let surface = keyboard.surface.clone().unwrap();
+                // A keyboard that has left its surface may still be told about modifiers.
+                let Some(surface) = keyboard.surface.clone() else {
+                    return;
+                };
 
                 let event = KeyboardEvent::Modifiers {
                     depressed: mods_depressed,

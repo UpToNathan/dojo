@@ -1445,3 +1445,90 @@ fn captured_unheld_pointer_motion_never_focuses_another_application() {
         target_id
     );
 }
+
+#[test]
+fn typing_goes_to_a_panel_that_holds_the_keyboard_rather_than_the_window_behind_it() {
+    typing_into_a_panel(false);
+}
+
+#[test]
+fn typing_goes_to_a_panel_even_when_the_seat_already_targeted_the_window_behind_it() {
+    typing_into_a_panel(true);
+}
+
+fn typing_into_a_panel(window_targeted_first: bool) {
+    use smithay::reexports::wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1::Layer;
+    use smithay::reexports::wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1::{
+        Anchor, KeyboardInteractivity,
+    };
+
+    use super::client::LayerConfigureProps;
+
+    let mut f = Fixture::with_agent_input();
+    f.add_output(1, (1920, 1080));
+    let (window_client, window_surface, target) = window(&mut f);
+
+    let panel_client = f.add_client();
+    let layer = f.client(panel_client).create_layer(None, Layer::Overlay, "");
+    let panel = layer.surface.clone();
+    layer.set_configure_props(LayerConfigureProps {
+        anchor: Some(Anchor::Left | Anchor::Right | Anchor::Top),
+        size: Some((0, 50)),
+        kb_interactivity: Some(KeyboardInteractivity::OnDemand),
+        ..Default::default()
+    });
+    layer.commit();
+    f.double_roundtrip(panel_client);
+    let layer = f.client(panel_client).layer(&panel);
+    layer.attach_new_buffer();
+    layer.set_size(100, 50);
+    layer.ack_last_and_commit();
+    f.double_roundtrip(panel_client);
+
+    f.niri_state()
+        .apply_agent_input(1, AgentInput::Create { name: "test".into() })
+        .unwrap();
+    if window_targeted_first {
+        f.niri_state()
+            .apply_agent_input(1, AgentInput::Focus { window_id: target })
+            .unwrap();
+    }
+    f.double_roundtrip(window_client);
+    f.double_roundtrip(panel_client);
+    let _ = keys(&mut f, window_client, &window_surface);
+    let _ = keys(&mut f, panel_client, &panel);
+
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Key {
+                evdev: 30,
+                state: AgentInputState::Pressed,
+            },
+        )
+        .unwrap();
+    f.double_roundtrip(window_client);
+    f.double_roundtrip(panel_client);
+    assert_eq!(
+        keys(&mut f, panel_client, &panel),
+        vec![(30, wl_keyboard::KeyState::Pressed)],
+        "the panel holding the keyboard receives the key"
+    );
+    assert!(keys(&mut f, window_client, &window_surface).is_empty());
+
+    // The key that went down is the one let go, even though the panel can leave first.
+    f.niri_state()
+        .apply_agent_input(
+            1,
+            AgentInput::Key {
+                evdev: 30,
+                state: AgentInputState::Released,
+            },
+        )
+        .unwrap();
+    f.double_roundtrip(panel_client);
+    assert_eq!(
+        keys(&mut f, panel_client, &panel),
+        vec![(30, wl_keyboard::KeyState::Released)]
+    );
+}
