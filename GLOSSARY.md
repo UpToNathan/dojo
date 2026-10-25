@@ -97,3 +97,39 @@ A screen pushed inside the launcher with its own search box, list and action. It
 
 **Inline row**:
 A launcher result produced by an explicit trigger in the query, such as a calculation, a bang or a `?` agent prompt. It never appears for ordinary text.
+
+### Mesh
+
+**Node**:
+One Dojo installation on one machine. A node is complete on its own and needs no peers.
+_Avoid_: Host, machine, instance, server
+
+**Mesh**:
+The nodes that admit one another as peers. A node with no peers is a mesh of one.
+_Avoid_: Cluster, fleet, tailnet
+
+**Peer**:
+Another node in the same mesh, as seen from one node.
+_Avoid_: Remote, host
+
+**Membership method**:
+A way of finding candidate nodes, deciding which belong to the mesh and knowing which node is which. Tailscale tag membership is the first.
+_Avoid_: Discovery (only one part of it), provider
+
+**Membership tag**:
+The Tailscale tag that marks a device as a candidate node. Each mesh chooses its own.
+
+**Membership override**:
+A node's own allow or deny entry for one device. It changes only what that node admits.
+
+**Peer permission**:
+What one node may do on a peer. It is whatever the network's policy grants the node, not something Dojo configures.
+_Avoid_: ACL, role
+
+**Capability**:
+Something a node offers its peers, such as a Nix cache or a voice agent, as the node itself describes it.
+_Avoid_: Role, service
+
+**Peer task**:
+Work handed to a peer's agent to carry out there, instead of operating the peer's desktop remotely.
+_Avoid_: Remote control
