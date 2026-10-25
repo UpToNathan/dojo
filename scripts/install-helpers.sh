@@ -12,14 +12,14 @@ fi
 if (( $# > 0 )); then
     helpers=("$@")
 else
-    helpers=(dojo-speech dojo-computer-recording dojo-computer-verification dojo-voice-ctl)
+    helpers=(dojo-speech dojo-computer-recording dojo-computer-verification dojo-voice-ctl dojo-mesh)
 fi
 install_dir="$data_home/dojo/bin"
 mkdir -p "$install_dir/roots"
 
 for name in "${helpers[@]}"; do
     source_file="$repo_root/target/release/$name"
-    if [[ $name == dojo-voice-ctl || $name == dojo-speech ]]; then
+    if [[ $name == dojo-voice-ctl || $name == dojo-speech || $name == dojo-mesh ]]; then
         # Standalone crates, each with its own lockfile and target directory.
         manifest="$repo_root/crates/$name/Cargo.toml"
         cargo build --release --locked --manifest-path "$manifest"
