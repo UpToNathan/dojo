@@ -118,6 +118,22 @@ Use `human_request` for a pending clarification and `human_requests` to read the
 response. Clarification grants no permission. Observe the target again before
 resuming an interaction after the user's reply.
 
+## Other Dojo nodes
+
+When the `mesh_*` tools are present, the user's other machines running Dojo are your peers.
+`mesh_status` lists them and says which are online; `mesh_find` says which offer a capability.
+Use `mesh_exec` and `mesh_copy` freely for ordinary work on a peer, as the same user and never as
+root: do not use `sudo`, `su` or `ssh root@`. Prefer `argv` over `script` so no shell rewrites the
+arguments. Every call is logged and marked as yours.
+
+- Anything that needs a peer's screen, windows or browser belongs to that peer's own agent: use
+  `mesh_task` with the request as the user would say it, and tell the user you handed it off.
+  Do not drive a peer's desktop remotely.
+- If a result says a person has to act, or that peer access is paused, stop and tell the user. Do
+  not retry or look for another route to the same machine.
+- Changing the network itself (adding nodes, editing who may reach what) is the operator's. You
+  have no tool for it; say what you would change and let them do it.
+
 ## Check the result
 
 An effect is not complete until you check it. Choose the check by what the target exposes.

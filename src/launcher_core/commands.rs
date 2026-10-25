@@ -17,6 +17,7 @@ pub enum CommandId {
     PickColor,
     Processes,
     Services,
+    Mesh,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,7 +31,7 @@ pub struct Command {
 
 /// Every command Dojo defines, in the order a fresh install lists them. Whether a command is
 /// available is a separate question: see [`available`].
-pub const ALL: [Command; 7] = [
+pub const ALL: [Command; 8] = [
     Command {
         id: CommandId::Emoji,
         title: "Search Emoji",
@@ -80,6 +81,13 @@ pub const ALL: [Command; 7] = [
         keywords: &["services", "systemd", "units", "restart", "daemon"],
         glyph: "⚙️",
     },
+    Command {
+        id: CommandId::Mesh,
+        title: "Mesh",
+        subtitle: "See your other Dojo machines",
+        keywords: &["mesh", "peers", "nodes", "machines", "devices", "tailscale", "ssh"],
+        glyph: "🔗",
+    },
 ];
 
 /// The commands whose views exist. A command joins this list when its view is wired in; until
@@ -92,6 +100,7 @@ pub const IMPLEMENTED: &[CommandId] = &[
     CommandId::PickColor,
     CommandId::Processes,
     CommandId::Services,
+    CommandId::Mesh,
 ];
 
 pub fn available() -> Vec<Command> {
@@ -112,6 +121,7 @@ impl CommandId {
             Self::PickColor => "color",
             Self::Processes => "processes",
             Self::Services => "services",
+            Self::Mesh => "mesh",
         }
     }
 

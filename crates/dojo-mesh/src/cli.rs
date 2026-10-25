@@ -124,7 +124,10 @@ fn split(args: &[String], switches: &[&str], valued: &[&str]) -> Result<(Words, 
     let mut values = Vec::new();
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
-        if switches.contains(&arg.as_str()) {
+        if arg == "--" {
+            // Everything after a lone -- is a word, whatever it looks like.
+            words.positional.extend(iter.by_ref().cloned());
+        } else if switches.contains(&arg.as_str()) {
             words.flags.push(arg.clone());
         } else if valued.contains(&arg.as_str()) {
             let value = iter.next().ok_or_else(|| fail(USAGE_ERROR, format!("{arg} needs a value")))?;
@@ -507,6 +510,14 @@ fn pull(env: &Env, roster: &Roster, peer: &str, path: &str, destination: &str) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_lone_double_dash_makes_the_rest_plain_words() {
+        let args: Vec<String> = ["--json", "a", "--", "--json", "-x", "b"].iter().map(|s| s.to_string()).collect();
+        let (words, _) = split(&args, &["--json"], &[]).unwrap();
+        assert_eq!(words.flags, ["--json"]);
+        assert_eq!(words.positional, ["a", "--json", "-x", "b"]);
+    }
 
     #[test]
     fn peer_paths_are_told_from_local_paths() {

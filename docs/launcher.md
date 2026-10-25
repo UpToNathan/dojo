@@ -31,6 +31,7 @@ Suggestions, or bind a key to open it directly: `dojo --launcher-view <name>`.
 | `color` | Pick Color | choose *Pick a color from the screen*; the launcher closes, you click, and it reopens with the colour in every format |
 | `processes` | Processes | running programs by CPU or memory (Tab switches); Enter then Enter again stops one and its helpers; Ctrl+D twice force-kills it |
 | `services` | Services | your systemd user units; Enter restarts or starts; Ctrl+D stops (or clears a failed unit); Shift+Enter shows the last log line. The desktop session's own units are refused |
+| `mesh` | Mesh | this machine and the peers it admits (see [mesh.md](mesh.md)), with who is online; Enter copies `tailscale ssh <name>`; Shift+Enter copies the name |
 
 Escape (or Backspace on an empty search) leaves a view for the root list; Escape again closes the
 launcher. **Ctrl+H** on a command in the Suggestions hides it from the empty launcher; Ctrl+H on it

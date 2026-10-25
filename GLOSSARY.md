@@ -133,3 +133,11 @@ _Avoid_: Role, service
 **Peer task**:
 Work handed to a peer's agent to carry out there, instead of operating the peer's desktop remotely.
 _Avoid_: Remote control
+
+**Operator**:
+The person who owns a node. Changing the network, and lifting a pause on the agent, are theirs alone.
+_Avoid_: Admin, user (when the agent is the other party)
+
+**Audit log**:
+The record each node keeps of every call it makes to a peer, with who made it and how it ended.
+_Avoid_: History, trace

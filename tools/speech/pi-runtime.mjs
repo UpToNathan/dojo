@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { openDesktopExtension } from './desktop-extension.mjs';
 import { openBrowserExtension } from './browser-extension.mjs';
 import { openCuaExtension } from './cua-extension.mjs';
+import { openMeshExtension } from './mesh-extension.mjs';
 import { installComputerSteps } from './computer-steps.mjs';
 import { computerModelBridge } from './computer-model-bridge.mjs';
 import { exportDesktopTrace } from './desktop-trace.mjs';
@@ -56,6 +57,7 @@ export class PiRuntime {
       }
       if (browserOpening) registry.install(await browserOpening);
       if (config.cuaTools || config.cuaClientFactory) registry.install(await openCuaExtension(runtime));
+      if (config.meshTools !== false && (config.desktopTools !== false || config.meshExe)) { const mesh = await openMeshExtension(runtime); if (mesh) registry.install(mesh); }
     } catch (error) {
       await browserOpening?.catch(() => {});
       await runtime.closeBrowser?.();

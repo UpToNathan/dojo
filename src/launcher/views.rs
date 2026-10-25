@@ -7,6 +7,7 @@ mod clipboard;
 mod color;
 mod emoji;
 mod loader;
+mod mesh;
 mod processes;
 mod services;
 mod snippets;
@@ -145,5 +146,6 @@ pub fn default_factory() -> ViewFactory {
         CommandId::PickColor => Some(Box::new(color::ColorView::new())),
         CommandId::Processes => Some(Box::new(processes::ProcessesView::new())),
         CommandId::Services => Some(Box::new(services::ServicesView::new())),
+        CommandId::Mesh => Some(Box::new(mesh::MeshView::new())),
     })
 }

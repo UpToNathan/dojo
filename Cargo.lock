@@ -1651,6 +1651,7 @@ dependencies = [
  "dojo-cua-worker",
  "dojo-external-admission",
  "dojo-icon-cache",
+ "dojo-mesh",
  "dojo-native-seat",
  "freedesktop-desktop-entry",
  "freedesktop-icons",
@@ -1837,6 +1838,16 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "dojo-mesh"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "toml 1.1.7+spec-1.1.0",
 ]
 
 [[package]]

@@ -18,6 +18,7 @@ dojo-computer-verification = { path = "crates/dojo-computer-verification" }
 dojo-capture-wayland = { path = "crates/dojo-capture-wayland" }
 dojo-accessibility = { path = "crates/dojo-accessibility" }
 dojo-agent-setup = { path = "crates/dojo-agent-setup" }
+dojo-mesh = { path = "crates/dojo-mesh" }
 dojo-icon-cache = { path = "crates/dojo-icon-cache" }
 dojo-computer-recording = { path = "crates/dojo-computer-recording" }
 dojo-cua-core = { package = "cua-driver-core", path = "vendor/cua/driver/crates/cua-driver-core", default-features = false, features = ["yaml"] }

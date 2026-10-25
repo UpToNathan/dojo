@@ -337,3 +337,16 @@ fn describe_publishes_declared_capabilities_and_file_contents() {
     assert_eq!(value["capabilities"]["c"]["plain"], "v");
     assert_eq!(value["capabilities"]["c"]["key"], "pub");
 }
+
+#[test]
+fn task_text_that_looks_like_an_option_is_still_text() {
+    let site = Site::new();
+    let record = site.path("task-record");
+    let agent = site.path("hosts/beta/home/fake-agent");
+    std::fs::write(&agent, format!("#!/bin/sh\nprintf '%s' \"$2\" > {}\n", record.display())).unwrap();
+    Command::new("chmod").arg("+x").arg(&agent).status().unwrap();
+    site.config("beta", &format!("[capability.voice-agent]\ncommand = \"{}\"\n", agent.display()));
+    let result = site.run(&["task", "beta", "--", "--help", "me"]);
+    assert_eq!(code(&result), 0, "{}", err(&result));
+    assert_eq!(std::fs::read_to_string(&record).unwrap(), "--help me");
+}
