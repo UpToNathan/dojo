@@ -2,7 +2,7 @@
 status: accepted
 ---
 
-# Remote input takes the real seat, and only for a process inside a peer's Tailscale SSH session
+# Remote input takes the real seat, and only for a process inside a peer's SSH session
 
 [ADR 0007](0007-a-node-accepts-input-only-from-peers-it-names.md) said accepted input is injected as the human's seat. An agent seat could not do that: it is a second cursor that never reaches Niri's key binds, and it stops to ask whenever the person at the machine touches something. So remote input now enters Niri as the machine's own keyboard and pointer (`Request::RemoteInput`): binds fire, one real cursor crosses every monitor, and typing goes where it would from the hardware.
 
@@ -17,12 +17,22 @@ That is also exactly what the Niri fork shuts everyone else out of (virtual keyb
 
 `dojo-mesh inject` keeps its own checks (`accept-input` against `tailscale whois`, no agent origin, not locked). Those are policy about which node may send; the Niri gate is what stops a local process from skipping `dojo-mesh` altogether.
 
+## Amendment: OpenSSH sessions count too
+
+[ADR 0009](0009-a-signed-roster-is-a-second-membership-method-over-openssh.md) lets a mesh run over the system OpenSSH, so the gate recognises a second kind of session, with the same shape of proof:
+
+- An ancestor of the caller is a **root-owned** `sshd` process (`sshd`, or `sshd-session` since OpenSSH 9.8), and the caller's line of descent passes through that process's child, which runs as the user and is also named `sshd`/`sshd-session`. A process of the user cannot become a child of a root-owned process, so the shape cannot be forged any more than Tailscale's.
+- The remote address is read from the TCP connection that child holds open (its socket inode looked up in `/proc/net/tcp` and `tcp6`), not from `SSH_CONNECTION`, which any process can set. An address that belongs to this machine, including loopback, is refused for the same reason as before.
+- The name of the sender is not part of the proof. A peer's input key is forced to run `dojo-mesh inject --as NAME`; Niri shows that name when the caller's command line has one, but it only labels the session. `dojo-mesh inject` is what checks the name against the signed roster and `accept-input`.
+- Anyone the node's `sshd` lets in as this user can reach the gate, as with a Tailscale session. The input key restricts what *that key* can run; it is not what Niri checks. A member holding the node key has a full shell already.
+- A connection that arrives through a local proxy (a tunnel that connects to `sshd` from loopback) looks like this machine and is refused. A route like that cannot carry remote input until the gate can see the real peer.
+
 ## Considered options
 
 - **Feed the real seat from any IPC client.** Rejected: any process of the user could then type as the human.
 - **Resolve binds on the receiver and keep the seat (option B of `.scratch/mesh-remote-binds`).** Rejected by the user: it leaves a second cursor and no repeat, drag or wheel binds.
 - **Check the caller's executable.** Rejected as the anchor: the user owns the install directory, so a replaced binary passes.
-- **A root-owned helper binary.** Stronger against same-user replacement, but it needs a root install on every node. The process-tree gate needs nothing beyond Tailscale SSH, which the mesh already requires.
+- **A root-owned helper binary.** Stronger against same-user replacement, but it needs a root install on every node. The process-tree gate needs nothing beyond the SSH daemon the mesh already uses.
 
 ## Consequences
 

@@ -3,10 +3,12 @@
 //! This is the opposite of an agent seat. A seat is a second, sandboxed cursor that cannot touch
 //! Niri's binds; remote input takes the real seat, so it must not be available to just any process
 //! running as the user (the AI agent is one). The gate is the kernel's process tree: a caller is
-//! accepted only if it runs inside a Tailscale SSH session that the root `tailscaled` started for a
-//! connection from another machine. No user process can fake that ancestry, and the helper's
-//! command line carries the identity Tailscale authenticated (`--remote-user`, `--remote-ip`).
-//! The rest of the policy (which nodes may connect at all) is the tailnet's SSH policy.
+//! accepted only if it runs inside an SSH session that a root-owned daemon started for a connection
+//! from another machine. No user process can fake that ancestry. Two daemons are recognised:
+//! `tailscaled`, whose helper's command line carries the identity Tailscale authenticated
+//! (`--remote-user`, `--remote-ip`), and the root `sshd`, whose per-session process holds the
+//! connection's socket, from which the remote address is read. The rest of the policy (which nodes
+//! may connect at all, and as whom) belongs to the daemon's own configuration.
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::net::UdpSocket;
 use std::path::PathBuf;
@@ -55,6 +57,8 @@ pub trait ProcessView {
     fn cmdline(&self, pid: u32) -> Option<Vec<String>>;
     /// Whether this address belongs to this machine (so the "remote" end is really us).
     fn is_local_address(&self, address: &str) -> bool;
+    /// The remote address of the established TCP connection this process holds open, if any.
+    fn peer_address(&self, pid: u32) -> Option<String>;
 }
 
 pub struct Proc;
@@ -92,6 +96,49 @@ impl ProcessView for Proc {
         // Binding succeeds only for an address one of our interfaces owns.
         address.parse::<std::net::IpAddr>().is_ok_and(|ip| UdpSocket::bind((ip, 0)).is_ok())
     }
+
+    fn peer_address(&self, pid: u32) -> Option<String> {
+        let inodes: HashSet<u64> = std::fs::read_dir(format!("/proc/{pid}/fd"))
+            .ok()?
+            .flatten()
+            .filter_map(|entry| std::fs::read_link(entry.path()).ok())
+            .filter_map(|target| target.to_str()?.strip_prefix("socket:[")?.strip_suffix(']')?.parse().ok())
+            .collect();
+        ["/proc/net/tcp", "/proc/net/tcp6"].iter().find_map(|table| {
+            let text = std::fs::read_to_string(table).ok()?;
+            established_peer(&text, &inodes, table.ends_with('6'))
+        })
+    }
+}
+
+/// The remote address of an established connection among `inodes`, from the text of
+/// `/proc/net/tcp` (`v6` false) or `/proc/net/tcp6`.
+fn established_peer(table: &str, inodes: &HashSet<u64>, v6: bool) -> Option<String> {
+    table.lines().skip(1).find_map(|line| {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        // sl local_address rem_address st tx:rx tr:when retrnsmt uid timeout inode
+        if fields.len() < 10 || fields[3] != "01" || !inodes.contains(&fields[9].parse::<u64>().ok()?) {
+            return None;
+        }
+        let (host, _) = fields[2].split_once(':')?;
+        Some(hex_address(host, v6)?.to_string())
+    })
+}
+
+/// An address as `/proc/net/tcp*` prints it: each 32-bit word in the machine's byte order.
+fn hex_address(hex: &str, v6: bool) -> Option<std::net::IpAddr> {
+    let word = |at: usize| u32::from_str_radix(hex.get(at..at + 8)?, 16).ok().map(|value| value.to_ne_bytes());
+    if !v6 {
+        let [a, b, c, d] = word(0)?;
+        return Some(std::net::IpAddr::V4(std::net::Ipv4Addr::new(a, b, c, d)));
+    }
+    let mut octets = [0u8; 16];
+    for index in 0..4 {
+        octets[index * 4..index * 4 + 4].copy_from_slice(&word(index * 8)?);
+    }
+    let ip = std::net::Ipv6Addr::from(octets);
+    // A v4 peer on a dual-stack socket shows as ::ffff:a.b.c.d.
+    Some(ip.to_ipv4_mapped().map_or(std::net::IpAddr::V6(ip), std::net::IpAddr::V4))
 }
 
 /// Finds the Tailscale SSH session `pid` runs in, and the node that connected to it.
@@ -127,6 +174,62 @@ pub fn ssh_origin(view: &impl ProcessView, pid: u32, own_uid: u32) -> Result<Ori
         child = parent;
     }
     Err("not inside a Tailscale SSH session".into())
+}
+
+/// The names a root-owned `sshd` process goes by: `sshd` before OpenSSH 9.8, `sshd-session` after.
+fn is_sshd(comm: Option<String>) -> bool {
+    matches!(comm.as_deref(), Some("sshd" | "sshd-session"))
+}
+
+/// Finds the OpenSSH session `pid` runs in, and the address that connected to it.
+///
+/// OpenSSH starts a session as a root-owned `sshd` process (the privilege-separation monitor) whose
+/// child runs as the user and holds the connection's socket. A process of this user cannot become a
+/// child of a root-owned process, so a caller below such a child is inside a real session. The
+/// address comes from that child's socket, not from anything the caller can set, such as
+/// `SSH_CONNECTION`. A name given to the session (`dojo-mesh inject --as NAME`, which a peer's
+/// `authorized_keys` entry forces) is shown when the caller's command line has one; it only labels
+/// the session, and the receiving program decides what to accept.
+pub fn sshd_origin(view: &impl ProcessView, pid: u32, own_uid: u32) -> Result<Origin, String> {
+    let mut child = pid;
+    for _ in 0..64 {
+        let Some(parent) = view.parent(child) else { break };
+        if parent <= 1 {
+            break;
+        }
+        if view.uid(parent) == Some(0) && is_sshd(view.comm(parent)) {
+            if view.uid(child) != Some(own_uid) {
+                return Err("the SSH session belongs to another user".into());
+            }
+            if !is_sshd(view.comm(child)) {
+                return Err("not inside an OpenSSH session".into());
+            }
+            let Some(ip) = view.peer_address(child) else {
+                return Err("the SSH session does not say who connected".into());
+            };
+            if view.is_local_address(&ip) {
+                return Err("the SSH session is from this machine itself, not a peer".into());
+            }
+            let args = view.cmdline(pid).unwrap_or_default();
+            let name = args.iter().position(|arg| arg == "--as").and_then(|at| args.get(at + 1)).cloned();
+            return Ok(Origin { user: name.unwrap_or_else(|| "an OpenSSH session".into()), ip });
+        }
+        child = parent;
+    }
+    Err("not inside an OpenSSH session".into())
+}
+
+/// The session `pid` runs in, if it is inside one a peer started: Tailscale SSH or OpenSSH.
+pub fn session_origin(view: &impl ProcessView, pid: u32, own_uid: u32) -> Result<Origin, String> {
+    match ssh_origin(view, pid, own_uid) {
+        Ok(origin) => Ok(origin),
+        Err(tailscale) => match sshd_origin(view, pid, own_uid) {
+            Ok(origin) => Ok(origin),
+            // Each gate says why it refused; the one that found a session of its kind is the useful one.
+            Err(openssh) if openssh.starts_with("not inside") => Err(format!("not inside an SSH session a peer started ({tailscale}; {openssh})")),
+            Err(openssh) => Err(openssh),
+        },
+    }
 }
 
 /// A session's held input, so that ending it can let go.
@@ -340,7 +443,7 @@ impl State {
         }
         if !self.niri.remote_input.active.contains_key(&peer) {
             let owner = owner.filter(|owner| owner.is_live()).ok_or("could not identify the process asking")?;
-            let origin = ssh_origin(&Proc, owner.pid(), unsafe { libc::geteuid() }).map_err(|reason| format!("remote input refused: {reason}"))?;
+            let origin = session_origin(&Proc, owner.pid(), unsafe { libc::geteuid() }).map_err(|reason| format!("remote input refused: {reason}"))?;
             self.begin_remote_session(peer, origin);
         }
         for event in events {
@@ -466,6 +569,8 @@ mod tests {
         // pid -> (parent, uid, comm, cmdline)
         rows: HashMap<u32, (u32, u32, &'static str, Vec<&'static str>)>,
         local: Vec<&'static str>,
+        // pid -> the remote address of the connection it holds
+        peers: HashMap<u32, &'static str>,
     }
 
     impl ProcessView for Table {
@@ -483,6 +588,9 @@ mod tests {
         }
         fn is_local_address(&self, address: &str) -> bool {
             self.local.contains(&address)
+        }
+        fn peer_address(&self, pid: u32) -> Option<String> {
+            self.peers.get(&pid).map(|address| address.to_string())
         }
     }
 
@@ -554,6 +662,83 @@ mod tests {
         let mut table = ssh_session();
         table.rows.get_mut(&20).unwrap().3 = vec!["/usr/bin/tailscaled", "serve"];
         assert!(ssh_origin(&table, 40, 1000).is_err());
+    }
+
+    /// systemd(1) ; sshd(10, root) <- sshd-session [priv](11, root) <- sshd-session user@notty(12, user) <- bash(30) <- inject(40)
+    fn sshd_session() -> Table {
+        let mut table = Table::default();
+        table.rows.insert(10, (1, 0, "sshd", vec!["sshd"]));
+        table.rows.insert(11, (10, 0, "sshd-session", vec!["sshd-session: nathan [priv]"]));
+        table.rows.insert(12, (11, 1000, "sshd-session", vec!["sshd-session: nathan@notty"]));
+        table.rows.insert(30, (12, 1000, "bash", vec!["bash", "-c", "/home/nathan/.local/bin/dojo-mesh inject --as venus"]));
+        table.rows.insert(40, (30, 1000, "dojo-mesh", vec!["/home/nathan/.local/bin/dojo-mesh", "inject", "--as", "venus"]));
+        table.peers.insert(12, "203.0.113.5");
+        table
+    }
+
+    #[test]
+    fn a_process_inside_an_openssh_session_is_identified_by_the_connections_socket() {
+        let origin = sshd_origin(&sshd_session(), 40, 1000).unwrap();
+        assert_eq!(origin, Origin { user: "venus".into(), ip: "203.0.113.5".into() });
+        // Without a name on the command line the session is still a session, unnamed.
+        let mut table = sshd_session();
+        table.rows.get_mut(&40).unwrap().3 = vec!["dojo-mesh", "inject"];
+        assert_eq!(sshd_origin(&table, 40, 1000).unwrap().user, "an OpenSSH session");
+        // The combined gate finds it too.
+        assert_eq!(session_origin(&sshd_session(), 40, 1000).unwrap().ip, "203.0.113.5");
+    }
+
+    #[test]
+    fn an_openssh_session_from_this_machine_or_for_another_user_or_unattributable_is_refused() {
+        let mut table = sshd_session();
+        table.local.push("203.0.113.5");
+        assert!(sshd_origin(&table, 40, 1000).unwrap_err().contains("from this machine itself"));
+        assert!(sshd_origin(&sshd_session(), 40, 1001).unwrap_err().contains("another user"));
+        let mut table = sshd_session();
+        table.peers.clear();
+        assert!(sshd_origin(&table, 40, 1000).unwrap_err().contains("does not say who connected"));
+    }
+
+    #[test]
+    fn a_user_process_posing_as_sshd_is_not_a_root_ancestor() {
+        let mut table = Table::default();
+        table.rows.insert(10, (1, 1000, "sshd", vec!["sshd"]));
+        table.rows.insert(11, (10, 1000, "sshd-session", vec!["sshd-session: nathan [priv]"]));
+        table.rows.insert(12, (11, 1000, "sshd-session", vec!["sshd-session: nathan@notty"]));
+        table.rows.insert(40, (12, 1000, "dojo-mesh", vec!["dojo-mesh", "inject", "--as", "venus"]));
+        table.peers.insert(12, "203.0.113.5");
+        assert!(session_origin(&table, 40, 1000).is_err());
+    }
+
+    #[test]
+    fn a_caller_outside_every_session_is_refused_with_both_reasons() {
+        let mut table = sshd_session();
+        table.rows.insert(50, (1, 1000, "systemd", vec!["systemd", "--user"]));
+        table.rows.insert(52, (50, 1000, "dojo-mesh", vec!["dojo-mesh", "inject", "--as", "venus"]));
+        let error = session_origin(&table, 52, 1000).unwrap_err();
+        assert!(error.contains("not inside an SSH session a peer started"), "{error}");
+        // A root sshd's own non-session descendants (not the user's child) do not count.
+        let mut table = sshd_session();
+        table.rows.insert(60, (11, 1000, "bash", vec!["bash"]));
+        table.rows.insert(61, (60, 1000, "dojo-mesh", vec!["dojo-mesh", "inject"]));
+        assert!(sshd_origin(&table, 61, 1000).unwrap_err().contains("not inside an OpenSSH session"));
+    }
+
+    #[test]
+    fn the_remote_address_is_read_from_the_established_connection_a_process_holds() {
+        let v4 = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n   \
+            0: 0100007F:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 11111 1 0\n   \
+            1: 0A01A8C0:0016 0500CB0B:C350 01 00000000:00000000 02:000A7214 00000000     0        0 22222 2 0\n";
+        let held: HashSet<u64> = [22222].into();
+        assert_eq!(established_peer(v4, &held, false).as_deref(), Some("11.203.0.5"));
+        // A listening socket, or one the process does not hold, says nothing.
+        assert_eq!(established_peer(v4, &[11111].into(), false), None);
+        assert_eq!(established_peer(v4, &[99999].into(), false), None);
+        let v6 = "  sl  local_address                         remote_address                        st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n   \
+            0: 0000000000000000FFFF00000A01A8C0:0016 0000000000000000FFFF00000500CB0B:C350 01 00000000:00000000 02:000A7214 00000000     0        0 33333 2 0\n   \
+            1: 000080FE0000000000000000010000FD:0016 000080FE00000000000000000200A2D1:C350 01 00000000:00000000 02:000A7214 00000000     0        0 44444 2 0\n";
+        assert_eq!(established_peer(v6, &[33333].into(), true).as_deref(), Some("11.203.0.5"));
+        assert_eq!(established_peer(v6, &[44444].into(), true).as_deref(), Some("fe80::d1a2:2"));
     }
 
     #[test]
