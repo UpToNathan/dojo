@@ -4,7 +4,7 @@ Spec: [spec.md](spec.md). Decision: [ADR-0009](../../docs/adr/0009-a-signed-rost
 
 ## Decisions so far
 
-- 2026-10-25, operator: any reachable address (pluggable routes); members get a full user shell; root only through `sudo` (password; a YubiKey touch only where a node opts in); remote input uses a dedicated restricted key with no touch; node keys live in 1Password's agent; the signing key is held in 1Password by default and a YubiKey is optional, as is a second signing key; Tailscale stays as an optional method.
+- 2026-10-25, operator: any reachable address (pluggable routes); members get a full user shell; root only through `sudo` (password; a YubiKey touch only where a node opts in); remote input uses a dedicated restricted key with no touch; node keys live in 1Password's agent; signing keys may be held on a YubiKey, in 1Password or anywhere an SSH agent or key file can sign, in any number and order (none required); Tailscale stays as an optional method.
 - Open: where the roster remote lives, if anywhere; whether Cloudflare becomes a route later.
 
 ## Known state of the machines (2026-10-25)

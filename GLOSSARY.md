@@ -121,11 +121,11 @@ The signed list of a mesh's members: each one's name, node key, host key and exp
 _Avoid_: Registry, directory
 
 **Operator signing key**:
-The key, held in 1Password or optionally on a YubiKey, whose signature makes a roster entry count. It is used to enroll, renew, rotate and revoke, never for ordinary connections.
+A key whose signature makes a roster entry count. A node trusts any number, held on a YubiKey, in 1Password or anywhere an SSH agent or key file can sign. It is used to enroll, renew, rotate and revoke, never for ordinary connections.
 _Avoid_: Admin key, root key
 
 **Node key**:
-The key a node uses to prove itself to peers. It is held in 1Password's SSH agent, not on disk.
+The key a node uses to prove itself to peers. Its custody is the node's setting; 1Password's SSH agent by default.
 _Avoid_: Machine key, host key (that one identifies the SSH server)
 
 **Route**:
