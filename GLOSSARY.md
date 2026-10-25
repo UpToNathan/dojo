@@ -141,3 +141,19 @@ _Avoid_: Admin, user (when the agent is the other party)
 **Audit log**:
 The record each node keeps of every call it makes to a peer, with who made it and how it ended.
 _Avoid_: History, trace
+
+**Boundary**:
+A screen edge of one node joined to a screen edge of a peer, which the pointer can cross.
+_Avoid_: Portal, link, edge (alone)
+
+**Remote input**:
+The operator's pointer and keyboard driving a peer after crossing a boundary, received there as the human's own input.
+_Avoid_: Input sharing, KVM
+
+**Handoff**:
+Moving what a window shows to a peer by dragging it across a boundary: the peer opens the same thing and the local window closes. The process itself does not move.
+_Avoid_: Migration, transfer
+
+**Handoff adapter**:
+The part of Dojo that knows, for one application, what its window is showing and how to open the same on a peer.
+_Avoid_: Plugin, driver
