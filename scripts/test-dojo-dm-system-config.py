@@ -37,6 +37,26 @@ def unit_section(name, section):
     return pairs
 
 
+class PolkitFingerprint(unittest.TestCase):
+    def test_polkit_asks_a_finger_then_the_password_and_never_denies_everything(self):
+        lines = stack_lines("polkit-1")
+        self.assertEqual(lines[0], ("auth", "sufficient pam_fprintd.so timeout=10 max-tries=1"))
+        self.assertIn(("auth", "include system-auth"), lines)
+        self.assertNotIn("pam_deny.so", "".join(rest for _, rest in lines))
+        self.assertNotIn("faillock", "".join(rest for _, rest in lines).split("system-auth")[0])
+
+    def test_the_1password_policy_is_installed_with_the_account_named_by_the_installer(self):
+        sources = inventory.installer_sources((REPO / "scripts/install-system-config.sh").read_text())
+        policy = "/usr/share/polkit-1/actions/com.1password.1Password.policy"
+        self.assertEqual(sources["/etc/pam.d/polkit-1"]["source"], "system-config/pam.d/polkit-1")
+        self.assertEqual(sources[policy]["source"], "system-config/polkit-1/actions/com.1password.1Password.policy")
+        text = (REPO / sources[policy]["source"]).read_text()
+        for action in ["unlock", "authorizeCLI", "authorizeSshAgent"]:
+            self.assertIn(f'id="com.1password.1Password.{action}"', text)
+        self.assertEqual(text.count("unix-user:@USER@"), 2)
+        self.assertNotRegex(text, r"unix-user:(?!@USER@)")
+
+
 class InstallerTable(unittest.TestCase):
     def setUp(self):
         self.sources = inventory.installer_sources((REPO / "scripts/install-system-config.sh").read_text())

@@ -1,0 +1,16 @@
+#%PAM-1.0
+# /etc/pam.d/polkit-1 -- the stack behind every polkit "is this you?" prompt: 1Password's unlock, the
+# fingerprint daemon's own prompts, pkexec. Without this file polkit falls back to /etc/pam.d/other,
+# which denies everything, so no prompt could ever succeed.
+#
+# A finger first, then the password. pam_fprintd answers at once with "unavailable" when the machine has
+# no reader or the user has no enrolled print, and then the password stack below is all that runs, so
+# the same file is right for a machine without a reader. One wrong finger ends the fingerprint attempt
+# (max-tries=1) and the password prompt follows; timeout bounds how long a finger is waited for.
+# Deliberately no pam_faillock on the finger: a stranger's wrong finger must not lock the owner out, and
+# the password path below keeps its own failure tally (see ADR 0002 for the same reasoning at the lock).
+auth      sufficient  pam_fprintd.so timeout=10 max-tries=1
+auth      include     system-auth
+account   include     system-auth
+password  include     system-auth
+session   include     system-auth

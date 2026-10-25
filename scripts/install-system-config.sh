@@ -30,6 +30,8 @@ config_copies=(
     '1password/custom_allowed_browsers|/etc/1password/custom_allowed_browsers|0644'
     'nix/nix.conf|/etc/nix/nix.conf|0644'
     'pam.d/system-local-login|/etc/pam.d/system-local-login|0644'
+    'pam.d/polkit-1|/etc/pam.d/polkit-1|0644'
+    'polkit-1/actions/com.1password.1Password.policy|/usr/share/polkit-1/actions/com.1password.1Password.policy|0644'
     'systemd/system/update-nix-gl.service|/etc/systemd/system/update-nix-gl.service|0644'
     'tmpfiles.d/nix-pam-unix-chkpwd.conf|/etc/tmpfiles.d/nix-pam-unix-chkpwd.conf|0644'
     'tmpfiles.d/opengl-driver.conf|/etc/tmpfiles.d/opengl-driver.conf|0644'

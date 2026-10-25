@@ -49,6 +49,10 @@ ly was the display manager until the login screen replaced it. The tracked
 `pam.d/ly` is gone and nothing here installs, enables or removes the `ly`
 package; see "Login screen" below for how to go back.
 
+## Polkit and fingerprint prompts
+
+`pam.d/polkit-1` is the PAM stack behind polkit's "is this you?" prompts. Arch has no such file, so polkit used `pam.d/other`, which denies everything, and no prompt could succeed. The tracked stack asks `pam_fprintd` first (one finger, ten seconds) and then runs `system-auth` for the password, so a prompt takes a finger when the machine has a reader and an enrolled print and the password otherwise. `polkit-1/actions/com.1password.1Password.policy` defines the actions 1Password asks polkit to confirm (unlock with the system's authentication, the command line, the SSH agent); the Nix package cannot install it under `/usr/share`, and the installer fills in `@USER@` as it does elsewhere. `scripts/install-system-config.sh` installs both as root-owned copies. With 1Password's "Unlock using system authentication" on (Settings > Security), unlocking it takes a finger, and the SSH agent works again after a lock without typing the account password. The password is the fallback in the same prompt. The inventory covers `/etc` and `/usr/local`, so the policy under `/usr/share` is not in it.
+
 ## SSH for the mesh
 
 `ssh/sshd_config.d/10-dojo-mesh.conf` is not in `install-system-config.sh`'s table because only a machine that runs `sshd` and takes mesh members needs it. `scripts/install-mesh-sshd.sh` installs it (and an optional `ListenAddress` drop-in with `--listen ADDRESS`) as root-owned copies with timestamped backups, checks the result with `sshd -t` and reloads `sshd` without dropping open sessions; it undoes the change if `sshd` rejects it. It refuses to run when the account has no authorized key, since passwords are then off, unless `--allow-no-keys` says another way in exists (Tailscale SSH, say). `scripts/check-mesh-sshd.sh HOST`, run from another machine, shows which methods the server offers and fails if passwords are among them.
