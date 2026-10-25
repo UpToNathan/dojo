@@ -30,25 +30,40 @@ esac
 
 type Seen = Arc<Mutex<Vec<String>>>;
 
-/// A Niri that lists `windows` and accepts every action, remembering each request.
+/// A Niri that lists `windows`, accepts every action and remembers each request. A spawn adds a
+/// window, as a program that starts would, unless the file `silent` exists next to the socket,
+/// which makes it behave like a locked Niri: it answers and does nothing.
 fn fake_niri(path: &Path, windows: &'static str) -> Seen {
     let listener = UnixListener::bind(path).unwrap();
+    let silent = path.with_file_name("silent");
     let seen: Seen = Arc::default();
     let record = seen.clone();
     std::thread::spawn(move || {
+        let mut listed: Vec<serde_json::Value> = serde_json::from_str(windows).unwrap();
         for stream in listener.incoming().flatten() {
             let mut line = String::new();
             if BufReader::new(&stream).read_line(&mut line).is_err() {
                 continue;
             }
             let line = line.trim().to_string();
-            let reply = if line == "\"Windows\"" { format!("{{\"Ok\":{{\"Windows\":{}}}}}", windows.replace('\n', " ")) } else { "{\"Ok\":\"Handled\"}".to_string() };
-            record.lock().unwrap().push(line);
+            let reply = if line == "\"Windows\"" {
+                record.lock().unwrap().push(line.clone());
+                format!("{{\"Ok\":{{\"Windows\":{}}}}}", serde_json::Value::Array(listed.clone()))
+            } else {
+                if line.contains("\"Spawn\"") && !silent.exists() {
+                    let id = 100 + listed.len();
+                    listed.push(serde_json::json!({"id": id, "title": "new", "app_id": "new", "pid": 1, "is_focused": true}));
+                }
+                record.lock().unwrap().push(line);
+                "{\"Ok\":\"Handled\"}".to_string()
+            };
             let _ = (&stream).write_all(format!("{reply}\n").as_bytes());
         }
     });
     seen
 }
+
+const FAKE_LOGINCTL: &str = "#!/bin/sh\ncase \"$1\" in\nshow-user) echo Display=c1 ;;\nshow-session) if [ -f \"$HOME/locked\" ]; then echo LockedHint=yes; else echo LockedHint=no; fi ;;\nesac\n";
 
 struct Site {
     root: PathBuf,
@@ -67,7 +82,8 @@ impl Site {
             std::fs::create_dir_all(root.join(dir)).unwrap();
         }
         std::fs::write(root.join("bin/tailscale"), FAKE_TAILSCALE).unwrap();
-        Command::new("chmod").arg("+x").arg(root.join("bin/tailscale")).status().unwrap();
+        std::fs::write(root.join("bin/loginctl"), FAKE_LOGINCTL).unwrap();
+        Command::new("chmod").arg("+x").arg(root.join("bin/tailscale")).arg(root.join("bin/loginctl")).status().unwrap();
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_dojo-mesh"), root.join("data/dojo/bin/dojo-mesh")).unwrap();
         std::fs::write(root.join("status.json"), STATUS).unwrap();
         std::fs::write(root.join("hosts/alpha/config/dojo/mesh.toml"), "membership-tag = \"tag:mesh\"\n").unwrap();
@@ -90,7 +106,9 @@ impl Site {
             .env("XDG_STATE_HOME", self.root.join("hosts/alpha/state"))
             .env("XDG_DATA_HOME", self.root.join("data"))
             .env("XDG_DATA_DIRS", self.root.join("hosts/alpha/share"))
-            .env("NIRI_SOCKET", self.root.join("hosts/alpha/niri.sock"));
+            .env("NIRI_SOCKET", self.root.join("hosts/alpha/niri.sock"))
+            .env("USER", "tester")
+            .env("DOJO_MESH_WINDOW_WAIT_MS", "600");
         command
     }
 
@@ -134,7 +152,8 @@ fn sending_opens_the_application_on_the_peer_then_closes_it_here() {
     assert_eq!(result.status.code(), Some(0), "{}", text(&result));
     assert!(text(&result).starts_with("Sent to beta."), "{}", text(&result));
     assert!(text(&result).contains("started fresh"), "{}", text(&result));
-    assert_eq!(Site::requests(&site.beta), [r#"{"Action":{"Spawn":{"command":["gtk-launch","org.example.App"]}}}"#]);
+    let beta: Vec<String> = Site::requests(&site.beta).into_iter().filter(|line| line != "\"Windows\"").collect();
+    assert_eq!(beta, [r#"{"Action":{"Spawn":{"command":["gtk-launch","org.example.App"]}}}"#]);
     assert_eq!(Site::requests(&site.alpha), ["\"Windows\"", r#"{"Action":{"CloseWindow":{"id":7}}}"#]);
     let audit = text(&site.run(&["audit"]));
     assert!(audit.contains("-> beta send window 7 (org.example.App)") && audit.contains("[exit 0]"), "{audit}");
@@ -148,7 +167,28 @@ fn a_peer_without_the_application_refuses_and_the_window_stays() {
     assert_eq!(result.status.code(), Some(1), "{}", text(&result));
     assert!(text(&result).contains("beta did not open it: this machine has no org.example.App application"), "{}", text(&result));
     assert_eq!(Site::requests(&site.alpha), ["\"Windows\""], "nothing was closed");
-    assert!(Site::requests(&site.beta).is_empty());
+    assert!(!Site::requests(&site.beta).iter().any(|line| line.contains("Spawn")));
+}
+
+#[test]
+fn a_locked_peer_refuses_and_the_window_stays() {
+    let site = Site::new();
+    std::fs::write(site.root.join("hosts/beta/home/locked"), "").unwrap();
+    let result = site.run(&["send", "--to", "beta"]);
+    assert_eq!(result.status.code(), Some(1), "{}", text(&result));
+    assert!(text(&result).contains("the screen is locked here"), "{}", text(&result));
+    assert!(!Site::requests(&site.beta).iter().any(|line| line.contains("Spawn")), "nothing was started");
+    assert_eq!(Site::requests(&site.alpha), ["\"Windows\""], "nothing was closed");
+}
+
+#[test]
+fn a_peer_that_starts_nothing_is_a_failure_and_the_window_stays() {
+    let site = Site::new();
+    std::fs::write(site.root.join("hosts/beta/silent"), "").unwrap();
+    let result = site.run(&["send", "--to", "beta"]);
+    assert_eq!(result.status.code(), Some(1), "{}", text(&result));
+    assert!(text(&result).contains("gtk-launch did not open a window"), "{}", text(&result));
+    assert_eq!(Site::requests(&site.alpha), ["\"Windows\""], "nothing was closed");
 }
 
 #[test]
@@ -189,7 +229,7 @@ fn receive_opens_known_things_and_reports_missing_files_without_opening() {
     assert_eq!(refused.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&refused.stdout).contains("not a handoff"));
 
-    let spawned = Site::requests(&site.alpha);
+    let spawned: Vec<String> = Site::requests(&site.alpha).into_iter().filter(|line| line.contains("Spawn")).collect();
     assert_eq!(spawned.len(), 1, "only the editor was opened: {spawned:?}");
     assert!(spawned[0].contains("\"nvim\",\"+call cursor(4, 2)\""), "{spawned:?}");
 }

@@ -159,6 +159,37 @@ fn print_outcome(json: bool, outcome: &Outcome) -> Result<(), Failure> {
     Ok(())
 }
 
+/// How long the receiver waits for the new window before calling the handoff failed.
+const WINDOW_WAIT: Duration = Duration::from_secs(10);
+
+/// Starts the command, then waits for a new window, because Niri accepts a request to start a
+/// program even when it then does nothing with it. A page opens as a tab in a browser that is
+/// already running, which makes no new window, so it is trusted to the browser.
+fn open(socket: &std::path::Path, handoff: &Handoff, command: &[String], notes: Vec<String>) -> Reply {
+    let before: Vec<u64> = match niri::windows(socket) {
+        Ok(windows) => windows.iter().map(|window| window.id).collect(),
+        Err(message) => return Reply::Refused { reason: message },
+    };
+    if let Err(message) = niri::spawn(socket, command) {
+        return Reply::Refused { reason: message };
+    }
+    if matches!(handoff, Handoff::Page { .. }) {
+        return Reply::Opened { notes };
+    }
+    // Tests shorten the wait; nothing else sets it.
+    let wait = std::env::var("DOJO_MESH_WINDOW_WAIT_MS").ok().and_then(|ms| ms.parse().ok()).map(Duration::from_millis).unwrap_or(WINDOW_WAIT);
+    let started = std::time::Instant::now();
+    while started.elapsed() < wait {
+        std::thread::sleep(Duration::from_millis(150));
+        if let Ok(windows) = niri::windows(socket)
+            && windows.iter().any(|window| !before.contains(&window.id))
+        {
+            return Reply::Opened { notes };
+        }
+    }
+    Reply::Refused { reason: format!("{} did not open a window within {} seconds", command[0], wait.as_secs()) }
+}
+
 /// The peer's side: read one handoff from stdin, open it in the operator's session, and answer.
 pub fn receive(rest: &[String]) -> Result<u8, Failure> {
     if !rest.is_empty() {
@@ -174,10 +205,8 @@ pub fn receive(rest: &[String]) -> Result<u8, Failure> {
                 Err(reply) => reply,
                 Ok((command, notes)) => match niri::socket() {
                     None => Reply::Refused { reason: "there is no desktop session on this machine".into() },
-                    Some(socket) => match niri::spawn(&socket, &command) {
-                        Ok(()) => Reply::Opened { notes },
-                        Err(message) => Reply::Refused { reason: message },
-                    },
+                    Some(_) if crate::session::locked() == Some(true) => Reply::Refused { reason: "the screen is locked here; unlock it, then send again".into() },
+                    Some(socket) => open(&socket, &handoff, &command, notes),
                 },
             }
         }
