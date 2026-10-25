@@ -243,6 +243,7 @@ class OnboardMesh(Host):
         self.mesh_calls = self.root / "mesh-calls"
         script(self.bin / "dojo-mesh", f'echo "$@" >> {self.mesh_calls}')
         script(self.bin / "ssh-add", "echo ssh-ed25519 AAAA key")
+        script(self.bin / "op", "true")
         script(self.bin / "tailscale", "echo 100.71.60.101")
         (self.ssh_dir / "ssh_host_ed25519_key.pub").write_text("ssh-ed25519 AAAAHOST host\n")
         self.env = {"DOJO_MESH": str(self.bin / "dojo-mesh"), "DOJO_HOST_KEY": str(self.ssh_dir / "ssh_host_ed25519_key.pub")}
@@ -292,6 +293,39 @@ class OnboardMesh(Host):
 
     def test_a_port_that_is_not_a_port_is_refused(self):
         self.assertEqual(self.onboard("--port", "70000").returncode, 2)
+
+
+class InstallOnePasswordCli(Host):
+    def setUp(self):
+        super().setUp()
+        self.source = self.root / "op-source"
+        script(self.source, 'echo "2.99.0"')
+        self.target = self.root / "usr-local-bin-op"
+
+    def install(self, *args):
+        return self.run_script("install-onepassword-cli.sh", *args, env={"DOJO_OP_TARGET": str(self.target)})
+
+    def test_it_installs_the_cli_with_the_setgid_bit_the_desktop_integration_needs(self):
+        result = self.install("--from", str(self.source))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(stat.S_IMODE(self.target.stat().st_mode), 0o2755)
+        self.assertIn("2.99.0", result.stdout)
+
+    def test_running_it_again_changes_nothing_and_a_different_one_is_kept_as_a_backup(self):
+        self.install("--from", str(self.source))
+        again = self.install("--from", str(self.source))
+        self.assertIn("already installed", again.stdout)
+        script(self.source, 'echo "3.0.0"')
+        newer = self.install("--from", str(self.source))
+        self.assertEqual(newer.returncode, 0, newer.stderr)
+        self.assertEqual(len(list(self.root.glob("usr-local-bin-op.backup-*"))), 1)
+        self.assertIn("3.0.0", newer.stdout)
+
+    def test_without_a_binary_to_install_it_says_so(self):
+        result = self.run_script("install-onepassword-cli.sh", env={"DOJO_OP_TARGET": str(self.target), "HOME": str(self.root / "nowhere")})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("--from", result.stderr)
+        self.assertFalse(self.target.exists())
 
 
 if __name__ == "__main__":

@@ -66,6 +66,8 @@ dojo_mesh=${DOJO_MESH:-${XDG_DATA_HOME:-$HOME/.local/share}/dojo/bin/dojo-mesh}
 [[ -x $dojo_mesh ]] || dojo_mesh=$(command -v dojo-mesh || true)
 [[ -x $dojo_mesh ]] || { echo 'dojo-mesh is not installed: run scripts/install-helpers.sh first.' >&2; exit 1; }
 
+command -v op >/dev/null 2>&1 || { echo "1Password's command line (op) is not installed: run scripts/install-onepassword-cli.sh, then this again." >&2; exit 1; }
+
 # Keys are made in 1Password and used through its SSH agent, so it has to be ready before anything is changed.
 agent=${DOJO_AGENT_SOCKET:-$HOME/.1password/agent.sock}
 if ! SSH_AUTH_SOCK=$agent ssh-add -L >/dev/null 2>&1; then
