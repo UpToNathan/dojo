@@ -113,8 +113,24 @@ Another node in the same mesh, as seen from one node.
 _Avoid_: Remote, host
 
 **Membership method**:
-A way of finding candidate nodes, deciding which belong to the mesh and knowing which node is which. Tailscale tag membership is the first.
+A way of finding candidate nodes, deciding which belong to the mesh and knowing which node is which. Tailscale tag membership is the first; a signed roster is the second.
 _Avoid_: Discovery (only one part of it), provider
+
+**Roster**:
+The signed list of a mesh's members: each one's name, node key, host key and expiry, plus the operator signing keys and revocations. A node trusts only entries signed by a signing key it holds.
+_Avoid_: Registry, directory
+
+**Operator signing key**:
+The key, normally on a YubiKey, whose signature makes a roster entry count. It is used to enroll, renew, rotate and revoke, never for ordinary connections.
+_Avoid_: Admin key, root key
+
+**Node key**:
+The key a node uses to prove itself to peers. It is held in 1Password's SSH agent, not on disk.
+_Avoid_: Machine key, host key (that one identifies the SSH server)
+
+**Route**:
+How one node reaches a peer: an address and port, or a command that opens the connection.
+_Avoid_: Address (it may be a command), link
 
 **Membership tag**:
 The Tailscale tag that marks a device as a candidate node. Each mesh chooses its own.
