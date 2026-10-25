@@ -62,8 +62,8 @@ ask() { # ask PROMPT DEFAULT -> the answer
     printf '%s' "${answer:-$2}"
 }
 
-dojo_mesh=${DOJO_MESH:-$(command -v dojo-mesh || true)}
-[[ -x $dojo_mesh ]] || dojo_mesh=$HOME/.local/bin/dojo-mesh
+dojo_mesh=${DOJO_MESH:-${XDG_DATA_HOME:-$HOME/.local/share}/dojo/bin/dojo-mesh}
+[[ -x $dojo_mesh ]] || dojo_mesh=$(command -v dojo-mesh || true)
 [[ -x $dojo_mesh ]] || { echo 'dojo-mesh is not installed: run scripts/install-helpers.sh first.' >&2; exit 1; }
 
 # Keys are made in 1Password and used through its SSH agent, so it has to be ready before anything is changed.
