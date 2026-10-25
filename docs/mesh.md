@@ -48,6 +48,17 @@ public-key-file = "~/.config/dojo/nix-cache/public-key"
 [capability.voice-agent]
 command = "/path/to/dojo-voice"      # what `dojo-mesh task` runs here, with `send TEXT`
 
+# Screen edges joined to a peer's. Both nodes declare the matching boundary and accept the other's
+# input; `dojo-mesh doctor` says what is missing. Outputs are the compositor's names (`niri msg outputs`).
+accept-input = ["laptop"]
+
+[[boundary]]
+output = "eDP-1"
+edge = "right"                       # left, right, top or bottom
+peer = "laptop"
+peer-output = "DP-1"
+peer-edge = "left"
+
 # Only for the operator-only commands. These name where the credential is; they never hold it.
 # A reference is env:NAME, file:/absolute/path or op://vault/item/field (1Password).
 [control-plane]
@@ -73,6 +84,10 @@ Every call is appended to `$XDG_STATE_HOME/dojo/mesh/audit.jsonl` before it star
 
 `find` asks each online peer to `describe` itself (by running `dojo-mesh describe` there), so a peer needs `dojo-mesh` installed in `~/.local/share/dojo/bin`. A peer that cannot be asked is reported, not guessed. The Nix cache is the first consumer: see [nix-cache.md](nix-cache.md).
 
+## Boundaries
+
+A boundary joins an edge of one of this node's outputs to an edge of a peer's output (see [the mesh-boundaries spec](../.scratch/mesh-boundaries/spec.md)). It is configuration only so far: `doctor` checks both ends, and `describe` publishes this node's outputs, boundaries and `accept-input` so a peer can check. Nothing crosses the edge yet.
+
 ## The agent
 
 When `dojo-mesh` is installed, the agent has `mesh_status`, `mesh_find`, `mesh_exec`, `mesh_copy` and `mesh_task`, which call it as the agent. It has no tool to pause or resume peer access, enrol a node or change the policy. See "Other Dojo nodes" in `tools/speech/assistant.md`.
@@ -91,6 +106,7 @@ Credentials are read from their reference for the one command and given to `curl
 - a peer is admitted by the allow list only, not by the tag (warning)
 - an allow or deny entry matches no device (warning)
 - no tag or allow list is configured, or the network cannot be read (warning)
+- a boundary names an output a node does not have, a peer that is not in the mesh, a peer that does not declare the matching boundary back, or input that either end does not accept (problem); a boundary whose peer is offline or cannot be asked is a warning, since the other end was not checked
 
 Tailscale does not report peers' client versions, so version drift is not checked.
 

@@ -8,7 +8,7 @@
 use crate::audit::{self, Entry};
 use crate::capability::{self, Answer, Description};
 use crate::config::{MeshConfig, default_path};
-use crate::doctor::{Severity, diagnose};
+use crate::doctor::{PeerState, PeerView, Severity, diagnose, diagnose_boundaries};
 use crate::roster::Roster;
 use crate::ssh::{self, Call, Done, Ended, Input, Output};
 use crate::transport::{self, Origin, Provenance, Refusal};
@@ -182,7 +182,11 @@ pub fn run(env: &Env, args: &[String]) -> Result<u8, Failure> {
             let (words, _) = split(rest, &["--json"], &[])?;
             let config = load_config(env)?;
             let roster = load_roster(env, &config);
-            let findings = diagnose(&roster, &config, Utc::now());
+            let mut findings = diagnose(&roster, &config, Utc::now());
+            if !config.boundaries.is_empty() {
+                let views = peer_views(env, &roster, &config);
+                findings.extend(diagnose_boundaries(roster.this(), &config, crate::outputs::read().as_deref(), &views));
+            }
             if has(&words, "--json") {
                 println!("{}", json(&findings)?);
             } else {
@@ -218,7 +222,38 @@ pub fn run(env: &Env, args: &[String]) -> Result<u8, Failure> {
 }
 
 fn describe_here(env: &Env, config: &MeshConfig, name: &str) -> Description {
-    capability::describe(name, &config.capabilities, env.home.as_deref(), |path| std::fs::read_to_string(path).ok())
+    let mut description = capability::describe(name, &config.capabilities, env.home.as_deref(), |path| std::fs::read_to_string(path).ok());
+    description.outputs = crate::outputs::read();
+    description.boundaries = config.boundaries.clone();
+    description.accept_input = config.accept_input.clone();
+    description
+}
+
+/// What each boundary's peer says about its end, asked in parallel.
+fn peer_views(env: &Env, roster: &Roster, config: &MeshConfig) -> Vec<PeerView> {
+    let mut names: Vec<&str> = config.boundaries.iter().map(|boundary| boundary.peer.as_str()).collect();
+    names.sort_unstable();
+    names.dedup();
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = names
+            .iter()
+            .map(|name| {
+                scope.spawn(move || {
+                    let state = match transport::resolve(roster, name) {
+                        Ok(_) => match probe(env, roster, name) {
+                            Ok(description) => PeerState::Described(description),
+                            Err(failure) => PeerState::Unreadable(failure.message),
+                        },
+                        Err(Refusal::Offline(_)) => PeerState::Offline,
+                        Err(Refusal::NotMember(_)) | Err(Refusal::ThisNode) => PeerState::NotMember,
+                        Err(why) => PeerState::Unreadable(why.to_string()),
+                    };
+                    PeerView { name: (*name).to_string(), state }
+                })
+            })
+            .collect();
+        handles.into_iter().map(|handle| handle.join().expect("peer check thread")).collect()
+    })
 }
 
 fn audit_command(env: &Env, rest: &[String]) -> Result<u8, Failure> {

@@ -1,4 +1,6 @@
-use crate::config::MeshConfig;
+use crate::capability::Description;
+use crate::config::{Boundary, MeshConfig, name_key};
+use crate::device::Device;
 use crate::roster::{Admission, Roster, Source};
 use chrono::{DateTime, Duration, Utc};
 use serde::Serialize;
@@ -72,6 +74,77 @@ pub fn diagnose(roster: &Roster, config: &MeshConfig, now: DateTime<Utc>) -> Vec
             let seen = roster.members.iter().map(|m| &m.device).chain(roster.excluded.iter().map(|e| &e.device)).any(|d| d.answers_to(entry));
             if !seen {
                 findings.push(finding(Severity::Warning, Some(entry), format!("Listed in {list}, but no device by that name is on the network.")));
+            }
+        }
+    }
+    findings
+}
+
+/// What is known about the peer at the other end of a boundary.
+pub enum PeerState {
+    NotMember,
+    Offline,
+    /// It is a member and online but could not be asked.
+    Unreadable(String),
+    Described(Description),
+}
+
+pub struct PeerView {
+    /// The peer as the boundary names it.
+    pub name: String,
+    pub state: PeerState,
+}
+
+fn first_label(name: &str) -> &str {
+    name.split('.').next().unwrap_or(name)
+}
+
+fn same_node(a: &str, b: &str) -> bool {
+    let (a, b) = (name_key(a), name_key(b));
+    a == b || first_label(&a) == first_label(&b)
+}
+
+fn matches_back(theirs: &Boundary, ours: &Boundary, this: &Device) -> bool {
+    this.answers_to(&theirs.peer) && theirs.output == ours.peer_output && theirs.edge == ours.peer_edge && theirs.peer_output == ours.output && theirs.peer_edge == ours.edge
+}
+
+/// What is wrong with the configured boundaries: outputs that do not exist, a peer that does not
+/// declare the boundary back, or input that one side does not accept. A boundary needs both ends,
+/// so the peer's own description is part of the answer. `outputs` is this node's, when known.
+pub fn diagnose_boundaries(this: &Device, config: &MeshConfig, outputs: Option<&[String]>, peers: &[PeerView]) -> Vec<Finding> {
+    let mut findings: Vec<Finding> = Vec::new();
+    let mut add = |finding: Finding| {
+        if !findings.contains(&finding) {
+            findings.push(finding);
+        }
+    };
+    for boundary in &config.boundaries {
+        let label = format!("Boundary {} {} to {}", boundary.output, boundary.edge.as_str(), boundary.peer);
+        if outputs.is_some_and(|outputs| !outputs.contains(&boundary.output)) {
+            add(finding(Severity::Problem, Some(&this.name), format!("{label}: this node has no output {}.", boundary.output)));
+        }
+        if !config.accept_input.iter().any(|accepted| same_node(accepted, &boundary.peer)) {
+            add(finding(Severity::Problem, Some(&this.name), format!("{label}: this node does not accept input from {}; add it to accept-input.", boundary.peer)));
+        }
+        let Some(view) = peers.iter().find(|view| same_node(&view.name, &boundary.peer)) else { continue };
+        match &view.state {
+            PeerState::NotMember => add(finding(Severity::Problem, Some(&boundary.peer), format!("{label}: {} is not a member of this mesh, so the boundary cannot work.", boundary.peer))),
+            PeerState::Offline => add(finding(Severity::Warning, Some(&boundary.peer), format!("{label}: offline, so the other end was not checked."))),
+            PeerState::Unreadable(why) => add(finding(Severity::Warning, Some(&boundary.peer), format!("{label}: the other end could not be checked ({why})."))),
+            PeerState::Described(theirs) => {
+                if theirs.outputs.as_ref().is_some_and(|outputs| !outputs.contains(&boundary.peer_output)) {
+                    add(finding(Severity::Problem, Some(&boundary.peer), format!("{label}: {} has no output {}.", boundary.peer, boundary.peer_output)));
+                }
+                if !theirs.boundaries.iter().any(|back| matches_back(back, boundary, this)) {
+                    add(finding(
+                        Severity::Problem,
+                        Some(&boundary.peer),
+                        format!("{label}: {} does not declare the matching boundary back (output {}, edge {}, peer {}, peer-output {}, peer-edge {}).", boundary.peer, boundary.peer_output, boundary.peer_edge.as_str(), this.name, boundary.output, boundary.edge.as_str()),
+                    ));
+                }
+                if !theirs.accept_input.iter().any(|accepted| this.answers_to(accepted)) {
+                    add(finding(Severity::Problem, Some(&boundary.peer), format!("{label}: {} does not accept input from this node.", boundary.peer)));
+                }
             }
         }
     }
@@ -160,5 +233,105 @@ mod tests {
         assert!(found.iter().any(|m| m.contains("odd") && m.contains("allow list only")));
         assert!(found.iter().any(|m| m.contains("ghost") && m.contains("Listed in allow")));
         assert!(found.iter().any(|m| m.contains("phantom") && m.contains("Listed in deny")));
+    }
+
+    mod boundaries {
+        use super::*;
+        use crate::config::Edge;
+
+        fn this() -> Device {
+            device("alpha", &[], true)
+        }
+
+        fn config(accept: &str) -> MeshConfig {
+            MeshConfig::parse(&format!(
+                "accept-input = [{accept}]\n[[boundary]]\noutput = \"eDP-1\"\nedge = \"right\"\npeer = \"beta\"\npeer-output = \"DP-1\"\npeer-edge = \"left\"\n"
+            ))
+            .unwrap()
+        }
+
+        fn back() -> Boundary {
+            Boundary { output: "DP-1".into(), edge: Edge::Left, peer: "alpha".into(), peer_output: "eDP-1".into(), peer_edge: Edge::Right }
+        }
+
+        fn described(boundaries: Vec<Boundary>, accept: &[&str], outputs: Option<&[&str]>) -> PeerView {
+            PeerView {
+                name: "beta".into(),
+                state: PeerState::Described(Description {
+                    node: "beta".into(),
+                    boundaries,
+                    accept_input: accept.iter().map(|a| a.to_string()).collect(),
+                    outputs: outputs.map(|o| o.iter().map(|n| n.to_string()).collect()),
+                    ..Description::default()
+                }),
+            }
+        }
+
+        fn found(findings: &[Finding]) -> Vec<String> {
+            findings.iter().map(|f| format!("{:?} {}", f.severity, f.message)).collect()
+        }
+
+        #[test]
+        fn matching_boundaries_accepted_both_ways_are_clean() {
+            let peer = described(vec![back()], &["alpha"], Some(&["DP-1"]));
+            let outputs = vec!["eDP-1".to_string()];
+            assert_eq!(diagnose_boundaries(&this(), &config("\"beta\""), Some(&outputs), &[peer]), []);
+        }
+
+        #[test]
+        fn a_one_sided_boundary_says_what_the_peer_must_declare() {
+            let peer = described(vec![], &["alpha"], None);
+            let found = found(&diagnose_boundaries(&this(), &config("\"beta\""), None, &[peer]));
+            assert_eq!(found.len(), 1, "{found:?}");
+            assert!(found[0].starts_with("Problem") && found[0].contains("does not declare the matching boundary back"), "{found:?}");
+            assert!(found[0].contains("output DP-1, edge left, peer alpha, peer-output eDP-1, peer-edge right"), "{found:?}");
+        }
+
+        #[test]
+        fn a_back_boundary_for_different_edges_does_not_count() {
+            let mut wrong = back();
+            wrong.peer_edge = Edge::Top;
+            let peer = described(vec![wrong], &["alpha"], None);
+            assert!(found(&diagnose_boundaries(&this(), &config("\"beta\""), None, &[peer])).iter().any(|m| m.contains("matching boundary back")));
+        }
+
+        #[test]
+        fn input_must_be_accepted_at_both_ends() {
+            let peer = described(vec![back()], &[], None);
+            let found = found(&diagnose_boundaries(&this(), &config(""), None, &[peer]));
+            assert_eq!(found.len(), 2, "{found:?}");
+            assert!(found.iter().any(|m| m.contains("this node does not accept input from beta")));
+            assert!(found.iter().any(|m| m.contains("beta does not accept input from this node")));
+        }
+
+        #[test]
+        fn accept_input_matches_a_full_network_name() {
+            let peer = described(vec![back()], &["alpha.example.ts.net"], None);
+            assert_eq!(diagnose_boundaries(&this(), &config("\"beta.example.ts.net\""), None, &[peer]), []);
+        }
+
+        #[test]
+        fn unknown_outputs_are_problems_when_the_outputs_are_known() {
+            let peer = described(vec![back()], &["alpha"], Some(&["HDMI-A-1"]));
+            let outputs = vec!["DP-9".to_string()];
+            let found = found(&diagnose_boundaries(&this(), &config("\"beta\""), Some(&outputs), &[peer]));
+            assert!(found.iter().any(|m| m.contains("this node has no output eDP-1")), "{found:?}");
+            assert!(found.iter().any(|m| m.contains("beta has no output DP-1")), "{found:?}");
+        }
+
+        #[test]
+        fn a_peer_that_cannot_be_checked_is_a_warning_and_a_stranger_is_a_problem() {
+            let cfg = config("\"beta\"");
+            for (state, severity) in [(PeerState::Offline, "Warning"), (PeerState::Unreadable("timed out".into()), "Warning"), (PeerState::NotMember, "Problem")] {
+                let found = found(&diagnose_boundaries(&this(), &cfg, None, &[PeerView { name: "beta".into(), state }]));
+                assert_eq!(found.len(), 1, "{found:?}");
+                assert!(found[0].starts_with(severity), "{found:?}");
+            }
+        }
+
+        #[test]
+        fn no_boundaries_means_nothing_to_report() {
+            assert_eq!(diagnose_boundaries(&this(), &MeshConfig::default(), None, &[]), []);
+        }
     }
 }

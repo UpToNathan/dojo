@@ -19,6 +19,8 @@ const STATUS: &str = r#"{
   }
 }"#;
 
+const FAKE_NIRI: &str = "#!/bin/sh\ncat \"$HOME/outputs.json\" 2>/dev/null || exit 1\n";
+
 const FAKE_TAILSCALE: &str = r#"#!/bin/sh
 case "$1" in
 status) cat "$FAKE_ROOT/status.json" ;;
@@ -48,6 +50,8 @@ impl Site {
         for dir in ["bin", "data/dojo/bin", "hosts/alpha/home", "hosts/alpha/config/dojo", "hosts/beta/home", "hosts/beta/config/dojo", "hosts/alpha/state"] {
             std::fs::create_dir_all(root.join(dir)).unwrap();
         }
+        std::fs::write(root.join("bin/niri"), FAKE_NIRI).unwrap();
+        std::process::Command::new("chmod").arg("+x").arg(root.join("bin/niri")).status().unwrap();
         let tailscale = root.join("bin/tailscale");
         std::fs::write(&tailscale, FAKE_TAILSCALE).unwrap();
         std::process::Command::new("chmod").arg("+x").arg(&tailscale).status().unwrap();
@@ -349,4 +353,59 @@ fn task_text_that_looks_like_an_option_is_still_text() {
     let result = site.run(&["task", "beta", "--", "--help", "me"]);
     assert_eq!(code(&result), 0, "{}", err(&result));
     assert_eq!(std::fs::read_to_string(&record).unwrap(), "--help me");
+}
+
+const ALPHA_TO_BETA: &str = "membership-tag = \"tag:mesh\"\naccept-input = [\"beta\"]\n[[boundary]]\noutput = \"eDP-1\"\nedge = \"right\"\npeer = \"beta\"\npeer-output = \"DP-1\"\npeer-edge = \"left\"\n";
+const BETA_TO_ALPHA: &str = "accept-input = [\"alpha\"]\n[[boundary]]\noutput = \"DP-1\"\nedge = \"left\"\npeer = \"alpha\"\npeer-output = \"eDP-1\"\npeer-edge = \"right\"\n";
+
+#[test]
+fn describe_publishes_boundaries_accepted_peers_and_outputs() {
+    let site = Site::new();
+    site.config("alpha", ALPHA_TO_BETA);
+    std::fs::write(site.path("hosts/alpha/home/outputs.json"), "{\"eDP-1\": {}}").unwrap();
+    let value: serde_json::Value = serde_json::from_str(&out(&site.run(&["describe"]))).unwrap();
+    assert_eq!(value["outputs"], serde_json::json!(["eDP-1"]));
+    assert_eq!(value["accept_input"], serde_json::json!(["beta"]));
+    assert_eq!(value["boundaries"][0]["edge"], "right");
+    assert_eq!(value["boundaries"][0]["peer_output"], "DP-1");
+}
+
+#[test]
+fn doctor_passes_boundaries_declared_at_both_ends() {
+    let site = Site::new();
+    site.config("alpha", ALPHA_TO_BETA);
+    site.config("beta", BETA_TO_ALPHA);
+    std::fs::write(site.path("hosts/alpha/home/outputs.json"), "{\"eDP-1\": {}}").unwrap();
+    std::fs::write(site.path("hosts/beta/home/outputs.json"), "{\"DP-1\": {}}").unwrap();
+    let result = site.run(&["doctor"]);
+    assert_eq!(code(&result), 0, "{}{}", out(&result), err(&result));
+    assert!(!out(&result).contains("Boundary"), "{}", out(&result));
+}
+
+#[test]
+fn doctor_names_what_the_peer_still_has_to_declare() {
+    let site = Site::new();
+    site.config("alpha", ALPHA_TO_BETA);
+    let result = site.run(&["doctor"]);
+    assert_eq!(code(&result), 1, "{}", out(&result));
+    assert!(out(&result).contains("beta does not declare the matching boundary back"), "{}", out(&result));
+    assert!(out(&result).contains("beta does not accept input from this node"), "{}", out(&result));
+}
+
+#[test]
+fn doctor_reports_a_boundary_to_an_offline_peer_as_unchecked_not_broken() {
+    let site = Site::new();
+    site.config("alpha", &ALPHA_TO_BETA.replace("beta", "gone"));
+    let result = site.run(&["doctor"]);
+    assert_eq!(code(&result), 0, "{}", out(&result));
+    assert!(out(&result).contains("warning: gone: Boundary eDP-1 right to gone: offline"), "{}", out(&result));
+}
+
+#[test]
+fn doctor_flags_a_boundary_to_a_device_outside_the_mesh() {
+    let site = Site::new();
+    site.config("alpha", &ALPHA_TO_BETA.replace("beta", "stranger"));
+    let result = site.run(&["doctor"]);
+    assert_eq!(code(&result), 1);
+    assert!(out(&result).contains("stranger is not a member of this mesh"), "{}", out(&result));
 }

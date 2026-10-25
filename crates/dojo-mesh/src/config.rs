@@ -17,8 +17,53 @@ pub struct MeshConfig {
     /// Devices refused whether or not they carry the tag. Wins over `allow`.
     pub deny: Vec<String>,
     pub capabilities: Capabilities,
+    /// Screen edges joined to a peer's, for remote input and sending windows.
+    pub boundaries: Vec<Boundary>,
+    /// Peers whose remote input this node accepts. Normalised names.
+    pub accept_input: Vec<String>,
     /// Where to reach the network's control plane, for the operator-only commands. Never holds a secret itself.
     pub control_plane: Option<ControlPlane>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Edge {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+impl Edge {
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "left" => Some(Self::Left),
+            "right" => Some(Self::Right),
+            "top" => Some(Self::Top),
+            "bottom" => Some(Self::Bottom),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::Top => "top",
+            Self::Bottom => "bottom",
+        }
+    }
+}
+
+/// One edge of one of this node's outputs, joined to an edge of a peer's output.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct Boundary {
+    pub output: String,
+    pub edge: Edge,
+    /// The peer, as a normalised name.
+    pub peer: String,
+    pub peer_output: String,
+    pub peer_edge: Edge,
 }
 
 /// Where a secret lives. The configuration only ever names it.
@@ -94,7 +139,21 @@ struct Raw {
     deny: Vec<String>,
     #[serde(default)]
     capability: BTreeMap<String, BTreeMap<String, toml::Value>>,
+    #[serde(default)]
+    boundary: Vec<RawBoundary>,
+    #[serde(default)]
+    accept_input: Vec<String>,
     control_plane: Option<RawControlPlane>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+struct RawBoundary {
+    output: String,
+    edge: String,
+    peer: String,
+    peer_output: String,
+    peer_edge: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -129,8 +188,10 @@ impl MeshConfig {
             return Err(ConfigError::Invalid(format!("{both:?} is listed in both allow and deny")));
         }
         let capabilities = capabilities(raw.capability)?;
+        let boundaries = boundaries(raw.boundary)?;
+        let accept_input = names("accept-input", &raw.accept_input)?;
         let control_plane = raw.control_plane.map(control_plane).transpose()?;
-        Ok(Self { membership_tag, allow, deny, capabilities, control_plane })
+        Ok(Self { membership_tag, allow, deny, capabilities, boundaries, accept_input, control_plane })
     }
 
     /// Loads the file at `path`. A missing file is the empty configuration, a mesh of one.
@@ -171,6 +232,24 @@ fn capabilities(raw: BTreeMap<String, BTreeMap<String, toml::Value>>) -> Result<
             values.insert(attribute, text);
         }
         out.insert(name, values);
+    }
+    Ok(out)
+}
+
+fn boundaries(raw: Vec<RawBoundary>) -> Result<Vec<Boundary>, ConfigError> {
+    let mut out: Vec<Boundary> = Vec::new();
+    for entry in raw {
+        let invalid = |reason: String| ConfigError::Invalid(format!("boundary on {} {}: {reason}", entry.output, entry.edge));
+        let edge = Edge::parse(&entry.edge).ok_or_else(|| invalid(format!("edge must be left, right, top or bottom, not {:?}", entry.edge)))?;
+        let peer_edge = Edge::parse(&entry.peer_edge).ok_or_else(|| invalid(format!("peer-edge must be left, right, top or bottom, not {:?}", entry.peer_edge)))?;
+        let peer = name_key(&entry.peer);
+        if peer.is_empty() || entry.output.trim().is_empty() || entry.peer_output.trim().is_empty() {
+            return Err(invalid("output, peer and peer-output must not be empty".into()));
+        }
+        if out.iter().any(|existing| existing.output == entry.output && existing.edge == edge) {
+            return Err(invalid("that edge already has a boundary".into()));
+        }
+        out.push(Boundary { output: entry.output, edge, peer, peer_output: entry.peer_output, peer_edge });
     }
     Ok(out)
 }
@@ -331,6 +410,38 @@ mod tests {
             "[control-plane]\ntailnet = \"a/b\"\napi-token = \"env:T\"",
         ] {
             assert!(matches!(MeshConfig::parse(text), Err(ConfigError::Invalid(_))), "{text}");
+        }
+    }
+
+    #[test]
+    fn reads_boundaries_and_the_peers_whose_input_is_accepted() {
+        let config = MeshConfig::parse(
+            "accept-input = [\"Beta\", \"gamma.example.ts.net.\"]\n\n[[boundary]]\noutput = \"eDP-1\"\nedge = \"right\"\npeer = \"BETA\"\npeer-output = \"DP-2\"\npeer-edge = \"left\"\n\n[[boundary]]\noutput = \"eDP-1\"\nedge = \"top\"\npeer = \"gamma\"\npeer-output = \"HDMI-A-1\"\npeer-edge = \"bottom\"\n",
+        )
+        .unwrap();
+        assert_eq!(config.accept_input, ["beta", "gamma.example.ts.net"]);
+        assert_eq!(
+            config.boundaries[0],
+            Boundary { output: "eDP-1".into(), edge: Edge::Right, peer: "beta".into(), peer_output: "DP-2".into(), peer_edge: Edge::Left }
+        );
+        assert_eq!(config.boundaries[1].edge, Edge::Top);
+        assert!(MeshConfig::default().boundaries.is_empty() && MeshConfig::default().accept_input.is_empty());
+    }
+
+    #[test]
+    fn rejects_malformed_boundaries() {
+        let base = |extra: &str| format!("[[boundary]]\noutput = \"o\"\nedge = \"right\"\npeer = \"p\"\npeer-output = \"q\"\npeer-edge = \"left\"\n{extra}");
+        assert!(MeshConfig::parse(&base("")).is_ok());
+        for text in [
+            base("[[boundary]]\noutput = \"o\"\nedge = \"right\"\npeer = \"other\"\npeer-output = \"q\"\npeer-edge = \"left\"\n"),
+            base("").replace("\"right\"", "\"middle\""),
+            base("").replace("peer-edge = \"left\"", "peer-edge = \"sideways\""),
+            base("").replace("peer = \"p\"", "peer = \" \""),
+            base("").replace("output = \"o\"", "output = \"\""),
+            base("extra = 1"),
+            "[[boundary]]\noutput = \"o\"".to_string(),
+        ] {
+            assert!(MeshConfig::parse(&text).is_err(), "{text}");
         }
     }
 
