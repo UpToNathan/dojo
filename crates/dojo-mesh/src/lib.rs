@@ -4,9 +4,16 @@
 //! or processes. `tailscale` is the one adapter that turns the local Tailscale client's report into
 //! devices. A node that cannot see any network is a mesh of one, which is a valid result everywhere.
 
+pub mod audit;
+pub mod cli;
+pub mod capability;
 pub mod config;
+pub mod control_cli;
 pub mod device;
 pub mod doctor;
+pub mod guard;
 pub mod roster;
+pub mod ssh;
 pub mod tailscale;
+pub mod transport;
 pub mod report;
