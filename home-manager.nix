@@ -621,7 +621,16 @@ in
           window_padding_width = "3 8";
           # launch --location=vsplit/hsplit only applies in Kitty's splits layout.
           enabled_layouts = "splits";
+          # Remote control only with a password, from the socket and the terminal alike, so nothing
+          # running inside kitty (or reaching it over SSH) can drive it. Dojo's own password, written
+          # by the activation below and limited to `ls`, lets it read a window's directory and
+          # program to send the window to another machine (docs/mesh.md). The socket is private.
+          allow_remote_control = "password";
+          listen_on = "unix:\${XDG_RUNTIME_DIR}/kitty-{kitty_pid}.sock";
         };
+        extraConfig = ''
+          include dojo-remote-control.conf
+        '';
         shellIntegration.mode = "enabled";
         keybindings = {
           "f9" = "load_config_file";
@@ -713,6 +722,16 @@ in
         exec ${root}/tools/speech/dojo-voice "$@"
       '';
       xdg.configFile."systemd/user/wayland-wm@niri\\x2dsession.service.d/90-dojo-niri.conf".source = ./session-config/90-dojo-niri.conf;
+      # Dojo's kitty remote-control password: per machine, outside the Nix store, readable by the
+      # user only, and allowed nothing but `ls`. Made once; delete the file to make a new one.
+      home.activation.dojoKittyRemoteControl = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        file="${config.xdg.configHome}/kitty/dojo-remote-control.conf"
+        if [ ! -s "$file" ]; then
+          run mkdir -p "$(dirname "$file")"
+          secret=$(${pkgs.coreutils}/bin/head -c 32 /dev/urandom | ${pkgs.coreutils}/bin/base64 | ${pkgs.coreutils}/bin/tr -dc 'A-Za-z0-9')
+          (umask 077; printf 'remote_control_password "%s" ls\n' "$secret" > "$file.new") && run mv -f "$file.new" "$file"
+        fi
+      '';
       wayland.windowManager.niri = {
         enable = true;
         checkConfig = false;

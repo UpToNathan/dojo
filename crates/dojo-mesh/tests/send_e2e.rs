@@ -193,3 +193,16 @@ fn receive_opens_known_things_and_reports_missing_files_without_opening() {
     assert_eq!(spawned.len(), 1, "only the editor was opened: {spawned:?}");
     assert!(spawned[0].contains("\"nvim\",\"+call cursor(4, 2)\""), "{spawned:?}");
 }
+
+#[test]
+fn a_dry_run_says_what_would_be_sent_without_calling_anyone() {
+    let site = Site::new();
+    let result = site.run(&["send", "--dry-run", "--json"]);
+    assert_eq!(result.status.code(), Some(0), "{}", text(&result));
+    let value: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(value["window"], 7);
+    assert_eq!(value["handoff"]["kind"], "relaunch");
+    assert!(value["notes"][0].as_str().unwrap().contains("started fresh"));
+    assert!(Site::requests(&site.beta).is_empty());
+    assert_eq!(Site::requests(&site.alpha), ["\"Windows\""], "nothing was closed");
+}

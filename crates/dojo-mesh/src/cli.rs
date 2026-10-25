@@ -36,7 +36,7 @@ usage: dojo-mesh [--config PATH] <command>
   cp SRC DST                       copy one file; exactly one side is PEER:PATH
   task PEER TEXT...                give a peer's agent a task
   windows [--json]                 this node's windows
-  send [--window ID] --to PEER [--copy-missing] [--json]
+  send [--window ID] (--to PEER | --dry-run) [--copy-missing] [--json]
                                    open a window on a peer and close it here (exit 5: files missing there)
   pause | resume                   switch the agent's peer access off or on
   audit [--last N] [--json]        what this node has sent to peers

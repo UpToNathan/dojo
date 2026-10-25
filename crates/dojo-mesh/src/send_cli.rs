@@ -44,7 +44,7 @@ enum Outcome {
 pub fn send(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     let mut window_id: Option<u64> = None;
     let mut peer: Option<String> = None;
-    let (mut copy_missing, mut json) = (false, false);
+    let (mut copy_missing, mut json, mut dry_run) = (false, false, false);
     let mut args = rest.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -55,10 +55,13 @@ pub fn send(env: &Env, rest: &[String]) -> Result<u8, Failure> {
             "--to" => peer = Some(args.next().ok_or_else(|| fail(USAGE_ERROR, "--to needs a peer"))?.clone()),
             "--copy-missing" => copy_missing = true,
             "--json" => json = true,
-            other => return Err(fail(USAGE_ERROR, format!("unknown option {other}; usage: dojo-mesh send [--window ID] --to PEER [--copy-missing] [--json]"))),
+            "--dry-run" => dry_run = true,
+            other => return Err(fail(USAGE_ERROR, format!("unknown option {other}; usage: dojo-mesh send [--window ID] (--to PEER | --dry-run) [--copy-missing] [--json]"))),
         }
     }
-    let peer = peer.ok_or_else(|| fail(USAGE_ERROR, "send needs --to PEER"))?;
+    if peer.is_none() && !dry_run {
+        return Err(fail(USAGE_ERROR, "send needs --to PEER (or --dry-run)"));
+    }
 
     let socket = local_niri()?;
     let listed = niri::windows(&socket).map_err(|message| fail(FAILED, message))?;
@@ -66,7 +69,28 @@ pub fn send(env: &Env, rest: &[String]) -> Result<u8, Failure> {
         Some(id) => listed.iter().find(|window| window.id == id).ok_or_else(|| fail(FAILED, format!("there is no window {id}")))?,
         None => listed.iter().find(|window| window.is_focused).ok_or_else(|| fail(FAILED, "no window has focus"))?,
     };
-    let captured = adapter::capture(window, &desktop::entries(&desktop::from_process())).map_err(|message| fail(FAILED, message))?;
+    let entries = desktop::entries(&desktop::from_process());
+    let var = |name: &str| std::env::var_os(name).map(std::path::PathBuf::from).filter(|path| path.is_absolute());
+    let context = adapter::Context {
+        probe: &adapter::System,
+        entries: &entries,
+        runtime_dir: var("XDG_RUNTIME_DIR"),
+        config_dir: var("XDG_CONFIG_HOME").or_else(|| var("HOME").map(|home| home.join(".config"))),
+    };
+    let captured = adapter::capture(window, &context).map_err(|message| fail(FAILED, message))?;
+    if dry_run {
+        let preview = serde_json::json!({ "window": window.id, "handoff": captured.handoff, "notes": captured.notes });
+        if json {
+            println!("{preview}");
+        } else {
+            println!("{}", serde_json::to_string(&captured.handoff).map_err(|error| fail(FAILED, error.to_string()))?);
+            for note in &captured.notes {
+                println!("  {note}");
+            }
+        }
+        return Ok(0);
+    }
+    let peer = peer.expect("checked above");
 
     let config = cli::load_config(env)?;
     let roster = cli::load_roster(env, &config);

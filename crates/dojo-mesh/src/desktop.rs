@@ -41,10 +41,12 @@ pub fn entries(dirs: &[PathBuf]) -> Vec<(String, String)> {
 }
 
 /// The entry for a window's application id: the entry of that name (any case), else the one whose
-/// `StartupWMClass` is that id. Hidden entries never match.
+/// `StartupWMClass` is that id. A deleted entry (`Hidden`) never matches; one kept out of menus
+/// (`NoDisplay`) still does by name, since it is how such applications start.
 pub fn for_app(app_id: &str, entries: &[(String, String)]) -> Option<String> {
-    let visible = |text: &str| !text.lines().any(|line| matches!(line.trim(), "NoDisplay=true" | "Hidden=true"));
-    let by_name = entries.iter().find(|(id, text)| id.eq_ignore_ascii_case(app_id) && visible(text));
+    let flag = |text: &str, key: &str| text.lines().any(|line| line.trim() == format!("{key}=true"));
+    let visible = |text: &str| !flag(text, "NoDisplay") && !flag(text, "Hidden");
+    let by_name = entries.iter().find(|(id, text)| id.eq_ignore_ascii_case(app_id) && !flag(text, "Hidden"));
     let by_class = || entries.iter().find(|(_, text)| visible(text) && text.lines().any(|line| line.trim().strip_prefix("StartupWMClass=").is_some_and(|class| class.eq_ignore_ascii_case(app_id))));
     by_name.or_else(by_class).map(|(id, _)| id.clone())
 }
@@ -63,10 +65,18 @@ mod tests {
 
     #[test]
     fn finds_an_entry_by_name_or_window_class() {
-        let all = vec![entry("org.gnome.Nautilus", ""), entry("helium", "StartupWMClass=Helium-browser"), entry("hidden", "NoDisplay=true")];
+        let all = vec![
+            entry("org.gnome.Nautilus", ""),
+            entry("helium", "StartupWMClass=Helium-browser"),
+            entry("deleted", "Hidden=true"),
+            entry("quiet.App", "NoDisplay=true"),
+            entry("menu-alias", "NoDisplay=true\nStartupWMClass=quiet-class"),
+        ];
         assert_eq!(for_app("org.gnome.nautilus", &all).as_deref(), Some("org.gnome.Nautilus"));
         assert_eq!(for_app("helium-browser", &all).as_deref(), Some("helium"));
-        assert_eq!(for_app("hidden", &all), None);
+        assert_eq!(for_app("deleted", &all), None);
+        assert_eq!(for_app("quiet.app", &all).as_deref(), Some("quiet.App"), "kept out of menus but launchable by name");
+        assert_eq!(for_app("quiet-class", &all), None, "a hidden alias is not found by window class");
         assert_eq!(for_app("unknown", &all), None);
     }
 
