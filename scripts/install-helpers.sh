@@ -46,6 +46,12 @@ for name in "${helpers[@]}"; do
         nix-store --add-root "$install_dir/roots/$(basename "$store_path")" --indirect --realise "$store_path" >/dev/null
     done
     printf 'Installed %s\n' "$install_dir/$name"
+    # dojo-mesh is typed at a terminal; the other helpers are started by services that know where they are.
+    if [[ $name == dojo-mesh ]]; then
+        mkdir -p "$HOME/.local/bin"
+        ln -sfn "$install_dir/$name" "$HOME/.local/bin/$name"
+        printf 'Linked %s\n' "$HOME/.local/bin/$name"
+    fi
 done
 
 # The voice service starts without the devenv shell, which used to supply the audio plugin paths
