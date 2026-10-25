@@ -9,6 +9,7 @@ use crate::config::set_top_level;
 use crate::enroll;
 use crate::enroll_cli::{self, Ctx};
 use crate::signed;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -71,6 +72,11 @@ fn yubikey_key(dir: &Path, name: &str) -> Result<PathBuf, Failure> {
     let path = dir.join(YUBIKEY_FILE);
     if path.exists() && PathBuf::from(format!("{}.pub", path.display())).exists() {
         return Ok(path);
+    }
+    // A security key usually has a PIN, and every wrong answer counts against the key's own limit, so
+    // `ssh-keygen` is not started where nobody can type it: it would try an empty PIN and be locked out.
+    if !(std::io::stdin().is_terminal() || std::env::var_os("SSH_ASKPASS").is_some_and(|program| !program.is_empty())) {
+        return Err(fail(NEEDS_HUMAN, "the YubiKey may ask for its PIN, and there is no terminal to ask on: run this command yourself in a terminal"));
     }
     std::fs::create_dir_all(dir).map_err(|error| fail(FAILED, format!("{}: {error}", dir.display())))?;
     if recover_yubikey(dir, &path) {

@@ -622,7 +622,7 @@ fn init_makes_the_keys_in_1password_or_registers_ones_made_elsewhere() {
     assert!(std::fs::read_to_string(lab.root.join("conf/input.pub")).unwrap().contains("dojo-mesh:alpha:input"));
     let calls = std::fs::read_to_string(lab.root.join("op-calls")).unwrap();
     assert_eq!(calls.lines().count(), 2, "{calls}");
-    assert!(calls.contains("SSH Key") && calls.contains("--vault Private") && calls.contains("node key (alpha)") && calls.contains("input key (alpha)"), "{calls}");
+    assert!(calls.contains("SSH Key") && calls.contains("--ssh-generate-key Ed25519") && calls.contains("--vault Private") && calls.contains("node key (alpha)") && calls.contains("input key (alpha)"), "{calls}");
     // Keys that exist are never replaced.
     let (code, out) = lab.run_with_path(&["init"], &path);
     assert_eq!(code, 2, "{out}");
@@ -646,6 +646,11 @@ fn init_makes_the_keys_in_1password_or_registers_ones_made_elsewhere() {
 /// The fake `ssh-keygen` has no hardware: asked for a security-key credential it makes a plain one,
 /// and it finds no earlier credential on the "key".
 fn onboarding_run(lab: &Lab, config: &Path, home: &Path, args: &[&str]) -> (i32, String) {
+    // No terminal here; a way to ask for a PIN stands in for one.
+    onboarding_run_with(lab, config, home, args, &[("SSH_ASKPASS", "/bin/true")])
+}
+
+fn onboarding_run_with(lab: &Lab, config: &Path, home: &Path, args: &[&str], extra_env: &[(&str, &str)]) -> (i32, String) {
     use std::os::unix::fs::PermissionsExt;
     let bin = lab.root.join("onboard-bin");
     if !bin.exists() {
@@ -677,6 +682,7 @@ fn onboarding_run(lab: &Lab, config: &Path, home: &Path, args: &[&str]) -> (i32,
         .env("HOME", home)
         .env("USER", "pat")
         .env("OP_CALLS", lab.root.join("op-calls"))
+        .envs(extra_env.iter().copied())
         .output()
         .unwrap();
     (output.status.code().unwrap(), format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)))
@@ -759,6 +765,12 @@ fn onboarding_refuses_what_it_cannot_do_safely() {
     let (code, out) = onboarding_run(&lab, &config, &home, &["onboard", "--node-name", "orchard", "--sign", "tpm"]);
     assert_eq!(code, 2, "{out}");
     assert!(out.contains("yubikey, 1password"), "{out}");
+    // Without a terminal or a way to ask for a PIN, the YubiKey is not touched at all.
+    std::fs::write(&config, "").unwrap();
+    let (code, out) = onboarding_run_with(&lab, &config, &home, &["onboard", "--node-name", "orchard", "--sign", "yubikey", "--host-key-file", host.to_str().unwrap()], &[]);
+    assert_eq!(code, 3, "{out}");
+    assert!(out.contains("no terminal"), "{out}");
+    assert!(!home.join(".config/dojo/mesh/signing_yubikey").exists());
     // A name the roster would not accept is refused before the configuration is touched.
     std::fs::write(&config, "").unwrap();
     let (code, _) = onboarding_run(&lab, &config, &home, &["onboard", "--node-name", "A"]);

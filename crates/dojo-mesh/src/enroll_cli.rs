@@ -146,7 +146,7 @@ pub fn init(env: &Env, rest: &[String]) -> Result<u8, Failure> {
 /// Creates an SSH key in 1Password and returns its public half.
 pub(crate) fn onepassword_key(title: &str, vault: Option<&str>) -> Result<String, Failure> {
     let mut command = Command::new("op");
-    command.args(["item", "create", "--category", "SSH Key", "--ssh-key-type", "ed25519", "--title", title, "--format", "json"]);
+    command.args(["item", "create", "--category", "SSH Key", "--ssh-generate-key", "Ed25519", "--title", title, "--format", "json"]);
     if let Some(vault) = vault {
         command.args(["--vault", vault]);
     }
