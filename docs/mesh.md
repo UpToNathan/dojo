@@ -68,6 +68,8 @@ A node is always a member of its own mesh. Without a tag or an allow list it adm
 
 ## Membership
 
+A mesh method fills three seams (`crates/dojo-mesh/src/method.rs`): **membership** (who the members are and how to reach them), **identity** (which node an incoming connection is, taken from the network, never from the caller) and the **channel** (running a command or copying a file on a peer, over a **route**: a name and port, or a command that opens the connection). Everything above them sees only these. Tailscale is the one method today; a node with no method is a mesh of one. [ADR-0009](adr/0009-a-signed-roster-is-a-second-membership-method-over-openssh.md) proposes a second.
+
 The Tailscale method reads `tailscale status --json` from the local client, so it needs no API credentials. It looks only at host names, tags, online state and key expiry. A stopped, logged-out or missing client leaves the node alone in its mesh, and `doctor` says why. The tailnet's policy decides what a node may then do on a peer: Dojo adds no permission layer.
 
 ## Reaching peers

@@ -11,9 +11,10 @@ use crate::capability::{self, Answer, Description};
 use crate::config::{MeshConfig, default_path};
 use crate::doctor::{Severity, diagnose};
 use crate::roster::Roster;
-use crate::ssh::{self, Call, Done, Ended, Input, Output};
+use crate::channel::{Call, Done, Ended, Input, Output};
+use crate::method::Method;
 use crate::transport::{self, Origin, Provenance, Refusal};
-use crate::{guard, report, tailscale};
+use crate::{guard, report};
 use chrono::Utc;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -65,6 +66,8 @@ pub struct Env {
     pub hostname: String,
     pub origin: Origin,
     pub session: String,
+    /// How this node forms a mesh, reaches peers and tells who is calling.
+    pub method: Method,
 }
 
 impl Env {
@@ -84,6 +87,7 @@ impl Env {
             hostname: if hostname.is_empty() { "this-node".into() } else { hostname },
             origin,
             session,
+            method: Method::tailscale(),
         })
     }
 }
@@ -158,7 +162,7 @@ pub(crate) fn load_config(env: &Env) -> Result<MeshConfig, Failure> {
 }
 
 pub(crate) fn load_roster(env: &Env, config: &MeshConfig) -> Roster {
-    tailscale::roster(tailscale::read_status(), config, &env.hostname)
+    env.method.membership.roster(config, &env.hostname)
 }
 
 fn json<T: serde::Serialize>(value: &T) -> Result<String, Failure> {
@@ -304,7 +308,7 @@ pub(crate) fn call_peer(
     let remote = transport::remote_command(argv, &provenance).map_err(|message| fail(USAGE_ERROR, message))?;
     let name = member.device.name.clone();
     record(env, &from, &name, action, detail, "started")?;
-    let done = match ssh::run(Call { host: transport::host(member), remote, input, output, timeout }) {
+    let done = match env.method.channel.run(Call { route: transport::route(member), remote, input, output, timeout }) {
         Ok(done) => done,
         Err(message) => {
             let _ = record(env, &from, &name, action, detail, &format!("failed: {message}"));

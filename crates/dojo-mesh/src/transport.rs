@@ -111,6 +111,11 @@ pub fn resolve<'a>(roster: &'a Roster, name: &str) -> Result<&'a Member, Refusal
     Ok(member)
 }
 
+/// How to reach a member: its full network name when there is one.
+pub fn route(member: &Member) -> crate::method::Route {
+    crate::method::Route::Host { name: host(member), port: None }
+}
+
 /// The name to connect to: the full network name when there is one.
 pub fn host(member: &Member) -> String {
     member.device.dns_name.as_deref().map(|dns| dns.trim_end_matches('.').to_string()).unwrap_or_else(|| member.device.name.clone())

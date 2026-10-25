@@ -1,13 +1,15 @@
 //! The Tailscale adapter: turns what the local client reports into devices. It needs no API
 //! credentials and makes no network calls of its own; the client already knows the tailnet.
 
+use crate::channel::{Call, Channel, Done};
 use crate::config::MeshConfig;
 use crate::device::Device;
+use crate::method::{Connection, Identity, Membership, Method};
 use crate::roster::{Roster, admit};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 #[derive(Deserialize)]
 struct Status {
@@ -97,6 +99,50 @@ pub fn roster(report: Result<String, String>, config: &MeshConfig, fallback_name
             reason,
         ),
     }
+}
+
+/// Who `tailscale whois` says is at this address.
+pub fn whois(address: &str) -> Result<String, String> {
+    let output = Command::new("tailscale")
+        .args(["whois", "--json", address])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|error| format!("could not ask Tailscale who is connected: {error}"))?;
+    if !output.status.success() {
+        return Err("Tailscale did not know the connection".into());
+    }
+    crate::remote::node_name(&String::from_utf8_lossy(&output.stdout))
+}
+
+struct TailscaleMembership;
+
+impl Membership for TailscaleMembership {
+    fn roster(&self, config: &MeshConfig, hostname: &str) -> Roster {
+        roster(read_status(), config, hostname)
+    }
+}
+
+struct TailscaleIdentity;
+
+impl Identity for TailscaleIdentity {
+    fn who(&self, connection: &Connection) -> Result<String, String> {
+        whois(&connection.address)
+    }
+}
+
+struct TailscaleSsh;
+
+impl Channel for TailscaleSsh {
+    fn run(&self, call: Call) -> Result<Done, String> {
+        crate::ssh::run(call)
+    }
+}
+
+/// Tailscale as a mesh method: tag membership from the local client, `whois` for identity and
+/// `tailscale ssh` for calls.
+pub fn method() -> Method {
+    Method { name: "tailscale", membership: Box::new(TailscaleMembership), identity: Box::new(TailscaleIdentity), channel: Box::new(TailscaleSsh) }
 }
 
 #[cfg(test)]

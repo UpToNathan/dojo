@@ -2,7 +2,8 @@
 
 use crate::cli::{self, Env, FAILED, Failure, NEEDS_HUMAN, UNAVAILABLE, USAGE_ERROR, fail};
 use crate::remote::{self, Action, Cursor, Event};
-use crate::ssh::{Input, Output};
+use crate::channel::{Input, Output};
+use crate::method::Connection;
 use crate::transport::Origin;
 use crate::{niri, session};
 use std::io::BufRead;
@@ -59,14 +60,10 @@ fn refuse(reason: &str) -> Failure {
     fail(NEEDS_HUMAN, reason)
 }
 
-/// Who is on the other end of this SSH session, according to Tailscale.
-fn sender() -> Result<String, String> {
+/// Who is on the other end of this SSH session, according to the mesh method.
+fn sender(env: &Env) -> Result<String, String> {
     let address = remote::caller_address(std::env::var("SSH_CONNECTION").ok().as_deref()).ok_or("this was not started over a peer's connection")?;
-    let output = Command::new("tailscale").args(["whois", "--json", &address]).stdin(Stdio::null()).stderr(Stdio::null()).output().map_err(|error| format!("could not ask Tailscale who is connected: {error}"))?;
-    if !output.status.success() {
-        return Err("Tailscale did not know the connection".into());
-    }
-    remote::node_name(&String::from_utf8_lossy(&output.stdout))
+    env.method.identity.who(&Connection { address })
 }
 
 /// `dojo-mesh inject`: replay events from standard input through an input seat, for a peer this
@@ -80,7 +77,7 @@ pub fn inject(env: &Env, rest: &[String]) -> Result<u8, Failure> {
         return Err(refuse("input from the agent is never accepted"));
     }
     let config = cli::load_config(env)?;
-    let from = sender().map_err(|reason| refuse(&reason))?;
+    let from = sender(env).map_err(|reason| refuse(&reason))?;
     if !remote::accepts(&config.accept_input, &from) {
         return Err(refuse(&format!("this machine does not accept input from {from}; add it to accept-input in mesh.toml")));
     }

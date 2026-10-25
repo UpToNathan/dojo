@@ -110,7 +110,7 @@ pub fn send(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     let argv: Vec<String> = ["sh", "-c", REMOTE_RECEIVE].iter().map(|part| part.to_string()).collect();
     let mut copied = false;
     let reply = loop {
-        let done = cli::call_peer(env, &roster, &peer, "send", &detail, &argv, crate::ssh::Input::Bytes(request.clone()), crate::ssh::Output::Capture, Some(Duration::from_secs(30)))?;
+        let done = cli::call_peer(env, &roster, &peer, "send", &detail, &argv, crate::channel::Input::Bytes(request.clone()), crate::channel::Output::Capture, Some(Duration::from_secs(30)))?;
         let reply: Option<Reply> = serde_json::from_slice(&done.stdout).ok();
         let reply = match reply {
             Some(reply) => reply,

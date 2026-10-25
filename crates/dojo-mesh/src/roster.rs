@@ -36,6 +36,8 @@ pub struct Excluded {
 #[serde(tag = "kind", content = "reason", rename_all = "kebab-case")]
 pub enum Source {
     Tailscale,
+    /// Another mesh method, by name.
+    Method(String),
     /// No network could be read; the roster is this node alone.
     Unavailable(String),
 }
@@ -69,9 +71,14 @@ impl Roster {
     }
 }
 
+/// Admission as the Tailscale method reports it; other methods use [`admit_from`].
+pub fn admit(this: Device, others: Vec<Device>, config: &MeshConfig) -> Roster {
+    admit_from(Source::Tailscale, this, others, config)
+}
+
 /// Decides who belongs. A deny entry beats everything, an allow entry beats the tag, and the tag
 /// admits the rest. This node is always a member and is never excluded by its own deny list.
-pub fn admit(this: Device, others: Vec<Device>, config: &MeshConfig) -> Roster {
+pub fn admit_from(source: Source, this: Device, others: Vec<Device>, config: &MeshConfig) -> Roster {
     let mut members = vec![Member { device: this, admitted_by: Admission::This }];
     let mut excluded = Vec::new();
     for device in others {
@@ -88,7 +95,7 @@ pub fn admit(this: Device, others: Vec<Device>, config: &MeshConfig) -> Roster {
     }
     members[1..].sort_by_key(|member| crate::config::name_key(&member.device.name));
     excluded.sort_by_key(|entry| crate::config::name_key(&entry.device.name));
-    Roster { source: Source::Tailscale, membership_tag: config.membership_tag.clone(), members, excluded }
+    Roster { source, membership_tag: config.membership_tag.clone(), members, excluded }
 }
 
 #[cfg(test)]

@@ -1,11 +1,13 @@
 //! The mesh: which devices a Dojo node treats as its peers, and whether they are well.
 //!
 //! The core (`config`, `device`, `roster`, `doctor`) is plain data and knows nothing about Tailscale
-//! or processes. `tailscale` is the one adapter that turns the local Tailscale client's report into
-//! devices. A node that cannot see any network is a mesh of one, which is a valid result everywhere.
+//! or processes. `method` names the three seams a way of forming a mesh fills (membership,
+//! identity and the channel, with `Route` saying how a peer is reached); `tailscale` is the first
+//! method. A node that cannot see any network is a mesh of one, which is a valid result everywhere.
 
 pub mod adapter;
 pub mod audit;
+pub mod channel;
 pub mod cli;
 pub mod capability;
 pub mod config;
@@ -18,6 +20,7 @@ pub mod doctor;
 pub mod guard;
 pub mod handoff;
 pub mod hujson;
+pub mod method;
 pub mod niri;
 pub mod roster;
 pub mod send_cli;

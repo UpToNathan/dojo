@@ -2,59 +2,23 @@
 //! The one thing added is noticing when Tailscale asks a human to sign in again, which would
 //! otherwise leave the call waiting forever.
 
+use crate::channel::{Call, Done, Ended, Input, Output};
+use crate::method::Route;
 use crate::transport::check_url;
-use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-pub enum Input {
-    Inherit,
-    Null,
-    File(File),
-    /// Written to the call's standard input, which is then closed.
-    Bytes(Vec<u8>),
-    /// Another process's output, or any stream, as the call's standard input.
-    Stdio(Stdio),
-}
-
-pub enum Output {
-    Inherit,
-    /// Collected and returned in [`Done::stdout`].
-    Capture,
-    File(File),
-}
-
-pub struct Call {
-    pub host: String,
-    /// The single command string the peer's shell runs.
-    pub remote: String,
-    pub input: Input,
-    pub output: Output,
-    pub timeout: Option<Duration>,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum Ended {
-    Exited(i32),
-    /// Ended by a signal.
-    Killed,
-    /// Tailscale wants a person to approve this connection at the given page.
-    NeedsHuman(String),
-    TimedOut,
-}
-
-#[derive(Debug)]
-pub struct Done {
-    pub ended: Ended,
-    pub stdout: Vec<u8>,
-}
-
 /// Runs the call. `Err` means `tailscale` could not be started at all.
 pub fn run(call: Call) -> Result<Done, String> {
+    let host = match &call.route {
+        Route::Host { name, port: None } => name.clone(),
+        Route::Host { port: Some(_), .. } => return Err("Tailscale SSH does not take a port".into()),
+        Route::Command(_) => return Err("Tailscale SSH cannot use a command route".into()),
+    };
     let mut command = Command::new("tailscale");
-    command.args(["ssh", &call.host, &call.remote]);
+    command.args(["ssh", &host, &call.remote]);
     let mut feed = None;
     command.stdin(match call.input {
         Input::Inherit => Stdio::inherit(),
