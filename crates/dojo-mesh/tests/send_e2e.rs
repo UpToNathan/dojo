@@ -59,7 +59,9 @@ fn fake_niri(path: &Path, windows: &'static str) -> Seen {
                     let mut state = state.lock().unwrap();
                     let (listed, yielded) = &mut *state;
                     let ok = |body: &str| format!("{{\"Ok\":{body}}}");
-                    let reply = if line == "\"Windows\"" {
+                    let reply = if line == "\"Windows\"" && dir.join("focused-window").exists() {
+                        ok("{\"Windows\":[{\"id\":9,\"title\":\"T\",\"app_id\":\"kitty\",\"pid\":1,\"is_focused\":true}]}")
+                    } else if line == "\"Windows\"" {
                         ok(&format!("{{\"Windows\":{}}}", serde_json::Value::Array(listed.clone())))
                     } else if line == "\"Outputs\"" {
                         ok("{\"Outputs\":{\"eDP-1\":{\"name\":\"eDP-1\",\"logical\":{\"x\":0,\"y\":0,\"width\":1000.0,\"height\":500.0}},\"DP-2\":{\"name\":\"DP-2\",\"logical\":{\"x\":1000,\"y\":0,\"width\":800.0,\"height\":500.0}}}}")
@@ -68,6 +70,17 @@ fn fake_niri(path: &Path, windows: &'static str) -> Seen {
                         ok("{\"InputCoordination\":{\"revision\":1,\"human_owned_windows\":[]}}")
                     } else if line.contains("\"Jump\"") && dir.join("no-jump").exists() {
                         "{\"Err\":\"unknown variant `Jump`, expected one of `Move`, `Wait`\"}".to_string()
+                    } else if line.contains("\"Button\"") && line.contains("Pressed") && dir.join("refuse-click").exists() {
+                        "{\"Err\":\"move the agent pointer onto a client surface first\"}".to_string()
+                    } else if line.contains("\"Key\"") && !line.contains("Targeted") && dir.join("keys-need-focus").exists() {
+                        "{\"Err\":\"focus a mapped window before typing\"}".to_string()
+                    } else if line.contains("\"AgentInput\":{\"Focus\"") && dir.join("keys-need-focus").exists() {
+                        // The first focus is the session's own, at the start; the target is lost after it.
+                        if dir.join("focused-once").exists() {
+                            let _ = std::fs::remove_file(dir.join("keys-need-focus"));
+                        }
+                        let _ = std::fs::write(dir.join("focused-once"), "");
+                        ok("{\"AgentInputFocused\":{\"window_id\":9}}")
                     } else if line.contains("\"Create\"") {
                         ok("{\"AgentInputCreated\":{\"peer_id\":1,\"seat_name\":\"seat\"}}")
                     } else if line.contains("\"AgentInput\":{\"Focus\"") && dir.join("paused").exists() && (!*yielded || dir.join("never-yields").exists()) {
@@ -655,4 +668,31 @@ fn an_older_niri_without_jump_still_works_but_says_it_will_lag() {
     let requests = beta_requests(&site);
     assert!(requests.contains(&serde_json::json!({"AgentInput": {"Move": {"output": "eDP-1", "x": 510.0, "y": 250.0}}})), "{requests:?}");
     assert!(requests.contains(&serde_json::json!({"AgentInput": "Wait"})), "an animated cursor is waited for before a click");
+}
+
+#[test]
+fn a_click_or_key_niri_turns_down_does_not_end_the_session() {
+    let site = Site::new();
+    site.config("beta", BETA_ACCEPTS_ALPHA);
+    std::fs::write(site.root.join("hosts/beta/refuse-click"), "").unwrap();
+    std::fs::write(site.root.join("hosts/beta/keys-need-focus"), "").unwrap();
+    std::fs::write(site.root.join("hosts/beta/focused-window"), "").unwrap();
+    let capture = fake_capture(
+        &site,
+        &[
+            r#"{"t":"button","code":272,"pressed":true}"#,
+            r#"{"t":"button","code":272,"pressed":false}"#,
+            r#"{"t":"key","code":30,"pressed":true}"#,
+            r#"{"t":"key","code":30,"pressed":false}"#,
+            r#"{"t":"motion","dx":10,"dy":0}"#,
+        ],
+    );
+    let result = run_remote(&site, &capture, &[]);
+    assert_eq!(result.status.code(), Some(0), "{}", text(&result));
+    assert!(text(&result).contains("skipped an event: Niri refused: move the agent pointer onto a client surface first"), "{}", text(&result));
+    let requests = beta_requests(&site);
+    let key = |state: &str| serde_json::json!({"AgentInput": {"Key": {"evdev": 30, "state": state}}});
+    assert_eq!(requests.iter().filter(|r| **r == key("Pressed")).count(), 2, "the refused key was sent again once its window had focus: {requests:?}");
+    assert!(requests.contains(&key("Released")), "{requests:?}");
+    assert!(requests.contains(&serde_json::json!({"AgentInput": {"Jump": {"output": "eDP-1", "x": 510.0, "y": 250.0}}})), "the mouse still follows after a refusal: {requests:?}");
 }

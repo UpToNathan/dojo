@@ -116,6 +116,7 @@ pub fn inject(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     let mut cursor = Cursor::new(layout).ok_or_else(|| fail(FAILED, "Niri has no output"))?;
     let mut pointer = Pointer { instant: true };
     let mut ended: Result<(), String> = Ok(());
+    let mut told = std::collections::HashSet::new();
     // The seat's cursor starts where this one does, so the first movement is relative to something real.
     if let Err(message) = apply(&mut seat, &mut pointer, &cursor.start()) {
         let _ = seat.input(serde_json::json!("Destroy"));
@@ -136,7 +137,7 @@ pub fn inject(env: &Env, rest: &[String]) -> Result<u8, Failure> {
         let events: Vec<Event> = burst.iter().filter_map(|line| Event::parse(line).ok()).collect();
         for event in remote::coalesce(events) {
             for action in cursor.plan(&event) {
-                if let Err(message) = apply(&mut seat, &mut pointer, &action) {
+                if let Err(message) = apply_or_recover(&socket, &mut seat, &mut pointer, &action, &mut told) {
                     ended = Err(message);
                     break 'session;
                 }
@@ -153,6 +154,44 @@ pub fn inject(env: &Env, rest: &[String]) -> Result<u8, Failure> {
             Err(fail(FAILED, message))
         }
     }
+}
+
+/// Niri turns down single events that are not a fault in the session: a click on empty desktop has
+/// no client surface to land on, and a key needs a mapped window to go to. Those are skipped (a key
+/// first gets the focused window as its target, as a click on one would), and only a broken
+/// connection to Niri ends the session.
+fn apply_or_recover(
+    socket: &std::path::Path,
+    seat: &mut niri::AgentSeat,
+    pointer: &mut Pointer,
+    action: &Action,
+    told: &mut std::collections::HashSet<String>,
+) -> Result<(), String> {
+    let Err(message) = apply(seat, pointer, action) else { return Ok(()) };
+    if !is_refusal(&message) {
+        return Err(message);
+    }
+    if matches!(action, Action::Key { .. }) && message.contains("focus a mapped window") {
+        let focused = niri::windows(socket).ok().and_then(|windows| windows.into_iter().find(|window| window.is_focused));
+        if let Some(window) = focused {
+            if seat.focus(window.id).is_ok() {
+                match apply(seat, pointer, action) {
+                    Ok(()) => return Ok(()),
+                    Err(again) if !is_refusal(&again) => return Err(again),
+                    Err(_) => {}
+                }
+            }
+        }
+    }
+    if told.insert(message.clone()) {
+        eprintln!("dojo-mesh: skipped an event: {message}");
+    }
+    Ok(())
+}
+
+/// A refusal is Niri answering "not this one"; anything else is the connection failing.
+fn is_refusal(message: &str) -> bool {
+    message.starts_with("Niri refused:")
 }
 
 /// How the receiver places its cursor. Niri's `Jump` puts it there at once; an older Niri lacks it
