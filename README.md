@@ -29,7 +29,9 @@ or `all`). It chains the installers, builds, speech packages, Home Manager deplo
 session setup, and detects the NVIDIA driver (`/etc/dojo/nvidia-driver.json`, written by
 `scripts/install-nvidia-gl.sh`; rerun it after the NVIDIA package updates). It expects the Arch
 packages, Nix and devenv to be installed already. `scripts/bootstrap-host check`
-confirms the running session can activate the file-picker and portal services.
+confirms the running session can activate the file-picker and portal services. The last step of
+setting a machine up is joining the Dojo mesh: `all` offers it at a terminal, and
+`scripts/bootstrap-host onboard` runs it on its own ([Onboarding a machine](docs/mesh.md#onboarding-a-machine)).
 
 Home Manager also installs T3's bundled CLI. The desktop app owns its local
 backend; Dojo does not autostart a separate T3 server. See

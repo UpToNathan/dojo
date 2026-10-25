@@ -285,6 +285,45 @@ pub fn default_path(xdg_config_home: Option<PathBuf>, home: Option<PathBuf>) -> 
     Some(base.join("dojo").join("mesh.toml"))
 }
 
+/// Sets a top-level `key` to `value` (TOML text) in configuration text, keeping everything else as
+/// it is: an existing line is replaced in place, a new one goes before the first table. A value the
+/// text cannot take in place (an array spread over several lines) is refused, and so is any result
+/// that does not read back as asked, so a hand-edited file is never left half changed.
+pub fn set_top_level(text: &str, key: &str, value: &str) -> Result<String, String> {
+    let line = format!("{key} = {value}");
+    let wanted: toml::Table = toml::from_str(&line).map_err(|error| format!("{key}: {error}"))?;
+    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let first_table = lines.iter().position(|candidate| candidate.trim_start().starts_with('['));
+    let top = first_table.unwrap_or(lines.len());
+    let existing = lines[..top].iter().position(|candidate| {
+        let candidate = candidate.trim_start();
+        candidate.strip_prefix(key).is_some_and(|rest| rest.trim_start().starts_with('='))
+    });
+    match existing {
+        Some(index) => {
+            let current = lines[index].split_once('=').map(|(_, value)| value.trim()).unwrap_or_default();
+            if current.starts_with('[') && !current.contains(']') {
+                return Err(format!("{key} is spread over several lines in the configuration; set it by hand"));
+            }
+            lines[index] = line;
+        }
+        None => {
+            // Keep a blank line between what comes before and the table that follows.
+            let at = lines[..top].iter().rposition(|candidate| !candidate.trim().is_empty()).map_or(0, |last| last + 1);
+            lines.insert(at, line);
+            if first_table.is_some() && lines.get(at + 1).is_some_and(|next| !next.trim().is_empty()) {
+                lines.insert(at + 1, String::new());
+            }
+        }
+    }
+    let result = lines.join("\n") + "\n";
+    let read: toml::Table = toml::from_str(&result).map_err(|error| format!("the configuration would not read back ({error}); set {key} by hand"))?;
+    if read.get(key) != wanted.get(key) {
+        return Err(format!("{key} could not be set in the configuration; set it by hand"));
+    }
+    Ok(result)
+}
+
 /// Where the roster method keeps its files and finds its keys.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RosterPaths {
@@ -490,5 +529,27 @@ mod tests {
         let paths = roster_paths(&set, Some("/data".into()), None, None).unwrap();
         assert_eq!((paths.dir, paths.signers, paths.node_key, paths.agent), ("/r".into(), "/s".into(), "/k.pub".into(), Some("/a.sock".into())));
         assert_eq!(roster_paths(&config, None, None, None), None);
+    }
+
+    #[test]
+    fn a_top_level_setting_is_replaced_in_place_or_added_before_the_first_table() {
+        let text = "# mine\nallow = [\"a\"]\nmethod = \"tailscale\"\n\n[capability.x]\nmethod = \"keep\"\n";
+        let changed = set_top_level(text, "method", "\"roster\"").unwrap();
+        assert_eq!(changed, "# mine\nallow = [\"a\"]\nmethod = \"roster\"\n\n[capability.x]\nmethod = \"keep\"\n");
+        let added = set_top_level("allow = [\"a\"]\n\n[capability.x]\nport = 1\n", "node-name", "\"harbor\"").unwrap();
+        assert_eq!(added, "allow = [\"a\"]\nnode-name = \"harbor\"\n\n[capability.x]\nport = 1\n");
+        assert_eq!(set_top_level("", "method", "\"roster\"").unwrap(), "method = \"roster\"\n");
+        assert_eq!(set_top_level("allow = []", "method", "\"roster\"").unwrap(), "allow = []\nmethod = \"roster\"\n");
+        let table_only = set_top_level("[capability.x]\nport = 1\n", "method", "\"roster\"").unwrap();
+        assert!(table_only.starts_with("method = \"roster\"\n\n[capability.x]"), "{table_only}");
+        let config = MeshConfig::parse(&added).unwrap();
+        assert_eq!(config.node_name.as_deref(), Some("harbor"));
+    }
+
+    #[test]
+    fn a_setting_that_cannot_be_changed_safely_is_refused() {
+        assert!(set_top_level("signing-keys = [\n  \"/a\",\n]\n", "signing-keys", "[\"/b\"]").is_err());
+        assert!(set_top_level("x = 1", "method", "\"unterminated").is_err());
+        assert!(set_top_level("allow = [", "method", "\"roster\"").is_err());
     }
 }

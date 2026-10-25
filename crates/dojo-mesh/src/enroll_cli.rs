@@ -15,12 +15,12 @@ use std::process::{Command, Stdio};
 const DEFAULT_DAYS: i64 = 90;
 const MAX_DAYS: i64 = 366;
 
-struct Ctx {
-    config: MeshConfig,
-    paths: RosterPaths,
+pub(crate) struct Ctx {
+    pub(crate) config: MeshConfig,
+    pub(crate) paths: RosterPaths,
 }
 
-fn context(env: &Env) -> Result<Ctx, Failure> {
+pub(crate) fn context(env: &Env) -> Result<Ctx, Failure> {
     let config = cli::load_config(env)?;
     if config.method != MethodChoice::Roster {
         return Err(fail(USAGE_ERROR, "this command needs method = \"roster\" in the mesh configuration"));
@@ -36,21 +36,21 @@ impl Ctx {
     }
 }
 
-fn node_name(env: &Env, config: &MeshConfig) -> String {
+pub(crate) fn node_name(env: &Env, config: &MeshConfig) -> String {
     config.node_name.clone().unwrap_or_else(|| env.hostname.trim().to_ascii_lowercase())
 }
 
-fn value(values: &[(String, String)], flag: &str) -> Option<String> {
+pub(crate) fn value(values: &[(String, String)], flag: &str) -> Option<String> {
     values.iter().rev().find(|(name, _)| name == flag).map(|(_, value)| value.clone())
 }
 
-fn read_key(path: &Path) -> Result<String, String> {
+pub(crate) fn read_key(path: &Path) -> Result<String, String> {
     let text = std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
     let line = text.lines().map(str::trim).find(|line| !line.is_empty() && !line.starts_with('#')).ok_or_else(|| format!("{} holds no key", path.display()))?;
     signed::normalize_key(line).map_err(|error| format!("{}: {error}", path.display()))
 }
 
-fn write_private(path: &Path, text: &str, mode: u32) -> Result<(), Failure> {
+pub(crate) fn write_private(path: &Path, text: &str, mode: u32) -> Result<(), Failure> {
     if let Some(parent) = path.parent() {
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent).map_err(|error| fail(FAILED, format!("{}: {error}", parent.display())))?;
     }
@@ -144,7 +144,7 @@ pub fn init(env: &Env, rest: &[String]) -> Result<u8, Failure> {
 }
 
 /// Creates an SSH key in 1Password and returns its public half.
-fn onepassword_key(title: &str, vault: Option<&str>) -> Result<String, Failure> {
+pub(crate) fn onepassword_key(title: &str, vault: Option<&str>) -> Result<String, Failure> {
     let mut command = Command::new("op");
     command.args(["item", "create", "--category", "SSH Key", "--ssh-key-type", "ed25519", "--title", title, "--format", "json"]);
     if let Some(vault) = vault {
@@ -208,7 +208,7 @@ pub fn join(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     Ok(0)
 }
 
-fn device_file(ctx: &Ctx, name: &str) -> PathBuf {
+pub(crate) fn device_file(ctx: &Ctx, name: &str) -> PathBuf {
     ctx.paths.dir.join("devices").join(format!("{name}.json"))
 }
 

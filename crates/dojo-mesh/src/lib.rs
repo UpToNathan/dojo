@@ -25,6 +25,7 @@ pub mod handoff;
 pub mod hujson;
 pub mod method;
 pub mod niri;
+pub mod onboard;
 pub mod openssh;
 pub mod roster;
 pub mod signed;

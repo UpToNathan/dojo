@@ -237,5 +237,62 @@ class SudoYubikey(Host):
         self.assertFalse(self.mapping.exists())
 
 
+class OnboardMesh(Host):
+    def setUp(self):
+        super().setUp()
+        self.mesh_calls = self.root / "mesh-calls"
+        script(self.bin / "dojo-mesh", f'echo "$@" >> {self.mesh_calls}')
+        script(self.bin / "ssh-add", "echo ssh-ed25519 AAAA key")
+        script(self.bin / "tailscale", "echo 100.71.60.101")
+        (self.ssh_dir / "ssh_host_ed25519_key.pub").write_text("ssh-ed25519 AAAAHOST host\n")
+        self.env = {"DOJO_MESH": str(self.bin / "dojo-mesh"), "DOJO_HOST_KEY": str(self.ssh_dir / "ssh_host_ed25519_key.pub")}
+
+    def onboard(self, *args, env=None):
+        return self.run_script("onboard-mesh.sh", *args, env={**self.env, **(env or {})})
+
+    def test_it_sets_sshd_up_on_its_own_port_and_onboards_with_the_primary_key_first(self):
+        script(self.bin / "systemctl", f'echo "systemctl $@" >> {self.log}; [ "$1" != is-active ]')
+        result = self.onboard("--name", "orchard", "--sign", "yubikey", "--sign", "1password")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        listen = (self.ssh_dir / "sshd_config.d/11-dojo-mesh-listen.conf").read_text()
+        self.assertIn("Port 2222\n", listen)
+        self.assertIn("systemctl enable --now sshd.service", self.calls())
+        call = self.mesh_calls.read_text().strip()
+        self.assertEqual(
+            call,
+            f"onboard --node-name orchard --route 100.71.60.101:2222 --sign yubikey --sign 1password --host-key-file {self.ssh_dir}/ssh_host_ed25519_key.pub",
+        )
+
+    def test_a_machine_that_signs_nothing_still_onboards(self):
+        result = self.onboard("--name", "guest", "--route", "192.0.2.7", "--port", "2200")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--route 192.0.2.7:2200", self.mesh_calls.read_text())
+        self.assertNotIn("--sign", self.mesh_calls.read_text())
+        self.assertIn("not a tailnet address", result.stdout)
+
+    def test_it_stops_before_changing_anything_when_1password_is_not_ready(self):
+        script(self.bin / "ssh-add", "echo 'Error connecting to agent' >&2; exit 2")
+        result = self.onboard("--name", "orchard", "--sign", "yubikey")
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("Unlock 1Password", result.stderr)
+        self.assertFalse((self.ssh_dir / "sshd_config.d").exists())
+        self.assertFalse(self.mesh_calls.exists())
+
+    def test_sshd_already_running_is_left_running(self):
+        script(self.bin / "systemctl", f'echo "systemctl $@" >> {self.log}; if [ "$1" = is-active ]; then exit 0; fi')
+        result = self.onboard("--name", "orchard", "--sign", "yubikey")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("enable --now", self.calls())
+
+    def test_no_host_leaves_sshd_alone(self):
+        result = self.onboard("--name", "orchard", "--no-host", "--sign", "yubikey")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls(), "")
+        self.assertFalse((self.ssh_dir / "sshd_config.d").exists())
+
+    def test_a_port_that_is_not_a_port_is_refused(self):
+        self.assertEqual(self.onboard("--port", "70000").returncode, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

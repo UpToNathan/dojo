@@ -10,6 +10,7 @@
 #   scripts/bootstrap-host finish   # root: NVIDIA user-space tree, update-nix-gl, login screen
 #   scripts/bootstrap-host login    # root: enable dojo-dm on tty1 and the rescue getty on tty2
 #   scripts/bootstrap-host all      # the three in order; sudo prompts for root steps
+#   scripts/bootstrap-host onboard  # you: sshd for the mesh, keys, signing keys and enrolment (asks; see docs/mesh.md)
 #   scripts/bootstrap-host check    # does the running session see what the deployment installed?
 #
 # Run the root phases as root or through sudo. They act for $SUDO_USER, or for
@@ -118,6 +119,25 @@ phase_finish() {
     echo 'Done. Reboot to reach the Dojo login screen and pick the "Niri (UWSM)" session; Ctrl+Alt+F2 is the rescue login.'
 }
 
+# A new machine joins the Dojo mesh as the last step of setting it up. The step needs the person (a
+# security key to touch, 1Password to unlock), so `all` only offers it, at a terminal, and never
+# when the machine is in a mesh already; `bootstrap-host onboard` is the same step on its own.
+phase_onboard() {
+    [[ $EUID -ne 0 || $target_user != root ]] || { echo 'Onboard as your own account.' >&2; exit 1; }
+    "$repo_root/scripts/onboard-mesh.sh" "$@"
+}
+
+offer_onboarding() {
+    local config=${XDG_CONFIG_HOME:-$target_home/.config}/dojo/mesh.toml
+    if grep -qs '^method *= *"roster"' "$config"; then
+        echo 'This machine is in a Dojo mesh already (method = "roster").'
+    elif [[ -t 0 && -t 1 ]]; then
+        read -r -p 'Set this machine up in the Dojo mesh now? [Y/n] ' answer || answer=n
+        if [[ ${answer:-Y} =~ ^[Yy] ]]; then phase_onboard; return; fi
+    fi
+    echo 'To join the Dojo mesh later: scripts/bootstrap-host onboard'
+}
+
 # Hands the console to the Dojo login screen: dojo-dm on tty1 and a rescue getty on tty2. Nothing
 # starts now, so the running session is untouched; the switch happens at the next boot. The
 # release must be installed first, or tty1 would have no login at all.
@@ -162,7 +182,8 @@ case ${1:-} in
     user) phase_user ;;
     finish) phase_finish ;;
     login) phase_login ;;
+    onboard) shift; phase_onboard "$@" ;;
     check) phase_check ;;
-    all) phase_system; phase_user; phase_finish ;;
-    *) echo "Usage: $0 system|user|finish|login|check|all" >&2; exit 2 ;;
+    all) phase_system; phase_user; phase_finish; offer_onboarding ;;
+    *) echo "Usage: $0 system|user|finish|login|onboard|check|all" >&2; exit 2 ;;
 esac

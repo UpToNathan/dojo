@@ -19,6 +19,7 @@ dojo-mesh remote PEER                  # drive a peer with this cursor and keybo
 dojo-mesh pause | resume               # the agent's peer access
 dojo-mesh audit [--last N] [--json]    # what this node has sent to peers
 dojo-mesh roster [check | sync | authorize]   # signed-roster method: what counts and what is ignored; pull it; let the members in
+dojo-mesh onboard [--sign yubikey|1password|KEY]... [--route HOST[:PORT]]...   # signed-roster method: set this node up in one go (see Onboarding a machine)
 dojo-mesh init | join | approve | renew | rm | leave | trust   # signed-roster method: enrolment and trust (see below)
 dojo-mesh enroll [--tag TAG] [--expires SECS]            # operator only
 dojo-mesh policy show | validate FILE | apply FILE       # apply is operator only
@@ -113,6 +114,16 @@ With the roster method, `exec`, `cp`, `task`, `send` and `remote` run the system
 Before it connects, the channel asks the agent whether it offers the key. If 1Password is locked, not running, or the key is missing, no connection is attempted: the command exits 3 and says what to do ("unlock 1Password on this machine", "turn on Settings > Developer > SSH Agent"), and `doctor` warns the same way. `remote` uses the node's separate input key instead of its node key.
 
 `dojo-mesh roster authorize` writes the members into the user's `~/.ssh/authorized_keys` as a block between `# BEGIN dojo-mesh` and `# END dojo-mesh` lines (and `roster sync` does it after pulling). Each member's node key gets a full shell as this user; each member's input key is `restrict,command="…/dojo-mesh inject --as NAME"`, so it can only send input, whatever it asks for. The block is replaced or removed whole, the lines around it are never touched, a copy of the previous file is kept beside it as `authorized_keys.dojo-mesh.bak`, and a revoked or expired member disappears from it at the next run. The mesh does not edit `sshd_config`. Who a connection is under this method comes from that forced command, checked against the roster: a name that is not a current member is nobody.
+
+### Onboarding a machine
+
+Setting up a machine with Dojo ends with joining the mesh: `scripts/bootstrap-host onboard` (`bootstrap-host all` offers it at a terminal, and skips it for a machine already on the roster). It is `scripts/onboard-mesh.sh`, which asks for the machine's name, the address the others reach it at and the keys it signs with, then does the steps below in order, and repeating it changes nothing that is already done.
+
+1. Checks that 1Password's SSH agent answers, before anything is changed.
+2. Sets up `sshd` for the mesh (`install-mesh-sshd.sh`: public keys only, no root login) on its own port, 2222 by default so it never meets Tailscale SSH on port 22, and starts it if it is not running. This is the step that asks for `sudo`.
+3. Runs `dojo-mesh onboard`: writes `method`, `node-name` and `signing-keys` into `mesh.toml` (the rest of the file is kept), gives the node its keys in 1Password, makes or finds the signing keys, trusts them, and signs the node into its roster.
+
+`--sign` names the signing keys in the order to try them, so `--sign yubikey --sign 1password` makes the YubiKey the primary and 1Password the alternate. The YubiKey key is a resident `ed25519-sk` credential named `ssh:dojo-mesh`: on a second machine, onboarding takes it back from the key (`ssh-keygen -K`) instead of making another, so one YubiKey is one signing identity. The 1Password one is an SSH key item there, used through the agent. A machine given no `--sign` signs nothing: it writes `NAME.join.json` for a machine that does, and the output lists the steps that follow (approve there, trust and sync here). A route is an address the others can reach and the port from step 2; if the machine's firewall drops that network, the port needs opening there (a tailnet address needs nothing where `tailscale0` is trusted).
 
 ### Enrolling a node and holding the keys
 

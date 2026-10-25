@@ -641,3 +641,127 @@ fn init_makes_the_keys_in_1password_or_registers_ones_made_elsewhere() {
     assert_eq!(code, 0, "{out}");
     assert!(lab.root.join("conf/node.pub").exists() && !lab.root.join("conf/input.pub").exists());
 }
+
+/// Runs the binary on its own configuration file, with fake `op` and `ssh-keygen` ahead on the path.
+/// The fake `ssh-keygen` has no hardware: asked for a security-key credential it makes a plain one,
+/// and it finds no earlier credential on the "key".
+fn onboarding_run(lab: &Lab, config: &Path, home: &Path, args: &[&str]) -> (i32, String) {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = lab.root.join("onboard-bin");
+    if !bin.exists() {
+        std::fs::create_dir_all(&bin).unwrap();
+        let items: Vec<(&str, String)> = ["node", "input", "signing"].iter().map(|kind| (*kind, lab.key(&format!("op-{kind}")))).collect();
+        let mut op = String::from("#!/bin/sh\necho \"$@\" >> \"$OP_CALLS\"\n");
+        for (kind, key) in &items {
+            let item = serde_json::json!({"id": "i", "fields": [{"id": "public_key", "label": "public key", "value": key}]});
+            op.push_str(&format!("case \"$*\" in *'{kind} key'*) echo '{item}'; exit 0;; esac\n"));
+        }
+        op.push_str("exit 1\n");
+        std::fs::write(bin.join("op"), op).unwrap();
+        let real = tool("sh", &["-c", "command -v ssh-keygen"], &lab.root).trim().to_string();
+        let keygen = format!(
+            "#!/bin/sh\ncase \"$1\" in -K) echo 'no resident keys' >&2; exit 255;; esac\n\
+             if [ \"$1\" = -t ] && [ \"$2\" = ed25519-sk ]; then\n  while [ $# -gt 0 ]; do case \"$1\" in -f) f=$2; shift;; -C) c=$2; shift;; esac; shift; done\n  exec '{real}' -q -t ed25519 -N '' -C \"$c\" -f \"$f\"\nfi\nexec '{real}' \"$@\"\n"
+        );
+        std::fs::write(bin.join("ssh-keygen"), keygen).unwrap();
+        for name in ["op", "ssh-keygen"] {
+            std::fs::set_permissions(bin.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_dojo-mesh"))
+        .arg("--config")
+        .arg(config)
+        .args(args)
+        .env_clear()
+        .env("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default()))
+        .env("HOME", home)
+        .env("USER", "pat")
+        .env("OP_CALLS", lab.root.join("op-calls"))
+        .output()
+        .unwrap();
+    (output.status.code().unwrap(), format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)))
+}
+
+#[test]
+fn onboarding_sets_a_machine_up_in_order_and_is_safe_to_repeat() {
+    let lab = Lab::new();
+    let home = lab.root.join("home");
+    let config = lab.root.join("onboard.toml");
+    std::fs::write(&config, "# mine\naccept-input = [\"harbor\"]\n\n[capability.voice]\ncommand = \"/bin/true\"\n").unwrap();
+    let host = lab.root.join("keys/operator.pub");
+    let args = ["onboard", "--node-name", "orchard", "--route", "192.0.2.10:2222", "--sign", "yubikey", "--sign", "1password", "--host-key-file", host.to_str().unwrap()];
+    let (code, out) = onboarding_run(&lab, &config, &home, &args);
+    assert_eq!(code, 0, "{out}");
+
+    // The configuration keeps what was there, and lists the signing keys with the YubiKey first.
+    let text = std::fs::read_to_string(&config).unwrap();
+    assert!(text.starts_with("# mine\naccept-input = [\"harbor\"]\n"), "{text}");
+    assert!(text.contains("[capability.voice]\ncommand = \"/bin/true\""), "{text}");
+    let conf = toml::from_str::<toml::Table>(&text).unwrap();
+    assert_eq!(conf["method"].as_str(), Some("roster"));
+    assert_eq!(conf["node-name"].as_str(), Some("orchard"));
+    let keys: Vec<&str> = conf["signing-keys"].as_array().unwrap().iter().map(|key| key.as_str().unwrap()).collect();
+    let mesh = home.join(".config/dojo/mesh");
+    assert_eq!(keys, [mesh.join("signing_yubikey").to_str().unwrap(), mesh.join("signing_1password.pub").to_str().unwrap()]);
+
+    // Its own keys come from 1Password, and the signing key there is made too (three items in all).
+    assert!(mesh.join("node_key.pub").exists() && mesh.join("input_key.pub").exists());
+    let calls = std::fs::read_to_string(lab.root.join("op-calls")).unwrap();
+    assert_eq!(calls.lines().count(), 3, "{calls}");
+    assert!(calls.contains("signing key (orchard)"), "{calls}");
+
+    // Both signing keys are believed, and the node is signed into its own roster by the first.
+    let signers = std::fs::read_to_string(mesh.join("allowed_signers")).unwrap();
+    assert_eq!(signers.lines().count(), 2, "{signers}");
+    let roster = home.join(".local/share/dojo/mesh/roster/devices");
+    assert!(roster.join("orchard.json").exists() && roster.join("orchard.json.sig").exists());
+    assert!(std::fs::read_to_string(roster.join("orchard.json")).unwrap().contains("192.0.2.10"));
+    assert!(!mesh.join("orchard.join.json").exists(), "the request was a step, not a leftover");
+    let (code, check) = onboarding_run(&lab, &config, &home, &["roster", "check"]);
+    assert_eq!(code, 0, "{check}");
+
+    // Again: nothing is made twice, nothing changes.
+    let before = (text.clone(), signers.clone());
+    let (code, out) = onboarding_run(&lab, &config, &home, &args);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("already"), "{out}");
+    assert_eq!(std::fs::read_to_string(lab.root.join("op-calls")).unwrap().lines().count(), 3);
+    assert_eq!((std::fs::read_to_string(&config).unwrap(), std::fs::read_to_string(mesh.join("allowed_signers")).unwrap()), before);
+
+    // A node that signs nothing writes the request an operator signs, and says what comes next.
+    let guest_home = lab.root.join("guest-home");
+    let guest_config = lab.root.join("guest.toml");
+    let (code, out) = onboarding_run(&lab, &guest_config, &guest_home, &["onboard", "--node-name", "guest", "--route", "192.0.2.11:2222", "--host-key-file", host.to_str().unwrap()]);
+    assert_eq!(code, 0, "{out}");
+    let request = guest_home.join(".config/dojo/mesh/guest.join.json");
+    assert!(request.exists(), "{out}");
+    assert!(out.contains("dojo-mesh approve guest.join.json"), "{out}");
+    assert!(!std::fs::read_to_string(&guest_config).unwrap().contains("signing-keys"));
+    let (code, out) = onboarding_run(&lab, &config, &home, &["approve", request.to_str().unwrap()]);
+    assert_eq!(code, 3, "{out}");
+}
+
+#[test]
+fn onboarding_refuses_what_it_cannot_do_safely() {
+    let lab = Lab::new();
+    let home = lab.root.join("home");
+    let config = lab.root.join("onboard.toml");
+    // A signing list spread over several lines is the person's to edit; nothing is written.
+    let original = "signing-keys = [\n  \"/a\",\n]\n";
+    std::fs::write(&config, original).unwrap();
+    let host = lab.root.join("keys/operator.pub");
+    let (code, out) = onboarding_run(&lab, &config, &home, &["onboard", "--node-name", "orchard", "--sign", "yubikey", "--host-key-file", host.to_str().unwrap()]);
+    assert_eq!(code, 2, "{out}");
+    assert!(out.contains("by hand"), "{out}");
+    assert!(std::fs::read_to_string(&config).unwrap().contains("method"), "method is set before anything else");
+    // An unknown way of signing is a usage error.
+    std::fs::write(&config, "").unwrap();
+    let (code, out) = onboarding_run(&lab, &config, &home, &["onboard", "--node-name", "orchard", "--sign", "tpm"]);
+    assert_eq!(code, 2, "{out}");
+    assert!(out.contains("yubikey, 1password"), "{out}");
+    // A name the roster would not accept is refused before the configuration is touched.
+    std::fs::write(&config, "").unwrap();
+    let (code, _) = onboarding_run(&lab, &config, &home, &["onboard", "--node-name", "A"]);
+    assert_eq!(code, 2);
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), "");
+}

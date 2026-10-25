@@ -44,6 +44,8 @@ usage: dojo-mesh [--config PATH] <command>
   audit [--last N] [--json]        what this node has sent to peers
   roster [check | sync | authorize]
                                    the signed roster: what counts and what is ignored; pull it from its remote; let its members in
+  onboard [--node-name NAME] [--route HOST[:PORT]]... [--sign yubikey|1password|KEY]... [--vault NAME]
+                                   set this node up for the roster mesh in one go (config, keys, signing keys, trust, enrolment)
   init [--custody 1password|existing] [--vault NAME] [--node-key PUB --input-key PUB]
                                    give this node its keys (roster method)
   join [--route HOST[:PORT]]... [--host-key-file PATH] [--out FILE]
@@ -106,6 +108,16 @@ impl Env {
             session,
             method,
         })
+    }
+}
+
+impl Env {
+    /// The same environment after the configuration file changed: the method follows what it says now.
+    pub(crate) fn reloaded(&self) -> Self {
+        let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
+        let user = std::env::var("USER").ok().filter(|user| !user.is_empty()).unwrap_or_else(|| "root".into());
+        let method = method_for(self.config_path.as_deref(), var("XDG_DATA_HOME"), var("XDG_CONFIG_HOME"), self.home.clone(), &self.hostname, &user);
+        Self { config_path: self.config_path.clone(), state_dir: self.state_dir.clone(), home: self.home.clone(), hostname: self.hostname.clone(), origin: self.origin, session: self.session.clone(), method }
     }
 }
 
@@ -279,6 +291,7 @@ pub fn run(env: &Env, args: &[String]) -> Result<u8, Failure> {
             Ok(0)
         }
         "roster" => roster_command(env, rest),
+        "onboard" => crate::onboard::onboard(env, rest),
         "init" => crate::enroll_cli::init(env, rest),
         "join" => crate::enroll_cli::join(env, rest),
         "approve" => crate::enroll_cli::approve(env, rest),
