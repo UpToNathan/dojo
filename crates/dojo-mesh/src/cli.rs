@@ -3,7 +3,8 @@
 //!
 //! Exit codes: 0 done; 1 the command ran and failed (the peer's own status is in the message);
 //! 2 usage or configuration; 3 a human has to act (Tailscale wants a sign-in, or an operator-only
-//! step has no operator); 4 the call was refused or could not reach the peer.
+//! step has no operator); 4 the call was refused or could not reach the peer; 5 a window was not
+//! sent because the peer lacks its files.
 
 use crate::audit::{self, Entry};
 use crate::capability::{self, Answer, Description};
@@ -34,6 +35,9 @@ usage: dojo-mesh [--config PATH] <command>
                                    run a command on a peer
   cp SRC DST                       copy one file; exactly one side is PEER:PATH
   task PEER TEXT...                give a peer's agent a task
+  windows [--json]                 this node's windows
+  send [--window ID] --to PEER [--copy-missing] [--json]
+                                   open a window on a peer and close it here (exit 5: files missing there)
   pause | resume                   switch the agent's peer access off or on
   audit [--last N] [--json]        what this node has sent to peers
   enroll [--tag TAG] [--expires SECS]
@@ -145,14 +149,14 @@ fn has(words: &Words, flag: &str) -> bool {
     words.flags.iter().any(|candidate| candidate == flag)
 }
 
-fn load_config(env: &Env) -> Result<MeshConfig, Failure> {
+pub(crate) fn load_config(env: &Env) -> Result<MeshConfig, Failure> {
     match &env.config_path {
         Some(path) => MeshConfig::load(path).map_err(|error| fail(USAGE_ERROR, error.to_string())),
         None => Ok(MeshConfig::default()),
     }
 }
 
-fn load_roster(env: &Env, config: &MeshConfig) -> Roster {
+pub(crate) fn load_roster(env: &Env, config: &MeshConfig) -> Roster {
     tailscale::roster(tailscale::read_status(), config, &env.hostname)
 }
 
@@ -208,6 +212,9 @@ pub fn run(env: &Env, args: &[String]) -> Result<u8, Failure> {
             Ok(0)
         }
         "audit" => audit_command(env, rest),
+        "windows" => crate::send_cli::windows(rest),
+        "send" => crate::send_cli::send(env, rest),
+        "receive" => crate::send_cli::receive(rest),
         "enroll" | "policy" => crate::control_cli::run(env, command, rest),
         "help" | "--help" | "-h" => {
             print!("{USAGE}");
@@ -268,7 +275,7 @@ fn refuse(env: &Env, from: &str, peer: &str, action: &str, detail: &str, why: &R
 
 /// One call to one peer, from the checks to the record of how it ended.
 #[allow(clippy::too_many_arguments)]
-fn call_peer(
+pub(crate) fn call_peer(
     env: &Env,
     roster: &Roster,
     peer: &str,
@@ -306,7 +313,7 @@ fn call_peer(
 }
 
 /// Turns how a call ended into the command's exit status.
-fn outcome(peer: &str, ended: &Ended) -> Result<u8, Failure> {
+pub(crate) fn outcome(peer: &str, ended: &Ended) -> Result<u8, Failure> {
     match ended {
         Ended::Exited(0) => Ok(0),
         Ended::Exited(code) => Err(fail(FAILED, format!("{peer} exited with status {code}"))),
@@ -468,7 +475,7 @@ fn base_name(path: &str) -> &str {
     path.trim_end_matches('/').rsplit('/').next().unwrap_or(path)
 }
 
-fn push(env: &Env, roster: &Roster, source: &str, peer: &str, path: &str) -> Result<u8, Failure> {
+pub(crate) fn push(env: &Env, roster: &Roster, source: &str, peer: &str, path: &str) -> Result<u8, Failure> {
     use std::os::unix::fs::PermissionsExt;
     let metadata = std::fs::metadata(source).map_err(|error| fail(FAILED, format!("{source}: {error}")))?;
     if !metadata.is_file() {

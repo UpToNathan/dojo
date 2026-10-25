@@ -13,6 +13,8 @@ pub enum Input {
     Inherit,
     Null,
     File(File),
+    /// Written to the call's standard input, which is then closed.
+    Bytes(Vec<u8>),
 }
 
 pub enum Output {
@@ -51,10 +53,15 @@ pub struct Done {
 pub fn run(call: Call) -> Result<Done, String> {
     let mut command = Command::new("tailscale");
     command.args(["ssh", &call.host, &call.remote]);
+    let mut feed = None;
     command.stdin(match call.input {
         Input::Inherit => Stdio::inherit(),
         Input::Null => Stdio::null(),
         Input::File(file) => Stdio::from(file),
+        Input::Bytes(bytes) => {
+            feed = Some(bytes);
+            Stdio::piped()
+        }
     });
     let capture = matches!(call.output, Output::Capture);
     command.stdout(match call.output {
@@ -67,6 +74,12 @@ pub fn run(call: Call) -> Result<Done, String> {
         if error.kind() == std::io::ErrorKind::NotFound { "tailscale is not installed".to_string() } else { format!("could not run tailscale: {error}") }
     })?;
 
+    if let Some(bytes) = feed {
+        let mut stdin = child.stdin.take().expect("stdin was piped");
+        std::thread::spawn(move || {
+            let _ = stdin.write_all(&bytes);
+        });
+    }
     let (url_sender, url_receiver) = mpsc::channel::<String>();
     let stderr = child.stderr.take().expect("stderr was piped");
     let stderr_reader = std::thread::spawn(move || {
