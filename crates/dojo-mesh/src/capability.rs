@@ -11,13 +11,6 @@ use std::path::{Path, PathBuf};
 pub struct Description {
     pub node: String,
     pub capabilities: Capabilities,
-    /// This node's screen outputs, when it can tell (a node without a compositor cannot).
-    #[serde(default)]
-    pub outputs: Option<Vec<String>>,
-    #[serde(default)]
-    pub boundaries: Vec<crate::config::Boundary>,
-    #[serde(default)]
-    pub accept_input: Vec<String>,
 }
 
 /// Builds this node's description. An attribute named `X-file` is published as `X`, holding the
@@ -41,7 +34,7 @@ pub fn describe(node: &str, declared: &Capabilities, home: Option<&Path>, read: 
         }
         capabilities.insert(name.clone(), published);
     }
-    Description { node: node.into(), capabilities, ..Description::default() }
+    Description { node: node.into(), capabilities }
 }
 
 fn expand(value: &str, home: Option<&Path>) -> Option<PathBuf> {
@@ -132,7 +125,7 @@ mod tests {
     fn with(node: &str, capability: &str) -> Description {
         let mut capabilities = Capabilities::new();
         capabilities.insert(capability.into(), BTreeMap::from([("port".to_string(), "1".to_string())]));
-        Description { node: node.into(), capabilities, ..Description::default() }
+        Description { node: node.into(), capabilities }
     }
 
     #[test]

@@ -15,7 +15,6 @@ pub mod device;
 pub mod doctor;
 pub mod guard;
 pub mod hujson;
-pub mod outputs;
 pub mod roster;
 pub mod ssh;
 pub mod tailscale;
