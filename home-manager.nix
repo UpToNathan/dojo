@@ -84,6 +84,7 @@ in
         ./stasis-home-manager.nix
         ./update-home-manager.nix
         ./cache-home-manager.nix
+        ./kitty-remote-control-home-manager.nix
       ];
       home.username = username;
       dojo.root = root;
@@ -722,16 +723,6 @@ in
         exec ${root}/tools/speech/dojo-voice "$@"
       '';
       xdg.configFile."systemd/user/wayland-wm@niri\\x2dsession.service.d/90-dojo-niri.conf".source = ./session-config/90-dojo-niri.conf;
-      # Dojo's kitty remote-control password: per machine, outside the Nix store, readable by the
-      # user only, and allowed nothing but `ls`. Made once; delete the file to make a new one.
-      home.activation.dojoKittyRemoteControl = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        file="${config.xdg.configHome}/kitty/dojo-remote-control.conf"
-        if [ ! -s "$file" ]; then
-          run mkdir -p "$(dirname "$file")"
-          secret=$(${pkgs.coreutils}/bin/head -c 32 /dev/urandom | ${pkgs.coreutils}/bin/base64 | ${pkgs.coreutils}/bin/tr -dc 'A-Za-z0-9')
-          (umask 077; printf 'remote_control_password "%s" ls\n' "$secret" > "$file.new") && run mv -f "$file.new" "$file"
-        fi
-      '';
       wayland.windowManager.niri = {
         enable = true;
         checkConfig = false;
