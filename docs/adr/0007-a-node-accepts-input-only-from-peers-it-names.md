@@ -4,7 +4,7 @@ status: proposed
 
 # A node accepts input only from peers it names, and treats it as the human's
 
-Remote input (the pointer and keyboard crossing a boundary) is more powerful than running a command on a peer: it can type into any window, including terminals with root shells and the browser with signed-in sessions. Membership in the mesh is therefore not enough to send it. A node accepts input only from peers listed in its own `accept-input`, and learns which peer is sending from Tailscale's identity of the connection (`tailscale whois`), never from the sender's own claim such as `DOJO_FROM`. Accepted input is injected as the human's seat, because it is the operator at another keyboard, not an agent.
+Remote input (the operator's pointer and keyboard taken along when a window is sent to a peer) is more powerful than running a command on a peer: it can type into any window, including terminals with root shells and the browser with signed-in sessions. Membership in the mesh is therefore not enough to send it. A node accepts input only from peers listed in its own `accept-input`, and learns which peer is sending from Tailscale's identity of the connection (`tailscale whois`), never from the sender's own claim such as `DOJO_FROM`. Accepted input is injected as the human's seat, because it is the operator at another keyboard, not an agent.
 
 ## Considered options
 

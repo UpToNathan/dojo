@@ -142,12 +142,8 @@ _Avoid_: Admin, user (when the agent is the other party)
 The record each node keeps of every call it makes to a peer, with who made it and how it ended.
 _Avoid_: History, trace
 
-**Boundary**:
-A screen edge of one node joined to a screen edge of a peer, which the pointer can cross.
-_Avoid_: Portal, link, edge (alone)
-
 **Remote input**:
-The operator's pointer and keyboard driving a peer after crossing a boundary, received there as the human's own input.
+The operator's pointer and keyboard driving a peer after sending it a window, received there as the human's own input.
 _Avoid_: Input sharing, KVM
 
 **Handoff**:
