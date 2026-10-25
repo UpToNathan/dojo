@@ -716,7 +716,7 @@ in
       wayland.windowManager.niri = {
         enable = true;
         checkConfig = false;
-	settings.input.focus-follows-mouse = {};
+	# No focus-follows-mouse: a bumped trackpad while typing moved focus and sent keys to the wrong window.
 	# Niri hardcodes the power key to suspend, ahead of any bind, unless this is set.
 	settings.input.disable-power-key-handling = {};
 	# Niri's hotkey overlay is drawn over everything at every session start. It would be the first
