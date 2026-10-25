@@ -49,6 +49,12 @@ ly was the display manager until the login screen replaced it. The tracked
 `pam.d/ly` is gone and nothing here installs, enables or removes the `ly`
 package; see "Login screen" below for how to go back.
 
+## SSH for the mesh
+
+`ssh/sshd_config.d/10-dojo-mesh.conf` is not in `install-system-config.sh`'s table because only a machine that runs `sshd` and takes mesh members needs it. `scripts/install-mesh-sshd.sh` installs it (and an optional `ListenAddress` drop-in with `--listen ADDRESS`) as root-owned copies with timestamped backups, checks the result with `sshd -t` and reloads `sshd` without dropping open sessions; it undoes the change if `sshd` rejects it. It refuses to run when the account has no authorized key, since passwords are then off, unless `--allow-no-keys` says another way in exists (Tailscale SSH, say). `scripts/check-mesh-sshd.sh HOST`, run from another machine, shows which methods the server offers and fails if passwords are among them.
+
+`scripts/enable-sudo-yubikey.sh` is optional and only for a machine whose owner has a FIDO2 key: `register` stores a key in the root-owned `/etc/dojo-u2f-mappings` (root owns it so a process of the user cannot add a key of its own), `enable` adds one `pam_u2f` line before the first `auth` line of `/etc/pam.d/sudo`, and `disable` removes it. A user with no registered key is not asked for one. Recovery if sudo ever refuses you is written at the top of the script: keep a root shell open while testing, and delete the marked line from a console or rescue boot. `scripts/test-mesh-host-setup.py` runs all three against a private directory.
+
 ## Login screen
 
 `dojo-dm` replaces ly (ADR 0003): a root service on `tty1` that runs the login

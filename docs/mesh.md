@@ -123,6 +123,10 @@ A signing key can be held anywhere an SSH agent or a key file can sign with it: 
 4. **The new node** trusts the signer (`trust add`, with the fingerprint it was shown), pulls the roster (`roster sync`, which also refreshes its `authorized_keys`) and the two nodes can reach each other.
 5. **Later.** `renew NAME` signs the same entry for a fresh period before it expires (`doctor` warns when one is close), `rm NAME` removes a node and revokes its keys, and `leave` takes this node's `authorized_keys` block out.
 
+### Setting up a host
+
+A machine that members connect to needs an SSH server that accepts public keys only. `scripts/install-mesh-sshd.sh` (root-owned drop-in, timestamped backup, `sshd -t` before reload; see [system-config/README.md](../system-config/README.md#ssh-for-the-mesh)) turns off passwords and root login and can restrict `ListenAddress`, and `scripts/check-mesh-sshd.sh HOST` run from another machine confirms that passwords are refused. Root on a peer is never an SSH login: a member opens a session as the ordinary user and runs `sudo`, which asks for the user's password. A machine whose owner has a security key can also make `sudo` ask for a touch with `scripts/enable-sudo-yubikey.sh`; no node requires it. The node's 1Password needs to be signed in on that machine with the SSH agent turned on (Settings > Developer > Use the SSH agent) and the approval duration chosen there; `dojo-mesh doctor` says "the SSH agent has no keys: unlock 1Password" until it is.
+
 ## Reaching peers
 
 `exec`, `cp` and `task` use `tailscale ssh`. The remote command gets `DOJO_FROM`, `DOJO_SESSION` and `DOJO_ORIGIN` in its environment. Arguments are quoted, never interpreted by a shell. `cp` sends one regular file, keeps its permission bits, and replaces the destination atomically; copying from a peer writes through a temporary file, so a failed transfer leaves nothing behind.
