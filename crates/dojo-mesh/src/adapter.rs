@@ -19,8 +19,13 @@ pub struct Captured {
 
 /// What adapters may ask this machine.
 pub trait Probe {
-    /// `kitty @ ls` on a kitty's socket, authenticated with the adapter's password.
-    fn kitty_ls(&self, socket: &Path, password: &str) -> Result<String, String>;
+    /// `kitty @ ls` on a kitty's socket, authenticated with the adapter's password, which kitty
+    /// wants encrypted with that instance's public key.
+    fn kitty_ls(&self, socket: &Path, password: &str, public_key: &str) -> Result<String, String>;
+    /// The public key a kitty gives the programs it runs (`KITTY_PUBLIC_KEY` in their environment).
+    fn kitty_public_key(&self, pid: i64) -> Option<String>;
+    /// A process's children.
+    fn children(&self, pid: i64) -> Vec<i64>;
     /// `[file, line, column, modified buffers]` from an nvim server, as JSON.
     fn nvim_state(&self, socket: &Path) -> Result<String, String>;
     /// Recent history of a Chromium-family profile: (url, title), newest first.
@@ -154,7 +159,8 @@ fn kitty(window: &Window, context: &Context) -> Result<Captured, Fallback> {
         .and_then(|dir| context.probe.read(&dir.join("kitty/dojo-remote-control.conf")))
         .and_then(|text| kitty_password(&text))
         .ok_or_else(|| relaunch("kitty's remote control is not set up for Dojo, so the terminal's directory is unknown"))?;
-    let listing = context.probe.kitty_ls(&runtime.join(format!("kitty-{pid}.sock")), &password).map_err(|error| relaunch(&format!("kitty did not answer: {error}")))?;
+    let public_key = context.probe.kitty_public_key(pid).ok_or_else(|| relaunch("kitty's public key could not be read, so it cannot be asked safely"))?;
+    let listing = context.probe.kitty_ls(&runtime.join(format!("kitty-{pid}.sock")), &password, &public_key).map_err(|error| relaunch(&format!("kitty did not answer: {error}")))?;
     let os_windows: Vec<OsWindow> = serde_json::from_str(&listing).map_err(|error| relaunch(&format!("kitty's answer could not be read: {error}")))?;
     let title = window.title.as_deref().unwrap_or_default();
     let chosen = os_windows
@@ -203,8 +209,21 @@ fn yazi_directory(title: &str) -> Option<String> {
 }
 
 fn nvim(process: &Process, runtime: &Path, context: &Context) -> Result<Program, Fallback> {
-    let socket = runtime.join(format!("nvim.{}.0", process.pid));
-    let state = context.probe.nvim_state(&socket).map_err(|error| Fallback::Relaunch(format!("nvim did not answer ({error}), so the file is unknown")))?;
+    // The nvim in the terminal is its interface; the editor itself is usually a child (`nvim
+    // --embed`), and the server socket is named after whichever process runs the editor.
+    let candidates = std::iter::once(process.pid).chain(context.probe.children(process.pid));
+    let mut last_error = String::from("no nvim server was found");
+    let mut answer = None;
+    for pid in candidates {
+        match context.probe.nvim_state(&runtime.join(format!("nvim.{pid}.0"))) {
+            Ok(state) => {
+                answer = Some(state);
+                break;
+            }
+            Err(error) => last_error = error,
+        }
+    }
+    let state = answer.ok_or_else(|| Fallback::Relaunch(format!("nvim did not answer ({last_error}), so the file is unknown")))?;
     let (file, line, column, modified): (String, u32, u32, u32) = serde_json::from_str(&state).map_err(|error| Fallback::Relaunch(format!("nvim's answer could not be read: {error}")))?;
     if modified > 0 {
         return Err(Fallback::Refuse(format!("nvim has {modified} unsaved buffer{}; save first, or they would be lost when the window closes", if modified == 1 { "" } else { "s" })));
@@ -233,9 +252,26 @@ fn run(program: &str, args: &[&str], env: &[(&str, &str)]) -> Result<String, Str
 }
 
 impl Probe for System {
-    fn kitty_ls(&self, socket: &Path, password: &str) -> Result<String, String> {
+    fn kitty_ls(&self, socket: &Path, password: &str, public_key: &str) -> Result<String, String> {
         // The password travels in the environment, never on the command line.
-        run("kitty", &["@", "--to", &format!("unix:{}", socket.display()), "--password-env", "DOJO_KITTY_RC_PASSWORD", "ls"], &[("DOJO_KITTY_RC_PASSWORD", password)])
+        run(
+            "kitty",
+            &["@", "--to", &format!("unix:{}", socket.display()), "--password-env", "DOJO_KITTY_RC_PASSWORD", "ls"],
+            &[("DOJO_KITTY_RC_PASSWORD", password), ("KITTY_PUBLIC_KEY", public_key)],
+        )
+    }
+
+    fn children(&self, pid: i64) -> Vec<i64> {
+        let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { return Vec::new() };
+        tasks.flatten().filter_map(|task| std::fs::read_to_string(task.path().join("children")).ok()).flat_map(|text| text.split_whitespace().filter_map(|pid| pid.parse().ok()).collect::<Vec<i64>>()).collect()
+    }
+
+    fn kitty_public_key(&self, pid: i64) -> Option<String> {
+        // kitty puts the key in the environment of each program it starts; any of its children has it.
+        self.children(pid).iter().find_map(|child| {
+            let environ = std::fs::read(format!("/proc/{child}/environ")).ok()?;
+            environ.split(|byte| *byte == 0).find_map(|entry| std::str::from_utf8(entry).ok()?.strip_prefix("KITTY_PUBLIC_KEY=").map(String::from))
+        })
     }
 
     fn nvim_state(&self, socket: &Path) -> Result<String, String> {
@@ -290,14 +326,22 @@ mod tests {
     }
 
     impl Probe for Fake {
-        fn kitty_ls(&self, socket: &Path, password: &str) -> Result<String, String> {
+        fn kitty_ls(&self, socket: &Path, password: &str, public_key: &str) -> Result<String, String> {
             assert_eq!(socket, Path::new("/run/user/1/kitty-42.sock"));
             assert_eq!(password, "s3cret");
+            assert_eq!(public_key, "1:key");
             self.kitty.clone().ok_or("no kitty".into())
         }
+        fn kitty_public_key(&self, pid: i64) -> Option<String> {
+            assert_eq!(pid, 42);
+            self.kitty.as_ref().map(|_| "1:key".to_string())
+        }
         fn nvim_state(&self, socket: &Path) -> Result<String, String> {
-            assert_eq!(socket, Path::new("/run/user/1/nvim.77.0"));
-            self.nvim.clone().ok_or("no nvim".into())
+            // The interface process 77 has no server; its child 78 runs the editor.
+            if socket == Path::new("/run/user/1/nvim.78.0") { self.nvim.clone().ok_or("no nvim".into()) } else { Err("connection refused".into()) }
+        }
+        fn children(&self, pid: i64) -> Vec<i64> {
+            if pid == 77 { vec![78] } else { Vec::new() }
         }
         fn history(&self, profile: &Path) -> Result<Vec<(String, String)>, String> {
             assert!(profile.ends_with("Default"));
