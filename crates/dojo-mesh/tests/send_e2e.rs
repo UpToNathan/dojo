@@ -72,6 +72,13 @@ fn fake_niri(path: &Path, windows: &'static str) -> Seen {
                         }
                         let _ = std::fs::write(dir.join("yields-seen"), "");
                         ok("{\"InputCoordination\":{\"revision\":1,\"human_owned_windows\":[]}}")
+                    } else if line.contains("\"RemoteInput\"") && !dir.join("remote-input").exists() {
+                        // What a Niri without the request answers.
+                        "{\"Err\":\"error parsing request\"}".to_string()
+                    } else if line.contains("\"RemoteInput\"") && dir.join("remote-refused").exists() {
+                        "{\"Err\":\"remote input refused: not inside a Tailscale SSH session\"}".to_string()
+                    } else if line.contains("\"RemoteInput\"") && line.contains("\"Key\":{\"evdev\":999") {
+                        "{\"Err\":\"evdev keyboard code must be between 1 and 767\"}".to_string()
                     } else if line.contains("\"Jump\"") && dir.join("no-jump").exists() {
                         "{\"Err\":\"unknown variant `Jump`, expected one of `Move`, `Wait`\"}".to_string()
                     } else if line.contains("\"Button\"") && line.contains("Pressed") && dir.join("refuse-click").exists() {
@@ -463,7 +470,9 @@ fn remote_replays_the_operators_input_on_the_peers_seat_and_lets_go_at_the_end()
     let result = run_remote(&site, &capture, &[]);
     assert_eq!(result.status.code(), Some(0), "{}", text(&result));
     assert!(text(&result).contains("taking input from alpha.example.ts.net"), "{}", text(&result));
+    assert!(text(&result).contains("this Niri cannot take input as the real keyboard"), "an old Niri is told so: {}", text(&result));
     let wanted = [
+        serde_json::json!({"RemoteInput": []}),
         serde_json::json!("YieldHumanInput"),
         serde_json::json!({"AgentInput": {"Create": {"name": "dojo-remote"}}}),
         serde_json::json!("Outputs"),
@@ -717,4 +726,84 @@ fn an_application_the_human_took_is_yielded_again_instead_of_ending_the_session(
     assert_eq!(requests.iter().filter(|r| **r == click).count(), 2, "the click was sent again after yielding: {requests:?}");
     assert_eq!(requests.iter().filter(|r| **r == serde_json::json!("YieldHumanInput")).count(), 2, "{requests:?}");
     assert!(requests.contains(&serde_json::json!({"AgentInput": {"Jump": {"output": "eDP-1", "x": 510.0, "y": 250.0}}})), "{requests:?}");
+}
+
+#[test]
+fn a_niri_that_takes_remote_input_gets_it_as_the_real_keyboard_and_pointer() {
+    let site = Site::new();
+    site.config("beta", BETA_ACCEPTS_ALPHA);
+    std::fs::write(site.root.join("hosts/beta/remote-input"), "").unwrap();
+    let capture = fake_capture(
+        &site,
+        &[
+            r#"{"t":"motion","dx":10,"dy":5}"#,
+            r#"{"t":"motion","dx":5,"dy":0}"#,
+            r#"{"t":"button","code":272,"pressed":true}"#,
+            r#"{"t":"button","code":272,"pressed":false}"#,
+            r#"{"t":"axis","h":0,"v":15}"#,
+            r#"{"t":"key","code":125,"pressed":true}"#,
+            r#"{"t":"key","code":57,"pressed":true}"#,
+            r#"{"t":"key","code":57,"pressed":false}"#,
+            r#"{"t":"key","code":125,"pressed":false}"#,
+            r#"{"t":"run","command":"rm -rf ~"}"#,
+        ],
+    );
+    let result = run_remote(&site, &capture, &[]);
+    assert_eq!(result.status.code(), Some(0), "{}", text(&result));
+    assert!(text(&result).contains("taking input from alpha.example.ts.net"), "{}", text(&result));
+    assert!(!text(&result).contains("cannot take input as the real keyboard"), "{}", text(&result));
+    // Everything arrives as RemoteInput; a burst may be split across requests, so compare the stream.
+    let requests = beta_requests(&site);
+    let events: Vec<serde_json::Value> = requests.iter().filter_map(|r| r.get("RemoteInput")).flat_map(|batch| batch.as_array().unwrap().clone()).collect();
+    let key = |code: u32, state: &str| serde_json::json!({"Key": {"evdev": code, "state": state}});
+    let mut motion = (0.0, 0.0);
+    let mut others = Vec::new();
+    for event in events {
+        match event.get("Motion") {
+            Some(m) => {
+                motion.0 += m["dx"].as_f64().unwrap();
+                motion.1 += m["dy"].as_f64().unwrap();
+            }
+            None => others.push(event),
+        }
+    }
+    assert_eq!(motion, (15.0, 5.0), "the motion adds up wherever the batches fall");
+    assert_eq!(
+        others,
+        [
+            serde_json::json!({"Button": {"button": 272, "state": "Pressed"}}),
+            serde_json::json!({"Button": {"button": 272, "state": "Released"}}),
+            serde_json::json!({"Axis": {"horizontal": 0.0, "vertical": 15.0}}),
+            key(125, "Pressed"),
+            key(57, "Pressed"),
+            key(57, "Released"),
+            key(125, "Released"),
+        ],
+        "an unknown event was ignored, never run"
+    );
+    assert!(!requests.iter().any(|r| r.get("AgentInput").is_some() || *r == serde_json::json!("YieldHumanInput")), "no seat is made when the real keyboard is available: {requests:?}");
+}
+
+#[test]
+fn a_niri_that_refuses_the_caller_ends_the_session_with_its_reason() {
+    let site = Site::new();
+    site.config("beta", BETA_ACCEPTS_ALPHA);
+    std::fs::write(site.root.join("hosts/beta/remote-input"), "").unwrap();
+    std::fs::write(site.root.join("hosts/beta/remote-refused"), "").unwrap();
+    let capture = fake_capture(&site, &[r#"{"t":"key","code":30,"pressed":true}"#]);
+    let result = run_remote(&site, &capture, &[]);
+    assert_eq!(result.status.code(), Some(1), "{}", text(&result));
+    assert!(text(&result).contains("remote input refused: not inside a Tailscale SSH session"), "{}", text(&result));
+    assert!(!beta_requests(&site).iter().any(|r| r.get("AgentInput").is_some()), "no fallback to a seat after a refusal");
+}
+
+#[test]
+fn one_event_niri_dislikes_does_not_end_remote_input() {
+    let site = Site::new();
+    site.config("beta", BETA_ACCEPTS_ALPHA);
+    std::fs::write(site.root.join("hosts/beta/remote-input"), "").unwrap();
+    let capture = fake_capture(&site, &[r#"{"t":"key","code":999,"pressed":true}"#, r#"{"t":"key","code":30,"pressed":true}"#]);
+    // Niri turns the batch down, and the session carries on until the stream ends.
+    let result = run_remote(&site, &capture, &[]);
+    assert_eq!(result.status.code(), Some(0), "{}", text(&result));
 }

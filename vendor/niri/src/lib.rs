@@ -4,6 +4,7 @@ extern crate tracing;
 #[cfg(feature = "dbus")]
 pub mod a11y;
 pub mod agent_input;
+pub mod remote_input;
 pub mod animation;
 pub mod backend;
 pub mod browser_control;

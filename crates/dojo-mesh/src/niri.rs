@@ -106,6 +106,13 @@ impl AgentSeat {
         self.call(&serde_json::json!("YieldHumanInput")).map(drop)
     }
 
+    /// Keys, buttons, motion and scrolling for this desktop's real keyboard and pointer
+    /// (`Request::RemoteInput`). Niri vets the caller before the first batch; an empty batch just
+    /// asks it to.
+    pub fn remote_input(&mut self, events: Vec<serde_json::Value>) -> Result<(), String> {
+        self.call(&serde_json::json!({"RemoteInput": events})).map(drop)
+    }
+
     /// An agent-input command that moves the pointer or sends a button, key or scroll.
     pub fn input(&mut self, command: serde_json::Value) -> Result<(), String> {
         self.call(&serde_json::json!({"AgentInput": command})).map(drop)

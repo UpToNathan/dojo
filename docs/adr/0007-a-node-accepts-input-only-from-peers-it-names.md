@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # A node accepts input only from peers it names, and treats it as the human's

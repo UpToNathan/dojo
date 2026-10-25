@@ -138,6 +138,17 @@ impl State {
     {
         let _span = tracy_client::span!("process_input_event");
 
+        // The person at this machine can always end remote control with Ctrl+Alt+Shift+Esc on its
+        // own keyboard. Only hardware counts: events a peer sends never reach this check.
+        if std::any::TypeId::of::<I>() == std::any::TypeId::of::<LibinputInputBackend>() {
+            if let InputEvent::Keyboard { event } = &event {
+                self.hardware_key_for_remote_input(
+                    event.key_code().raw() - 8,
+                    event.state() == KeyState::Pressed,
+                );
+            }
+        }
+
         // Make sure some logic like workspace clean-up has a chance to run before doing actions.
         self.niri.advance_animations();
 

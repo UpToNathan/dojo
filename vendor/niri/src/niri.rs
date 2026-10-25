@@ -351,6 +351,7 @@ pub struct Niri {
     pub(crate) external_admission_unknown: HashSet<crate::external_admission::TargetKey>,
     pub(crate) browser_control: Option<Rc<RefCell<crate::browser_control::Channel>>>,
     pub agent_seats: HashMap<u64, crate::agent_input::AgentSeat>,
+    pub remote_input: crate::remote_input::Sessions,
     pub agent_dispatch_state: Option<SeatState<State>>,
     pub next_agent_peer: u64,
     /// Scancodes of the keys to suppress.
@@ -2856,6 +2857,7 @@ impl Niri {
             external_admission_unknown: Default::default(),
             browser_control: None,
             agent_seats: HashMap::new(),
+            remote_input: Default::default(),
             agent_dispatch_state: None,
             next_agent_peer: 0,
             keyboard_focus: KeyboardFocus::Layout { surface: None },

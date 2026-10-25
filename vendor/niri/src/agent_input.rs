@@ -834,6 +834,7 @@ impl State {
     }
 
     pub fn refresh_agents(&mut self) {
+        self.refresh_remote_input();
         let peers: Vec<_> = self.niri.agent_seats.keys().copied().collect();
         for peer in peers {
             let _ = self.with_agent(peer, |this, agent| {

@@ -69,6 +69,13 @@ pub enum Request {
     Version,
     /// Control the agent seat owned by this persistent IPC connection.
     AgentInput(AgentInput),
+    /// Deliver a peer's keyboard and pointer to this desktop as if they were its own hardware.
+    ///
+    /// Unlike [`Request::AgentInput`], these events take the real seat: binds fire, the real
+    /// cursor moves across every output, and keys go to the focused window. Niri accepts them only
+    /// from a process running inside a Tailscale SSH session from another machine, only while the
+    /// screen is unlocked, and lets go of everything held when the connection ends.
+    RemoteInput(Vec<RemoteInput>),
     /// Replace the global shortcuts grabbed by this persistent IPC connection.
     ///
     /// A grabbed key is matched after the configured and hardcoded binds. Niri consumes both its
@@ -363,6 +370,40 @@ pub struct InputCoordination {
     pub revision: u64,
     /// Windows on client connections currently owned by human interaction.
     pub human_owned_windows: Vec<u64>,
+}
+
+/// One piece of a peer's keyboard or pointer, for [`Request::RemoteInput`].
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub enum RemoteInput {
+    /// A key, by Linux evdev code (1 to 767).
+    Key {
+        /// Linux evdev key code.
+        evdev: u32,
+        /// Whether it went down or up.
+        state: AgentInputState,
+    },
+    /// A pointer button, by Linux button code (272 to 279).
+    Button {
+        /// Linux evdev button code.
+        button: u32,
+        /// Whether it went down or up.
+        state: AgentInputState,
+    },
+    /// Relative pointer motion in logical pixels, already accelerated by the sender.
+    Motion {
+        /// Horizontal movement.
+        dx: f64,
+        /// Vertical movement.
+        dy: f64,
+    },
+    /// Scrolling in logical pixels.
+    Axis {
+        /// Horizontal scroll.
+        horizontal: f64,
+        /// Vertical scroll.
+        vertical: f64,
+    },
 }
 
 /// State of an agent key or pointer button.

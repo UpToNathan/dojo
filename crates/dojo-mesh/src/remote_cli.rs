@@ -88,14 +88,97 @@ pub fn inject(env: &Env, rest: &[String]) -> Result<u8, Failure> {
         return Err(refuse("the screen is locked here; unlock it first"));
     }
     let socket = niri::socket().ok_or_else(|| refuse("there is no desktop session on this machine"))?;
-    let layout: Vec<remote::Rect> = niri::outputs(&socket)
+
+    // The real keyboard and pointer, where Niri offers them: binds fire, there is one cursor, and
+    // every monitor works the way the hardware's would. An older Niri only has the seat below.
+    let mut connection = niri::AgentSeat::connect(&socket).map_err(|message| fail(UNAVAILABLE, message))?;
+    match connection.remote_input(Vec::new()) {
+        Ok(()) => return inject_as_hardware(connection, &from),
+        Err(message) if message.contains("error parsing request") || message.contains("unknown variant") => {
+            eprintln!("dojo-mesh: this Niri cannot take input as the real keyboard, so the peer's shortcuts will not work and there will be a second cursor until Niri is updated");
+        }
+        Err(message) => return Err(fail(FAILED, message)),
+    }
+    drop(connection);
+
+    inject_through_seat(&socket, &from)
+}
+
+/// The peer's input as this machine's own hardware (`Request::RemoteInput`). Niri holds what is
+/// pressed, and lets go of it all when this connection closes.
+fn inject_as_hardware(mut connection: niri::AgentSeat, from: &str) -> Result<u8, Failure> {
+    eprintln!("dojo-mesh: taking input from {from}");
+    let (lines, incoming) = mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        for line in std::io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            if lines.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let mut ended: Result<(), String> = Ok(());
+    let mut told = std::collections::HashSet::new();
+    'session: loop {
+        let Ok(first) = incoming.recv() else { break };
+        let mut burst = vec![first];
+        let deadline = std::time::Instant::now() + FRAME;
+        while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
+            match incoming.recv_timeout(left) {
+                Ok(line) => burst.push(line),
+                Err(_) => break,
+            }
+        }
+        let events: Vec<Event> = burst.iter().filter_map(|line| Event::parse(line).ok()).collect();
+        let batch: Vec<serde_json::Value> = remote::coalesce(events).iter().map(remote_input).collect();
+        if batch.is_empty() {
+            continue;
+        }
+        if let Err(message) = connection.remote_input(batch) {
+            // Niri turning down a batch it dislikes is not the end; Niri ending the session, or the
+            // connection failing, is.
+            if message.starts_with("Niri refused:") && !message.contains("remote input ended") && !message.contains("remote input refused") {
+                if told.insert(message.clone()) {
+                    eprintln!("dojo-mesh: skipped input: {message}");
+                }
+                continue;
+            }
+            ended = Err(message);
+            break 'session;
+        }
+    }
+    drop(connection);
+    match ended {
+        Ok(()) => Ok(0),
+        Err(message) => {
+            eprintln!("dojo-mesh: remote input ended: {message}");
+            Err(fail(FAILED, message))
+        }
+    }
+}
+
+/// An event as Niri's `RemoteInput`.
+fn remote_input(event: &Event) -> serde_json::Value {
+    let state = |pressed: &bool| if *pressed { "Pressed" } else { "Released" };
+    match event {
+        Event::Key { code, pressed } => serde_json::json!({"Key": {"evdev": code, "state": state(pressed)}}),
+        Event::Button { code, pressed } => serde_json::json!({"Button": {"button": code, "state": state(pressed)}}),
+        Event::Motion { dx, dy } => serde_json::json!({"Motion": {"dx": dx, "dy": dy}}),
+        Event::Axis { h, v } => serde_json::json!({"Axis": {"horizontal": h, "vertical": v}}),
+    }
+}
+
+/// The peer's input through a seat of its own: a second cursor that cannot reach Niri's shortcuts.
+/// For a Niri older than `RemoteInput`.
+fn inject_through_seat(socket: &std::path::Path, from: &str) -> Result<u8, Failure> {
+    let layout: Vec<remote::Rect> = niri::outputs(socket)
         .map_err(|message| fail(FAILED, message))?
         .into_iter()
         .map(|output| remote::Rect { name: output.name, x: output.x, y: output.y, width: output.width, height: output.height })
         .collect();
-    let focused = niri::windows(&socket).ok().and_then(|windows| windows.into_iter().find(|window| window.is_focused));
+    let focused = niri::windows(socket).ok().and_then(|windows| windows.into_iter().find(|window| window.is_focused));
 
-    let mut seat = niri::AgentSeat::connect(&socket).map_err(|message| fail(UNAVAILABLE, message))?;
+    let mut seat = niri::AgentSeat::connect(socket).map_err(|message| fail(UNAVAILABLE, message))?;
     seat.yield_human_input().map_err(|message| fail(FAILED, message))?;
     seat.create("dojo-remote").map_err(|message| fail(FAILED, message))?;
     if let Some(window) = &focused {

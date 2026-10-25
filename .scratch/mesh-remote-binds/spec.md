@@ -1,6 +1,6 @@
 # Compositor shortcuts while controlling a peer
 
-Status: scoped, not built
+Status: option A chosen and built; see docs/adr/0008-remote-input-takes-the-real-seat-only-inside-a-peers-ssh-session.md
 
 ## Problem
 

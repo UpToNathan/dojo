@@ -74,6 +74,13 @@ impl KernelPeer {
             connection: stream.try_clone()?,
         })
     }
+    pub(crate) fn pid(&self) -> u32 {
+        self.pid
+    }
+    /// Whether the connection and the exact process behind it are both still there.
+    pub(crate) fn is_live(&self) -> bool {
+        self.matches_process(self.pid, self.start)
+    }
     pub(crate) fn matches_process(&self, pid: u32, start: u64) -> bool {
         self.pid == pid
             && self.start == start

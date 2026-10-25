@@ -71,6 +71,7 @@ impl Drop for ClientCtx {
             .insert_idle(move |state| {
                 state.release_global_shortcuts(peer);
                 state.destroy_agent(peer);
+                state.end_remote_input(peer);
             });
     }
 }
@@ -424,6 +425,21 @@ async fn process(ctx: &ClientCtx, request: Request) -> Reply {
                 .recv()
                 .await
                 .map_err(|_| "shortcut dispatcher stopped".to_string())?;
+        }
+        Request::RemoteInput(events) => {
+            let (tx, rx) = async_channel::bounded(1);
+            let peer = ctx.peer;
+            let owner = ctx.owner.clone();
+            ctx.event_loop.insert_idle(move |state| {
+                let result = state
+                    .request_remote_input(peer, owner.as_deref(), events)
+                    .map(|()| Response::Handled);
+                let _ = tx.try_send(result);
+            });
+            return rx
+                .recv()
+                .await
+                .map_err(|_| "remote input dispatcher stopped".to_string())?;
         }
         Request::YieldHumanInput => {
             let (tx, rx) = async_channel::bounded(1);
