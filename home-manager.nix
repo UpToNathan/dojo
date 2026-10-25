@@ -716,7 +716,11 @@ in
       wayland.windowManager.niri = {
         enable = true;
         checkConfig = false;
-	# No focus-follows-mouse: a bumped trackpad while typing moved focus and sent keys to the wrong window.
+	settings.input.focus-follows-mouse = {};
+	# Pointing-device sections replace the default config's rather than merge, so tap and
+	# natural-scroll are repeated. dwt ignores the touchpad while typing, so a bumped palm
+	# neither moves focus nor clicks.
+	settings.input.touchpad = { tap = {}; natural-scroll = {}; dwt = {}; };
 	# Niri hardcodes the power key to suspend, ahead of any bind, unless this is set.
 	settings.input.disable-power-key-handling = {};
 	# Niri's hotkey overlay is drawn over everything at every session start. It would be the first
