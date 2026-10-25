@@ -28,8 +28,8 @@ usage: dojo-mesh [--config PATH] <command>
   status [--all] [--json]          this node and the peers it admits
   doctor [--json]                  what is wrong or doubtful
   describe                         what this node offers, as JSON
-  find CAPABILITY [--json] [--peers-only]
-                                   which nodes offer a capability
+  find CAPABILITY [--json | --tsv] [--peers-only]
+                                   which nodes offer a capability (--tsv: node, host, key=value... per line)
   exec [--timeout SECS] PEER -- COMMAND [ARG...]
                                    run a command on a peer
   cp SRC DST                       copy one file; exactly one side is PEER:PATH
@@ -361,7 +361,7 @@ fn probe(env: &Env, roster: &Roster, peer: &str) -> Result<Description, Failure>
 }
 
 fn find(env: &Env, rest: &[String]) -> Result<u8, Failure> {
-    let (words, _) = split(rest, &["--json", "--peers-only"], &[])?;
+    let (words, _) = split(rest, &["--json", "--tsv", "--peers-only"], &[])?;
     let [wanted] = words.positional.as_slice() else { return Err(fail(USAGE_ERROR, format!("find takes one capability name\n{USAGE}"))) };
     let config = load_config(env)?;
     let roster = load_roster(env, &config);
@@ -398,6 +398,13 @@ fn find(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     let (offers, unreachable) = capability::offers(wanted, answers);
     if has(&words, "--json") {
         println!("{}", json(&serde_json::json!({ "capability": wanted, "offers": offers, "unreachable": unreachable }))?);
+    } else if has(&words, "--tsv") {
+        for offer in &offers {
+            println!("{}", tsv_line(offer));
+        }
+        for (node, reason) in &unreachable {
+            eprintln!("dojo-mesh: could not ask {node}: {reason}");
+        }
     } else {
         for offer in &offers {
             let attributes: Vec<String> = offer.attributes.iter().map(|(key, value)| format!("{key}={value}")).collect();
@@ -411,6 +418,15 @@ fn find(env: &Env, rest: &[String]) -> Result<u8, Failure> {
         }
     }
     Ok(if offers.is_empty() { 1 } else { 0 })
+}
+
+/// One offer as a tab-separated line for shell scripts. A value holding a tab or line break could
+/// not be told apart from the separators, so it is left out rather than escaped.
+fn tsv_line(offer: &capability::Offer) -> String {
+    let plain = |text: &str| !text.contains(['\t', '\n', '\r']);
+    let mut fields = vec![offer.node.clone(), offer.host.clone()];
+    fields.extend(offer.attributes.iter().filter(|(key, value)| plain(key) && plain(value)).map(|(key, value)| format!("{key}={value}")));
+    fields.join("\t")
 }
 
 // ---- copying files --------------------------------------------------------------------------
@@ -500,6 +516,17 @@ mod tests {
         assert_eq!(split_remote("plain.txt"), None);
         assert_eq!(split_remote(":x"), None);
         assert_eq!(split_remote("beta:"), None);
+    }
+
+    #[test]
+    fn tsv_lines_drop_values_that_would_break_the_columns() {
+        let offer = capability::Offer {
+            node: "beta".into(),
+            host: "beta.example.ts.net".into(),
+            this_node: false,
+            attributes: [("port".to_string(), "5000".to_string()), ("bad".to_string(), "a\tb".to_string())].into(),
+        };
+        assert_eq!(tsv_line(&offer), "beta\tbeta.example.ts.net\tport=5000");
     }
 
     #[test]

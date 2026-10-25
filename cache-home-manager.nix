@@ -1,10 +1,20 @@
-# Serves this host's Nix store to the tailnet as a signed binary cache (harmonia) when the host is
-# the one named in nix-cache.json. Other hosts list it in system-config/nix/nix.conf, so a package
-# compiled on one machine is downloaded, not compiled, on the other.
+# Serves this host's Nix store to the tailnet as a signed binary cache (harmonia) when the host
+# declares a nix-cache capability in its mesh configuration (docs/mesh.md). Other hosts find it by
+# asking the mesh (scripts/update-nix-cache.sh), so a package compiled on one machine is
+# downloaded, not compiled, on the other.
 { config, lib, pkgs, ... }:
 let
-  cache = builtins.fromJSON (builtins.readFile ./nix-cache.json);
+  meshFile = "${config.home.homeDirectory}/.config/dojo/mesh.toml";
+  mesh = if builtins.pathExists meshFile then builtins.fromTOML (builtins.readFile meshFile) else { };
+  declared = lib.attrByPath [ "capability" "nix-cache" ] null mesh;
   hostname = lib.strings.trim (builtins.readFile /etc/hostname);
+  cache = {
+    port = 5000;
+    keyName = "${hostname}-dojo-1";
+  } // lib.optionalAttrs (declared != null) (
+    lib.optionalAttrs (declared ? port) { port = declared.port; }
+    // lib.optionalAttrs (declared ? "key-name") { keyName = declared."key-name"; }
+  );
   serve = pkgs.writeShellScript "dojo-nix-cache" ''
     set -euo pipefail
     state="''${XDG_CONFIG_HOME:-$HOME/.config}/dojo/nix-cache"
@@ -28,7 +38,7 @@ let
   '';
 in
 {
-  config = lib.mkIf (hostname == cache.server) {
+  config = lib.mkIf (declared != null) {
     systemd.user.services.dojo-nix-cache = {
       Unit.Description = "Serve the Nix store to the tailnet (harmonia)";
       Service = {

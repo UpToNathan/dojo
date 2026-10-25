@@ -285,6 +285,15 @@ fn find_asks_each_peer_what_it_offers() {
 }
 
 #[test]
+fn find_can_print_one_tab_separated_line_per_offer_for_scripts() {
+    let site = Site::new();
+    site.config("beta", "[capability.nix-cache]\nport = 5000\nname = \"b\"\n");
+    let result = site.run(&["find", "nix-cache", "--peers-only", "--tsv"]);
+    assert_eq!(code(&result), 0, "{}", err(&result));
+    assert_eq!(out(&result), "beta\tbeta.example.ts.net\tname=b\tport=5000\n");
+}
+
+#[test]
 fn find_includes_this_node_unless_asked_not_to_and_reports_when_nobody_offers() {
     let site = Site::new();
     site.config("alpha", "membership-tag = \"tag:mesh\"\n[capability.voice-agent]\ncommand = \"/x/dojo-voice\"\n");
