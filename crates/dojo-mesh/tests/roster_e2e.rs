@@ -767,10 +767,11 @@ fn onboarding_refuses_what_it_cannot_do_safely() {
     assert!(out.contains("yubikey, 1password"), "{out}");
     // Without a terminal or a way to ask for a PIN, the YubiKey is not touched at all.
     std::fs::write(&config, "").unwrap();
-    let (code, out) = onboarding_run_with(&lab, &config, &home, &["onboard", "--node-name", "orchard", "--sign", "yubikey", "--host-key-file", host.to_str().unwrap()], &[]);
+    let fresh = lab.root.join("fresh-home");
+    let (code, out) = onboarding_run_with(&lab, &config, &fresh, &["onboard", "--node-name", "orchard", "--sign", "yubikey", "--host-key-file", host.to_str().unwrap()], &[]);
     assert_eq!(code, 3, "{out}");
     assert!(out.contains("no terminal"), "{out}");
-    assert!(!home.join(".config/dojo/mesh/signing_yubikey").exists());
+    assert!(!fresh.join(".config/dojo/mesh/signing_yubikey").exists());
     // A name the roster would not accept is refused before the configuration is touched.
     std::fs::write(&config, "").unwrap();
     let (code, _) = onboarding_run(&lab, &config, &home, &["onboard", "--node-name", "A"]);
