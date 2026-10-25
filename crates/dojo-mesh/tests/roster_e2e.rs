@@ -113,13 +113,18 @@ impl Lab {
     }
 
     fn run(&self, args: &[&str]) -> (i32, String) {
+        self.run_with_path(args, &std::env::var("PATH").unwrap_or_default())
+    }
+
+    fn run_with_path(&self, args: &[&str], path: &str) -> (i32, String) {
         let output = Command::new(env!("CARGO_BIN_EXE_dojo-mesh"))
             .arg("--config")
             .arg(self.root.join("mesh.toml"))
             .args(args)
             .env_clear()
-            .env("PATH", std::env::var("PATH").unwrap_or_default())
+            .env("PATH", path)
             .env("HOME", &self.root)
+            .env("USER", "pat")
             .output()
             .unwrap();
         let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
@@ -293,4 +298,137 @@ fn the_method_and_paths_in_the_configuration_are_checked() {
         assert_eq!(output.status.code(), Some(2), "{text}");
         assert!(String::from_utf8_lossy(&output.stderr).contains(wanted), "{text}: {}", String::from_utf8_lossy(&output.stderr));
     }
+}
+
+
+/// `ssh` and `ssh-add` that record what they were given instead of connecting, in `bin/`.
+fn fake_tools(lab: &Lab, offered_key: &str) -> String {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = lab.root.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let script = |name: &str, body: String| {
+        let path = bin.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    };
+    script("ssh", format!("printf '%s\\n' \"$@\" > '{}/ssh-args'; echo remote-output", lab.root.display()));
+    script("ssh-add", format!("echo '{offered_key}'"));
+    format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default())
+}
+
+#[test]
+fn members_are_let_in_by_a_marked_block_that_never_includes_this_node_and_leaving_removes_it() {
+    let mut lab = Lab::new();
+    let open = lab.port(true);
+    let (a, b) = (lab.key("alpha"), lab.key("beta"));
+    lab.member("alpha", &a, open, "operator");
+    let input = lab.key("beta-input");
+    let entry = serde_json::json!({
+        "v": 1, "kind": "device", "name": "beta", "node_key": b, "input_key": input, "host_key": lab.public("operator"),
+        "routes": [{"host": "127.0.0.1", "port": open}],
+        "issued": (Utc::now() - Duration::hours(1)).to_rfc3339(), "expires": (Utc::now() + Duration::days(90)).to_rfc3339(),
+    });
+    let path = lab.write("devices/beta.json", &entry.to_string());
+    lab.sign(&path, "operator");
+    std::fs::create_dir_all(lab.root.join(".ssh")).unwrap();
+    std::fs::write(lab.root.join(".ssh/authorized_keys"), "ssh-rsa AAAAmine me\n").unwrap();
+
+    let (code, out) = lab.run(&["roster", "authorize"]);
+    assert_eq!(code, 0, "{out}");
+    let keys = std::fs::read_to_string(lab.root.join(".ssh/authorized_keys")).unwrap();
+    assert!(keys.starts_with("ssh-rsa AAAAmine me\n# BEGIN dojo-mesh"), "{keys}");
+    assert!(keys.contains(&format!("{b} dojo-mesh:beta\n")), "{keys}");
+    assert!(keys.contains(&format!("restrict,command=\"{} inject --as beta\" {input} dojo-mesh:beta:input", std::fs::canonicalize(env!("CARGO_BIN_EXE_dojo-mesh")).unwrap().display())), "{keys}");
+    assert!(!keys.contains(&a), "this node's own key must not be let in: {keys}");
+
+    // Revoking beta's node key takes it out of the block on the next authorize.
+    let revoke = lab.write("revocations/beta.json", &serde_json::json!({"v": 1, "kind": "revoke", "key": b, "issued": Utc::now().to_rfc3339()}).to_string());
+    lab.sign(&revoke, "operator");
+    assert_eq!(lab.run(&["roster", "authorize"]).0, 0);
+    let keys = std::fs::read_to_string(lab.root.join(".ssh/authorized_keys")).unwrap();
+    assert_eq!(keys, "ssh-rsa AAAAmine me\n");
+}
+
+#[test]
+fn exec_goes_over_the_system_ssh_with_the_pinned_host_key_and_a_locked_agent_is_a_step_for_a_person() {
+    let mut lab = Lab::new();
+    let open = lab.port(true);
+    let (a, b) = (lab.key("alpha"), lab.key("beta"));
+    lab.member("alpha", &a, open, "operator");
+    lab.member("beta", &b, open, "operator");
+    std::fs::write(lab.root.join("agent.sock"), "").unwrap();
+    lab.config(&format!("node-key-file = \"{}\"\nagent-socket = \"{}\"\nallow = [\"beta\"]\n", lab.root.join("keys/alpha.pub").display(), lab.root.join("agent.sock").display()));
+
+    let path = fake_tools(&lab, &format!("{a} alpha"));
+    let (code, out) = lab.run_with_path(&["exec", "beta", "--", "echo", "hi"], &path);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("remote-output"), "{out}");
+    let args = std::fs::read_to_string(lab.root.join("ssh-args")).unwrap();
+    assert!(args.contains("HostKeyAlias=dojo-beta") && args.contains("StrictHostKeyChecking=yes") && args.contains("\n-l\npat\n"), "{args}");
+    assert!(args.contains(&format!("\n-p\n{open}\n--\n127.0.0.1\n")), "{args}");
+    let pinned = std::fs::read_to_string(lab.root.join(".local/share/dojo/mesh/known_hosts/beta")).unwrap();
+    assert_eq!(pinned, format!("dojo-beta {}\n", lab.public("operator")));
+
+    // 1Password locked: the agent lists nothing. No connection is made and the exit status is "needs a person".
+    let _ = std::fs::remove_file(lab.root.join("ssh-args"));
+    let path = fake_tools(&lab, "");
+    let (code, out) = lab.run_with_path(&["exec", "beta", "--", "echo", "hi"], &path);
+    assert_eq!(code, 3, "{out}");
+    assert!(out.contains("unlock 1Password"), "{out}");
+    assert!(!lab.root.join("ssh-args").exists());
+}
+
+#[test]
+fn input_is_attributed_by_the_roster_and_only_to_a_member() {
+    let mut lab = Lab::new();
+    let open = lab.port(true);
+    let (a, b) = (lab.key("alpha"), lab.key("beta"));
+    lab.member("alpha", &a, open, "operator");
+    lab.member("beta", &b, open, "operator");
+    let run = |args: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_dojo-mesh"))
+            .arg("--config")
+            .arg(lab.root.join("mesh.toml"))
+            .args(args)
+            .env_clear()
+            .env("PATH", std::env::var("PATH").unwrap_or_default())
+            .env("HOME", &lab.root)
+            .env("SSH_CONNECTION", "203.0.113.5 50000 203.0.113.9 22")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        (output.status.code().unwrap(), format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)))
+    };
+    // Nobody named: the address alone says nothing under this method.
+    let (code, out) = run(&["inject"]);
+    assert_eq!(code, 3, "{out}");
+    assert!(out.contains("did not name its sender"), "{out}");
+    // Named, but not in the roster.
+    let (code, out) = run(&["inject", "--as", "stranger"]);
+    assert_eq!(code, 3, "{out}");
+    assert!(out.contains("stranger is not in the signed roster"), "{out}");
+    // A member, but this node has not agreed to take its input.
+    let (code, out) = run(&["inject", "--as", "beta"]);
+    assert_eq!(code, 3, "{out}");
+    assert!(out.contains("does not accept input from beta"), "{out}");
+    // This node is not a sender either.
+    let (code, out) = run(&["inject", "--as", "alpha"]);
+    assert_eq!(code, 3, "{out}");
+    assert!(out.contains("alpha is not in the signed roster"), "{out}");
+}
+
+#[test]
+fn doctor_warns_when_the_key_holder_is_not_ready() {
+    let mut lab = Lab::new();
+    let open = lab.port(true);
+    let a = lab.key("alpha");
+    lab.member("alpha", &a, open, "operator");
+    lab.config(&format!("node-key-file = \"{}\"\nagent-socket = \"{}\"\n", lab.root.join("keys/alpha.pub").display(), lab.root.join("agent.sock").display()));
+    let (code, out) = lab.run(&["doctor"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("warning: Peers cannot be reached from here yet") && out.contains("not running"), "{out}");
+    std::fs::write(lab.root.join("agent.sock"), "").unwrap();
+    let path = fake_tools(&lab, &format!("{a} alpha"));
+    let (code, out) = lab.run_with_path(&["doctor"], &path);
+    assert_eq!((code, out.as_str()), (0, "Healthy.\n"));
 }

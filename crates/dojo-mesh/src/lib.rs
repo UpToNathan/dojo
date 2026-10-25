@@ -7,6 +7,7 @@
 
 pub mod adapter;
 pub mod audit;
+pub mod authorize;
 pub mod channel;
 pub mod cli;
 pub mod capability;
@@ -29,6 +30,7 @@ pub mod send_cli;
 pub mod session;
 pub mod source;
 pub mod ssh;
+pub mod sshchannel;
 pub mod tabs;
 pub mod tailscale;
 pub mod transport;

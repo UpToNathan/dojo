@@ -61,23 +61,27 @@ fn refuse(reason: &str) -> Failure {
 }
 
 /// Who is on the other end of this SSH session, according to the mesh method.
-fn sender(env: &Env) -> Result<String, String> {
+fn sender(env: &Env, named: Option<String>) -> Result<String, String> {
     let address = remote::caller_address(std::env::var("SSH_CONNECTION").ok().as_deref()).ok_or("this was not started over a peer's connection")?;
-    env.method.identity.who(&Connection { address })
+    env.method.identity.who(&Connection { address, named })
 }
 
 /// `dojo-mesh inject`: replay events from standard input through an input seat, for a peer this
 /// node has named in `accept-input` (ADR-0007). The peer's identity is Tailscale's answer about the
 /// connection, never anything the sender says.
 pub fn inject(env: &Env, rest: &[String]) -> Result<u8, Failure> {
-    if !rest.is_empty() {
-        return Err(fail(USAGE_ERROR, "usage: dojo-mesh inject (events as JSON lines on standard input)"));
-    }
+    // `--as NAME` is how a peer's input key says who it is (its forced command in authorized_keys);
+    // the method checks it against the roster, so it is only a claim until then.
+    let named = match rest {
+        [] => None,
+        [flag, name] if flag == "--as" => Some(name.clone()),
+        _ => return Err(fail(USAGE_ERROR, "usage: dojo-mesh inject [--as NAME] (events as JSON lines on standard input)")),
+    };
     if std::env::var("DOJO_ORIGIN").as_deref() == Ok("agent") {
         return Err(refuse("input from the agent is never accepted"));
     }
     let config = cli::load_config(env)?;
-    let from = sender(env).map_err(|reason| refuse(&reason))?;
+    let from = sender(env, named).map_err(|reason| refuse(&reason))?;
     if !remote::accepts(&config.accept_input, &from) {
         return Err(refuse(&format!("this machine does not accept input from {from}; add it to accept-input in mesh.toml")));
     }

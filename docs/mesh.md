@@ -70,7 +70,7 @@ client-secret = "op://Personal/Tailscale OAuth/credential"
 
 A node is always a member of its own mesh. Without a tag or an allow list it admits no one.
 
-The roster method adds `roster-dir`, `signers-file` and `node-name`; see [The signed roster](#the-signed-roster).
+The roster method adds `roster-dir`, `signers-file`, `node-name`, `node-key-file`, `input-key-file` and `agent-socket`; see [The signed roster](#the-signed-roster).
 
 ## Membership
 
@@ -80,13 +80,16 @@ The Tailscale method reads `tailscale status --json` from the local client, so i
 
 ### The signed roster
 
-With `method = "roster"` the members are not read from a network but from signed files, so the mesh works on any network ([ADR-0009](adr/0009-a-signed-roster-is-a-second-membership-method-over-openssh.md)). This step covers membership only: `status`, `doctor` and `roster` work, and a call to a peer reports that the OpenSSH channel is not built yet.
+With `method = "roster"` the members are not read from a network but from signed files, so the mesh works on any network ([ADR-0009](adr/0009-a-signed-roster-is-a-second-membership-method-over-openssh.md)). Calls to members go over the system `ssh` ([Reaching peers over OpenSSH](#reaching-peers-over-openssh)).
 
 ```toml
 method = "roster"
 roster-dir = "/home/me/.local/share/dojo/mesh/roster"        # the default if omitted
 signers-file = "/home/me/.config/dojo/mesh/allowed_signers"  # the default if omitted
 node-name = "orchard"                                        # this node's name in the roster; default: the host name
+node-key-file = "/home/me/.config/dojo/mesh/node_key.pub"    # public half of this node's key; the default if omitted
+input-key-file = "/home/me/.config/dojo/mesh/input_key.pub"  # public half of the remote-input key; the default if omitted
+agent-socket = "/home/me/.1password/agent.sock"              # the SSH agent holding both; 1Password's by default
 ```
 
 The roster directory holds `devices/NAME.json` and `revocations/NAME.json`, each with its signature beside it as `NAME.json.sig`. A device entry:
@@ -101,6 +104,14 @@ A revocation is `{"v": 1, "kind": "revoke", "key": "ssh-ed25519 AAAA…", "issue
 The trusted signing keys are this node's own file, never part of the roster: one line each, `operator namespaces="dojo-mesh-roster" ssh-ed25519 AAAA…`. Without it the node is a mesh of one and says why. An entry counts only if it is signed by one of those keys, has not expired, is not issued in the future, carries no revoked key, is well formed (a lowercase name of two or more characters, keys of one known type on one line, plain route hosts) and is the newest for its name. Everything else is ignored, listed with its reason by `dojo-mesh roster check` and `doctor`, and `roster check` exits 1 while anything is ignored.
 
 `dojo-mesh roster sync` pulls the directory from its git remote, fast-forward only; a rewritten remote history is refused. Whoever can write to that remote can make entries stop counting (by altering or removing them) but cannot add a member or change one, because they cannot sign. A peer's reachability is a short TCP connection to its first route, so an offline peer fails at once; an entry with no routes shows as offline.
+
+### Reaching peers over OpenSSH
+
+With the roster method, `exec`, `cp`, `task`, `send` and `remote` run the system `ssh` with a complete set of options of their own and `-F /dev/null`, so nothing from the user's `~/.ssh/config` (proxies, forwarded agents, control sockets) applies. Every connection is `BatchMode` with public-key authentication only, `IdentitiesOnly` with this node's *public* key file and the agent that holds the private half (1Password's by default, so the key never touches disk), `StrictHostKeyChecking=yes` against the host key the signed roster pins for that peer, a 5-second connect timeout and keepalives. The pinned key is written to a private file under `$XDG_DATA_HOME/dojo/mesh/known_hosts/NAME` and addressed by the alias `dojo-NAME`, so a peer's address can change without its pin changing. A peer's route is the first of its roster routes: an address and optional port, or a command that opens the connection (an SSH `ProxyCommand`).
+
+Before it connects, the channel asks the agent whether it offers the key. If 1Password is locked, not running, or the key is missing, no connection is attempted: the command exits 3 and says what to do ("unlock 1Password on this machine", "turn on Settings > Developer > SSH Agent"), and `doctor` warns the same way. `remote` uses the node's separate input key instead of its node key.
+
+`dojo-mesh roster authorize` writes the members into the user's `~/.ssh/authorized_keys` as a block between `# BEGIN dojo-mesh` and `# END dojo-mesh` lines (and `roster sync` does it after pulling). Each member's node key gets a full shell as this user; each member's input key is `restrict,command="…/dojo-mesh inject --as NAME"`, so it can only send input, whatever it asks for. The block is replaced or removed whole, the lines around it are never touched, a copy of the previous file is kept beside it as `authorized_keys.dojo-mesh.bak`, and a revoked or expired member disappears from it at the next run. The mesh does not edit `sshd_config`. Who a connection is under this method comes from that forced command, checked against the roster: a name that is not a current member is nobody.
 
 ## Reaching peers
 

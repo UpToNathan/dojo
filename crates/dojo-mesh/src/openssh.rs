@@ -151,7 +151,42 @@ impl SignedMembership {
             key_expiry: Some(entry.expires),
             key_expired: false,
             routes: entry.routes.iter().map(|route| route.to_route()).collect(),
+            keys: Some(crate::device::Keys { node_key: entry.node_key.clone(), input_key: entry.input_key.clone(), host_key: entry.host_key.clone() }),
         }
+    }
+}
+
+impl SignedMembership {
+    /// This node's name and the roster's current statements. `Err` says why there is no roster to
+    /// believe; the caller makes that a mesh of one.
+    fn verified(&self, config: &MeshConfig, hostname: &str) -> Result<(String, signed::Verified), String> {
+        let this_name = config.node_name.clone().unwrap_or_else(|| hostname.trim().to_ascii_lowercase());
+        if !std::fs::metadata(&self.signers).is_ok_and(|meta| meta.is_file() && meta.len() > 0) {
+            return Err(format!("no trusted signing keys at {}; the roster cannot be believed without one", self.signers.display()));
+        }
+        let (candidates, oversized) = load(&self.dir).map_err(|reason| format!("the roster cannot be read ({reason})"))?;
+        let mut verified = signed::evaluate(candidates, self.verifier.as_ref(), (self.now)());
+        verified.rejected.extend(oversized);
+        verified.rejected.sort_by(|a, b| a.label.cmp(&b.label));
+        Ok((this_name, verified))
+    }
+
+    /// The names of the members other than this node that the configuration does not deny, without
+    /// asking any of them anything.
+    pub fn member_names(&self, config: &MeshConfig, hostname: &str) -> Vec<String> {
+        let Ok((this_name, verified)) = self.verified(config, hostname) else { return Vec::new() };
+        verified
+            .devices
+            .into_iter()
+            .filter(|entry| entry.name != this_name && !config.deny.iter().any(|key| crate::config::name_key(key) == entry.name))
+            .map(|entry| entry.name)
+            .collect()
+    }
+}
+
+impl Membership for std::sync::Arc<SignedMembership> {
+    fn roster(&self, config: &MeshConfig, hostname: &str) -> Roster {
+        self.as_ref().roster(config, hostname)
     }
 }
 
@@ -159,27 +194,17 @@ impl Membership for SignedMembership {
     fn roster(&self, config: &MeshConfig, hostname: &str) -> Roster {
         let this_name = config.node_name.clone().unwrap_or_else(|| hostname.trim().to_ascii_lowercase());
         let alone = |reason: String| {
-            Roster::alone(Device { name: this_name.clone(), dns_name: None, tags: Vec::new(), online: true, key_expiry: None, key_expired: false, routes: Vec::new() }, config, reason)
+            Roster::alone(Device { name: this_name.clone(), dns_name: None, tags: Vec::new(), online: true, key_expiry: None, key_expired: false, routes: Vec::new(), keys: None }, config, reason)
         };
-        if !std::fs::metadata(&self.signers).is_ok_and(|meta| meta.is_file() && meta.len() > 0) {
-            return alone(format!(
-                "no trusted signing keys at {}; the roster cannot be believed without one",
-                self.signers.display()
-            ));
-        }
-        let (candidates, oversized) = match load(&self.dir) {
-            Ok(loaded) => loaded,
-            Err(reason) => return alone(format!("the roster cannot be read ({reason})")),
+        let (this_name, verified) = match self.verified(config, hostname) {
+            Ok(found) => found,
+            Err(reason) => return alone(reason),
         };
-        let mut verified = signed::evaluate(candidates, self.verifier.as_ref(), (self.now)());
-        verified.rejected.extend(oversized);
-        verified.rejected.sort_by(|a, b| a.label.cmp(&b.label));
-
         let denied = |name: &str| config.deny.iter().any(|key| crate::config::name_key(key) == name);
         let (own, others): (Vec<&DeviceEntry>, Vec<&DeviceEntry>) = verified.devices.iter().partition(|entry| entry.name == this_name);
         let this = match own.first() {
             Some(entry) => self.device(entry, true),
-            None => Device { name: this_name.clone(), dns_name: None, tags: Vec::new(), online: true, key_expiry: None, key_expired: false, routes: Vec::new() },
+            None => Device { name: this_name.clone(), dns_name: None, tags: Vec::new(), online: true, key_expiry: None, key_expired: false, routes: Vec::new(), keys: None },
         };
 
         // Peers are probed together so a roster of offline nodes costs one timeout, not one each.
@@ -226,24 +251,41 @@ pub fn sync(dir: &Path) -> Result<String, String> {
     }
 }
 
-/// The roster method so far: membership from the signed roster. Identity and the channel come with
-/// the OpenSSH channel; until then they say so instead of guessing.
-pub fn method(dir: PathBuf, signers: PathBuf) -> crate::method::Method {
-    crate::method::Method { name: "roster", membership: Box::new(SignedMembership::new(dir, signers)), identity: Box::new(NotYet), channel: Box::new(NotYet) }
+/// Who a connection is, by the name its input key's forced command gives it, checked against the
+/// signed roster. A sender that is not in the roster now (revoked, expired, removed) is nobody.
+pub struct RosterIdentity {
+    membership: std::sync::Arc<SignedMembership>,
+    config: MeshConfig,
+    hostname: String,
 }
 
-struct NotYet;
-
-const NOT_YET: &str = "the roster method can list members but cannot yet connect to them (the OpenSSH channel is not built)";
-
-impl crate::method::Identity for NotYet {
-    fn who(&self, _: &crate::method::Connection) -> Result<String, String> {
-        Err(NOT_YET.into())
+impl crate::method::Identity for RosterIdentity {
+    fn who(&self, connection: &crate::method::Connection) -> Result<String, String> {
+        let name = connection.named.as_deref().ok_or("this connection did not name its sender; a peer's input key must run inject --as NAME")?;
+        if self.membership.member_names(&self.config, &self.hostname).iter().any(|member| member == name) {
+            Ok(name.to_string())
+        } else {
+            Err(format!("{name} is not in the signed roster"))
+        }
     }
 }
 
-impl crate::channel::Channel for NotYet {
-    fn run(&self, _: crate::channel::Call) -> Result<crate::channel::Done, String> {
-        Err(NOT_YET.into())
+/// The roster method: membership from the signed roster, calls over the system `ssh`.
+pub fn method(paths: crate::config::RosterPaths, config: MeshConfig, hostname: String, user: String) -> crate::method::Method {
+    let membership = std::sync::Arc::new(SignedMembership::new(paths.dir, paths.signers));
+    let channel = crate::sshchannel::OpenSsh::new(crate::sshchannel::Settings {
+        ssh: "ssh".into(),
+        ssh_add: "ssh-add".into(),
+        user,
+        node_key: paths.node_key,
+        input_key: paths.input_key,
+        agent: paths.agent,
+        known_hosts: paths.known_hosts,
+    });
+    crate::method::Method {
+        name: "roster",
+        membership: Box::new(membership.clone()),
+        identity: Box::new(RosterIdentity { membership, config, hostname }),
+        channel: Box::new(channel),
     }
 }

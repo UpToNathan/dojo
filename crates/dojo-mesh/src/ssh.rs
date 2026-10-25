@@ -19,8 +19,15 @@ pub fn run(call: Call) -> Result<Done, String> {
     };
     let mut command = Command::new("tailscale");
     command.args(["ssh", &host, &call.remote]);
+    carry(command, "tailscale", call.input, call.output, call.timeout, check_url)
+}
+
+/// Starts `command`, feeds and collects it as the call says, and waits for it to end. `watch` reads
+/// the program's error output line by line and returns a page or a step when a person is needed, which
+/// ends the call at once instead of leaving it waiting. `Err` means the program could not be started.
+pub fn carry(mut command: Command, name: &str, input: Input, output: Output, timeout: Option<Duration>, watch: fn(&str) -> Option<String>) -> Result<Done, String> {
     let mut feed = None;
-    command.stdin(match call.input {
+    command.stdin(match input {
         Input::Inherit => Stdio::inherit(),
         Input::Null => Stdio::null(),
         Input::File(file) => Stdio::from(file),
@@ -30,15 +37,15 @@ pub fn run(call: Call) -> Result<Done, String> {
         }
         Input::Stdio(stdio) => stdio,
     });
-    let capture = matches!(call.output, Output::Capture);
-    command.stdout(match call.output {
+    let capture = matches!(output, Output::Capture);
+    command.stdout(match output {
         Output::Inherit => Stdio::inherit(),
         Output::Capture => Stdio::piped(),
         Output::File(file) => Stdio::from(file),
     });
     command.stderr(Stdio::piped());
     let mut child = command.spawn().map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound { "tailscale is not installed".to_string() } else { format!("could not run tailscale: {error}") }
+        if error.kind() == std::io::ErrorKind::NotFound { format!("{name} is not installed") } else { format!("could not run {name}: {error}") }
     })?;
 
     if let Some(bytes) = feed {
@@ -59,7 +66,7 @@ pub fn run(call: Call) -> Result<Done, String> {
                 Ok(0) | Err(_) => break,
                 Ok(_) => {
                     let _ = out.write_all(&line);
-                    if let Some(url) = check_url(&String::from_utf8_lossy(&line)) {
+                    if let Some(url) = watch(&String::from_utf8_lossy(&line)) {
                         let _ = url_sender.send(url);
                     }
                 }
@@ -85,9 +92,9 @@ pub fn run(call: Call) -> Result<Done, String> {
         match child.try_wait() {
             Ok(Some(status)) => break status.code().map(Ended::Exited).unwrap_or(Ended::Killed),
             Ok(None) => {}
-            Err(error) => return Err(format!("lost track of tailscale: {error}")),
+            Err(error) => return Err(format!("lost track of {name}: {error}")),
         }
-        if call.timeout.is_some_and(|limit| started.elapsed() >= limit) {
+        if timeout.is_some_and(|limit| started.elapsed() >= limit) {
             let _ = child.kill();
             let _ = child.wait();
             break Ended::TimedOut;

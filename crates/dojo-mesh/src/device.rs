@@ -15,6 +15,20 @@ pub struct Device {
     /// How to reach the device when its method knows more than its name; empty means the name.
     #[serde(skip)]
     pub routes: Vec<crate::method::Route>,
+    /// The keys a signed roster vouches for; a method that identifies devices otherwise has none.
+    #[serde(skip)]
+    pub keys: Option<Keys>,
+}
+
+/// The public keys a device was enrolled with, each `type base64`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Keys {
+    /// What the device connects with.
+    pub node_key: String,
+    /// What it uses for remote input only, when it has one.
+    pub input_key: Option<String>,
+    /// What its SSH server answers with, pinned for connections to it.
+    pub host_key: String,
 }
 
 impl Device {
@@ -39,5 +53,6 @@ pub(crate) fn device(name: &str, tags: &[&str], online: bool) -> Device {
         key_expiry: None,
         key_expired: false,
         routes: Vec::new(),
+        keys: None,
     }
 }

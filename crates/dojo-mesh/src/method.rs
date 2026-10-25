@@ -22,6 +22,9 @@ pub enum Route {
 pub struct Connection {
     /// The address the connection came from.
     pub address: String,
+    /// The name the connection's own key gave it (a forced command in `authorized_keys` names the
+    /// member), for methods that cannot tell from the address.
+    pub named: Option<String>,
 }
 
 /// Decides who belongs to the mesh and how to reach them. Any failure to read the network leaves
@@ -64,7 +67,7 @@ struct Alone;
 impl Membership for Alone {
     fn roster(&self, config: &MeshConfig, hostname: &str) -> Roster {
         Roster::alone(
-            crate::device::Device { name: hostname.into(), dns_name: None, tags: Vec::new(), online: true, key_expiry: None, key_expired: false, routes: Vec::new() },
+            crate::device::Device { name: hostname.into(), dns_name: None, tags: Vec::new(), online: true, key_expiry: None, key_expired: false, routes: Vec::new(), keys: None },
             config,
             NO_METHOD.into(),
         )
@@ -145,8 +148,8 @@ mod tests {
         assert_eq!(roster.this().name, "solo");
         assert_eq!(roster.peers().count(), 0);
         assert!(matches!(&roster.source, Source::Unavailable(reason) if reason.contains("no mesh method")));
-        assert!(method.identity.who(&Connection { address: "100.64.0.9".into() }).is_err());
-        let call = Call { route: Route::Host { name: "beta".into(), port: None }, remote: "true".into(), input: Input::Null, output: Output::Capture, timeout: None };
+        assert!(method.identity.who(&Connection { address: "100.64.0.9".into(), named: None }).is_err());
+        let call = Call { peer: Default::default(), key: Default::default(), route: Route::Host { name: "beta".into(), port: None }, remote: "true".into(), input: Input::Null, output: Output::Capture, timeout: None };
         assert!(method.channel.run(call).unwrap_err().contains("no mesh method"));
     }
 
@@ -193,13 +196,13 @@ mod tests {
     #[test]
     fn identity_comes_from_the_method_and_an_unknown_address_is_refused() {
         let env = fake(vec![], Recording::default());
-        assert_eq!(env.method.identity.who(&Connection { address: "100.64.0.9".into() }).unwrap(), "beta");
-        assert!(env.method.identity.who(&Connection { address: "10.0.0.1".into() }).is_err());
+        assert_eq!(env.method.identity.who(&Connection { address: "100.64.0.9".into(), named: None }).unwrap(), "beta");
+        assert!(env.method.identity.who(&Connection { address: "10.0.0.1".into(), named: None }).is_err());
     }
 
     #[test]
     fn the_tailscale_channel_refuses_routes_it_cannot_carry() {
-        let call = |route| Call { route, remote: "true".into(), input: Input::Null, output: Output::Capture, timeout: None };
+        let call = |route| Call { peer: Default::default(), key: Default::default(), route, remote: "true".into(), input: Input::Null, output: Output::Capture, timeout: None };
         let tailscale = Method::tailscale();
         assert!(tailscale.channel.run(call(Route::Command(vec!["nc".into()]))).unwrap_err().contains("command route"));
         assert!(tailscale.channel.run(call(Route::Host { name: "beta".into(), port: Some(2222) })).unwrap_err().contains("port"));

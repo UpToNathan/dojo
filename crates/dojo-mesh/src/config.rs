@@ -29,6 +29,12 @@ pub struct MeshConfig {
     pub signers_file: Option<PathBuf>,
     /// This node's name in the roster, when it is not its host name.
     pub node_name: Option<String>,
+    /// The public half of this node's key, which the SSH agent holds the private half of. Absolute.
+    pub node_key_file: Option<PathBuf>,
+    /// The public half of the key this node sends remote input with, which can send nothing else. Absolute.
+    pub input_key_file: Option<PathBuf>,
+    /// The SSH agent's socket, when it is not the one the environment names. Absolute.
+    pub agent_socket: Option<PathBuf>,
 }
 
 /// The mesh methods a node can be set to.
@@ -122,6 +128,9 @@ struct Raw {
     roster_dir: Option<PathBuf>,
     signers_file: Option<PathBuf>,
     node_name: Option<String>,
+    node_key_file: Option<PathBuf>,
+    input_key_file: Option<PathBuf>,
+    agent_socket: Option<PathBuf>,
 }
 
 #[derive(serde::Deserialize)]
@@ -163,7 +172,7 @@ impl MeshConfig {
             Some("roster") => MethodChoice::Roster,
             Some(other) => return Err(ConfigError::Invalid(format!("method {other:?} is not known; use \"tailscale\" or \"roster\""))),
         };
-        for (key, path) in [("roster-dir", &raw.roster_dir), ("signers-file", &raw.signers_file)] {
+        for (key, path) in [("roster-dir", &raw.roster_dir), ("signers-file", &raw.signers_file), ("node-key-file", &raw.node_key_file), ("input-key-file", &raw.input_key_file), ("agent-socket", &raw.agent_socket)] {
             if path.as_deref().is_some_and(|path| !path.is_absolute()) {
                 return Err(ConfigError::Invalid(format!("{key} must be an absolute path")));
             }
@@ -175,7 +184,7 @@ impl MeshConfig {
                 Some(name)
             }
         };
-        Ok(Self { membership_tag, allow, deny, capabilities, accept_input, control_plane, method, roster_dir: raw.roster_dir, signers_file: raw.signers_file, node_name })
+        Ok(Self { membership_tag, allow, deny, capabilities, accept_input, control_plane, method, roster_dir: raw.roster_dir, signers_file: raw.signers_file, node_name, node_key_file: raw.node_key_file, input_key_file: raw.input_key_file, agent_socket: raw.agent_socket })
     }
 
     /// Loads the file at `path`. A missing file is the empty configuration, a mesh of one.
@@ -268,19 +277,37 @@ pub fn default_path(xdg_config_home: Option<PathBuf>, home: Option<PathBuf>) -> 
     Some(base.join("dojo").join("mesh.toml"))
 }
 
-/// Where the roster directory and the trusted signing keys are, from the configuration or the
-/// defaults (`$XDG_DATA_HOME/dojo/mesh/roster`, `$XDG_CONFIG_HOME/dojo/mesh/allowed_signers`).
-pub fn roster_paths(config: &MeshConfig, xdg_data_home: Option<PathBuf>, xdg_config_home: Option<PathBuf>, home: Option<PathBuf>) -> Option<(PathBuf, PathBuf)> {
+/// Where the roster method keeps its files and finds its keys.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RosterPaths {
+    /// The signed roster.
+    pub dir: PathBuf,
+    /// The trusted signing keys, `ssh-keygen` allowed-signers format.
+    pub signers: PathBuf,
+    /// The public half of this node's key.
+    pub node_key: PathBuf,
+    /// The public half of the key this node sends remote input with.
+    pub input_key: PathBuf,
+    /// Where pinned host keys are written for `ssh` to read.
+    pub known_hosts: PathBuf,
+    /// The SSH agent that holds this node's key: the configured socket, else 1Password's.
+    pub agent: Option<PathBuf>,
+}
+
+/// The paths from the configuration or the defaults: the roster at `$XDG_DATA_HOME/dojo/mesh/roster`,
+/// the pinned host keys beside it, the signers and node key under `$XDG_CONFIG_HOME/dojo/mesh`.
+pub fn roster_paths(config: &MeshConfig, xdg_data_home: Option<PathBuf>, xdg_config_home: Option<PathBuf>, home: Option<PathBuf>) -> Option<RosterPaths> {
     let absolute = |path: Option<PathBuf>| path.filter(|path| path.is_absolute());
-    let dir = config.roster_dir.clone().or_else(|| {
-        let base = absolute(xdg_data_home).or_else(|| home.clone().map(|home| home.join(".local/share")))?;
-        Some(base.join("dojo/mesh/roster"))
-    })?;
-    let signers = config.signers_file.clone().or_else(|| {
-        let base = absolute(xdg_config_home).or_else(|| home.map(|home| home.join(".config")))?;
-        Some(base.join("dojo/mesh/allowed_signers"))
-    })?;
-    Some((dir, signers))
+    let data = absolute(xdg_data_home).or_else(|| home.clone().map(|home| home.join(".local/share"))).map(|base| base.join("dojo/mesh"));
+    let conf = absolute(xdg_config_home).or_else(|| home.clone().map(|home| home.join(".config"))).map(|base| base.join("dojo/mesh"));
+    Some(RosterPaths {
+        dir: config.roster_dir.clone().or_else(|| data.as_ref().map(|base| base.join("roster")))?,
+        signers: config.signers_file.clone().or_else(|| conf.as_ref().map(|base| base.join("allowed_signers")))?,
+        node_key: config.node_key_file.clone().or_else(|| conf.as_ref().map(|base| base.join("node_key.pub")))?,
+        input_key: config.input_key_file.clone().or_else(|| conf.as_ref().map(|base| base.join("input_key.pub")))?,
+        known_hosts: data?.join("known_hosts"),
+        agent: config.agent_socket.clone().or_else(|| home.map(|home| home.join(".1password/agent.sock"))),
+    })
 }
 
 #[cfg(test)]
@@ -442,13 +469,18 @@ mod tests {
     fn roster_paths_follow_the_configuration_then_the_xdg_defaults_then_home() {
         let config = MeshConfig::default();
         let home = Some(PathBuf::from("/home/n"));
-        let (dir, signers) = roster_paths(&config, None, None, home.clone()).unwrap();
-        assert_eq!(dir, Path::new("/home/n/.local/share/dojo/mesh/roster"));
-        assert_eq!(signers, Path::new("/home/n/.config/dojo/mesh/allowed_signers"));
-        let (dir, signers) = roster_paths(&config, Some("/data".into()), Some("/conf".into()), home.clone()).unwrap();
-        assert_eq!((dir, signers), ("/data/dojo/mesh/roster".into(), "/conf/dojo/mesh/allowed_signers".into()));
-        let set = MeshConfig::parse("roster-dir = \"/r\"\nsigners-file = \"/s\"").unwrap();
-        assert_eq!(roster_paths(&set, None, None, None), Some(("/r".into(), "/s".into())));
+        let paths = roster_paths(&config, None, None, home.clone()).unwrap();
+        assert_eq!(paths.dir, Path::new("/home/n/.local/share/dojo/mesh/roster"));
+        assert_eq!(paths.known_hosts, Path::new("/home/n/.local/share/dojo/mesh/known_hosts"));
+        assert_eq!(paths.signers, Path::new("/home/n/.config/dojo/mesh/allowed_signers"));
+        assert_eq!(paths.node_key, Path::new("/home/n/.config/dojo/mesh/node_key.pub"));
+        assert_eq!(paths.input_key, Path::new("/home/n/.config/dojo/mesh/input_key.pub"));
+        assert_eq!(paths.agent.as_deref(), Some(Path::new("/home/n/.1password/agent.sock")));
+        let paths = roster_paths(&config, Some("/data".into()), Some("/conf".into()), home.clone()).unwrap();
+        assert_eq!((paths.dir, paths.signers), ("/data/dojo/mesh/roster".into(), "/conf/dojo/mesh/allowed_signers".into()));
+        let set = MeshConfig::parse("roster-dir = \"/r\"\nsigners-file = \"/s\"\nnode-key-file = \"/k.pub\"\ninput-key-file = \"/i.pub\"\nagent-socket = \"/a.sock\"").unwrap();
+        let paths = roster_paths(&set, Some("/data".into()), None, None).unwrap();
+        assert_eq!((paths.dir, paths.signers, paths.node_key, paths.agent), ("/r".into(), "/s".into(), "/k.pub".into(), Some("/a.sock".into())));
         assert_eq!(roster_paths(&config, None, None, None), None);
     }
 }

@@ -9,9 +9,9 @@
 use crate::audit::{self, Entry};
 use crate::capability::{self, Answer, Description};
 use crate::config::{MeshConfig, MethodChoice, default_path, roster_paths};
-use crate::doctor::{Severity, diagnose};
+use crate::doctor::{Finding, Severity, diagnose};
 use crate::roster::{Roster, Source};
-use crate::channel::{Call, Done, Ended, Input, Output};
+use crate::channel::{Call, Done, Ended, Input, Output, Peer};
 use crate::method::Method;
 use crate::transport::{self, Origin, Provenance, Refusal};
 use crate::{guard, report};
@@ -42,7 +42,8 @@ usage: dojo-mesh [--config PATH] <command>
   remote PEER                      drive a peer with this cursor and keyboard (Super+F11 returns)
   pause | resume                   switch the agent's peer access off or on
   audit [--last N] [--json]        what this node has sent to peers
-  roster [check | sync]            the signed roster: what counts and what is ignored; pull it from its remote
+  roster [check | sync | authorize]
+                                   the signed roster: what counts and what is ignored; pull it from its remote; let its members in
   enroll [--tag TAG] [--expires SECS]
                                    mint a one-use key for a new node (operator only)
   policy show|validate FILE|apply FILE
@@ -81,13 +82,15 @@ impl Env {
             Ok(text) => Origin::parse(&text).ok_or_else(|| fail(USAGE_ERROR, format!("DOJO_MESH_ORIGIN must be operator or agent, not {text:?}")))?,
         };
         let config_path = config_override.or_else(|| default_path(var("XDG_CONFIG_HOME"), home.clone()));
-        let method = method_for(config_path.as_deref(), var("XDG_DATA_HOME"), var("XDG_CONFIG_HOME"), home.clone());
+        let hostname = if hostname.is_empty() { "this-node".to_string() } else { hostname };
+        let user = std::env::var("USER").ok().filter(|user| !user.is_empty()).unwrap_or_else(|| "root".into());
+        let method = method_for(config_path.as_deref(), var("XDG_DATA_HOME"), var("XDG_CONFIG_HOME"), home.clone(), &hostname, &user);
         let session = std::env::var("DOJO_MESH_SESSION").ok().filter(|id| !id.is_empty()).unwrap_or_else(random_id);
         Ok(Self {
             config_path,
             state_dir: guard::state_dir(var("XDG_STATE_HOME"), home.clone()),
             home,
-            hostname: if hostname.is_empty() { "this-node".into() } else { hostname },
+            hostname,
             origin,
             session,
             method,
@@ -97,12 +100,12 @@ impl Env {
 
 /// The method the configuration names. A configuration that cannot be read leaves the default, and
 /// is reported when a command loads it.
-fn method_for(config_path: Option<&Path>, xdg_data_home: Option<PathBuf>, xdg_config_home: Option<PathBuf>, home: Option<PathBuf>) -> Method {
+fn method_for(config_path: Option<&Path>, xdg_data_home: Option<PathBuf>, xdg_config_home: Option<PathBuf>, home: Option<PathBuf>, hostname: &str, user: &str) -> Method {
     let Some(config) = config_path.and_then(|path| MeshConfig::load(path).ok()) else { return Method::tailscale() };
     match config.method {
         MethodChoice::Tailscale => Method::tailscale(),
         MethodChoice::Roster => match roster_paths(&config, xdg_data_home, xdg_config_home, home) {
-            Some((dir, signers)) => crate::openssh::method(dir, signers),
+            Some(paths) => crate::openssh::method(paths, config, hostname.to_string(), user.to_string()),
             None => Method::none(),
         },
     }
@@ -188,17 +191,18 @@ fn roster_command(env: &Env, rest: &[String]) -> Result<u8, Failure> {
         return Err(fail(USAGE_ERROR, "the roster commands need method = \"roster\" in the mesh configuration"));
     }
     let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
-    let Some((dir, _)) = roster_paths(&config, var("XDG_DATA_HOME"), var("XDG_CONFIG_HOME"), env.home.clone()) else {
+    let Some(paths) = roster_paths(&config, var("XDG_DATA_HOME"), var("XDG_CONFIG_HOME"), env.home.clone()) else {
         return Err(fail(USAGE_ERROR, "there is nowhere to keep the roster (HOME is not set); set roster-dir"));
     };
     match rest.first().map(String::as_str) {
-        Some("sync") => match crate::openssh::sync(&dir) {
+        Some("sync") => match crate::openssh::sync(&paths.dir) {
             Ok(message) => {
                 println!("{message}");
-                Ok(0)
+                authorize(env, &config)
             }
-            Err(reason) => Err(fail(UNAVAILABLE, format!("could not pull the roster in {}: {reason}", dir.display()))),
+            Err(reason) => Err(fail(UNAVAILABLE, format!("could not pull the roster in {}: {reason}", paths.dir.display()))),
         },
+        Some("authorize") => authorize(env, &config),
         Some("check") | None => {
             let roster = load_roster(env, &config);
             if let Source::Unavailable(reason) = &roster.source {
@@ -207,8 +211,24 @@ fn roster_command(env: &Env, rest: &[String]) -> Result<u8, Failure> {
             print!("{}", report::roster_check(&roster));
             Ok(if roster.rejected.is_empty() { 0 } else { 1 })
         }
-        Some(other) => Err(fail(USAGE_ERROR, format!("unknown roster command {other:?}; use check or sync"))),
+        Some(other) => Err(fail(USAGE_ERROR, format!("unknown roster command {other:?}; use check, sync or authorize"))),
     }
+}
+
+/// Puts the roster's members into this user's `authorized_keys` (a marked block), so they can connect.
+fn authorize(env: &Env, config: &MeshConfig) -> Result<u8, Failure> {
+    let home = env.home.clone().ok_or_else(|| fail(USAGE_ERROR, "HOME is not set, so there is no authorized_keys to update"))?;
+    let roster = load_roster(env, config);
+    if let Source::Unavailable(reason) = &roster.source {
+        return Err(fail(UNAVAILABLE, reason.clone()));
+    }
+    let exe = std::env::current_exe().map_err(|error| fail(FAILED, format!("cannot tell where dojo-mesh is: {error}")))?;
+    let members: Vec<&crate::device::Device> = roster.members.iter().map(|member| &member.device).collect();
+    let lines = crate::authorize::lines(&members, &roster.this().name, &exe.display().to_string()).map_err(|message| fail(FAILED, message))?;
+    let path = home.join(".ssh/authorized_keys");
+    let changed = crate::authorize::apply(&path, &lines).map_err(|message| fail(FAILED, message))?;
+    println!("{} {} member key{} in {}", if changed { "updated:" } else { "unchanged:" }, lines.len(), if lines.len() == 1 { "" } else { "s" }, path.display());
+    Ok(0)
 }
 
 fn json<T: serde::Serialize>(value: &T) -> Result<String, Failure> {
@@ -238,7 +258,10 @@ pub fn run(env: &Env, args: &[String]) -> Result<u8, Failure> {
             let (words, _) = split(rest, &["--json"], &[])?;
             let config = load_config(env)?;
             let roster = load_roster(env, &config);
-            let findings = diagnose(&roster, &config, Utc::now());
+            let mut findings = diagnose(&roster, &config, Utc::now());
+            if let Some(step) = env.method.channel.blocked() {
+                findings.push(Finding { severity: Severity::Warning, device: None, message: format!("Peers cannot be reached from here yet: {step}.") });
+            }
             if has(&words, "--json") {
                 println!("{}", json(&findings)?);
             } else {
@@ -355,7 +378,7 @@ pub(crate) fn call_peer(
     let remote = transport::remote_command(argv, &provenance).map_err(|message| fail(USAGE_ERROR, message))?;
     let name = member.device.name.clone();
     record(env, &from, &name, action, detail, "started")?;
-    let done = match env.method.channel.run(Call { route: transport::route(member), remote, input, output, timeout }) {
+    let done = match env.method.channel.run(Call { key: if action == "remote" { crate::channel::Key::Input } else { crate::channel::Key::Node }, peer: Peer { name: name.clone(), host_key: member.device.keys.as_ref().map(|keys| keys.host_key.clone()) }, route: transport::route(member), remote, input, output, timeout }) {
         Ok(done) => done,
         Err(message) => {
             let _ = record(env, &from, &name, action, detail, &format!("failed: {message}"));
@@ -379,7 +402,8 @@ pub(crate) fn outcome(peer: &str, ended: &Ended) -> Result<u8, Failure> {
         Ended::Exited(code) => Err(fail(FAILED, format!("{peer} exited with status {code}"))),
         Ended::Killed => Err(fail(FAILED, format!("the call to {peer} was ended by a signal"))),
         Ended::TimedOut => Err(fail(UNAVAILABLE, format!("the call to {peer} timed out"))),
-        Ended::NeedsHuman(url) => Err(fail(NEEDS_HUMAN, format!("{peer} needs a person to approve this connection: open {url}, then run the command again"))),
+        Ended::NeedsHuman(url) if url.starts_with("https://") => Err(fail(NEEDS_HUMAN, format!("{peer} needs a person to approve this connection: open {url}, then run the command again"))),
+        Ended::NeedsHuman(step) => Err(fail(NEEDS_HUMAN, format!("{peer} cannot be reached yet: {step}"))),
     }
 }
 
