@@ -27,6 +27,31 @@ pub enum Program {
     Files { directory: String },
 }
 
+/// What closes on the sending machine once the receiver has opened the handoff. A browser window
+/// holds many tabs and only one was sent, so only that tab closes; anything else closes whole.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "scope", rename_all = "kebab-case")]
+pub enum Closes {
+    Window,
+    /// The tab in front, which gives the window its title.
+    Tab { title: String },
+}
+
+/// One line saying exactly what is being sent and what closes here.
+pub fn summary(handoff: &Handoff, closes: &Closes) -> String {
+    let what = match handoff {
+        Handoff::Page { url } => format!("the page {url}"),
+        Handoff::Terminal { directory, program: None } => format!("a terminal in {directory}"),
+        Handoff::Terminal { program: Some(Program::Editor { file, line, .. }), .. } => format!("nvim on {file} at line {line}"),
+        Handoff::Terminal { directory, program: Some(Program::Files { directory: shown }) } => format!("yazi in {shown} (terminal in {directory})"),
+        Handoff::Relaunch { desktop_entry } => format!("a fresh {desktop_entry}"),
+    };
+    match closes {
+        Closes::Window => format!("{what}; the window closes here"),
+        Closes::Tab { .. } => format!("{what}; only this tab closes here, the window's other tabs stay"),
+    }
+}
+
 /// What the receiver answers.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "kebab-case")]
@@ -128,6 +153,17 @@ mod tests {
         assert_eq!(text, r#"{"kind":"terminal","directory":"/w","program":{"kind":"editor","file":"/w/a.rs","line":3,"column":7}}"#);
         assert_eq!(serde_json::from_str::<Handoff>(&text).unwrap(), handoff);
         assert_eq!(serde_json::to_string(&Reply::Missing { files: vec!["/x".into()] }).unwrap(), r#"{"status":"missing","files":["/x"]}"#);
+    }
+
+    #[test]
+    fn the_summary_says_what_is_sent_and_what_closes() {
+        let page = Handoff::Page { url: "https://example.com/a".into() };
+        assert_eq!(summary(&page, &Closes::Tab { title: "A".into() }), "the page https://example.com/a; only this tab closes here, the window's other tabs stay");
+        let editor = Handoff::Terminal { directory: "/w".into(), program: Some(Program::Editor { file: "/w/a.rs".into(), line: 9, column: 1 }) };
+        assert_eq!(summary(&editor, &Closes::Window), "nvim on /w/a.rs at line 9; the window closes here");
+        assert_eq!(summary(&Handoff::Terminal { directory: "/w".into(), program: None }, &Closes::Window), "a terminal in /w; the window closes here");
+        assert_eq!(summary(&Handoff::Relaunch { desktop_entry: "app".into() }, &Closes::Window), "a fresh app; the window closes here");
+        assert_eq!(serde_json::to_string(&Closes::Tab { title: "T".into() }).unwrap(), r#"{"scope":"tab","title":"T"}"#);
     }
 
     #[test]

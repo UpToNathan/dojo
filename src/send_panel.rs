@@ -1,6 +1,7 @@
 //! The send panel's state: which window, which peer, whether the cursor and keyboard go along,
 //! and what happened. Plain data and logic; `send_window_ui` draws it and runs the send.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -25,8 +26,23 @@ pub enum Phase {
     /// The peer lacks these files; Enter copies them and sends again.
     Missing(Vec<String>),
     Failed(String),
-    /// Sent; the notes say what did not carry over. Any key closes the panel.
-    Sent { peer: String, notes: Vec<String> },
+    /// Sent. What closes here is still pending for a moment, so it can be kept.
+    Sent { peer: String, sent: String, notes: Vec<String>, source: Source },
+}
+
+/// What happens to the original after a send.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Source {
+    /// Closes soon; Esc keeps it.
+    Pending { window: u64, tab_title: Option<String> },
+    Kept,
+}
+
+/// What `dojo-mesh send --dry-run` said a window would send.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Preview {
+    pub sent: String,
+    pub notes: Vec<String>,
 }
 
 /// What the panel asks its owner to do after a key.
@@ -35,6 +51,8 @@ pub enum Request {
     Nothing,
     Close,
     Send { window: u64, peer: String, take_input: bool, copy_missing: bool },
+    /// Close the original now, then the panel.
+    CloseSource { window: u64, tab_title: Option<String> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,6 +64,8 @@ pub struct Model {
     pub list: List,
     pub take_input: bool,
     pub phase: Phase,
+    /// What each window would send, as far as it has been asked.
+    pub previews: HashMap<u64, Result<Preview, String>>,
 }
 
 /// What the panel remembers between uses.
@@ -76,7 +96,7 @@ impl Memory {
 
 impl Model {
     pub fn loading(memory: &Memory) -> Self {
-        Self { windows: Vec::new(), peers: Vec::new(), window: 0, peer: 0, list: List::Windows, take_input: memory.take_input, phase: Phase::Loading }
+        Self { windows: Vec::new(), peers: Vec::new(), window: 0, peer: 0, list: List::Windows, take_input: memory.take_input, phase: Phase::Loading, previews: HashMap::new() }
     }
 
     /// The windows (focused first is selected) and online peers (the remembered one selected).
@@ -96,8 +116,27 @@ impl Model {
         self.phase = Phase::Missing(files);
     }
 
-    pub fn sent(&mut self, peer: String, notes: Vec<String>) {
-        self.phase = Phase::Sent { peer, notes };
+    /// `closes_tab` is the window's title when only a tab is to close, `None` for the whole window.
+    pub fn sent(&mut self, peer: String, sent: String, notes: Vec<String>, window: u64, tab_title: Option<String>) {
+        self.phase = Phase::Sent { peer, sent, notes, source: Source::Pending { window, tab_title } };
+    }
+
+    /// The window selected, if any.
+    pub fn selected_window(&self) -> Option<u64> {
+        self.windows.get(self.window).map(|window| window.id)
+    }
+
+    /// The selected window, when what it would send has not been asked yet.
+    pub fn needs_preview(&self) -> Option<u64> {
+        self.selected_window().filter(|id| !self.previews.contains_key(id))
+    }
+
+    pub fn preview(&self) -> Option<&Result<Preview, String>> {
+        self.selected_window().and_then(|id| self.previews.get(&id))
+    }
+
+    pub fn set_preview(&mut self, window: u64, preview: Result<Preview, String>) {
+        self.previews.insert(window, preview);
     }
 
     /// Why Enter does nothing right now, if it does nothing.
@@ -133,8 +172,16 @@ impl Model {
         if self.phase == Phase::Sending {
             return Request::Nothing;
         }
-        if matches!(self.phase, Phase::Sent { .. }) {
-            return Request::Close;
+        if let Phase::Sent { source, .. } = &mut self.phase {
+            return match (key, source.clone()) {
+                // Esc keeps the original; anything else closes it now.
+                ("escape", Source::Pending { .. }) => {
+                    *source = Source::Kept;
+                    Request::Close
+                }
+                (_, Source::Pending { window, tab_title }) => Request::CloseSource { window, tab_title },
+                (_, Source::Kept) => Request::Close,
+            };
         }
         match key {
             "escape" => {
@@ -254,11 +301,30 @@ mod tests {
     }
 
     #[test]
-    fn after_sending_any_key_closes() {
+    fn after_sending_the_original_closes_unless_escape_keeps_it() {
         let mut model = ready(&Memory::default());
         model.key("enter");
-        model.sent("alpha".into(), vec!["the shell starts fresh".into()]);
-        assert_eq!(model.key("down"), Request::Close);
+        model.sent("alpha".into(), "the page https://x".into(), vec![], 9, Some("Page - Helium".into()));
+        assert_eq!(model.key("enter"), Request::CloseSource { window: 9, tab_title: Some("Page - Helium".into()) });
+        assert_eq!(model.key("escape"), Request::Close, "Esc closes the panel and leaves the original alone");
+        match &model.phase {
+            Phase::Sent { source, .. } => assert_eq!(*source, Source::Kept),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(model.key("enter"), Request::Close);
+    }
+
+    #[test]
+    fn each_window_is_previewed_once_when_selected() {
+        let mut model = ready(&Memory::default());
+        assert_eq!(model.needs_preview(), Some(9));
+        model.set_preview(9, Ok(Preview { sent: "a terminal in /w".into(), notes: vec![] }));
+        assert_eq!(model.needs_preview(), None);
+        assert!(matches!(model.preview(), Some(Ok(_))));
+        model.key("down");
+        assert_eq!(model.needs_preview(), Some(3));
+        model.set_preview(3, Err("no desktop entry".into()));
+        assert_eq!(model.preview(), Some(&Err("no desktop entry".to_string())));
     }
 
     #[test]

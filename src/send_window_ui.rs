@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use dojo::send_panel::{List, Memory, Model, Phase, Request, WindowChoice};
+use dojo::send_panel::{List, Memory, Model, Phase, Preview, Request, Source, WindowChoice};
 use gpui::{
     App, AppContext, Bounds, Context, FocusHandle, IntoElement, KeyDownEvent, MouseButton, Render,
     Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, div,
@@ -15,8 +15,8 @@ use gpui::{
 
 use crate::config::ThemeColors;
 
-/// How long the panel stays after a send, so what did not carry over can be read.
-const SENT_LINGER: Duration = Duration::from_secs(6);
+/// How long the panel shows what was sent before the original closes, so it can be read and kept.
+const SENT_LINGER: Duration = Duration::from_secs(4);
 
 #[derive(Default)]
 struct SendWindow {
@@ -86,6 +86,7 @@ pub fn toggle(display_id: gpui::DisplayId, cx: &mut App) -> anyhow::Result<()> {
                     focus,
                     reveal: dojo::design::MenuReveal::opening(Instant::now()),
                     task: None,
+                    preview_task: None,
                 };
                 panel.load(windows, cx);
                 panel
@@ -102,6 +103,7 @@ struct Panel {
     focus: FocusHandle,
     reveal: dojo::design::MenuReveal,
     task: Option<gpui::Task<()>>,
+    preview_task: Option<gpui::Task<()>>,
 }
 
 /// The machines a window can go to: online members of the mesh other than this one.
@@ -117,14 +119,48 @@ fn online_peers() -> Vec<String> {
 
 /// What `dojo-mesh send` said.
 enum Outcome {
-    Sent(Vec<String>),
+    Sent { sent: String, notes: Vec<String>, tab_title: Option<String> },
     Missing(Vec<String>),
     Failed(String),
 }
 
+/// What `dojo-mesh send --dry-run` says a window would send.
+fn run_preview(window: u64) -> Result<Preview, String> {
+    let output = Command::new(mesh_binary())
+        .args(["send", "--window", &window.to_string(), "--dry-run", "--json"])
+        .output()
+        .map_err(|error| format!("dojo-mesh could not run: {error}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let message = stderr.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("it cannot be sent");
+        return Err(message.trim_start_matches("dojo-mesh: ").to_owned());
+    }
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|error| error.to_string())?;
+    Ok(Preview {
+        sent: value["sent"].as_str().unwrap_or_default().to_owned(),
+        notes: value["notes"].as_array().map(|notes| notes.iter().filter_map(|note| note.as_str().map(String::from)).collect()).unwrap_or_default(),
+    })
+}
+
+/// Closes the original after the peer opened the handoff: the window, or only the tab sent.
+fn run_close_source(window: u64, tab_title: Option<&str>) -> Result<(), String> {
+    let mut command = Command::new(mesh_binary());
+    command.args(["close-source", "--window", &window.to_string()]);
+    if let Some(title) = tab_title {
+        command.args(["--tab-title", title]);
+    }
+    let output = command.output().map_err(|error| format!("dojo-mesh could not run: {error}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Err(stderr.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("it could not be closed").trim_start_matches("dojo-mesh: ").to_owned())
+}
+
 fn run_send(window: u64, peer: &str, copy_missing: bool) -> Outcome {
     let mut command = Command::new(mesh_binary());
-    command.args(["send", "--window", &window.to_string(), "--to", peer, "--json"]);
+    // The original stays until the panel has shown what was sent and let go of the keyboard.
+    command.args(["send", "--window", &window.to_string(), "--to", peer, "--keep-source", "--json"]);
     if copy_missing {
         command.arg("--copy-missing");
     }
@@ -137,7 +173,14 @@ fn run_send(window: u64, peer: &str, copy_missing: bool) -> Outcome {
         value.and_then(|v| v.as_array()).map(|items| items.iter().filter_map(|item| item.as_str().map(String::from)).collect()).unwrap_or_default()
     };
     match reply.as_ref().and_then(|reply| reply.get("status")).and_then(|status| status.as_str()) {
-        Some("sent") => Outcome::Sent(strings(reply.as_ref().and_then(|r| r.get("notes")))),
+        Some("sent") => {
+            let value = reply.as_ref();
+            Outcome::Sent {
+                sent: value.and_then(|r| r["sent"].as_str()).unwrap_or_default().to_owned(),
+                notes: strings(value.and_then(|r| r.get("notes"))),
+                tab_title: value.and_then(|r| r["closes"]["title"].as_str()).map(String::from),
+            }
+        }
         Some("missing") => Outcome::Missing(strings(reply.as_ref().and_then(|r| r.get("files")))),
         _ => {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -170,6 +213,21 @@ impl Panel {
             let peers = cx.background_executor().spawn(async move { online_peers() }).await;
             let _ = this.update(cx, |panel: &mut Panel, cx| {
                 panel.model.loaded(choices, focused, peers, &memory);
+                panel.fetch_preview(cx);
+                cx.notify();
+            });
+        }));
+    }
+
+    /// Asks what the selected window would send, once per window.
+    fn fetch_preview(&mut self, cx: &mut Context<Self>) {
+        let Some(window) = self.model.needs_preview() else { return };
+        // Marked as asked at once, so a second selection of the same window does not ask again.
+        self.model.set_preview(window, Err("Reading what this window would send…".into()));
+        self.preview_task = Some(cx.spawn(async move |this, cx| {
+            let preview = cx.background_executor().spawn(async move { run_preview(window) }).await;
+            let _ = this.update(cx, |panel: &mut Panel, cx| {
+                panel.model.set_preview(window, preview);
                 cx.notify();
             });
         }));
@@ -196,14 +254,14 @@ impl Panel {
                 self.task = Some(cx.spawn_in(window, async move |this, cx| {
                     let target = peer.clone();
                     let outcome = cx.background_executor().spawn(async move { run_send(id, &target, copy_missing) }).await;
-                    let sent = matches!(outcome, Outcome::Sent(_));
+                    let sent = matches!(outcome, Outcome::Sent { .. });
                     let _ = this.update(cx, |panel: &mut Panel, cx| {
                         match outcome {
-                            Outcome::Sent(mut notes) => {
+                            Outcome::Sent { sent, mut notes, tab_title } => {
                                 if take_input {
                                     notes.push("Taking the cursor and keyboard along is not built yet".into());
                                 }
-                                panel.model.sent(peer, notes);
+                                panel.model.sent(peer, sent, notes, id, tab_title);
                             }
                             Outcome::Missing(files) => panel.model.missing(files),
                             Outcome::Failed(message) => panel.model.failed(message),
@@ -211,10 +269,24 @@ impl Panel {
                         cx.notify();
                     });
                     if sent {
+                        // Time to read what was sent, and to press Esc to keep the original.
                         cx.background_executor().timer(SENT_LINGER).await;
-                        let _ = this.update_in(cx, |panel: &mut Panel, window, cx| panel.close(window, cx));
+                        let _ = this.update_in(cx, |panel: &mut Panel, window, cx| {
+                            if let Phase::Sent { source: Source::Pending { window: original, tab_title }, .. } = panel.model.phase.clone() {
+                                panel.handle(Request::CloseSource { window: original, tab_title }, window, cx);
+                            }
+                        });
                     }
                 }));
+            }
+            Request::CloseSource { window: original, tab_title } => {
+                // The panel holds the keyboard, so it goes first; the browser needs it to close a tab.
+                self.close(window, cx);
+                std::thread::spawn(move || {
+                    if let Err(message) = run_close_source(original, tab_title.as_deref()) {
+                        eprintln!("Dojo send window: the original was not closed: {message}");
+                    }
+                });
             }
         }
         cx.notify();
@@ -244,12 +316,30 @@ impl Panel {
                 lines.extend(files.iter().take(3).cloned());
                 lines
             }
-            Phase::Sent { peer, notes } => {
-                let mut lines = vec![format!("Sent to {peer}.")];
+            Phase::Sent { peer, sent, notes, source } => {
+                let mut lines = vec![format!("Sent to {peer}: {sent}.")];
                 lines.extend(notes.iter().cloned());
+                lines.push(match source {
+                    Source::Pending { .. } => "Closing the original in a moment · Enter closes it now · Esc keeps it".into(),
+                    Source::Kept => "The original is kept.".into(),
+                });
                 lines
             }
-            Phase::Choosing => self.model.blocked().map(|why| vec![why.to_owned()]).unwrap_or_default(),
+            Phase::Choosing => {
+                if let Some(why) = self.model.blocked() {
+                    return vec![why.to_owned()];
+                }
+                match self.model.preview() {
+                    Some(Ok(preview)) => {
+                        let mut lines = vec![format!("Sends {}.", preview.sent)];
+                        lines.extend(preview.notes.iter().take(2).cloned());
+                        lines
+                    }
+                    Some(Err(message)) if message.starts_with("Reading") => vec![message.clone()],
+                    Some(Err(message)) => vec![format!("This window cannot be sent: {message}")],
+                    None => Vec::new(),
+                }
+            }
         }
     }
 }
@@ -299,6 +389,7 @@ impl Render for Panel {
                     MouseButton::Left,
                     cx.listener(move |panel, _, _, cx| {
                         panel.model.select(list, index);
+                        panel.fetch_preview(cx);
                         cx.notify();
                         cx.stop_propagation();
                     }),
@@ -384,6 +475,7 @@ impl Render for Panel {
                     return;
                 }
                 let request = panel.model.key(&event.keystroke.key);
+                panel.fetch_preview(cx);
                 panel.handle(request, window, cx);
             }))
             .on_mouse_down(

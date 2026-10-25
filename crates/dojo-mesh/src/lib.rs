@@ -22,6 +22,7 @@ pub mod niri;
 pub mod roster;
 pub mod send_cli;
 pub mod session;
+pub mod source;
 pub mod ssh;
 pub mod tailscale;
 pub mod transport;

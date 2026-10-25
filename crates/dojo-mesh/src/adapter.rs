@@ -3,7 +3,7 @@
 //! Everything an adapter reads from this machine goes through [`Probe`], so the rules are tested
 //! without a browser, kitty or nvim running.
 
-use crate::handoff::{Handoff, Program};
+use crate::handoff::{Closes, Handoff, Program};
 use crate::niri::Window;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -13,6 +13,8 @@ use std::process::{Command, Stdio};
 #[derive(Debug, PartialEq, Eq)]
 pub struct Captured {
     pub handoff: Handoff,
+    /// What closes here once the peer has opened it.
+    pub closes: Closes,
     /// What the receiver will not have, said to the operator.
     pub notes: Vec<String>,
 }
@@ -68,7 +70,7 @@ enum Fallback {
 
 fn relaunch(app_id: &str, context: &Context) -> Result<Captured, String> {
     let entry = crate::desktop::for_app(app_id, context.entries).ok_or_else(|| format!("{} has no desktop entry here, so it cannot be started elsewhere", if app_id.is_empty() { "this window" } else { app_id }))?;
-    Ok(Captured { handoff: Handoff::Relaunch { desktop_entry: entry }, notes: vec!["it is started fresh: what the window was showing does not carry over".into()] })
+    Ok(Captured { handoff: Handoff::Relaunch { desktop_entry: entry }, closes: Closes::Window, notes: vec!["it is started fresh: what the window was showing does not carry over".into()] })
 }
 
 // ---- browsers ---------------------------------------------------------------------------------
@@ -94,7 +96,7 @@ fn browser(window: &Window, (root, name): &(PathBuf, &str), context: &Context) -
         if let Ok(history) = context.probe.history(&profile)
             && let Some((url, _)) = history.iter().find(|(url, title)| title == page_title && (url.starts_with("https://") || url.starts_with("http://")))
         {
-            return Ok(Captured { handoff: Handoff::Page { url: url.clone() }, notes: vec!["only the page in front moves; the window's other tabs stay closed".into()] });
+            return Ok(Captured { handoff: Handoff::Page { url: url.clone() }, closes: Closes::Tab { title: title.to_string() }, notes: Vec::new() });
         }
     }
     Err(Fallback::Relaunch(format!("the page \"{page_title}\" could not be found in {name}'s history")))
@@ -191,7 +193,7 @@ fn kitty(window: &Window, context: &Context) -> Result<Captured, Fallback> {
     if directory.is_empty() {
         return Err(relaunch("kitty did not say which directory the terminal is in"));
     }
-    Ok(Captured { handoff: Handoff::Terminal { directory, program }, notes })
+    Ok(Captured { handoff: Handoff::Terminal { directory, program }, closes: Closes::Window, notes })
 }
 
 /// The active window of an OS window's active tab.

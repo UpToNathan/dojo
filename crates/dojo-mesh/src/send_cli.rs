@@ -2,8 +2,8 @@
 
 use crate::adapter;
 use crate::cli::{self, Env, FAILED, Failure, UNAVAILABLE, USAGE_ERROR, fail};
-use crate::handoff::{self, Handoff, Reply};
-use crate::{desktop, niri};
+use crate::handoff::{self, Closes, Handoff, Reply};
+use crate::{desktop, niri, source};
 use serde::Serialize;
 use std::io::Read;
 use std::time::Duration;
@@ -37,14 +37,14 @@ pub fn windows(rest: &[String]) -> Result<u8, Failure> {
 #[derive(Serialize)]
 #[serde(tag = "status", rename_all = "kebab-case")]
 enum Outcome {
-    Sent { peer: String, window: u64, notes: Vec<String> },
+    Sent { peer: String, window: u64, sent: String, closes: Closes, source: String, notes: Vec<String> },
     Missing { peer: String, window: u64, files: Vec<String> },
 }
 
 pub fn send(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     let mut window_id: Option<u64> = None;
     let mut peer: Option<String> = None;
-    let (mut copy_missing, mut json, mut dry_run) = (false, false, false);
+    let (mut copy_missing, mut json, mut dry_run, mut keep_source) = (false, false, false, false);
     let mut args = rest.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -56,7 +56,8 @@ pub fn send(env: &Env, rest: &[String]) -> Result<u8, Failure> {
             "--copy-missing" => copy_missing = true,
             "--json" => json = true,
             "--dry-run" => dry_run = true,
-            other => return Err(fail(USAGE_ERROR, format!("unknown option {other}; usage: dojo-mesh send [--window ID] (--to PEER | --dry-run) [--copy-missing] [--json]"))),
+            "--keep-source" => keep_source = true,
+            other => return Err(fail(USAGE_ERROR, format!("unknown option {other}; usage: dojo-mesh send [--window ID] (--to PEER | --dry-run) [--copy-missing] [--keep-source] [--json]"))),
         }
     }
     if peer.is_none() && !dry_run {
@@ -79,11 +80,12 @@ pub fn send(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     };
     let captured = adapter::capture(window, &context).map_err(|message| fail(FAILED, message))?;
     if dry_run {
-        let preview = serde_json::json!({ "window": window.id, "handoff": captured.handoff, "notes": captured.notes });
+        let sent = handoff::summary(&captured.handoff, &captured.closes);
+        let preview = serde_json::json!({ "window": window.id, "handoff": captured.handoff, "closes": captured.closes, "sent": sent, "notes": captured.notes });
         if json {
             println!("{preview}");
         } else {
-            println!("{}", serde_json::to_string(&captured.handoff).map_err(|error| fail(FAILED, error.to_string()))?);
+            println!("{sent}");
             for note in &captured.notes {
                 println!("  {note}");
             }
@@ -122,10 +124,19 @@ pub fn send(env: &Env, rest: &[String]) -> Result<u8, Failure> {
         Reply::Opened { notes: peer_notes } => {
             let mut notes = captured.notes;
             notes.extend(peer_notes);
-            if let Err(message) = niri::close_window(&socket, window.id) {
-                notes.push(format!("the window here could not be closed: {message}"));
-            }
-            print_outcome(json, &Outcome::Sent { peer: peer.clone(), window: window.id, notes })?;
+            let sent = handoff::summary(&captured.handoff, &captured.closes);
+            let source = if keep_source {
+                "left open here".to_string()
+            } else {
+                match source::close(&source::System { socket: socket.clone() }, window.id, &captured.closes) {
+                    Ok(done) => done,
+                    Err(message) => {
+                        notes.push(message);
+                        "left open here".to_string()
+                    }
+                }
+            };
+            print_outcome(json, &Outcome::Sent { peer: peer.clone(), window: window.id, sent, closes: captured.closes, source, notes })?;
             Ok(0)
         }
         Reply::Missing { files } => {
@@ -142,8 +153,9 @@ fn print_outcome(json: bool, outcome: &Outcome) -> Result<(), Failure> {
         return Ok(());
     }
     match outcome {
-        Outcome::Sent { peer, notes, .. } => {
-            println!("Sent to {peer}.");
+        Outcome::Sent { peer, sent, source, notes, .. } => {
+            println!("Sent to {peer}: {sent}.");
+            println!("  here: {source}");
             for note in notes {
                 println!("  {note}");
             }
@@ -188,6 +200,32 @@ fn open(socket: &std::path::Path, handoff: &Handoff, command: &[String], notes: 
         }
     }
     Reply::Refused { reason: format!("{} did not open a window within {} seconds", command[0], wait.as_secs()) }
+}
+
+/// `dojo-mesh close-source --window ID [--tab-title TITLE]`: close what was sent, after the peer
+/// opened it. With a title only the tab showing it closes (see [`source::close`]).
+pub fn close_source(rest: &[String]) -> Result<u8, Failure> {
+    let mut window: Option<u64> = None;
+    let mut title: Option<String> = None;
+    let mut args = rest.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--window" => {
+                let text = args.next().ok_or_else(|| fail(USAGE_ERROR, "--window needs a window id"))?;
+                window = Some(text.parse().map_err(|_| fail(USAGE_ERROR, format!("--window needs a number, not {text:?}")))?);
+            }
+            "--tab-title" => title = Some(args.next().ok_or_else(|| fail(USAGE_ERROR, "--tab-title needs the tab's window title"))?.clone()),
+            other => return Err(fail(USAGE_ERROR, format!("unknown option {other}; usage: dojo-mesh close-source --window ID [--tab-title TITLE]"))),
+        }
+    }
+    let window = window.ok_or_else(|| fail(USAGE_ERROR, "close-source needs --window ID"))?;
+    let closes = match title {
+        Some(title) => Closes::Tab { title },
+        None => Closes::Window,
+    };
+    let done = source::close(&source::System { socket: local_niri()? }, window, &closes).map_err(|message| fail(FAILED, message))?;
+    println!("{done}");
+    Ok(0)
 }
 
 /// The peer's side: read one handoff from stdin, open it in the operator's session, and answer.

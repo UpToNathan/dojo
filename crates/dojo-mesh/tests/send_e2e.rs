@@ -50,6 +50,12 @@ fn fake_niri(path: &Path, windows: &'static str) -> Seen {
                 record.lock().unwrap().push(line.clone());
                 format!("{{\"Ok\":{{\"Windows\":{}}}}}", serde_json::Value::Array(listed.clone()))
             } else {
+                if let Some(rest) = line.split("\"FocusWindow\":{\"id\":").nth(1) {
+                    let id: u64 = rest.trim_end_matches(|c: char| !c.is_ascii_digit()).parse().unwrap_or(0);
+                    for window in listed.iter_mut() {
+                        window["is_focused"] = serde_json::Value::Bool(window["id"] == id);
+                    }
+                }
                 if line.contains("\"Spawn\"") && !silent.exists() {
                     let id = 100 + listed.len();
                     listed.push(serde_json::json!({"id": id, "title": "new", "app_id": "new", "pid": 1, "is_focused": true}));
@@ -63,6 +69,8 @@ fn fake_niri(path: &Path, windows: &'static str) -> Seen {
     seen
 }
 
+const FAKE_WTYPE: &str = "#!/bin/sh\necho \"$@\" >> \"$FAKE_ROOT/wtype.log\"\n";
+
 const FAKE_LOGINCTL: &str = "#!/bin/sh\ncase \"$1\" in\nshow-user) echo Display=c1 ;;\nshow-session) if [ -f \"$HOME/locked\" ]; then echo LockedHint=yes; else echo LockedHint=no; fi ;;\nesac\n";
 
 struct Site {
@@ -72,7 +80,8 @@ struct Site {
 }
 
 const ALPHA_WINDOWS: &str = r#"[{"id": 7, "title": "Example", "app_id": "org.example.App", "pid": 1, "is_focused": true},
-  {"id": 8, "title": "Other", "app_id": "mystery", "pid": 2, "is_focused": false}]"#;
+  {"id": 8, "title": "Other", "app_id": "mystery", "pid": 2, "is_focused": false},
+  {"id": 9, "title": "The Page - Helium", "app_id": "helium", "pid": 3, "is_focused": false}]"#;
 
 impl Site {
     fn new() -> Self {
@@ -83,11 +92,13 @@ impl Site {
         }
         std::fs::write(root.join("bin/tailscale"), FAKE_TAILSCALE).unwrap();
         std::fs::write(root.join("bin/loginctl"), FAKE_LOGINCTL).unwrap();
-        Command::new("chmod").arg("+x").arg(root.join("bin/tailscale")).arg(root.join("bin/loginctl")).status().unwrap();
+        std::fs::write(root.join("bin/wtype"), FAKE_WTYPE).unwrap();
+        Command::new("chmod").arg("+x").arg(root.join("bin/tailscale")).arg(root.join("bin/loginctl")).arg(root.join("bin/wtype")).status().unwrap();
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_dojo-mesh"), root.join("data/dojo/bin/dojo-mesh")).unwrap();
         std::fs::write(root.join("status.json"), STATUS).unwrap();
         std::fs::write(root.join("hosts/alpha/config/dojo/mesh.toml"), "membership-tag = \"tag:mesh\"\n").unwrap();
         for host in ["alpha", "beta"] {
+            std::fs::write(root.join(format!("hosts/{host}/share/applications/helium.desktop")), "[Desktop Entry]\nName=Helium\nExec=helium\n").unwrap();
             std::fs::write(root.join(format!("hosts/{host}/share/applications/org.example.App.desktop")), "[Desktop Entry]\nName=Example\nExec=example\n").unwrap();
         }
         let alpha = fake_niri(&root.join("hosts/alpha/niri.sock"), ALPHA_WINDOWS);
@@ -142,7 +153,7 @@ fn windows_lists_this_nodes_windows_with_the_focused_one_marked() {
     let site = Site::new();
     let result = site.run(&["windows"]);
     assert_eq!(result.status.code(), Some(0), "{}", text(&result));
-    assert_eq!(String::from_utf8_lossy(&result.stdout), "*7  org.example.App  Example\n 8  mystery  Other\n");
+    assert_eq!(String::from_utf8_lossy(&result.stdout), "*7  org.example.App  Example\n 8  mystery  Other\n 9  helium  The Page - Helium\n");
 }
 
 #[test]
@@ -150,7 +161,8 @@ fn sending_opens_the_application_on_the_peer_then_closes_it_here() {
     let site = Site::new();
     let result = site.run(&["send", "--to", "beta"]);
     assert_eq!(result.status.code(), Some(0), "{}", text(&result));
-    assert!(text(&result).starts_with("Sent to beta."), "{}", text(&result));
+    assert!(text(&result).starts_with("Sent to beta: a fresh org.example.App; the window closes here."), "{}", text(&result));
+    assert!(text(&result).contains("here: closed the window here"), "{}", text(&result));
     assert!(text(&result).contains("started fresh"), "{}", text(&result));
     let beta: Vec<String> = Site::requests(&site.beta).into_iter().filter(|line| line != "\"Windows\"").collect();
     assert_eq!(beta, [r#"{"Action":{"Spawn":{"command":["gtk-launch","org.example.App"]}}}"#]);
@@ -245,4 +257,79 @@ fn a_dry_run_says_what_would_be_sent_without_calling_anyone() {
     assert!(value["notes"][0].as_str().unwrap().contains("started fresh"));
     assert!(Site::requests(&site.beta).is_empty());
     assert_eq!(Site::requests(&site.alpha), ["\"Windows\""], "nothing was closed");
+}
+
+/// Gives alpha's Helium a history in which the page the window shows is known. Returns false when
+/// there is no `sqlite3` to make one, so the browser tests are skipped rather than failed.
+fn helium_history(site: &Site) -> bool {
+    let dir = site.root.join("hosts/alpha/config/net.imput.helium/Default");
+    std::fs::create_dir_all(&dir).unwrap();
+    Command::new("sqlite3")
+        .arg(dir.join("History"))
+        .arg("create table urls(url text, title text, last_visit_time integer); insert into urls values ('https://example.com/page', 'The Page', 5), ('https://example.com/other', 'Other', 9);")
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn alpha_actions(site: &Site) -> Vec<String> {
+    Site::requests(&site.alpha).into_iter().filter(|line| line != "\"Windows\"").collect()
+}
+
+#[test]
+fn sending_a_browser_tab_closes_only_that_tab_not_the_window() {
+    let site = Site::new();
+    if !helium_history(&site) {
+        return;
+    }
+    let result = site.run(&["send", "--window", "9", "--to", "beta"]);
+    assert_eq!(result.status.code(), Some(0), "{}", text(&result));
+    assert!(text(&result).contains("Sent to beta: the page https://example.com/page; only this tab closes here, the window's other tabs stay."), "{}", text(&result));
+    assert!(text(&result).contains("here: closed that tab here"), "{}", text(&result));
+    assert_eq!(alpha_actions(&site), [r#"{"Action":{"FocusWindow":{"id":9}}}"#], "the window was focused and never closed");
+    assert_eq!(std::fs::read_to_string(site.root.join("wtype.log")).unwrap().trim(), "-M ctrl w -m ctrl");
+    let beta: Vec<String> = Site::requests(&site.beta).into_iter().filter(|line| line.contains("Spawn")).collect();
+    assert_eq!(beta, [r#"{"Action":{"Spawn":{"command":["xdg-open","https://example.com/page"]}}}"#]);
+}
+
+#[test]
+fn keeping_the_source_touches_nothing_here() {
+    let site = Site::new();
+    if !helium_history(&site) {
+        return;
+    }
+    let result = site.run(&["send", "--window", "9", "--to", "beta", "--keep-source", "--json"]);
+    assert_eq!(result.status.code(), Some(0), "{}", text(&result));
+    let value: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(value["status"], "sent");
+    assert_eq!(value["closes"], serde_json::json!({"scope": "tab", "title": "The Page - Helium"}));
+    assert_eq!(value["source"], "left open here");
+    assert!(alpha_actions(&site).is_empty(), "{:?}", alpha_actions(&site));
+    assert!(!site.root.join("wtype.log").exists());
+}
+
+#[test]
+fn close_source_closes_the_tab_only_while_the_window_still_shows_it() {
+    let site = Site::new();
+    let wrong = site.run(&["close-source", "--window", "9", "--tab-title", "Something else - Helium"]);
+    assert_eq!(wrong.status.code(), Some(1), "{}", text(&wrong));
+    assert!(text(&wrong).contains("no longer shows"), "{}", text(&wrong));
+    assert!(alpha_actions(&site).is_empty());
+    assert!(!site.root.join("wtype.log").exists(), "no key was sent");
+
+    let right = site.run(&["close-source", "--window", "9", "--tab-title", "The Page - Helium"]);
+    assert_eq!(right.status.code(), Some(0), "{}", text(&right));
+    assert_eq!(std::fs::read_to_string(site.root.join("wtype.log")).unwrap().trim(), "-M ctrl w -m ctrl");
+
+    let whole = site.run(&["close-source", "--window", "8"]);
+    assert_eq!(whole.status.code(), Some(0));
+    assert!(alpha_actions(&site).iter().any(|line| line.contains("CloseWindow") && line.contains("\"id\":8")));
+}
+
+#[test]
+fn a_missing_wtype_leaves_the_tab_open_and_says_so() {
+    let site = Site::new();
+    std::fs::remove_file(site.root.join("bin/wtype")).unwrap();
+    let result = site.run(&["close-source", "--window", "9", "--tab-title", "The Page - Helium"]);
+    assert_eq!(result.status.code(), Some(1));
+    assert!(text(&result).contains("wtype is not installed"), "{}", text(&result));
 }

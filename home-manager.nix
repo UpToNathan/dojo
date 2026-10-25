@@ -155,6 +155,8 @@ in
         pkgs.vscode-extensions.vadimcn.vscode-lldb
         pkgs.vscode-js-debug
         pkgs.wl-clipboard
+        # Presses Ctrl+W in a browser window so sending a tab closes that tab only (dojo-mesh close-source).
+        pkgs.wtype
         pkgs.wl-screenrec
         pkgs.procps
         pkgs.xdg-utils

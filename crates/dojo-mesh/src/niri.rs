@@ -62,6 +62,10 @@ pub fn close_window(socket: &Path, id: u64) -> Result<(), String> {
     request(socket, &serde_json::json!({"Action": {"CloseWindow": {"id": id}}})).map(drop)
 }
 
+pub fn focus_window(socket: &Path, id: u64) -> Result<(), String> {
+    request(socket, &serde_json::json!({"Action": {"FocusWindow": {"id": id}}})).map(drop)
+}
+
 /// Starts `command` as a child of Niri, so it runs in the operator's session with its environment.
 pub fn spawn(socket: &Path, command: &[String]) -> Result<(), String> {
     request(socket, &serde_json::json!({"Action": {"Spawn": {"command": command}}})).map(drop)

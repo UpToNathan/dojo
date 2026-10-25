@@ -12,6 +12,9 @@ dojo-mesh find CAPABILITY [--json | --tsv] [--peers-only]
 dojo-mesh exec [--timeout SECS] PEER -- COMMAND [ARG...]
 dojo-mesh cp SRC DST                   # one file; exactly one side is PEER:PATH
 dojo-mesh task PEER TEXT...            # hand a task to the peer's own agent
+dojo-mesh windows [--json]             # this node's windows
+dojo-mesh send [--window ID] (--to PEER | --dry-run) [--copy-missing] [--keep-source] [--json]
+dojo-mesh close-source --window ID [--tab-title TITLE]
 dojo-mesh pause | resume               # the agent's peer access
 dojo-mesh audit [--last N] [--json]    # what this node has sent to peers
 dojo-mesh enroll [--tag TAG] [--expires SECS]            # operator only
@@ -72,6 +75,14 @@ Every call is appended to `$XDG_STATE_HOME/dojo/mesh/audit.jsonl` before it star
 ## Capabilities
 
 `find` asks each online peer to `describe` itself (by running `dojo-mesh describe` there), so a peer needs `dojo-mesh` installed in `~/.local/share/dojo/bin`. A peer that cannot be asked is reported, not guessed. The Nix cache is the first consumer: see [nix-cache.md](nix-cache.md).
+
+## Sending a window
+
+`dojo-mesh send` opens what a window shows on a peer and then closes it here. The panel (`dojo-desktop --send-window`, bound to Super+F11) does the same: it lists your windows and the machines that are online, and shows exactly what the selected window would send before you send it. `--dry-run` prints that line without calling anyone.
+
+What moves depends on the application. A **Helium** window sends only the page in front, found by matching the window's title in the browser's history, and **only that tab closes** here: the window is focused, checked to still show that page, and sent Ctrl+W with `wtype`. The window and its other tabs stay. **kitty** sends its directory, and nvim's file and line, or yazi's directory, when one of those is in front; the window closes whole, the shell starts fresh and anything else that was running is named as staying behind. Any other application is relaunched from its desktop entry. kitty is read through its remote control, which is limited to `ls` with a per-machine password in `~/.config/kitty/dojo-remote-control.conf`; see the spec in `.scratch/mesh-boundaries/spec.md`.
+
+The peer only opens a web page, a directory, a file at a line, or an application it already has; it never runs a command it is sent, and it refuses while its screen is locked. It reports success only once a new window appears (a page opens as a tab in a running browser, which makes no new window). If the peer lacks a file, nothing is sent; `--copy-missing` copies the file across first. The panel sends with `--keep-source`, shows what was sent, then closes the original after a few seconds unless you press Esc, and releases the keyboard first so the browser can receive Ctrl+W.
 
 ## The agent
 

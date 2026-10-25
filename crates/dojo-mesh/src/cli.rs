@@ -36,7 +36,7 @@ usage: dojo-mesh [--config PATH] <command>
   cp SRC DST                       copy one file; exactly one side is PEER:PATH
   task PEER TEXT...                give a peer's agent a task
   windows [--json]                 this node's windows
-  send [--window ID] (--to PEER | --dry-run) [--copy-missing] [--json]
+  send [--window ID] (--to PEER | --dry-run) [--copy-missing] [--keep-source] [--json]
                                    open a window on a peer and close it here (exit 5: files missing there)
   pause | resume                   switch the agent's peer access off or on
   audit [--last N] [--json]        what this node has sent to peers
@@ -215,6 +215,7 @@ pub fn run(env: &Env, args: &[String]) -> Result<u8, Failure> {
         "windows" => crate::send_cli::windows(rest),
         "send" => crate::send_cli::send(env, rest),
         "receive" => crate::send_cli::receive(rest),
+        "close-source" => crate::send_cli::close_source(rest),
         "enroll" | "policy" => crate::control_cli::run(env, command, rest),
         "help" | "--help" | "-h" => {
             print!("{USAGE}");
