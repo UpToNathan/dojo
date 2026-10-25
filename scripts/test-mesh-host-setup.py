@@ -32,6 +32,7 @@ class Host(unittest.TestCase):
         self.log = self.root / "calls"
         script(self.bin / "sshd", f'echo "sshd $@" >> {self.log}; exit "${{FAKE_SSHD_STATUS:-0}}"')
         script(self.bin / "systemctl", f'echo "systemctl $@" >> {self.log}; if [ "$1" = is-active ]; then [ "$3" = sshd.service ]; fi')
+        script(self.bin / "ssh-keygen", f'touch {self.ssh_dir}/ssh_host_ed25519_key {self.ssh_dir}/ssh_host_ed25519_key.pub')
 
     def run_script(self, name, *args, env=None, tool_path=True):
         environment = {
@@ -40,6 +41,7 @@ class Host(unittest.TestCase):
             "DOJO_SSH_DIR": str(self.ssh_dir),
             "DOJO_SSHD": str(self.bin / "sshd"),
             "DOJO_SYSTEMCTL": str(self.bin / "systemctl"),
+            "DOJO_SSH_KEYGEN": str(self.bin / "ssh-keygen"),
             "DOJO_TARGET_HOME": str(self.home),
             "HOME": str(self.home),
             **(env or {}),
@@ -61,6 +63,22 @@ class InstallMeshSshd(Host):
         text = HARDENING.read_text()
         for setting in ["PasswordAuthentication no", "KbdInteractiveAuthentication no", "PermitRootLogin no", "AuthenticationMethods publickey"]:
             self.assertIn(setting + "\n", text)
+
+    def test_a_machine_that_never_ran_sshd_gets_host_keys_before_the_check(self):
+        self.authorize()
+        script(self.bin / "ssh-keygen", f'echo "ssh-keygen $@" >> {self.log}; touch {self.ssh_dir}/ssh_host_ed25519_key')
+        result = self.run_script("install-mesh-sshd.sh", env={"DOJO_SSH_KEYGEN": str(self.bin / "ssh-keygen")})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.calls().splitlines()
+        self.assertEqual(calls[0], "ssh-keygen -A")
+        self.assertTrue(calls[1].startswith("sshd -t"))
+
+    def test_existing_host_keys_are_left_alone(self):
+        self.authorize()
+        (self.ssh_dir / "ssh_host_ed25519_key").write_text("k")
+        script(self.bin / "ssh-keygen", f'echo "ssh-keygen $@" >> {self.log}')
+        self.run_script("install-mesh-sshd.sh", env={"DOJO_SSH_KEYGEN": str(self.bin / "ssh-keygen")})
+        self.assertNotIn("ssh-keygen", self.calls())
 
     def test_a_user_with_no_key_is_not_locked_out_of_their_own_machine(self):
         result = self.run_script("install-mesh-sshd.sh")

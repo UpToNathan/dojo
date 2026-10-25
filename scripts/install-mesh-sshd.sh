@@ -9,6 +9,7 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 ssh_dir=${DOJO_SSH_DIR:-/etc/ssh}
 sshd=${DOJO_SSHD:-sshd}
 systemctl=${DOJO_SYSTEMCTL:-systemctl}
+ssh_keygen=${DOJO_SSH_KEYGEN:-ssh-keygen}
 
 usage() {
     echo "Usage: $0 [--user NAME] [--listen ADDRESS]... [--port PORT]... [--allow-no-keys]" >&2
@@ -112,6 +113,12 @@ fi
 # An include that is missing means the drop-ins do nothing; say so instead of reporting success.
 if ! grep -qsE '^[[:space:]]*Include[[:space:]].*sshd_config\.d' -- "$ssh_dir/sshd_config"; then
     echo "Warning: $ssh_dir/sshd_config does not include sshd_config.d, so the drop-ins are not read." >&2
+fi
+
+# A machine that has never run sshd has no host keys, and sshd -t refuses to check without them.
+if ! compgen -G "$ssh_dir/ssh_host_*_key" >/dev/null; then
+    as_root "$ssh_keygen" -A
+    echo 'Generated the missing host keys.'
 fi
 
 if ! as_root "$sshd" -t -f "$ssh_dir/sshd_config"; then
