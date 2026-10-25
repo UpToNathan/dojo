@@ -526,3 +526,6 @@ launcher that just opened, say). The first key goes to that panel, not to the wi
 that is where a person would type; once the panel gives up the keyboard, keys go back to the seat's
 window. The seat chooses nothing here: it follows whichever panel Niri has already given the keyboard to,
 and the pointer could already click on panels. Targeted commands, which name a window, are unchanged.
+
+Key codes run from 1 to `KEY_MAX` (0x2ff), not only to 255: media keys, Fn and other special keys sit
+above 255, and remote input passes every key the sender presses.

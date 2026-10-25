@@ -81,6 +81,9 @@ pub fn enabled() -> bool {
     std::env::var_os("DOJO_AGENT_INPUT").is_some_and(|value| value == "1")
 }
 
+/// The largest Linux key code (`KEY_MAX`). Media, Fn and other special keys sit above 255.
+const KEY_MAX: u32 = 0x2ff;
+
 fn validate(command: &AgentInput) -> Result<(), String> {
     match command {
         AgentInput::Captured { geometry, command } => {
@@ -154,9 +157,9 @@ fn validate(command: &AgentInput) -> Result<(), String> {
             return Err("button must be a Linux mouse button code between 272 and 279".into());
         }
         AgentInput::Key { evdev, .. } | AgentInput::TextKey { evdev, .. }
-            if !(1..=255).contains(evdev) =>
+            if !(1..=KEY_MAX).contains(evdev) =>
         {
-            return Err("evdev keyboard code must be between 1 and 255".into());
+            return Err(format!("evdev keyboard code must be between 1 and {KEY_MAX}"));
         }
         AgentInput::Axis {
             horizontal,
@@ -1288,5 +1291,23 @@ mod cursor_tests {
         // Sub-pixel drift at a fractional output scale is still a refusal, and is now visible.
         let drift = capture_window_mismatch(7, Some(7), expected, (80.0, 40.0, 762.0 + 1e-9, 962.0)).unwrap();
         assert!(drift.contains("762.000000001"), "{drift}");
+    }
+}
+
+#[cfg(test)]
+mod key_range_tests {
+    use super::*;
+
+    fn key(evdev: u32) -> AgentInput {
+        AgentInput::Key { evdev, state: AgentInputState::Pressed }
+    }
+
+    #[test]
+    fn every_linux_key_code_is_accepted_not_only_those_below_256() {
+        for evdev in [1, 30, 255, 256, 0x1d0, KEY_MAX] {
+            assert!(validate(&key(evdev)).is_ok(), "{evdev}");
+        }
+        assert!(validate(&key(0)).is_err());
+        assert!(validate(&key(KEY_MAX + 1)).is_err());
     }
 }
