@@ -769,6 +769,10 @@ in
 	  _props.hotkey-overlay-title = "Toggle quick-access terminal";
 	  spawn = [ "${homeDirectory}/.local/bin/dojo-desktop" "--terminal" ];
 	};
+	settings.binds."Mod+F11" = {
+	  _props.hotkey-overlay-title = "Send a window to another machine";
+	  spawn = [ "${homeDirectory}/.local/bin/dojo-desktop" "--send-window" ];
+	};
 	# Niri's default Print binds copy to the clipboard and also write a PNG under ~/Pictures/Screenshots.
 	# The interactive screenshot has no per-bind switch for the file, so none is written at all.
 	settings.screenshot-path = null;
