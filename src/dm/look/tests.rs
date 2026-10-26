@@ -3,7 +3,7 @@ use std::os::unix::fs::symlink;
 
 use super::*;
 use crate::session::settings::SessionSettings;
-use crate::session::snapshot::{Line, Palette, Wallpaper};
+use crate::session::snapshot::{Displays, Line, Palette, Wallpaper};
 
 fn login(text: &str) -> Login {
     Login::parse(text).unwrap()
@@ -46,7 +46,17 @@ fn full_look() -> Look {
         wallpaper: Some(Wallpaper::from_png(&png_bytes()).unwrap()),
         settings: Some(SessionSettings::default()),
         last_greeting: Line::parse("Welcome back"),
+        displays: Some(Displays::parse(displays_bytes()).unwrap()),
     }
+}
+
+fn displays_bytes() -> Vec<u8> {
+    serde_json::json!({"outputs": [
+        {"name": "DP-2", "enabled": true, "position": [0, 355], "scale": 1.0,
+         "mode": {"width": 1920, "height": 1080, "refresh_rate": 60000}, "transform": "270"}
+    ]})
+    .to_string()
+    .into_bytes()
 }
 
 #[test]
@@ -60,7 +70,8 @@ fn pieces_cross_the_pipe_without_the_identity() {
             File::Palette,
             File::Wallpaper,
             File::Settings,
-            File::Greeting
+            File::Greeting,
+            File::Displays
         ]
     );
     let look = assemble(login("alyssa"), Some("Alyssa Park,,,"), &pieces, None);
@@ -272,4 +283,27 @@ fn a_bounded_child_can_map_a_little_and_not_the_headroom() {
             assert_eq!(libc::WEXITSTATUS(status), 0, "1 unbounded, 2 no room for a decoder, 3 not bounded");
         }
     }
+}
+
+#[test]
+fn the_login_screens_monitor_layout_is_the_last_users_or_a_comment_and_is_always_written() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let snapshots = Snapshots::new(dir.path().to_path_buf(), None);
+    snapshots.prepare().unwrap();
+    // Nothing is known yet: the include still has a file to read, and it says nothing.
+    snapshots.write_outputs(Some("alyssa")).unwrap();
+    let empty = fs::read_to_string(snapshots.outputs_file()).unwrap();
+    assert!(empty.starts_with("//") && !empty.contains("output \""), "{empty}");
+    // After the user's session has been snapshotted, their layout is the login screen's.
+    snapshot::store(dir.path(), &full_look()).unwrap();
+    snapshots.write_outputs(Some("alyssa")).unwrap();
+    let layout = fs::read_to_string(snapshots.outputs_file()).unwrap();
+    assert!(layout.contains("output \"DP-2\"") && layout.contains("transform \"270\""), "{layout}");
+    assert_eq!(fs::metadata(snapshots.outputs_file()).unwrap().permissions().mode() & 0o777, 0o644);
+    // Another user, or nobody: their screen is not arranged by someone else's monitors.
+    snapshots.write_outputs(Some("someone-else")).unwrap();
+    assert_eq!(fs::read_to_string(snapshots.outputs_file()).unwrap(), empty);
+    snapshots.write_outputs(None).unwrap();
+    assert_eq!(fs::read_to_string(snapshots.outputs_file()).unwrap(), empty);
 }

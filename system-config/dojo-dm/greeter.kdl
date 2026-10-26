@@ -5,6 +5,10 @@
 // timeout, and the three-failures-in-30-seconds limit would never be reached. So Niri leaves with it.
 spawn-sh-at-startup ". @RELEASE@/environment.sh && @RELEASE@/dojo-greeter; @RELEASE@/niri msg action quit --skip-confirmation"
 
+// The monitor layout of the user the screen is for (rotation, position, scale), written by dojo-dm from
+// that user's look snapshot before each start. Optional: without it the outputs come up unrotated.
+include "@STATE@/greeter-outputs.kdl" optional=true
+
 prefer-no-csd
 screenshot-path null
 

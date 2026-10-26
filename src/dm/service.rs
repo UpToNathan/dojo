@@ -294,6 +294,11 @@ impl Service {
         if let Err(error) = self.console.acquire() {
             log(format!("cannot take the console: {error}"));
         }
+        // The login screen's Niri includes this; without it the monitors come up unrotated and in
+        // the order Niri finds them. A failure to write it only costs that.
+        if let Err(error) = self.snapshots.write_outputs(self.last_login.as_ref().map(|login| login.as_str())) {
+            log(format!("cannot write the monitor layout for the login screen: {error}"));
+        }
         let process = self.greeters.launch(self.console.vt())?;
         self.note("greeter-start");
         self.greeter = Some(Greeter {

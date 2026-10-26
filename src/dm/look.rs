@@ -19,9 +19,9 @@ use crate::session::snapshot::{
     self, Collector, Decoded, File, Links, Login, Look, ReadError, TEXT_CAP,
 };
 
-/// Everything a well-behaved child can send: the five caps plus record headers.
+/// Everything a well-behaved child can send: the six caps plus record headers.
 pub const MAX_PIPE_BYTES: usize =
-    (snapshot::PALETTE_CAP + snapshot::WALLPAPER_CAP + snapshot::SETTINGS_CAP + 2 * TEXT_CAP)
+    (snapshot::PALETTE_CAP + snapshot::WALLPAPER_CAP + snapshot::SETTINGS_CAP + snapshot::DISPLAYS_CAP + 2 * TEXT_CAP)
         as usize
         + 64;
 const PRESENT: u8 = 1;
@@ -113,6 +113,18 @@ pub fn assemble(
     look
 }
 
+/// The file under the state directory that the greeter's Niri configuration includes.
+pub const OUTPUTS_FILE: &str = "greeter-outputs.kdl";
+
+/// The text of that file: the user's output layout, if their look has one.
+pub fn outputs_text(look: Option<&Look>) -> String {
+    let fragment = look.and_then(|look| look.displays.as_ref()).map(|displays| displays.niri_fragment());
+    match fragment {
+        Some(fragment) if !fragment.is_empty() => fragment,
+        _ => String::from("// No saved monitor layout for this user: Niri arranges the outputs itself.\n"),
+    }
+}
+
 /// Where snapshots go and who may read them.
 #[derive(Clone, Debug)]
 pub struct Snapshots {
@@ -144,6 +156,34 @@ impl Snapshots {
             std::os::unix::fs::chown(&users, None, Some(group))?;
         }
         Ok(())
+    }
+
+    /// Where the login screen's Niri finds the monitor layout it includes.
+    pub fn outputs_file(&self) -> PathBuf {
+        self.root.join(OUTPUTS_FILE)
+    }
+
+    /// Writes the layout the login screen's Niri includes: the monitor arrangement of the user the
+    /// screen is for, from their snapshot, or an empty file when there is none. The file is always
+    /// written, because Niri refuses an include that is missing. It is root's, and the greeter only
+    /// reads it.
+    pub fn write_outputs(&self, login: Option<&str>) -> io::Result<()> {
+        let look = login.and_then(|login| snapshot::load(&self.root, login));
+        let text = outputs_text(look.as_ref());
+        let path = self.outputs_file();
+        let temporary = path.with_extension(format!("tmp.{}", std::process::id()));
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o644)
+                .open(&temporary)?;
+            file.write_all(text.as_bytes())?;
+            file.sync_all()?;
+        }
+        std::fs::rename(&temporary, &path)
     }
 
     /// Reads the user's files as the user, then stores the result. On any failure the

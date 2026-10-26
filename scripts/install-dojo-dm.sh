@@ -134,7 +134,8 @@ revision=$(
 )
 lib_dir=$prefix/usr/local/lib/dojo-dm
 release_dir=$lib_dir/$revision
-sed "s#@RELEASE@#/usr/local/lib/dojo-dm/$revision#g" "$stage/greeter.kdl.in" > "$stage/greeter.kdl"
+# @STATE@ is the display manager's state directory, where it writes the monitor layout the login screen includes.
+sed -e "s#@RELEASE@#/usr/local/lib/dojo-dm/$revision#g" -e "s#@STATE@#/var/lib/dojo-dm#g" "$stage/greeter.kdl.in" > "$stage/greeter.kdl"
 chmod 0644 "$stage/greeter.kdl"
 rm -- "$stage/greeter.kdl.in"
 LD_LIBRARY_PATH=$library_path "$stage/niri" validate --config "$stage/greeter.kdl" ||

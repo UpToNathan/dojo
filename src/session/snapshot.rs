@@ -69,6 +69,8 @@ pub const WALLPAPER_CAP: u64 =
 pub const WALLPAPER_DECODE_ALLOC: u64 = 16 * 1024 * 1024;
 /// Largest `session.toml`, and largest `config.toml` the collector will parse.
 pub const SETTINGS_CAP: u64 = 16 * 1024;
+/// Largest `displays.json`.
+pub const DISPLAYS_CAP: u64 = 16 * 1024;
 /// Largest `identity` or greeting file.
 pub const TEXT_CAP: u64 = 1024;
 /// Widest accepted wallpaper. The theme renders `lock_wallpaper::WIDTH` (480) pixels wide.
@@ -191,7 +193,31 @@ impl Palette {
     }
 }
 
-/// The five files of a snapshot. The table is the layout: name, size cap and
+/// A `niri.json` that parsed as a saved display layout and passed its range checks. The validated
+/// bytes are kept so the snapshot holds exactly what was checked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Displays {
+    bytes: Vec<u8>,
+}
+
+impl Displays {
+    pub fn parse(bytes: Vec<u8>) -> anyhow::Result<Displays> {
+        let layout = crate::displays::parse_saved(&bytes)?;
+        // Stored in the canonical form, whatever spelling the source used.
+        Ok(Displays { bytes: crate::displays::saved_json(&layout) })
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// What the login screen's Niri is given to lay its outputs out as the user's session does.
+    pub fn niri_fragment(&self) -> String {
+        crate::displays::parse_saved(&self.bytes).map(|layout| crate::displays::niri_fragment(&layout)).unwrap_or_default()
+    }
+}
+
+/// The six files of a snapshot. The table is the layout: name, size cap and
 /// where the collector finds the original in a home directory.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum File {
@@ -200,15 +226,17 @@ pub enum File {
     Settings,
     Identity,
     Greeting,
+    Displays,
 }
 
 impl File {
-    pub const ALL: [File; 5] = [
+    pub const ALL: [File; 6] = [
         File::Palette,
         File::Wallpaper,
         File::Settings,
         File::Identity,
         File::Greeting,
+        File::Displays,
     ];
 
     pub fn name(self) -> &'static str {
@@ -218,6 +246,7 @@ impl File {
             File::Settings => "session.toml",
             File::Identity => "identity",
             File::Greeting => "greeting-unlock",
+            File::Displays => "displays.json",
         }
     }
 
@@ -228,6 +257,7 @@ impl File {
             File::Wallpaper => WALLPAPER_CAP,
             File::Settings => SETTINGS_CAP,
             File::Identity | File::Greeting => TEXT_CAP,
+            File::Displays => DISPLAYS_CAP,
         }
     }
 
@@ -249,6 +279,7 @@ impl File {
             File::Settings => Some(".config/dojo/config.toml"),
             File::Identity => None,
             File::Greeting => Some(".local/state/dojo/session/unlock"),
+            File::Displays => Some(".local/state/dojo/displays/niri.json"),
         }
     }
 }
@@ -265,6 +296,9 @@ pub struct Look {
     pub settings: Option<SessionSettings>,
     /// The last line shown on `Occasion::Unlock`, so selection never repeats it.
     pub last_greeting: Option<Line>,
+    /// The user's monitor layout (positions, rotation, scale), so the login screen's Niri arranges
+    /// the outputs as their session does.
+    pub displays: Option<Displays>,
 }
 
 impl Look {
@@ -276,6 +310,7 @@ impl Look {
             wallpaper: None,
             settings: None,
             last_greeting: None,
+            displays: None,
         }
     }
 
@@ -308,6 +343,10 @@ impl Look {
             ),
             (File::Identity, self.full_name.as_ref().map(line)),
             (File::Greeting, self.last_greeting.as_ref().map(line)),
+            (
+                File::Displays,
+                self.displays.as_ref().map(|d| d.as_bytes().to_vec()),
+            ),
         ];
         pieces
             .into_iter()
@@ -336,7 +375,7 @@ impl Look {
             }
         };
         let raw = File::ALL.map(&mut take);
-        let [palette, wallpaper, settings, identity, greeting] = raw;
+        let [palette, wallpaper, settings, identity, greeting, displays] = raw;
 
         let mut look = Look::empty(login);
         let mut reject = |file: File, error: anyhow::Error| {
@@ -368,6 +407,11 @@ impl Look {
         look.last_greeting = greeting.and_then(|bytes| {
             parse_line(&bytes)
                 .map_err(|error| reject(File::Greeting, error))
+                .ok()
+        });
+        look.displays = displays.and_then(|bytes| {
+            Displays::parse(bytes)
+                .map_err(|error| reject(File::Displays, error))
                 .ok()
         });
         Decoded { look, rejected }
@@ -432,6 +476,7 @@ impl Decoded {
                 File::Settings => look.settings = previous.settings,
                 File::Identity => look.full_name = previous.full_name.clone(),
                 File::Greeting => look.last_greeting = previous.last_greeting.clone(),
+                File::Displays => look.displays = previous.displays.clone(),
             }
         }
         look
@@ -722,7 +767,20 @@ mod tests {
                 reduced_motion: true,
             }),
             last_greeting: Line::parse("Welcome back, Alyssa"),
+            displays: Some(Displays::parse(displays_bytes()).unwrap()),
         }
+    }
+
+    /// A saved layout as `niri.json` writes it: one rotated monitor beside an upright one.
+    fn displays_bytes() -> Vec<u8> {
+        serde_json::json!({"outputs": [
+            {"name": "DP-2", "enabled": true, "position": [0, 355], "scale": 1.0,
+             "mode": {"width": 1920, "height": 1080, "refresh_rate": 60000}, "transform": "270"},
+            {"name": "DP-3", "enabled": true, "position": [1080, 0], "scale": 1.0,
+             "mode": {"width": 1920, "height": 1080, "refresh_rate": 60000}, "transform": "Normal"}
+        ]})
+        .to_string()
+        .into_bytes()
     }
 
     /// A home directory holding every original a collector reads.
@@ -730,9 +788,11 @@ mod tests {
         let theme = dir.join(".local/state/dojo/themes/current");
         let session = dir.join(".local/state/dojo/session");
         let config = dir.join(".config/dojo");
-        for directory in [&theme, &session, &config] {
+        let displays = dir.join(".local/state/dojo/displays");
+        for directory in [&theme, &session, &config, &displays] {
             fs::create_dir_all(directory).unwrap();
         }
+        fs::write(displays.join("niri.json"), displays_bytes()).unwrap();
         fs::write(theme.join("palette.json"), palette_bytes()).unwrap();
         fs::write(theme.join("lock-wallpaper.png"), png_bytes(48, 27)).unwrap();
         fs::write(session.join("unlock"), "Hajime, Alyssa\n").unwrap();
@@ -773,6 +833,7 @@ mod tests {
         assert_eq!(
             names,
             [
+                "displays.json",
                 "greeting-unlock",
                 "identity",
                 "lock-wallpaper.raw",
@@ -916,6 +977,45 @@ mod tests {
     }
 
     #[test]
+    fn the_monitor_layout_is_kept_as_written_and_turned_into_niri_configuration() {
+        let displays = Displays::parse(displays_bytes()).unwrap();
+        let kdl = displays.niri_fragment();
+        assert!(kdl.contains("output \"DP-2\" {"), "{kdl}");
+        assert!(kdl.contains("transform \"270\""), "{kdl}");
+        assert!(kdl.contains("position x=0 y=355"), "{kdl}");
+        assert!(kdl.contains("mode \"1920x1080@60.000\""), "{kdl}");
+        // The snapshot holds the checked layout, and reading it back gives the same.
+        assert_eq!(Displays::parse(displays.as_bytes().to_vec()).unwrap(), displays);
+    }
+
+    #[test]
+    fn a_layout_that_is_not_one_is_rejected_and_the_rest_of_the_look_survives() {
+        let bad: [&[u8]; 6] = [
+            b"not json",
+            br#"{"outputs": [], "extra": 1}"#,
+            br#"{"outputs": [{"name": "a\"b", "enabled": true, "position": [0,0], "scale": 1.0, "mode": null, "transform": "Normal"}]}"#,
+            br#"{"outputs": [{"name": "DP-1", "enabled": true, "position": [0,0], "scale": 0.0, "mode": null, "transform": "Normal"}]}"#,
+            br#"{"outputs": [{"name": "DP-1", "enabled": true, "position": [99999999,0], "scale": 1.0, "mode": null, "transform": "Normal"}]}"#,
+            br#"{"outputs": [{"name": "DP-1", "enabled": true, "position": [0,0], "scale": 1.0, "mode": null, "transform": "Sideways"}]}"#,
+        ];
+        for bytes in bad {
+            assert!(Displays::parse(bytes.to_vec()).is_err(), "{}", String::from_utf8_lossy(bytes));
+        }
+        let many = serde_json::json!({"outputs": (0..40).map(|n| serde_json::json!({"name": format!("DP-{n}"), "enabled": true, "position": [0,0], "scale": 1.0, "mode": null, "transform": "Normal"})).collect::<Vec<_>>()});
+        assert!(Displays::parse(many.to_string().into_bytes()).is_err(), "too many outputs");
+
+        let dir = tempfile::tempdir().unwrap();
+        home(dir.path());
+        fs::write(dir.path().join(File::Displays.home_path().unwrap()), b"not json").unwrap();
+        let decoded = collect(dir.path(), Links::Refuse);
+        assert_eq!(rejected_files(&decoded), [File::Displays]);
+        assert!(decoded.look.palette.is_some() && decoded.look.displays.is_none());
+        // The previous layout stays when the new file is bad.
+        let previous = full_look();
+        assert_eq!(decoded.merged_over(Some(&previous)).displays, previous.displays);
+    }
+
+    #[test]
     fn the_display_name_follows_the_first_word_rule() {
         let mut look = Look::empty(login("apark"));
         assert_eq!(look.display_name(), "Apark");
@@ -931,6 +1031,7 @@ mod tests {
             File::Wallpaper => png_bytes(8, 8),
             File::Settings => b"[session]\n".to_vec(),
             File::Identity | File::Greeting => b"x".to_vec(),
+            File::Displays => displays_bytes(),
         };
         bytes.resize(file.source_cap() as usize + 1, filler);
         fs::write(target, bytes).unwrap();
@@ -943,6 +1044,7 @@ mod tests {
             (File::Wallpaper, 0),
             (File::Settings, b'\n'),
             (File::Greeting, b'x'),
+            (File::Displays, b' '),
         ] {
             let dir = tempfile::tempdir().unwrap();
             home(dir.path());

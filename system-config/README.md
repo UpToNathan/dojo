@@ -61,6 +61,8 @@ package; see "Login screen" below for how to go back.
 
 ## Login screen
 
+The login screen's Niri starts with no monitor settings of its own, because it never reads a home directory. `dojo-dm` therefore takes the monitor layout (positions, rotation, scale, modes) from the last user's look snapshot (`displays.json`, copied from `~/.local/state/dojo/displays/niri.json` after the privilege drop, validated and bounded like the other pieces) and writes it as `/var/lib/dojo-dm/greeter-outputs.kdl` before each start; `greeter.kdl` includes that file (`include "…/greeter-outputs.kdl" optional=true`). The snapshot is refreshed when the service starts and when a session ends, so a layout saved in the display settings reaches the login screen at the next boot or logout.
+
 `dojo-dm` replaces ly (ADR 0003): a root service on `tty1` that runs the login
 screen, authenticates through PAM and starts the chosen session. What
 is installed where:

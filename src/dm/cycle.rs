@@ -80,13 +80,14 @@ pub struct Cycle {
 }
 
 impl Cycle {
-    /// A fresh service; its first order is to launch the greeter.
+    /// A fresh service: the last user's look is taken again (their monitors or wallpaper may have
+    /// changed since the session that last ended, or the snapshot predates a piece), then the greeter.
     pub fn start() -> (Cycle, Vec<Order>) {
         let cycle = Cycle {
             phase: Phase::Greeter,
             failures: FailureWindow::default(),
         };
-        (cycle, vec![Order::LaunchGreeter])
+        (cycle, vec![Order::Snapshot, Order::LaunchGreeter])
     }
 
     pub fn phase(&self) -> Phase {
@@ -146,9 +147,9 @@ mod tests {
     }
 
     #[test]
-    fn the_first_order_is_the_greeter() {
+    fn the_first_orders_refresh_the_last_users_look_and_start_the_greeter() {
         let (cycle, orders) = Cycle::start();
-        assert_eq!(orders, [Order::LaunchGreeter]);
+        assert_eq!(orders, [Order::Snapshot, Order::LaunchGreeter]);
         assert_eq!(cycle.phase(), Phase::Greeter);
     }
 

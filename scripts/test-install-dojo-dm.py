@@ -175,6 +175,9 @@ class InstallerTests(unittest.TestCase):
         release = self.fixture.release()
         text = (release / "greeter.kdl").read_text()
         self.assertNotIn("@RELEASE@", text)
+        self.assertNotIn("@STATE@", text)
+        # The monitor layout the display manager writes is included, and may be absent.
+        self.assertIn('include "/var/lib/dojo-dm/greeter-outputs.kdl" optional=true', text)
         self.assertIn(
             f'spawn-sh-at-startup ". /usr/local/lib/dojo-dm/{release.name}/environment.sh'
             f' && /usr/local/lib/dojo-dm/{release.name}/dojo-greeter;'
