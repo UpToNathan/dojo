@@ -205,9 +205,13 @@ pub fn join(env: &Env, rest: &[String]) -> Result<u8, Failure> {
             routes.push(enroll::parse_route(text).map_err(|message| fail(USAGE_ERROR, message))?);
         }
     }
-    let request = JoinRequest { v: 1, name: name.clone(), node_key: node.clone(), input_key: input.clone(), host_key: host.clone(), routes };
+    let mut request = JoinRequest { v: 2, name: name.clone(), node_key: node.clone(), input_key: input.clone(), host_key: host.clone(), routes, signature: String::new() };
+    // The node key vouches for the whole request, so the operator can trust every field in it by
+    // comparing that key's fingerprint alone. The key is in the agent (1Password), which may ask.
+    request.signature = enroll::sign_bytes(&request.body(), &ctx.paths.node_key, enroll::JOIN_NAMESPACE, ctx.paths.agent.as_deref())
+        .map_err(|message| fail(NEEDS_HUMAN, format!("the request could not be signed with this node's key ({message}); unlock 1Password and turn on its SSH agent, then try again")))?;
     let text = serde_json::to_string_pretty(&request).map_err(|error| fail(FAILED, error.to_string()))? + "\n";
-    JoinRequest::parse(&text).map_err(|message| fail(USAGE_ERROR, message))?;
+    JoinRequest::parse(&text).and_then(|parsed| parsed.verify().map(|()| parsed)).map_err(|message| fail(FAILED, message))?;
     let out = value(&values, "--out").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(format!("{name}.join.json")));
     write_private(&out, &text, 0o644)?;
     print_fingerprints(&format!("{name} asks to join; compare these with what the operator sees"), &node, input.as_deref(), Some(&host))?;
@@ -259,6 +263,9 @@ pub fn approve(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     let [file] = words.positional.as_slice() else { return Err(fail(USAGE_ERROR, "usage: dojo-mesh approve REQUEST.json [--fingerprint SHA256:…] [--days N] [--replace]")) };
     let text = std::fs::read_to_string(file).map_err(|error| fail(USAGE_ERROR, format!("{file}: {error}")))?;
     let request = JoinRequest::parse(&text).map_err(|message| fail(USAGE_ERROR, format!("{file}: {message}")))?;
+    // Before anything is shown to compare: a request that its own node key did not sign, or that was
+    // changed afterwards, is not worth comparing.
+    request.verify().map_err(|message| fail(FAILED, format!("{file}: {message}. Do not approve it")))?;
     let days = days(&values)?;
     let node_fp = enroll::fingerprint(&request.node_key).map_err(|message| fail(FAILED, message))?;
     let Some(given) = value(&values, "--fingerprint") else {

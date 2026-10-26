@@ -11,8 +11,15 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// What a new node sends the operator: its name and the public keys it vouches for itself with. It
-/// carries no authority; the operator's signature does.
+/// The namespace a join request is signed under, so a signature made for one purpose is never read as
+/// another (the roster's entries have their own).
+pub const JOIN_NAMESPACE: &str = "dojo-mesh-join";
+
+/// What a new node sends the operator: its name and the public keys it vouches for itself with, signed
+/// by its own node key. The signature covers every field, so none can be changed on the way (the host
+/// key it asks to have pinned, say) without the operator seeing it fail; the operator then compares
+/// only the node key's fingerprint with what the new node shows. It carries no authority: the
+/// operator's own signature on the roster entry does.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JoinRequest {
     pub v: u32,
@@ -23,14 +30,44 @@ pub struct JoinRequest {
     pub host_key: String,
     #[serde(default)]
     pub routes: Vec<RouteSpec>,
+    /// `ssh-keygen -Y sign` output (armored) over [`JoinRequest::body`], made with the node key.
+    #[serde(default)]
+    pub signature: String,
 }
 
+/// The signed bytes: the request without its signature, in a fixed field order.
+#[derive(Serialize)]
+struct JoinBody<'a> {
+    v: u32,
+    name: &'a str,
+    node_key: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    input_key: &'a Option<String>,
+    host_key: &'a str,
+    routes: &'a [RouteSpec],
+}
+
+/// A signature is a few hundred bytes; this is the most one may be.
+const MAX_SIGNATURE: usize = 4096;
+
 impl JoinRequest {
-    /// Parses and checks a request, with keys normalized.
+    /// The bytes the node key signs.
+    pub fn body(&self) -> Vec<u8> {
+        serde_json::to_vec(&JoinBody { v: self.v, name: &self.name, node_key: &self.node_key, input_key: &self.input_key, host_key: &self.host_key, routes: &self.routes }).expect("a request is plain data")
+    }
+
+    /// Parses and checks a request's shape, with keys that must already be in canonical form (what
+    /// was signed is what is read). The signature itself is checked by [`JoinRequest::verify`].
     pub fn parse(text: &str) -> Result<Self, String> {
-        let mut request: Self = serde_json::from_str(text).map_err(|error| format!("not a join request: {error}"))?;
-        if request.v != 1 {
+        let request: Self = serde_json::from_str(text).map_err(|error| format!("not a join request: {error}"))?;
+        if request.v == 1 {
+            return Err("that join request is unsigned (version 1): make a new one with the current `dojo-mesh join`, which signs it with the machine's own key".into());
+        }
+        if request.v != 2 {
             return Err(format!("join request version {} is not understood", request.v));
+        }
+        if request.signature.trim().is_empty() || request.signature.len() > MAX_SIGNATURE {
+            return Err("the join request carries no usable signature".into());
         }
         // The same checks a signed entry gets, so nothing is signed that would be refused later.
         let probe = signed::well_formed(DeviceEntry {
@@ -42,10 +79,16 @@ impl JoinRequest {
             issued: Utc::now(),
             expires: Utc::now() + Duration::days(1),
         })?;
-        request.node_key = probe.node_key;
-        request.input_key = probe.input_key;
-        request.host_key = probe.host_key;
+        if probe.node_key != request.node_key || probe.input_key != request.input_key || probe.host_key != request.host_key {
+            return Err("the join request's keys are not in canonical form (`type base64`, no comment), so what was signed cannot be what is shown".into());
+        }
         Ok(request)
+    }
+
+    /// Whether the node key signed exactly this request.
+    pub fn verify(&self) -> Result<(), String> {
+        verify_bytes(&self.body(), &self.signature, &self.node_key, JOIN_NAMESPACE)
+            .map_err(|reason| format!("the join request's signature does not match its node key ({reason}): it was changed after the machine made it, or it was not made with that key"))
     }
 
     pub fn entry(&self, issued: DateTime<Utc>, days: i64) -> DeviceEntry {
@@ -59,6 +102,78 @@ impl JoinRequest {
             expires: issued + Duration::days(days),
         }
     }
+}
+
+/// Signs `body` under `namespace` with the key at `public` (a `.pub` file): with its private file when
+/// one sits beside it, otherwise through the SSH agent that holds it. The signature is returned, not
+/// written anywhere.
+pub fn sign_bytes(body: &[u8], public: &Path, namespace: &str, agent: Option<&Path>) -> Result<String, String> {
+    let private = public.with_extension("");
+    let beside = public.extension().and_then(|ext| ext.to_str()) == Some("pub") && private.is_file();
+    let mut command = Command::new("ssh-keygen");
+    command.args(["-Y", "sign", "-n", namespace]);
+    if beside {
+        command.arg("-f").arg(&private);
+    } else {
+        command.arg("-U").arg("-f").arg(public);
+        if let Some(socket) = agent {
+            command.env("SSH_AUTH_SOCK", socket);
+        }
+    }
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| if error.kind() == std::io::ErrorKind::NotFound { "ssh-keygen is not installed".to_string() } else { format!("could not run ssh-keygen: {error}") })?;
+    let mut stdin = child.stdin.take().expect("stdin was piped");
+    let bytes = body.to_vec();
+    let feeder = std::thread::spawn(move || {
+        let _ = stdin.write_all(&bytes);
+    });
+    let output = child.wait_with_output().map_err(|error| format!("lost track of ssh-keygen: {error}"))?;
+    let _ = feeder.join();
+    if !output.status.success() {
+        let text = String::from_utf8_lossy(&output.stderr);
+        let line = text.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or("it did not sign");
+        return Err(format!("{}: {line}", public.display()));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Whether `signature` is `public_key`'s signature of `body` under `namespace`. The only key trusted is
+/// the one given; nothing is read from the machine's own configuration.
+pub fn verify_bytes(body: &[u8], signature: &str, public_key: &str, namespace: &str) -> Result<(), String> {
+    use std::os::unix::fs::DirBuilderExt;
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let scratch = std::env::temp_dir().join(format!("dojo-mesh-verify-{}-{}", std::process::id(), COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    std::fs::DirBuilder::new().mode(0o700).create(&scratch).map_err(|error| format!("{}: {error}", scratch.display()))?;
+    let outcome = (|| {
+        let signers = scratch.join("signers");
+        let sig = scratch.join("signature");
+        std::fs::write(&signers, format!("request namespaces=\"{namespace}\" {public_key}\n")).map_err(|error| error.to_string())?;
+        std::fs::write(&sig, signature).map_err(|error| error.to_string())?;
+        let mut child = Command::new("ssh-keygen")
+            .args(["-Y", "verify", "-f"])
+            .arg(&signers)
+            .args(["-I", "request", "-n", namespace, "-s"])
+            .arg(&sig)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|error| if error.kind() == std::io::ErrorKind::NotFound { "ssh-keygen is not installed".to_string() } else { format!("could not run ssh-keygen: {error}") })?;
+        let mut stdin = child.stdin.take().expect("stdin was piped");
+        let bytes = body.to_vec();
+        let feeder = std::thread::spawn(move || {
+            let _ = stdin.write_all(&bytes);
+        });
+        let output = child.wait_with_output().map_err(|error| format!("lost track of ssh-keygen: {error}"))?;
+        let _ = feeder.join();
+        if output.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&output.stderr).lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or("verification failed").to_string()) }
+    })();
+    let _ = std::fs::remove_dir_all(&scratch);
+    outcome
 }
 
 /// `host` or `host:port` as a route. A name with more than one colon is an IPv6 address and takes
@@ -222,20 +337,93 @@ mod tests {
 
     #[test]
     fn a_request_is_checked_like_the_entry_it_would_become() {
-        let good = serde_json::json!({"v": 1, "name": "orchard", "node_key": format!("{KEY} comment"), "host_key": KEY, "routes": [{"host": "192.0.2.1", "port": 22}]}).to_string();
+        let good = serde_json::json!({"v": 2, "name": "orchard", "node_key": KEY, "host_key": KEY, "routes": [{"host": "192.0.2.1", "port": 22}], "signature": "-----BEGIN SSH SIGNATURE-----\nxx\n-----END SSH SIGNATURE-----\n"}).to_string();
         let request = JoinRequest::parse(&good).unwrap();
         assert_eq!(request.node_key, KEY);
         for (patch, why) in [
             (serde_json::json!({"name": "Bad Name"}), "valid node name"),
             (serde_json::json!({"node_key": "command=\"x\" ssh-ed25519 AAAA"}), "key type"),
             (serde_json::json!({"routes": [{"host": "a b"}]}), "plain name"),
-            (serde_json::json!({"v": 2}), "not understood"),
+            (serde_json::json!({"v": 3}), "not understood"),
+            (serde_json::json!({"v": 1}), "unsigned"),
+            (serde_json::json!({"signature": ""}), "no usable signature"),
+            (serde_json::json!({"node_key": format!("{KEY} a-comment")}), "canonical form"),
         ] {
             let mut value: serde_json::Value = serde_json::from_str(&good).unwrap();
             value.as_object_mut().unwrap().extend(patch.as_object().unwrap().clone());
             let error = JoinRequest::parse(&value.to_string()).unwrap_err();
             assert!(error.contains(why), "{error}");
         }
+    }
+
+    /// A key pair made by the real `ssh-keygen` in a private directory.
+    fn keypair(dir: &Path, name: &str) -> (PathBuf, String) {
+        let private = dir.join(name);
+        let status = Command::new("ssh-keygen").args(["-q", "-t", "ed25519", "-N", "", "-f"]).arg(&private).status().expect("ssh-keygen runs");
+        assert!(status.success());
+        let public = std::fs::read_to_string(dir.join(format!("{name}.pub"))).unwrap();
+        (dir.join(format!("{name}.pub")), public.split_whitespace().take(2).collect::<Vec<_>>().join(" "))
+    }
+
+    fn signed_request(dir: &Path, name: &str) -> JoinRequest {
+        let (public, key) = keypair(dir, name);
+        let (_, host) = keypair(dir, "host");
+        let mut request = JoinRequest { v: 2, name: name.into(), node_key: key, input_key: None, host_key: host, routes: vec![RouteSpec { host: "192.0.2.1".into(), port: Some(2222) }], signature: String::new() };
+        request.signature = sign_bytes(&request.body(), &public, JOIN_NAMESPACE, None).unwrap();
+        request
+    }
+
+    fn lab(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("dojo-join-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_request_signed_by_its_own_node_key_verifies_and_survives_a_round_trip_through_a_file() {
+        let dir = lab("ok");
+        let request = signed_request(&dir, "orchard");
+        request.verify().unwrap();
+        let again = JoinRequest::parse(&serde_json::to_string_pretty(&request).unwrap()).unwrap();
+        again.verify().unwrap();
+        assert_eq!(again, request);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn changing_any_field_after_signing_is_caught_even_when_the_node_key_is_untouched() {
+        let dir = lab("tamper");
+        let request = signed_request(&dir, "orchard");
+        let (_, attacker) = keypair(&dir, "attacker");
+        let mut host = request.clone();
+        host.host_key = attacker.clone();
+        assert!(host.verify().is_err(), "a swapped host key");
+        let mut input = request.clone();
+        input.input_key = Some(attacker);
+        assert!(input.verify().is_err(), "an added input key");
+        let mut route = request.clone();
+        route.routes[0].host = "198.51.100.9".into();
+        assert!(route.verify().is_err(), "a changed route");
+        let mut name = request.clone();
+        name.name = "mallory".into();
+        assert!(name.verify().is_err(), "a changed name");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_request_signed_by_some_other_key_or_for_some_other_purpose_does_not_verify() {
+        let dir = lab("other");
+        let mut request = signed_request(&dir, "orchard");
+        // Someone else's signature over the same body, claiming to be the node's.
+        let (other_public, _) = keypair(&dir, "other");
+        request.signature = sign_bytes(&request.body(), &other_public, JOIN_NAMESPACE, None).unwrap();
+        assert!(request.verify().is_err(), "another key's signature");
+        // The node's own signature, made for the roster's purpose, is not a join request.
+        let public = dir.join("orchard.pub");
+        request.signature = sign_bytes(&request.body(), &public, "dojo-mesh-roster", None).unwrap();
+        assert!(request.verify().is_err(), "a signature made for another namespace");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -250,7 +438,7 @@ mod tests {
 
     #[test]
     fn statements_are_versioned_and_round_trip_through_the_roster_reader() {
-        let request = JoinRequest { v: 1, name: "orchard".into(), node_key: KEY.into(), input_key: None, host_key: KEY.into(), routes: vec![] };
+        let request = JoinRequest { v: 2, name: "orchard".into(), node_key: KEY.into(), input_key: None, host_key: KEY.into(), routes: vec![], signature: String::new() };
         let now = Utc::now();
         let text = device_json(&request.entry(now, 30));
         let value: serde_json::Value = serde_json::from_str(&text).unwrap();

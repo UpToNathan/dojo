@@ -13,10 +13,16 @@ struct Lab {
     root: PathBuf,
     /// Held open so a peer that is meant to be online answers.
     _listeners: Vec<TcpListener>,
+    /// SSH agents started for homes that need to sign with a key they hold only in an agent.
+    agents: std::sync::Mutex<Vec<std::process::Child>>,
 }
 
 impl Drop for Lab {
     fn drop(&mut self) {
+        for agent in self.agents.lock().unwrap().iter_mut() {
+            let _ = agent.kill();
+            let _ = agent.wait();
+        }
         let _ = std::fs::remove_dir_all(&self.root);
     }
 }
@@ -34,7 +40,7 @@ impl Lab {
         for dir in ["keys", "roster/devices", "roster/revocations"] {
             std::fs::create_dir_all(root.join(dir)).unwrap();
         }
-        let lab = Self { root, _listeners: Vec::new() };
+        let lab = Self { root, _listeners: Vec::new(), agents: std::sync::Mutex::new(Vec::new()) };
         // The operator's signing key is trusted; a stranger's is not.
         lab.key("operator");
         lab.key("stranger");
@@ -461,6 +467,48 @@ impl Lab {
         (output.status.code().unwrap(), format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)))
     }
 
+    /// Starts an SSH agent at `home`'s default socket (where 1Password's would be) holding the private
+    /// keys named, so a node whose key exists only as a public file can still sign.
+    fn agent_with(&self, home: &Path, keys: &[&str]) {
+        let socket = home.join(".1password/agent.sock");
+        if socket.exists() {
+            return;
+        }
+        std::fs::create_dir_all(socket.parent().unwrap()).unwrap();
+        let child = Command::new("ssh-agent").arg("-D").arg("-a").arg(&socket).stdout(std::process::Stdio::null()).spawn().expect("ssh-agent starts");
+        self.agents.lock().unwrap().push(child);
+        for _ in 0..200 {
+            if socket.exists() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        for key in keys {
+            let status = Command::new("ssh-add").arg("-q").arg(self.root.join("keys").join(key)).env("SSH_AUTH_SOCK", &socket).status().expect("ssh-add runs");
+            assert!(status.success(), "{key}");
+        }
+    }
+
+    /// A signed join request that machine `name` would make with the node key `keys/NODE.pub`
+    /// (whose private half is beside it), written to `OUT` in the lab's directory.
+    fn join_request(&self, name: &str, node: &str, out: &str, host_key: &Path, port: u16) -> PathBuf {
+        let config = self.root.join(format!("{name}-{node}-join.toml"));
+        std::fs::write(
+            &config,
+            format!(
+                "method = \"roster\"\nnode-name = \"{name}\"\nnode-key-file = \"{}\"\nsigners-file = \"{}\"\nroster-dir = \"{}\"\n",
+                self.root.join(format!("keys/{node}.pub")).display(),
+                self.root.join("allowed_signers").display(),
+                self.root.join("roster").display()
+            ),
+        )
+        .unwrap();
+        let path = std::env::var("PATH").unwrap_or_default();
+        let (code, text) = self.run_as(&config, &self.root, &["join", "--route", &format!("127.0.0.1:{port}"), "--host-key-file", host_key.to_str().unwrap(), "--out", out], &path);
+        assert_eq!(code, 0, "{text}");
+        self.root.join(out)
+    }
+
     fn fingerprint(&self, key: &str) -> String {
         let out = tool("ssh-keygen", &["-l", "-f", self.root.join("keys").join(format!("{key}.pub")).to_str().unwrap()], &self.root);
         out.split_whitespace().nth(1).unwrap().to_string()
@@ -519,12 +567,23 @@ fn a_node_is_enrolled_renewed_and_removed_with_fingerprints_compared_and_every_c
     assert!(keys.contains("inject --as beta"), "{keys}");
 
     // A different machine under the same name is not accepted by accident.
-    let impostor = std::fs::read_to_string(&request).unwrap().replace(&b, &lab.public("stranger"));
-    let impostor_file = lab.root.join("impostor.join.json");
-    std::fs::write(&impostor_file, impostor).unwrap();
+    let impostor_file = lab.join_request("beta", "stranger", "impostor.join.json", &host_key, open);
     let (code, out) = lab.run(&["approve", impostor_file.to_str().unwrap(), "--fingerprint", &lab.fingerprint("stranger")]);
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("different key"), "{out}");
+    // A request edited on the way is refused before anything is compared, even with the right key's fingerprint.
+    let edited = std::fs::read_to_string(&request).unwrap().replace(&lab.public("operator"), &lab.public("stranger"));
+    let edited_file = lab.root.join("edited.join.json");
+    std::fs::write(&edited_file, edited).unwrap();
+    let (code, out) = lab.run(&["approve", edited_file.to_str().unwrap(), "--fingerprint", &lab.fingerprint("beta")]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("signature does not match") && out.contains("Do not approve"), "{out}");
+    // An unsigned request from an older version is turned away with the way forward.
+    let old_file = lab.root.join("old.join.json");
+    std::fs::write(&old_file, serde_json::json!({"v": 1, "name": "beta", "node_key": b, "host_key": lab.public("operator")}).to_string()).unwrap();
+    let (code, out) = lab.run(&["approve", old_file.to_str().unwrap(), "--fingerprint", &lab.fingerprint("beta")]);
+    assert_eq!(code, 2, "{out}");
+    assert!(out.contains("unsigned") && out.contains("dojo-mesh join"), "{out}");
 
     // Renewal keeps the node and moves its expiry.
     let (code, out) = lab.run(&["renew", "beta", "--days", "30"]);
@@ -557,8 +616,8 @@ fn nothing_is_signed_without_a_signing_key_that_works() {
     let (a, b) = (lab.key("alpha"), lab.key("beta"));
     lab.member("alpha", &a, open, "operator");
     lab.key("beta-input");
-    let request = lab.root.join("beta.join.json");
-    std::fs::write(&request, serde_json::json!({"v": 1, "name": "beta", "node_key": b, "host_key": lab.public("operator")}).to_string()).unwrap();
+    let _ = &b;
+    let request = lab.join_request("beta", "beta", "beta.join.json", &lab.root.join("keys/operator.pub"), open);
     let fp = lab.fingerprint("beta");
     // No signing keys set.
     let (code, out) = lab.run(&["approve", request.to_str().unwrap(), "--fingerprint", &fp]);
@@ -673,6 +732,8 @@ fn onboarding_run_with(lab: &Lab, config: &Path, home: &Path, args: &[&str], ext
             std::fs::set_permissions(bin.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
         }
     }
+    // The node key made "in 1Password" is held by an agent at 1Password's default socket.
+    lab.agent_with(home, &["op-node", "op-input", "op-signing"]);
     let output = Command::new(env!("CARGO_BIN_EXE_dojo-mesh"))
         .arg("--config")
         .arg(config)
