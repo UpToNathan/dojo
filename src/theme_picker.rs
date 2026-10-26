@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use dojo::extraction::Mode;
+use dojo::procedural::{Palette, Recipe, Style, parse_colors};
 use dojo::theme::wallpaper_layout::WallpaperLayout;
 use dojo::theme::{Appearance, Paths, Preset, Selection, SemanticPalette, Theme, ThemeStore};
 use gpui::{
@@ -33,12 +34,16 @@ struct Analysis {
     preview: Arc<gpui::RenderImage>,
     candidates: Vec<Candidate>,
     appearance: Appearance,
+    /// Set when the wallpaper is generated: `path` and `bytes` are then its reference picture,
+    /// and publishing it keeps it a recipe rather than a fixed image.
+    recipe: Option<Recipe>,
 }
 
 fn analyze(preview_edge: u32) -> anyhow::Result<Analysis> {
     let store = ThemeStore::new(Paths::user_default()?);
     let selection = store.selection()?.context("Choose an image to preview.")?;
     let theme = store.theme(&selection.generation)?;
+    let recipe = theme.recipe.clone();
     let snapshot = store
         .paths
         .root
@@ -52,7 +57,9 @@ fn analyze(preview_edge: u32) -> anyhow::Result<Analysis> {
     } else {
         anyhow::bail!("Choose an image to preview.")
     };
-    analyze_image(path, preview_edge)
+    let mut analysis = analyze_image(path, preview_edge)?;
+    analysis.recipe = recipe;
+    Ok(analysis)
 }
 
 fn analyze_image(path: PathBuf, preview_edge: u32) -> anyhow::Result<Analysis> {
@@ -64,6 +71,10 @@ fn analyze_image(path: PathBuf, preview_edge: u32) -> anyhow::Result<Analysis> {
         .take(50 * 1024 * 1024 + 1)
         .read_to_end(&mut bytes)?;
     anyhow::ensure!(bytes.len() <= 50 * 1024 * 1024, "wallpaper exceeds 50 MiB");
+    analyze_bytes(path, bytes, preview_edge)
+}
+
+fn analyze_bytes(path: PathBuf, bytes: Vec<u8>, preview_edge: u32) -> anyhow::Result<Analysis> {
     let reader = image::ImageReader::new(std::io::Cursor::new(&bytes)).with_guessed_format()?;
     anyhow::ensure!(
         matches!(
@@ -86,7 +97,53 @@ fn analyze_image(path: PathBuf, preview_edge: u32) -> anyhow::Result<Analysis> {
         preview,
         candidates: Vec::new(),
         appearance: dojo::theme::system_appearance().unwrap_or(Appearance::Dark),
+        recipe: None,
     })
+}
+
+/// Where a generated wallpaper's colours come from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PaletteSource {
+    /// The selected theme's own colours, so the wallpaper belongs with the desktop.
+    Theme,
+    /// Chosen by the seed, unrelated to the theme.
+    Random,
+    /// Colours the user pasted.
+    Pasted(Palette),
+}
+
+impl PaletteSource {
+    /// The palette for a wallpaper with `seed`. `shell` is what to fall back on when no theme has
+    /// been selected: the colours the desktop is currently drawn in.
+    fn palette(&self, seed: u64, shell: &str) -> Palette {
+        match self {
+            Self::Random => Palette::from_seed(seed),
+            Self::Pasted(palette) => palette.clone(),
+            Self::Theme => selected_theme_palette()
+                .or_else(|| Palette::from_colors(&parse_colors(shell)).ok())
+                .unwrap_or_else(|| Palette::from_seed(seed)),
+        }
+    }
+}
+
+fn selected_theme_palette() -> Option<Palette> {
+    let store = ThemeStore::new(Paths::user_default().ok()?);
+    let selection = store.selection().ok()??;
+    let theme = store.theme(&selection.generation).ok()?;
+    Palette::from_theme(theme.palette(selection.appearance)).ok()
+}
+
+/// A generated wallpaper's reference picture, ready to preview and to derive a palette from.
+fn analyze_recipe(recipe: Recipe, preview_edge: u32) -> anyhow::Result<Analysis> {
+    let path = std::path::Path::new("/dojo/procedural").join(format!(
+        "{}-{}.png",
+        recipe.style.name(),
+        recipe.seed
+    ));
+    let bytes = recipe.reference_png(dojo::procedural::desktop::current_aspect(), 1920)?;
+    let mut analysis = analyze_bytes(path, bytes, preview_edge)?;
+    analysis.recipe = Some(recipe);
+    Ok(analysis)
 }
 
 fn wallpaper_thumbnail(bytes: &[u8], preview_edge: u32) -> anyhow::Result<Arc<gpui::RenderImage>> {
@@ -254,6 +311,13 @@ impl ThemePicker {
                                         if !view.show_presets {
                                             view.appearance = analysis.appearance;
                                         }
+                                        // Opening on a generated wallpaper makes it the one the colour
+                                        // chips redraw; otherwise they would do nothing until a style
+                                        // was clicked, and Apply would republish it unchanged.
+                                        view.generated = analysis
+                                            .recipe
+                                            .as_ref()
+                                            .map(|recipe| (recipe.style, recipe.seed));
                                         view.replace_analysis(analysis, window);
                                         if view.show_wallpaper {
                                             view.message =
@@ -290,6 +354,8 @@ impl ThemePicker {
                         layout: saved_layout,
                         saved_layout,
                         image_chosen: false,
+                        generated: None,
+                        palette_source: PaletteSource::Theme,
                         file_request: None,
                         file_request_revision: 0,
                         file_request_error: None,
@@ -323,6 +389,9 @@ struct PickerView {
     saved_layout: WallpaperLayout,
     /// An image was chosen this session, as opposed to the current wallpaper loaded at open.
     image_chosen: bool,
+    /// The style of the wallpaper generated this session, when the preview is one.
+    generated: Option<(Style, u64)>,
+    palette_source: PaletteSource,
     file_request: Option<portal::Request>,
     file_request_revision: u64,
     file_request_error: Option<String>,
@@ -446,6 +515,7 @@ impl PickerView {
                             preview: analysis.preview.clone(),
                             candidates,
                             appearance: analysis.appearance,
+                            recipe: analysis.recipe.clone(),
                         }));
                         if !view.show_wallpaper && !view.show_presets {
                             view.message =
@@ -537,6 +607,110 @@ impl PickerView {
         cx.notify();
     }
 
+    /// Draws a wallpaper of `style` to preview, with a new seed unless one is given. It is a canvas
+    /// across every monitor, so the layout is preset to span; it stays a choice until Apply.
+    fn generate(
+        &mut self,
+        style: Style,
+        seed: Option<u64>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.applying || self.file_request.is_some() || !self.reveal.is_open() {
+            return;
+        }
+        self.analysis_revision += 1;
+        let revision = self.analysis_revision;
+        self.loading = true;
+        self.selected = None;
+        self.release_preview(window);
+        self.message = format!("Drawing {}…", style.label());
+        cx.notify();
+        let preview_edge = preview_edge(window);
+        let seed = seed.unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(1, |elapsed| elapsed.as_nanos() as u64)
+        });
+        let source = self.palette_source.clone();
+        let colors = *cx.global::<ThemeColors>();
+        let shell = format!(
+            "{} {} {}",
+            colors.background.hex(),
+            colors.primary.hex(),
+            colors.foreground.hex()
+        );
+        cx.spawn_in(window, async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let palette = source.palette(seed, &shell);
+                    analyze_recipe(Recipe::with_palette(style, seed, palette), preview_edge)
+                })
+                .await;
+            if let Err(error) = this.update_in(cx, |view, window, cx| {
+                if view.analysis_revision != revision {
+                    return;
+                }
+                view.loading = false;
+                match result {
+                    Ok(analysis) => {
+                        view.generated = Some((style, seed));
+                        view.replace_analysis(analysis, window);
+                        view.image_chosen = true;
+                        view.layout = WallpaperLayout::Span;
+                        view.message =
+                            "Preview only. Apply wallpaper keeps your selected theme.".into();
+                        if !view.show_wallpaper && !view.show_presets {
+                            view.derive(window, cx);
+                        }
+                    }
+                    Err(error) => view.message = format!("Could not draw wallpaper: {error:#}"),
+                }
+                cx.notify();
+            }) {
+                eprintln!("Wallpaper picker closed: {error:#}");
+            }
+        })
+        .detach();
+    }
+
+    /// Chooses where generated colours come from and, when a wallpaper is already drawn, draws it
+    /// again in them so the colours can be compared on the same picture.
+    fn set_palette_source(
+        &mut self,
+        source: PaletteSource,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.applying || self.loading {
+            return;
+        }
+        self.palette_source = source;
+        match self.generated {
+            Some((style, seed)) => self.generate(style, Some(seed), window, cx),
+            None => {
+                self.message = "Colours chosen. Pick a style to draw a wallpaper.".into();
+                cx.notify();
+            }
+        }
+    }
+
+    /// Takes a palette from the clipboard: any text with at least two `#rrggbb` colours.
+    fn paste_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = cx
+            .read_from_clipboard()
+            .and_then(|item| item.text())
+            .unwrap_or_default();
+        match Palette::from_colors(&parse_colors(&text)) {
+            Ok(palette) => self.set_palette_source(PaletteSource::Pasted(palette), window, cx),
+            Err(error) => {
+                self.message = format!("Copy colours such as #0b0b14 #5b6ee1 first. {error}");
+                cx.notify();
+            }
+        }
+    }
+
     fn choose_wallpaper(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         if self.applying {
             return;
@@ -561,6 +735,7 @@ impl PickerView {
                 view.loading = false;
                 match result {
                     Ok(analysis) => {
+                        view.generated = None;
                         view.replace_analysis(analysis, window);
                         view.image_chosen = true;
                         view.message =
@@ -615,12 +790,20 @@ impl PickerView {
                             } else {
                                 None
                             };
-                            dojo::theme::apply_wallpaper(
-                                &store,
-                                &analysis.path,
-                                analysis.bytes.as_ref().clone(),
-                                fallback,
-                            )
+                            match analysis.recipe.clone() {
+                                Some(recipe) => dojo::theme::apply_procedural(
+                                    &store,
+                                    recipe,
+                                    dojo::procedural::desktop::current_aspect(),
+                                    fallback,
+                                ),
+                                None => dojo::theme::apply_wallpaper(
+                                    &store,
+                                    &analysis.path,
+                                    analysis.bytes.as_ref().clone(),
+                                    fallback,
+                                ),
+                            }
                             .map(Some)
                         })();
                         Ok::<_, anyhow::Error>((layout_saved, result))
@@ -720,11 +903,13 @@ impl PickerView {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    let theme = Theme::from_snapshot(
+                    let mut theme = Theme::from_snapshot(
                         &analysis.path,
                         analysis.bytes.as_ref().clone(),
                         mode,
                     )?;
+                    // A generated wallpaper stays one: only its palette is derived here.
+                    theme.recipe = analysis.recipe.clone();
                     let store = ThemeStore::new(Paths::user_default()?);
                     let generation = store.generate(&theme)?;
                     dojo::theme::set_system_appearance(appearance)?;
@@ -808,6 +993,77 @@ impl Render for PickerView {
                         cx.listener(|view, _, window, cx| view.choose_image(window, cx)),
                     ),
             );
+            let mut generate_buttons = div().id("wallpaper-generate").w_full().flex().flex_wrap().gap(px(8.));
+            for (index, style) in Style::ALL.into_iter().enumerate() {
+                let selected = self.generated.is_some_and(|(drawn, _)| drawn == style);
+                generate_buttons = generate_buttons.child(
+                    div()
+                        .id(("wallpaper-generate-style", index))
+                        .px(px(12.))
+                        .py(px(8.))
+                        .rounded(px(crate::design::PILL_RADIUS))
+                        .when(enabled, |button| button.cursor_pointer())
+                        .bg(if selected {
+                            colors.primary.rgb()
+                        } else {
+                            colors.background_highlight.rgb()
+                        })
+                        .text_color(if selected {
+                            colors.primary_foreground.rgb()
+                        } else {
+                            colors.selection_foreground.rgb()
+                        })
+                        .child(style.label())
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |view, _, window, cx| view.generate(style, None, window, cx)),
+                        ),
+                );
+            }
+            mode_buttons.push(
+                div()
+                    .id("wallpaper-generate-hint")
+                    .w_full()
+                    .text_color(colors.foreground_muted.rgb())
+                    .child("Or draw one: each click makes a new picture at every monitor's own resolution, in your theme's colours, random ones, or a palette you copied."),
+            );
+            mode_buttons.push(generate_buttons);
+            let mut colour_buttons = div().id("wallpaper-colours").w_full().flex().flex_wrap().gap(px(8.));
+            for (index, label) in ["Theme colours", "Random colours", "Paste palette"].into_iter().enumerate() {
+                let selected = match index {
+                    0 => self.palette_source == PaletteSource::Theme,
+                    1 => self.palette_source == PaletteSource::Random,
+                    _ => matches!(self.palette_source, PaletteSource::Pasted(_)),
+                };
+                colour_buttons = colour_buttons.child(
+                    div()
+                        .id(("wallpaper-colour-source", index))
+                        .px(px(12.))
+                        .py(px(8.))
+                        .rounded(px(crate::design::PILL_RADIUS))
+                        .cursor_pointer()
+                        .bg(if selected {
+                            colors.primary.rgb()
+                        } else {
+                            colors.background_highlight.rgb()
+                        })
+                        .text_color(if selected {
+                            colors.primary_foreground.rgb()
+                        } else {
+                            colors.selection_foreground.rgb()
+                        })
+                        .child(label)
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |view, _, window, cx| match index {
+                                0 => view.set_palette_source(PaletteSource::Theme, window, cx),
+                                1 => view.set_palette_source(PaletteSource::Random, window, cx),
+                                _ => view.paste_palette(window, cx),
+                            }),
+                        ),
+                );
+            }
+            mode_buttons.push(colour_buttons);
             let mut layout_buttons = div().id("wallpaper-layout").w_full().flex().gap(px(8.));
             for (index, (layout, label)) in [
                 (WallpaperLayout::Fill, "Each monitor"),
@@ -1321,7 +1577,11 @@ impl Render for PickerView {
 
 #[cfg(test)]
 mod tests {
-    use super::{confirmable, theme_content_row, wallpaper_apply_plan};
+    use super::{
+        PaletteSource, analyze_recipe, confirmable, derive_candidates, theme_content_row,
+        wallpaper_apply_plan,
+    };
+    use dojo::procedural::{Palette, Recipe, Style, parse_colors};
     use dojo::theme::wallpaper_layout::WallpaperLayout::{Fill, Span};
     use anyhow::Context as _;
     use gpui::{Styled, px};
@@ -1800,5 +2060,34 @@ mod tests {
         assert!(!confirmable(Some(1), 23, true, false));
         assert!(!confirmable(Some(1), 23, false, true));
         assert!(confirmable(Some(1), 23, false, false));
+    }
+
+    #[test]
+    fn random_and_pasted_colours_do_not_depend_on_the_selected_theme() -> anyhow::Result<()> {
+        // The theme source reads the user's own store, so only the other two are checked here.
+        assert_eq!(
+            PaletteSource::Random.palette(9, "#000000 #ffffff"),
+            Palette::from_seed(9)
+        );
+        let pasted = Palette::from_colors(&parse_colors("#101018 #4466cc #99bbff"))?;
+        assert_eq!(
+            PaletteSource::Pasted(pasted.clone()).palette(9, ""),
+            pasted
+        );
+        assert_ne!(PaletteSource::Theme, PaletteSource::Random);
+        Ok(())
+    }
+
+    #[test]
+    fn a_generated_wallpaper_previews_as_its_recipe_with_the_picture_to_derive_from() -> anyhow::Result<()> {
+        let recipe = Recipe::new(Style::Sunset, 4);
+        let analysis = analyze_recipe(recipe.clone(), 256)?;
+        assert_eq!(analysis.recipe.as_ref(), Some(&recipe));
+        assert!(analysis.path.is_absolute());
+        // The bytes are a real PNG of the canvas, which the derive tab can read like any image.
+        let picture = image::load_from_memory(&analysis.bytes)?;
+        assert_eq!(picture.width().max(picture.height()), 1920);
+        assert!(!derive_candidates(&analysis.bytes)?.is_empty());
+        Ok(())
     }
 }

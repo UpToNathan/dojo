@@ -45,6 +45,18 @@ _Avoid_: Greeter, ly
 The copy of a user's palette, pre-blurred wallpaper, display name and greeting settings that the display manager keeps for the login screen. It is taken when a session starts and ends, so the login screen never reads a home directory.
 _Avoid_: Theme cache, profile
 
+**Procedural wallpaper**:
+A wallpaper drawn from a recipe rather than chosen as an image. Each monitor draws its part of the canvas at its own pixels, so it is as sharp as the monitor and continuous across monitors. It spans all monitors unless a layout was chosen.
+_Avoid_: Generated image, live wallpaper
+
+**Recipe**:
+The style, seed and palette that fix one procedural wallpaper. Kept beside the retained wallpaper in a theme generation.
+_Avoid_: Preset, template
+
+**Canvas**:
+The bounding box of the monitors in the compositor's logical coordinates, one unit tall, over which a procedural wallpaper is a continuous picture.
+_Avoid_: Desktop image, virtual screen
+
 **Unlock method**:
 A way of proving identity at the lock screen: fingerprint or password. Both are live at the same time and the first to succeed unlocks.
 _Avoid_: Credential, factor

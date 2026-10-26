@@ -103,6 +103,9 @@ impl ThemeStore {
         if !theme.image_bytes.is_empty() {
             write_atomic(&staging.join("wallpaper"), &theme.image_bytes)?;
         }
+        if let Some(recipe) = &theme.recipe {
+            write_atomic(&staging.join(crate::procedural::FILE_NAME), &recipe.to_json())?;
+        }
         write_atomic(
             &staging.join("theme.json"),
             &serde_json::to_vec_pretty(theme)?,
@@ -299,6 +302,7 @@ mod tests {
             image_bytes: Vec::new(),
             mode: Some(crate::extraction::Mode::Normal),
             preset: None,
+            recipe: None,
             algorithm_revision: "fixture".into(),
             dark: super::super::SemanticPalette::derive(&colors, Appearance::Dark),
             light: super::super::SemanticPalette::derive(&colors, Appearance::Light),

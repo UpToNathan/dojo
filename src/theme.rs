@@ -16,10 +16,12 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::extraction::{Mode, Palette, Rgb};
+use crate::procedural::Recipe;
 /// Fits an RGBA source within the existing 256 MiB image allocation budget.
 pub const MAX_WALLPAPER_PIXELS: u64 = 64_000_000;
 pub use apply::{
-    ApplyReport, LockWallpaperReport, TARGETS, TargetResult, apply, apply_wallpaper,
+    ApplyReport, LockWallpaperReport, TARGETS, TargetResult, apply, apply_procedural,
+    apply_wallpaper,
     refresh_lock_wallpaper, refresh_system, refresh_target, set_system_appearance, system_appearance,
     watch,
 };
@@ -217,6 +219,10 @@ pub struct Theme {
     pub mode: Option<Mode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<String>,
+    /// How to draw the wallpaper at any size, when it was generated rather than chosen; the
+    /// retained `wallpaper` is then only a reference picture of the same recipe.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recipe: Option<Recipe>,
     pub algorithm_revision: String,
     pub dark: SemanticPalette,
     pub light: SemanticPalette,
@@ -232,6 +238,7 @@ impl Theme {
             image_bytes: Vec::new(),
             mode: None,
             preset: None,
+            recipe: None,
             algorithm_revision: "config-fallback-1".into(),
             dark: palette.clone(),
             light: palette,
@@ -256,7 +263,22 @@ impl Theme {
         self.wallpaper = path.to_string_lossy().into_owned();
         self.wallpaper_sha256 = format!("{:x}", Sha256::digest(&bytes));
         self.image_bytes = bytes;
+        // A chosen image replaces whatever was generated.
+        self.recipe = None;
         Ok(self)
+    }
+
+    /// The wallpaper drawn from `recipe`, with `reference` (a PNG of the whole canvas) retained as
+    /// the picture palette derivation, the lock screen and the login screen read.
+    pub fn with_recipe(self, recipe: Recipe, reference: Vec<u8>) -> anyhow::Result<Self> {
+        let path = Path::new("/dojo/procedural").join(format!(
+            "{}-{}.png",
+            recipe.style.name(),
+            recipe.seed
+        ));
+        let mut theme = self.with_wallpaper_snapshot(&path, reference)?;
+        theme.recipe = Some(recipe);
+        Ok(theme)
     }
     pub fn generate(path: &Path, mode: Mode) -> anyhow::Result<Self> {
         let path = path.canonicalize()?;
@@ -291,6 +313,7 @@ impl Theme {
             image_bytes,
             mode: Some(mode),
             preset: None,
+            recipe: None,
             algorithm_revision: refined.revision.into(),
             dark,
             light,
