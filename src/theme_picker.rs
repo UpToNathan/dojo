@@ -311,6 +311,13 @@ impl ThemePicker {
                                         if !view.show_presets {
                                             view.appearance = analysis.appearance;
                                         }
+                                        // Opening on a generated wallpaper makes it the one the colour
+                                        // chips redraw; otherwise they would do nothing until a style
+                                        // was clicked, and Apply would republish it unchanged.
+                                        view.generated = analysis
+                                            .recipe
+                                            .as_ref()
+                                            .map(|recipe| (recipe.style, recipe.seed));
                                         view.replace_analysis(analysis, window);
                                         if view.show_wallpaper {
                                             view.message =
