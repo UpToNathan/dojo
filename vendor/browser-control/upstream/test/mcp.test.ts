@@ -245,6 +245,59 @@ describe("MCP tool results", () => {
     }).pipe(Effect.scoped))
   })
 
+  it("takes a fresh session id when this process's own is held by someone it cannot take it from", async () => {
+    const previous = process.env.DOJO_BROWSER_CONTROL_MODE
+    process.env.DOJO_BROWSER_CONTROL_MODE = "1"
+    try {
+      const summary = (id: string) => ({ id, createdAt: "2026-07-01", updatedAt: "2026-07-01", connected: false, pageUrl: null, stateKeys: [], dojoGeneration: 1 })
+      const taken = new Set<string>()
+      const resume = vi.fn<RelayClient.Interface["sessionResume"]>((request) => {
+        if (taken.has(request.sessionId)) {
+          return Effect.fail(new RelayClient.RelayRejected({ message: `Existing session is not owned by this Browser Control client: ${request.sessionId}`, status: 400, path: "/cli/session/resume" }))
+        }
+        return Effect.succeed(summary(request.sessionId))
+      })
+      await Effect.runPromise(Effect.gen(function* () {
+        const server = yield* McpServer.McpServer.make
+        yield* Layer.build(mcpToolsLayer.pipe(
+          Layer.provide(Layer.succeed(McpServer.McpServer, server)),
+          Layer.provide(Layer.mock(RelayClient.Service, {
+            endpoint: "http://127.0.0.1:19989",
+            version: Effect.succeed({ version: "1.0.0", buildId: "2026-08-31T12:00:00.000Z" }),
+            extensionStatus: Effect.succeed({ connected: true, version: "9.4.2", activeTargets: 1 }),
+            sessionResume: resume,
+            // The scope's finalizer retires what this client resumed.
+            executeCancel: (request) => Effect.succeed({ session: summary(request.sessionId ?? ""), nativeRetired: true, extensionAcknowledged: true, unknownCommandIds: [] }),
+          })),
+        ))
+        const initializePayload = { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test-client", version: "1.0.0" } }
+        const client = McpSchema.McpServerClient.of({
+          clientId: 1, protocolVersion: "2025-06-18", clientCapabilities: {}, clientInfo: initializePayload.clientInfo,
+          initializePayload, getClient: Effect.die("unexpected client callback"),
+        })
+        yield* Effect.gen(function* () {
+          const current = () => server.callTool({ name: "session_current", arguments: {} })
+          const first = yield* current()
+          const ownId = (first.structuredContent as { currentSession: string }).currentSession
+          taken.add(ownId)
+          const resumed = yield* server.callTool({ name: "session_resume", arguments: {} })
+          expect(resumed.isError).toBe(false)
+          const next = ((yield* current()).structuredContent as { currentSession: string }).currentSession
+          expect(next).not.toBe(ownId)
+          expect(resume).toHaveBeenCalledTimes(2)
+          // An id the caller chose is never replaced.
+          taken.add("chosen")
+          const refused = yield* server.callTool({ name: "session_new", arguments: { id: "chosen" } })
+          expect(refused.isError).toBe(true)
+          expect(JSON.stringify(refused.content)).toContain("not owned by this Browser Control client")
+        }).pipe(Effect.provideService(McpSchema.McpServerClient, client))
+      }).pipe(Effect.scoped))
+    } finally {
+      if (previous === undefined) delete process.env.DOJO_BROWSER_CONTROL_MODE
+      else process.env.DOJO_BROWSER_CONTROL_MODE = previous
+    }
+  })
+
   it("exposes ordinary and rolling recording lifecycle tools", async () => {
     const recordingStart = vi.fn<RelayClient.Interface["recordingStart"]>(() => Effect.succeed({ success: true, tabId: 7, startedAt: 1, path: "/tmp/demo.mp4", mimeType: "video/mp4", mode: "cdp", artifactType: "mp4" }))
     const recordingStatus = vi.fn<RelayClient.Interface["recordingStatus"]>(() => Effect.succeed({ isRecording: true, tabId: 7 }))
