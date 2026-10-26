@@ -429,7 +429,7 @@ fn smoothstep(low: f64, high: f64, value: f64) -> f64 {
 }
 
 /// How many ridges a sunset has.
-const SUNSET_LAYERS: usize = 5;
+const SUNSET_LAYERS: usize = 8;
 
 fn luminance(colour: Colour) -> f64 {
     0.2126 * colour[0] + 0.7152 * colour[1] + 0.0722 * colour[2]
@@ -638,7 +638,7 @@ impl Scene {
         let jag = self.hash(layer as i64, k, 1) * 2. - 1.;
         // The ridges dip toward the sun, more the further away they are, so it sets in a valley.
         let depth = layer as f64 / (SUNSET_LAYERS - 1) as f64;
-        let valley = 0.1 * (1. - 0.8 * depth) * (-((along - self.sun_x()) / 0.55).powi(2)).exp();
+        let valley = 0.09 * (1. - 0.8 * depth) * (-((along - self.sun_x()) / 0.55).powi(2)).exp();
         (along, base - amplitude * (0.7 * broad + 0.5 * jag) + valley)
     }
 
@@ -672,14 +672,16 @@ impl Scene {
         )
     }
 
-    /// A flat, low-poly valley at sunset: layered faceted ridges, lighter and hazier in the
-    /// distance and darker in front, dipping toward a plain sun. It is drawn in the theme's
-    /// background, primary and secondary, blended the way an illustrator would, in gamma space.
+    /// A flat, low-poly valley at sunset: many layered faceted ridges, lighter and hazier in the
+    /// distance and darker in front, dipping toward a plain sun, with pines along the front
+    /// ridges and flat clouds across the sky. It is drawn in the theme's background, primary and
+    /// secondary, blended in gamma space. The sky is the background itself, with a gradient no
+    /// stronger than ten percent laid over it.
     fn sunset(&self, x: f64, y: f64, pixel: f64) -> Colour {
         let (ground, primary, secondary) = (self.background, self.accents[1], self.accents[2]);
         let glow = blend(primary, secondary, 0.5);
-        let horizon = blend(ground, glow, if self.light { 0.35 } else { 0.3 });
-        let mut colour = blend(ground, horizon, smoothstep(0.0, 0.62, y));
+        // The sky is flat. The only gradient is a faint warmth toward the horizon, at most 10%.
+        let mut colour = blend(ground, glow, 0.1 * smoothstep(0.15, 0.62, y));
 
         let (sun_x, sun_y) = (self.sun_x(), 0.5);
         let (dx, dy) = (x - sun_x, y - sun_y);
@@ -692,18 +694,26 @@ impl Scene {
             let star = self.stars(x, y, pixel, sun_x, sun_y);
             colour = mix(colour, secondary, 0.5 * star);
         }
+        // Flat clouds, as faint as the sky's gradient.
+        colour = mix(colour, blend(colour, glow, 0.1), self.clouds(x, y, pixel));
 
         for layer in 0..SUNSET_LAYERS {
             let depth = layer as f64 / (SUNSET_LAYERS - 1) as f64;
-            let base = 0.56 + 0.09 * layer as f64;
-            let amplitude = 0.17 - 0.07 * depth;
-            let spacing = 0.2 - 0.07 * depth;
-            if y < base - amplitude * 1.3 {
+            let base = 0.5 + 0.06 * layer as f64;
+            let amplitude = 0.14 - 0.07 * depth;
+            let spacing = 0.12 - 0.05 * depth;
+            let trees = if layer >= SUNSET_LAYERS - 3 {
+                self.pines(layer, x, depth)
+            } else {
+                0.
+            };
+            if y < base - amplitude * 1.3 - trees {
                 continue;
             }
             let (_, left, right) = self.segment(layer, x, spacing, base, amplitude);
             let along = ((x - left.0) / (right.0 - left.0)).clamp(0., 1.);
-            let top = left.1 + (right.1 - left.1) * along;
+            let ridge = left.1 + (right.1 - left.1) * along;
+            let top = ridge - trees;
             let coverage = ((y - top) / pixel + 0.5).clamp(0., 1.);
             if coverage == 0. {
                 continue;
@@ -712,15 +722,16 @@ impl Scene {
             // The facets are cut along lines that lean from the crests, so they read as triangles
             // and strips rather than as columns: shade by the segment found along the lean.
             let lean = if layer % 2 == 0 { 0.7 } else { -0.7 };
-            let (k, from, to) = self.segment(layer, x + (y - top) * lean, spacing, base, amplitude);
+            let (k, from, to) =
+                self.segment(layer, x + (y - ridge) * lean, spacing, base, amplitude);
             let slope = (to.1 - from.1) / (to.0 - from.0);
             // The surface faces the sun when it falls away from it. Straight below the sun the
             // facets are lit evenly, so the shading eases through zero there.
             let toward = ((sun_x - x) / 0.35).clamp(-1., 1.);
             let facing = (slope * toward / (1. + slope * slope).sqrt()).clamp(-1., 1.);
-            let band_height = 0.045;
+            let band_height = 0.03;
             let into =
-                (y - top) / band_height + 0.6 * (x - from.0) / (to.0 - from.0) * lean.signum();
+                (y - ridge) / band_height + 0.6 * (x - from.0) / (to.0 - from.0) * lean.signum();
             let facet = into.floor() as i64;
             let jitter = self.hash(layer as i64 + 31, k, facet) - 0.5;
 
@@ -732,16 +743,82 @@ impl Scene {
                 let body = blend(ground, hue, 0.2 + 0.7 * depth);
                 (blend(body, ground, 0.3), blend(body, hue, 0.3))
             } else {
-                let body = blend(ground, hue, 0.55 * (1. - depth).powf(0.9));
+                let body = blend(ground, hue, 0.5 * (1. - depth).powf(0.9));
                 (
                     blend(body, hue, 0.2 * (1. - 0.5 * depth)),
                     blend(body, ground, 0.4),
                 )
             };
-            let shade = (0.5 + 0.5 * facing + 0.22 * jitter - 0.025 * facet as f64).clamp(0., 1.);
-            colour = mix(colour, mix(dark, lit, shade), coverage);
+            let surface = if y < ridge {
+                // Above the ridge line the silhouette is a tree: one flat, dark shape.
+                dark
+            } else {
+                let shade =
+                    (0.5 + 0.5 * facing + 0.22 * jitter - 0.025 * facet as f64).clamp(0., 1.);
+                mix(dark, lit, shade)
+            };
+            colour = mix(colour, surface, coverage);
         }
         colour
+    }
+
+    /// The height of the pines standing on ridge `layer` at `x`, in canvas units: stepped
+    /// triangles, bigger the nearer the ridge.
+    fn pines(&self, layer: usize, x: f64, depth: f64) -> f64 {
+        let width = 0.03 + 0.04 * depth;
+        let cell = (x / width).floor() as i64;
+        let mut tallest: f64 = 0.;
+        for c in cell - 1..=cell + 1 {
+            let id = layer as i64 + 60;
+            if self.hash(id, c, 0) > 0.72 {
+                continue;
+            }
+            let centre = (c as f64 + 0.2 + 0.6 * self.hash(id, c, 1)) * width;
+            let half = width * (0.45 + 0.3 * self.hash(id, c, 2));
+            let height = width * (0.9 + 0.8 * self.hash(id, c, 3));
+            let across = (x - centre).abs() / half;
+            if across >= 1. {
+                continue;
+            }
+            // Three tiers, each a shorter slope than the cone around it.
+            let tiers = 3. * (1. - across);
+            let profile = (tiers.floor() + tiers.fract() * 0.5) / 3.;
+            tallest = tallest.max(height * profile);
+        }
+        tallest
+    }
+
+    /// How much of the point `(x, y)` is covered by a flat cloud, in `[0, 1]`: hexagonal strips,
+    /// each with a shorter one stepped below it. The clouds keep to the upper sky.
+    fn clouds(&self, x: f64, y: f64, pixel: f64) -> f64 {
+        const CELL_W: f64 = 0.55;
+        const CELL_H: f64 = 0.15;
+        if y > 0.47 {
+            return 0.;
+        }
+        let (column, row) = ((x / CELL_W).floor() as i64, (y / CELL_H).floor() as i64);
+        let mut covered: f64 = 0.;
+        for c in column - 1..=column + 1 {
+            for r in row - 1..=row + 1 {
+                if self.hash(c, r, 70) > 0.5 {
+                    continue;
+                }
+                let cx = (c as f64 + 0.15 + 0.7 * self.hash(c, r, 71)) * CELL_W;
+                let cy = (r as f64 + 0.25 + 0.5 * self.hash(c, r, 72)) * CELL_H;
+                let width = 0.07 + 0.12 * self.hash(c, r, 73);
+                let height = 0.011 + 0.01 * self.hash(c, r, 74);
+                // The main strip and one shorter strip, stepped down and to the left.
+                for (strip_x, strip_y, strip_w) in [
+                    (cx, cy, width),
+                    (cx - 0.35 * width, cy + 1.7 * height, 0.6 * width),
+                ] {
+                    let (ox, oy) = ((x - strip_x).abs(), (y - strip_y).abs());
+                    let edge = (height - oy).min(strip_w * (1. - 0.5 * oy / height) - ox);
+                    covered = covered.max((edge / pixel + 0.5).clamp(0., 1.));
+                }
+            }
+        }
+        covered
     }
 
     /// Sparse points of light in a dark sky, none near the moon or the horizon.
@@ -1034,37 +1111,35 @@ mod tests {
     #[test]
     fn a_dark_sunset_shows_the_primary_and_the_secondary_not_grey() {
         // Dimming a colour by mixing it with the near-grey background leaves grey. The ridges
-        // are the theme's blue and purple at a dark value, so a good part of the picture must
-        // lean blue and a good part purple, well beyond the background's own faint blue.
+        // are blends of the theme's own blue and purple, so across a few pictures a good part
+        // must be tinted well beyond the background's own faint blue, and both the blue and the
+        // purple must be there.
         let palette = Palette::from_colors(&[
             Rgb([0x1a, 0x1b, 0x26]),
             Rgb([0x7a, 0xa2, 0xf7]),
             Rgb([0xbb, 0x9a, 0xf7]),
         ])
         .unwrap();
-        let image =
-            Recipe::with_palette(Style::Sunset, 21, palette).render(View::whole(1.9), 380, 200);
-        let total = (image.width() * image.height()) as f64;
-        let share = |test: &dyn Fn(i32, i32, i32) -> bool| {
-            image
-                .pixels()
-                .filter(|p| test(i32::from(p[0]), i32::from(p[1]), i32::from(p[2])))
-                .count() as f64
-                / total
-        };
-        // The background itself is (26, 27, 38): blue exceeds green by 11.
-        let blue = share(&|r, g, b| b - g >= 22 && r <= g);
-        let purple = share(&|r, g, b| r - g >= 8 && b - r >= 10);
-        assert!(
-            blue > 0.05,
-            "only {:.0}% of the picture leans blue",
-            blue * 100.
-        );
-        assert!(
-            purple > 0.06,
-            "only {:.0}% of the picture leans purple",
-            purple * 100.
-        );
+        let (mut tinted, mut blue, mut purple, mut total) = (0., 0., 0., 0.);
+        for seed in [21, 7, 3] {
+            let image = Recipe::with_palette(Style::Sunset, seed, palette.clone()).render(
+                View::whole(1.9),
+                380,
+                200,
+            );
+            for p in image.pixels() {
+                let (r, g, b) = (i32::from(p[0]), i32::from(p[1]), i32::from(p[2]));
+                total += 1.;
+                // The background itself is (26, 27, 38): blue exceeds green by 11.
+                tinted += f64::from(u8::from(b - g >= 18));
+                blue += f64::from(u8::from(b - g >= 22 && r <= g));
+                purple += f64::from(u8::from(r - g >= 8 && b - r >= 10));
+            }
+        }
+        let (tinted, blue, purple) = (tinted / total, blue / total, purple / total);
+        assert!(tinted > 0.3, "only {:.0}% is tinted", tinted * 100.);
+        assert!(blue > 0.03, "only {:.0}% leans blue", blue * 100.);
+        assert!(purple > 0.05, "only {:.0}% leans purple", purple * 100.);
     }
 
     #[test]
@@ -1096,6 +1171,85 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    #[test]
+    fn the_sunset_sky_is_the_flat_background_with_at_most_a_ten_percent_overlay() {
+        let ground = Rgb([0x1a, 0x1b, 0x26]);
+        let palette =
+            Palette::from_colors(&[ground, Rgb([0x7a, 0xa2, 0xf7]), Rgb([0xbb, 0x9a, 0xf7])])
+                .unwrap();
+        // A light palette has no stars, which are the one thing in a dark sky that is not the
+        // background or a faint overlay; the sky and clouds are the same either way.
+        let mut palette = palette;
+        palette.light = true;
+        let image =
+            Recipe::with_palette(Style::Sunset, 7, palette).render(View::whole(1.9), 760, 400);
+        // The top fifth of the canvas is open sky: no ridge reaches it. Apart from the odd star
+        // and the faint clouds, every pixel is the background itself.
+        let total = (image.width() * 80) as f64;
+        let flat = (0..80)
+            .flat_map(|y| (0..image.width()).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                image.get_pixel(x, y).0[..3]
+                    .iter()
+                    .zip(ground.0)
+                    .all(|(have, want)| have.abs_diff(want) <= 1)
+            })
+            .count() as f64;
+        assert!(
+            flat / total > 0.9,
+            "only {:.0}% of the open sky is flat",
+            flat / total * 100.
+        );
+        // Nothing in the sky strays from the background by more than ten percent of the way to
+        // the accents: no pixel in the sky is brighter than that blend.
+        let limit =
+            |want: u8, accent: u8| f64::from(want) + 0.11 * (f64::from(accent) - f64::from(want));
+        for y in 0..80 {
+            for x in 0..image.width() {
+                let pixel = image.get_pixel(x, y).0;
+                // Stars are the secondary itself; skip pixels that are not near the background.
+                if pixel[2] > 150 {
+                    continue;
+                }
+                assert!(
+                    f64::from(pixel[2]) <= limit(0x26, 0xf7),
+                    "{x},{y}: {pixel:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_sunset_has_many_layers_so_a_portrait_monitor_shows_a_scene() {
+        // A tall, narrow slice of a wide canvas, as one rotated monitor of four shows, must hold
+        // plenty of separate shapes, not two or three big ones.
+        let palette = Palette::from_colors(&[
+            Rgb([0x1a, 0x1b, 0x26]),
+            Rgb([0x7a, 0xa2, 0xf7]),
+            Rgb([0xbb, 0x9a, 0xf7]),
+        ])
+        .unwrap();
+        let slice = View {
+            aspect: 1.89,
+            region: Region {
+                left: 0.,
+                top: 0.,
+                width: 1080. / 4080.,
+                height: 1.,
+            },
+        };
+        let image = Recipe::with_palette(Style::Sunset, 7, palette).render(slice, 270, 500);
+        let mut colours = std::collections::HashSet::new();
+        for pixel in image.pixels() {
+            colours.insert(pixel.0);
+        }
+        assert!(
+            colours.len() > 80,
+            "only {} distinct colours",
+            colours.len()
+        );
     }
 
     #[test]
