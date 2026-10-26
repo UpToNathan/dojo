@@ -1,6 +1,6 @@
 # Mesh panel: window, cards and health
 
-Status: open
+Status: resolved
 
 Blocked by: 02
 

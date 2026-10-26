@@ -1,6 +1,6 @@
 # Mesh panel: requests and trusted keys
 
-Status: open
+Status: resolved
 
 Blocked by: 03, 01
 

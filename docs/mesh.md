@@ -163,9 +163,20 @@ Every call is appended to `$XDG_STATE_HOME/dojo/mesh/audit.jsonl` before it star
 
 `find` asks each online peer to `describe` itself (by running `dojo-mesh describe` there), so a peer needs `dojo-mesh` installed in `~/.local/share/dojo/bin`. A peer that cannot be asked is reported, not guessed. The Nix cache is the first consumer: see [nix-cache.md](nix-cache.md).
 
+## The mesh panel
+
+The top-bar mesh button (or `dojo-desktop --mesh [machines|requests|keys|health]`) opens a panel at the top right, built like the monitor panel. It shows what `dojo-mesh status`, `doctor`, `trust` and the pending join requests show, and every change it makes is the `dojo-mesh` command that does it, so the terminal and the panel cannot disagree.
+
+- **Machines.** A card each: a dot (online, offline, or amber when its roster entry expires within two weeks), the name and one muted word or number (the days until its entry expires). The icons act on the machine: the keyboard takes the cursor and keyboard there, the arrow opens the switch panel with it chosen, the circular arrow renews its entry and the bin removes it (asking once). Renew and remove sign with the node's signing keys, so a hardware key may need a touch; the header shows a pulsing key while one is running.
+- **Health.** The shield at the top right is `dojo-mesh doctor` as a glyph, an alert when something needs attention; it lists the findings. A lock appears when 1Password is locked, since peers cannot be reached then.
+- **Requests.** Machines that asked to join, found as `*.join.json` files in the mesh inbox (`$XDG_DATA_HOME/dojo/mesh/inbox`) or `~/Downloads`. Only requests whose signature verifies are listed. Each shows the new machine's node key fingerprint in two lines: compare it with what that machine printed, press the check, and press it again to approve (90 days). A request that would replace a machine already in the roster says so.
+- **Keys.** The signing keys this node trusts, as hardware or software, with Remove (asking once). Public keys left in the inbox (`*.pub`) appear as offers, shown in full to compare with the machine that holds them, with a plus to trust them.
+
+Nothing in the inbox is acted on by being there.
+
 ## Sending a window
 
-`dojo-mesh send` opens what a window shows on a peer and then closes it here. The panel (`dojo-desktop --send-window`, bound to Super+F11) does the same: it lists your windows and the machines that are online, and shows exactly what the selected window would send before you send it. `--dry-run` prints that line without calling anyone.
+`dojo-mesh send` opens what a window shows on a peer and then closes it here. The switch panel (`dojo-desktop --send-window`, bound to Super+F11) does the same: machines are tiles, the windows a short list, and one status line says exactly what the selected window would send before you send it. Its header toggle (or **I**) switches to **control-only** mode, which sends no window and only takes your cursor and keyboard to the machine: the window list folds away, the panel narrows around a keyboard and mouse glyph, the button reads *Take control* and the accent turns warm. **?** shows the keys. `--dry-run` prints that line without calling anyone.
 
 What moves depends on the application. A **Helium** window sends the page in front by default, and **only that tab closes** here: the window is checked to still show that page, then sent Ctrl+W through an input seat of its own (Niri's agent input, which needs `niri msg yield-human-input` first because you have just used that window; only your own calls do that, never the agent's). The window and its other tabs stay, and your focus doesn't move. **kitty** sends its directory, and nvim's file and line, or yazi's directory, when one of those is in front; the window closes whole, the shell starts fresh and anything else that was running is named as staying behind. Any other application is relaunched from its desktop entry. kitty is read through its remote control, which is limited to `ls` with a per-machine password in `~/.config/kitty/dojo-remote-control.conf`; see the spec in `.scratch/mesh-boundaries/spec.md`.
 

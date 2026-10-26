@@ -1,6 +1,6 @@
 # Mesh panel: machine actions
 
-Status: open
+Status: resolved
 
 Blocked by: 03
 

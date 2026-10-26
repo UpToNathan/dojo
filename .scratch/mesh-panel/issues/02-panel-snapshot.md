@@ -1,6 +1,6 @@
 # Panel snapshot in dojo-mesh
 
-Status: open
+Status: resolved
 
 Blocked by: 01
 

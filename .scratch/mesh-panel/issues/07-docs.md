@@ -1,6 +1,6 @@
 # Docs, glossary and install
 
-Status: open
+Status: resolved
 
 Blocked by: 03, 05, 06
 

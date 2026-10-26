@@ -133,7 +133,13 @@ A second key per node, used only to send remote input. In a peer's `authorized_k
 _Avoid_: Remote key
 
 **Join request**:
-What a new node sends the operator to be enrolled: its name, node key, input key, SSH host key and routes. It carries no authority; the operator compares its fingerprints and signs an entry for it.
+What a new node sends the operator to be enrolled: its name, node key, input key, SSH host key and routes, signed by its own node key so that none of it can be changed on the way. It carries no authority; the operator compares the node key's fingerprint and signs an entry for it.
+
+**Mesh panel**:
+The top-right panel of the shell for the machines this one is in a mesh with: a card per machine with its actions (take control, send a window, renew, remove), the health of the mesh, the join requests waiting to be approved and the signing keys this node trusts. It runs `dojo-mesh` for every change.
+
+**Switch panel**:
+The bottom-centre panel (Super+F11) for moving to another machine: pick a machine, then either send a window there or, in control-only mode, take the cursor and keyboard there. Control-only mode reshapes the panel so the mode is visible.
 _Avoid_: Invite, enrollment key
 
 **Route**:

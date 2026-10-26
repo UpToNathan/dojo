@@ -1,6 +1,6 @@
 # Switch panel redesign
 
-Status: open
+Status: resolved
 
 The panel from the spec: machine tiles, a window/control toggle in place of the checkbox, no key-hint line, one short status line, and the control-only mode visibly changing the panel (windows collapse, tiles and a keyboard glyph grow, warmer accent, "Take control").
 
