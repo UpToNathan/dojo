@@ -31,27 +31,16 @@ pub const FILE_NAME: &str = "wallpaper-recipe.json";
 pub enum Style {
     /// Topographic contour lines over shaded relief, with finer terrain on a finer monitor.
     Contours,
-    /// Flowing layers of sediment, drawn as fine bands.
-    Strata,
-    /// Rings from a few centres that interfere with each other.
-    Ripples,
     /// Low-poly mountain ridges under a moon, or a sun in a light theme.
     Sunset,
 }
 
 impl Style {
-    pub const ALL: [Style; 4] = [
-        Style::Contours,
-        Style::Sunset,
-        Style::Strata,
-        Style::Ripples,
-    ];
+    pub const ALL: [Style; 2] = [Style::Contours, Style::Sunset];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::Contours => "contours",
-            Self::Strata => "strata",
-            Self::Ripples => "ripples",
             Self::Sunset => "sunset",
         }
     }
@@ -59,8 +48,6 @@ impl Style {
     pub fn label(self) -> &'static str {
         match self {
             Self::Contours => "Contours",
-            Self::Strata => "Strata",
-            Self::Ripples => "Ripples",
             Self::Sunset => "Sunset",
         }
     }
@@ -159,8 +146,10 @@ impl Palette {
 
 impl Palette {
     /// Colours borrowed from a theme, so the wallpaper belongs with the rest of the desktop. The
-    /// background is the theme's darker of background and foreground (a light theme's text), and
-    /// the accents are its primary, secondary and info colours.
+    /// background is the theme's darker of background and foreground (a light theme's text). The
+    /// accents are chosen by role, not by brightness, so the picture wears the theme's own
+    /// identity: a deep shade of its primary colour, the primary itself, and its secondary. A
+    /// theme's other colours (a cyan "info", a green "success") are left out.
     pub fn from_theme(theme: &crate::theme::SemanticPalette) -> anyhow::Result<Self> {
         let colour = |role: &str| -> anyhow::Result<Rgb> {
             theme
@@ -169,16 +158,14 @@ impl Palette {
                 .with_context(|| format!("the theme's {role} colour"))
         };
         let (background, foreground) = (colour("background")?, colour("foreground")?);
-        let darker = if luminance(linear(background)) <= luminance(linear(foreground)) {
+        let ground = if luminance(linear(background)) <= luminance(linear(foreground)) {
             background
         } else {
             foreground
         };
-        let accents = ["primary", "secondary", "info"]
-            .into_iter()
-            .map(colour)
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        let mut palette = Self::from_parts(darker, &accents)?;
+        let (primary, secondary) = (linear(colour("primary")?), linear(colour("secondary")?));
+        let deep = mix(linear(ground), primary, 0.45);
+        let mut palette = Self::finish(ground, [deep, primary, secondary]);
         palette.light = theme.appearance == crate::theme::Appearance::Light;
         Ok(palette)
     }
@@ -217,13 +204,19 @@ impl Palette {
             2 => [colours[0], mix(colours[0], colours[1], 0.5), colours[1]],
             count => [colours[0], colours[count / 2], colours[count - 1]],
         };
-        let mut three = three;
-        three[0] = limit_luminance(three[0], 0.1);
-        Ok(Self {
+        Ok(Self::finish(background, three))
+    }
+
+    /// `accents` as given, with the background darkened to a deep tone and the dimmest accent held
+    /// back, so a bright palette still gives a picture that sits behind windows.
+    fn finish(background: Rgb, mut accents: [Colour; 3]) -> Self {
+        let ground = limit_luminance(linear(background), 0.012);
+        accents[0] = limit_luminance(accents[0], 0.1);
+        Self {
             background: srgb(ground),
-            accents: three.map(srgb),
+            accents: accents.map(srgb),
             light: false,
-        })
+        }
     }
 }
 
@@ -587,8 +580,6 @@ impl Scene {
     fn colour(&self, x: f64, y: f64, pixel: f64) -> Colour {
         match self.style {
             Style::Contours => self.contours(x, y, pixel),
-            Style::Strata => self.strata(x, y, pixel),
-            Style::Ripples => self.ripples(x, y, pixel),
             Style::Sunset => self.sunset(x, y, pixel),
         }
     }
@@ -624,60 +615,6 @@ impl Scene {
             widths: [0.0007, 0.0011, 0.0017],
         };
         self.lines(&height, &|value, _, _| value, x, y, pixel, &look)
-    }
-
-    fn strata(&self, x: f64, y: f64, pixel: f64) -> Colour {
-        let noise = &self.noise;
-        let (shift_x, shift_y) = (self.offsets[0] * 40., self.offsets[1] * 40.);
-        let tilt = (self.offsets[2] - 0.5) * 0.5;
-        let octaves = Self::octaves(3., pixel, 8);
-        let layer = |x: f64, y: f64| {
-            let flow = noise.fbm_gain(x * 0.55 + shift_x, y * 1.25 + shift_y, 5, 0.55);
-            let grain = noise.fbm_gain(x * 3. + shift_y, y * 3. + shift_x, octaves, 0.55);
-            y + tilt * x + 0.5 * flow + 0.045 * grain
-        };
-        let look = Look {
-            levels: 58.,
-            relief: 0.,
-            shade: 0.,
-            tint: 0.9,
-            widths: [0.0007, 0.0011, 0.0017],
-        };
-        let tone = |_: f64, x: f64, y: f64| {
-            noise.fbm(x * 0.45 + shift_y, y * 0.45 + shift_x, 3) * 0.5 + 0.5
-        };
-        self.lines(&layer, &tone, x, y, pixel, &look)
-    }
-
-    fn ripples(&self, x: f64, y: f64, pixel: f64) -> Colour {
-        let noise = &self.noise;
-        let shift = self.offsets[5] * 40.;
-        // Three centres, each placed once for the whole canvas.
-        let centres: [(f64, f64); 3] = std::array::from_fn(|index| {
-            (
-                self.aspect * (0.12 + 0.76 * self.offsets[index]),
-                0.15 + 0.7 * self.offsets[(index + 3) % 6],
-            )
-        });
-        let weights = [1., 0.72, -0.55];
-        let octaves = Self::octaves(2., pixel, 7);
-        let wave = |x: f64, y: f64| {
-            let warp = noise.fbm_gain(x * 1.6 + shift, y * 1.6, octaves, 0.5);
-            let mut total = 0.12 * warp;
-            for (index, (cx, cy)) in centres.iter().enumerate() {
-                total += weights[index] * ((x - cx).powi(2) + (y - cy).powi(2)).sqrt();
-            }
-            total
-        };
-        let look = Look {
-            levels: 34.,
-            relief: 0.,
-            shade: 0.,
-            tint: 0.9,
-            widths: [0.0007, 0.0011, 0.0017],
-        };
-        let tone = |_: f64, x: f64, y: f64| noise.fbm(x * 0.5 + shift, y * 0.5, 3) * 0.5 + 0.5;
-        self.lines(&wave, &tone, x, y, pixel, &look)
     }
 
     /// A number in `[0, 1)` fixed by the recipe and three integers.
@@ -1014,13 +951,13 @@ mod tests {
 
     #[test]
     fn the_digest_follows_every_part_of_the_recipe() {
-        let base = Recipe::new(Style::Strata, 5);
+        let base = Recipe::new(Style::Sunset, 5);
         let mut other_seed = base.clone();
         other_seed.seed = 6;
         let mut other_colour = base.clone();
         other_colour.palette.background = Rgb([1, 2, 3]);
         let mut other_style = base.clone();
-        other_style.style = Style::Ripples;
+        other_style.style = Style::Contours;
         for other in [other_seed, other_colour, other_style] {
             assert_ne!(base.digest(), other.digest());
         }
@@ -1029,10 +966,10 @@ mod tests {
 
     #[test]
     fn the_reference_picture_has_the_canvas_shape() -> anyhow::Result<()> {
-        let png = recipe(Style::Ripples).reference_png(2., 400)?;
+        let png = recipe(Style::Contours).reference_png(2., 400)?;
         let image = image::load_from_memory(&png)?;
         assert_eq!((image.width(), image.height()), (400, 200));
-        let tall = image::load_from_memory(&recipe(Style::Ripples).reference_png(0.5, 400)?)?;
+        let tall = image::load_from_memory(&recipe(Style::Contours).reference_png(0.5, 400)?)?;
         assert_eq!((tall.width(), tall.height()), (200, 400));
         Ok(())
     }
@@ -1103,10 +1040,10 @@ mod tests {
             Rgb([180, 240, 200]),
         ])?;
         let picture =
-            Recipe::with_palette(Style::Strata, 1, three).render(View::whole(1.5), 32, 20);
+            Recipe::with_palette(Style::Sunset, 1, three).render(View::whole(1.5), 32, 20);
         assert_ne!(
             picture,
-            Recipe::new(Style::Strata, 1).render(View::whole(1.5), 32, 20)
+            Recipe::new(Style::Sunset, 1).render(View::whole(1.5), 32, 20)
         );
         Ok(())
     }
@@ -1143,9 +1080,20 @@ mod tests {
                 luminance(linear(palette.background)) <= 0.0125,
                 "{appearance:?}"
             );
-            // The bluish theme gives a bluish wallpaper, not a random hue.
+            // The accents are the theme's primary and secondary, by role. Its cyan "info" colour,
+            // which a sort by brightness would have put in the middle, is not used at all.
+            let near = |colour: Rgb, role: &str| {
+                let wanted: Rgb = theme.color(role).parse().unwrap();
+                colour
+                    .0
+                    .iter()
+                    .zip(wanted.0)
+                    .all(|(have, want)| have.abs_diff(want) <= 2)
+            };
+            assert!(near(palette.accents[1], "primary"), "{appearance:?}");
+            assert!(near(palette.accents[2], "secondary"), "{appearance:?}");
             assert!(
-                palette.accents[2].0[2] > palette.accents[2].0[0],
+                palette.accents.iter().all(|accent| !near(*accent, "info")),
                 "{appearance:?}"
             );
         }

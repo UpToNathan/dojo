@@ -6,7 +6,7 @@ See [the glossary](../../GLOSSARY.md) for **Procedural wallpaper**, **Recipe** a
 
 ## Experience
 
-The Wallpaper tab of the theme picker gains a row of styles (Contours, Sunset, Strata, Ripples) under **Choose image…**. Clicking a style draws a new one with a new seed and previews it; the layout switches to **Span all monitors**, which stays a choice until **Apply wallpaper**. A second row picks the colours: **Theme colours** (the default), **Random colours**, or **Paste palette**, which reads any text on the clipboard with at least two `#rrggbb` colours. Choosing colours redraws the same picture in them so palettes can be compared.
+The Wallpaper tab of the theme picker gains a row of styles (Contours, Sunset) under **Choose image…**. Clicking a style draws a new one with a new seed and previews it; the layout switches to **Span all monitors**, which stays a choice until **Apply wallpaper**. A second row picks the colours: **Theme colours** (the default), **Random colours**, or **Paste palette**, which reads any text on the clipboard with at least two `#rrggbb` colours. Choosing colours redraws the same picture in them so palettes can be compared.
 
 Applying keeps the palette, preset, appearance and targets, as for an image. The generated wallpaper does not follow later theme changes: regenerate it.
 
@@ -19,6 +19,8 @@ Applying keeps the palette, preset, appearance and targets, as for an image. The
 - **Spanning is the default.** With no saved layout a generated wallpaper spans where an image fills. A saved layout, including an explicit fill, wins.
 - **A reference picture is still retained.** The retained `wallpaper` is a 1920 px PNG of the whole canvas. Palette derivation, the lock screen and the login screen read it like any image, so none of them changed. The wallpaper surface never decodes it.
 - **Sunset knows the theme's appearance.** A palette from a theme records whether the theme is light. The picture keeps its dark ground either way, but a light theme gets a bright sun and a pale sky, and a dark one a dim moon (its brightness capped whatever the theme's brightest accent is) with a few stars. Facets of the low-poly ridges are lit from the moon or sun and shaded from the palette's own colours.
+- **Theme colours are chosen by role.** The accents are a deep shade of the theme's primary, its primary, and its secondary, in that order. An earlier version picked three of the primary, secondary and info colours and ordered them by brightness, which put Tokyo Night's cyan in the slot that most lines, glows and shading use, so everything came out teal.
+- **Two styles.** Contours and Sunset. Strata and Ripples, tried and dropped, are gone.
 - **Colours stay dark.** A palette from a theme or a paste is made dark enough to sit behind windows: the background is darkened to a deep tone, the dimmest accent is held back, and a light theme contributes its accents and its text colour.
 - **No cache, no decode.** Drawing 1920×1080 takes a fraction of a second on all cores; a cache would add state for little gain.
 

@@ -42,11 +42,11 @@ left of the system tray. It opens on Wallpaper and offers Wallpaper, Presets, an
   (`fill` or `span`). That file lives outside the theme generations and survives theme
   changes. Changing only the layout and pressing Apply saves just the layout; the
   wallpaper image and theme are left alone.
-  Under **Choose image…**, the style buttons (Contours, Sunset, Strata, Ripples) draw a
+  Under **Choose image…**, the style buttons (Contours, Sunset) draw a
   *procedural wallpaper*: a recipe each monitor draws at its own resolution, so it is
   sharp on rotated and high-density monitors and continuous across a span. Drawing one
   previews **Span all monitors**, and with no saved layout it spans. **Theme colours**
-  (the default) borrow the selected theme's background and accents, **Random colours**
+  (the default) borrow the selected theme's background and its primary and secondary colours (a deep shade of the primary, the primary, then the secondary; its other colours are not used), **Random colours**
   take them from the seed, and **Paste palette** reads two or more `#rrggbb` colours from
   the clipboard. Colours are made dark enough to sit behind windows. The recipe is kept
   as `wallpaper-recipe.json` beside the retained `wallpaper` (a PNG of the whole canvas
