@@ -15,10 +15,17 @@ pub enum Handoff {
     /// A terminal in a directory on the receiver, optionally running one known program. What an
     /// older sender sends; terminals are now `RemoteTerminal`.
     Terminal { directory: String, program: Option<Program> },
-    /// A terminal on the receiver connected back over ssh to the sender, in a directory there,
-    /// optionally running one known program there. The receiver learns who the sender is from the
-    /// connection, never from this message.
-    RemoteTerminal { directory: String, program: Option<Program> },
+    /// A terminal that is a session on `host`, in a directory there, optionally running one known
+    /// program there. The receiver opens it connected to `host` over ssh; when `host` is the
+    /// receiver itself, that is an ordinary local terminal, which is how a session is sent back to
+    /// the machine it lives on. Without `host`, the sender is the host, and the receiver learns who
+    /// the sender is from the connection, never from this message.
+    RemoteTerminal {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        host: Option<String>,
+        directory: String,
+        program: Option<Program>,
+    },
     /// All the tabs of a browser window, opened together in a new window of the receiver's own
     /// browser (a Chromium-family one, found by its desktop entry).
     BrowserWindow { desktop_entry: String, urls: Vec<String> },
@@ -79,6 +86,14 @@ pub enum Closes {
     Nothing { why: String },
 }
 
+/// Where a remote terminal's session lives, as the sender's summary says it.
+fn session_of(host: &Option<String>) -> String {
+    match host {
+        Some(host) => format!("connected to {host}"),
+        None => "connected back here".into(),
+    }
+}
+
 /// One line saying exactly what is being sent and what closes here.
 pub fn summary(handoff: &Handoff, closes: &Closes) -> String {
     let what = match handoff {
@@ -86,9 +101,9 @@ pub fn summary(handoff: &Handoff, closes: &Closes) -> String {
         Handoff::Terminal { directory, program: None } => format!("a terminal in {directory}"),
         Handoff::Terminal { program: Some(Program::Editor { file, line, .. }), .. } => format!("nvim on {file} at line {line}"),
         Handoff::Terminal { directory, program: Some(Program::Files { directory: shown }) } => format!("yazi in {shown} (terminal in {directory})"),
-        Handoff::RemoteTerminal { directory, program: None } => format!("a terminal connected back here, in {directory}"),
-        Handoff::RemoteTerminal { program: Some(Program::Editor { file, line, .. }), .. } => format!("nvim on {file} at line {line}, connected back here"),
-        Handoff::RemoteTerminal { directory, program: Some(Program::Files { directory: shown }) } => format!("yazi in {shown}, connected back here (terminal in {directory})"),
+        Handoff::RemoteTerminal { host, directory, program: None } => format!("a terminal in {directory} {}", session_of(host)),
+        Handoff::RemoteTerminal { host, program: Some(Program::Editor { file, line, .. }), .. } => format!("nvim on {file} at line {line}, {}", session_of(host)),
+        Handoff::RemoteTerminal { host, directory, program: Some(Program::Files { directory: shown }) } => format!("yazi in {shown} (terminal in {directory}), {}", session_of(host)),
         Handoff::BrowserWindow { urls, .. } => format!("a browser window with {} tab{}", urls.len(), if urls.len() == 1 { "" } else { "s" }),
         Handoff::Relaunch { desktop_entry } => format!("a fresh {desktop_entry}"),
         Handoff::T3Thread { thread, .. } => format!("the T3 Code thread {thread}"),
@@ -154,7 +169,7 @@ pub fn plan_with(
             // Processes started by T3 carry ELECTRON_RUN_AS_NODE, which would turn its own launcher into plain Node.
             vec!["env".into(), "-u".into(), "ELECTRON_RUN_AS_NODE".into(), "xdg-open".into(), format!("t3code://threads/{environment}/{thread}")]
         }
-        Handoff::RemoteTerminal { .. } => return Err(refuse("a terminal connected back to the sender can only be opened with the sender's name".into())),
+        Handoff::RemoteTerminal { .. } => return Err(refuse("a terminal session can only be opened knowing which machine it lives on".into())),
         Handoff::Terminal { directory, program } => {
             let missing: Vec<String> = required_files(handoff).into_iter().filter(|file| !absolute(file).is_some_and(|path| exists(&path))).collect();
             if !missing.is_empty() {
@@ -210,15 +225,33 @@ pub fn plan_with(
     Ok((command, notes))
 }
 
-/// The command that opens a `RemoteTerminal` here: a new kitty running `dojo-mesh shell` back to
-/// `origin`, the node that sent it. `origin` comes from the connection, and `mesh` is this
-/// installation's own `dojo-mesh`.
-pub fn plan_remote_terminal(directory: &str, program: &Option<Program>, origin: &str, mesh: &Path) -> Result<(Vec<String>, Vec<String>), Reply> {
+/// The command that opens a `RemoteTerminal` here, given `home`, the machine the session lives on
+/// (the handoff's `host`, else the sender). When `home` is this machine it is an ordinary terminal
+/// in the directory; otherwise it is a new kitty running `dojo-mesh shell` to `home`, and `mesh` is
+/// this installation's own `dojo-mesh`. `exists` and `has_entry` ask this machine.
+pub fn plan_session(
+    directory: &str,
+    program: &Option<Program>,
+    home: &str,
+    here: bool,
+    mesh: &Path,
+    exists: impl Fn(&Path) -> bool,
+    has_entry: impl Fn(&str) -> bool,
+) -> Result<(Vec<String>, Vec<String>), Reply> {
     let refuse = |reason: String| Reply::Refused { reason };
+    if here {
+        let (command, mut notes) = plan(&Handoff::Terminal { directory: directory.to_string(), program: program.clone() }, exists, has_entry)?;
+        notes.push("this machine is where the session lives, so it is an ordinary terminal here".into());
+        return Ok((command, notes));
+    }
+    let valid_name = !home.is_empty() && home.len() <= 63 && home.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
+    if !valid_name {
+        return Err(refuse(format!("{home:?} is not the name of a machine")));
+    }
     if absolute(directory).is_none() {
         return Err(refuse(format!("{directory:?} is not an absolute path")));
     }
-    let mut command = vec!["kitty".to_string(), "--title".to_string(), format!("{origin}: {directory}"), mesh.to_string_lossy().into_owned(), "shell".to_string(), origin.to_string(), "--directory".to_string(), directory.to_string()];
+    let mut command = vec!["kitty".to_string(), "--title".to_string(), format!("{home}: {directory}"), mesh.to_string_lossy().into_owned(), "shell".to_string(), home.to_string(), "--directory".to_string(), directory.to_string()];
     if let Some(program) = program {
         let file_ok = match program {
             Program::Editor { file, .. } => absolute(file).is_some(),
@@ -230,7 +263,7 @@ pub fn plan_remote_terminal(directory: &str, program: &Option<Program>, origin: 
         command.push("--program".into());
         command.push(serde_json::to_string(program).map_err(|error| refuse(error.to_string()))?);
     }
-    Ok((command, vec![format!("connected back to {origin} over ssh; the session lives there")]))
+    Ok((command, vec![format!("connected to {home} over ssh; the session lives there")]))
 }
 
 /// What the sender runs on itself for a program: the argument list `dojo-mesh shell` starts there.
@@ -395,25 +428,42 @@ mod tests {
     }
 
     #[test]
-    fn a_remote_terminal_runs_the_sessions_command_back_to_the_sender() {
+    fn a_session_runs_the_shell_command_to_the_machine_it_lives_on() {
         let mesh = Path::new("/opt/dojo/dojo-mesh");
-        let (command, notes) = plan_remote_terminal("/home/a/project", &None, "orchard", mesh).unwrap();
+        let (command, notes) = plan_session("/home/a/project", &None, "orchard", false, mesh, |_| true, |_| true).unwrap();
         assert_eq!(command, ["kitty", "--title", "orchard: /home/a/project", "/opt/dojo/dojo-mesh", "shell", "orchard", "--directory", "/home/a/project"]);
         assert!(notes[0].contains("orchard"));
         let program = Some(Program::Editor { file: "/home/a/project/main.rs".into(), line: 3, column: 7 });
-        let (command, _) = plan_remote_terminal("/home/a/project", &program, "orchard", mesh).unwrap();
+        let (command, _) = plan_session("/home/a/project", &program, "orchard", false, mesh, |_| true, |_| true).unwrap();
         assert_eq!(command[8], "--program");
         assert_eq!(serde_json::from_str::<Program>(&command[9]).unwrap(), program.unwrap());
     }
 
     #[test]
-    fn a_remote_terminal_refuses_paths_that_are_not_absolute() {
+    fn a_session_sent_to_the_machine_it_lives_on_is_an_ordinary_terminal_there() {
         let mesh = Path::new("/opt/dojo/dojo-mesh");
-        assert!(matches!(plan_remote_terminal("project", &None, "orchard", mesh), Err(Reply::Refused { .. })));
-        let relative = Some(Program::Files { directory: "pics".into() });
-        assert!(matches!(plan_remote_terminal("/home/a", &relative, "orchard", mesh), Err(Reply::Refused { .. })));
-        // Without the sender's name there is nothing to connect back to.
-        let handoff = Handoff::RemoteTerminal { directory: "/home/a".into(), program: None };
+        let (command, notes) = plan_session("/home/a/project", &None, "orchard", true, mesh, |_| true, |_| true).unwrap();
+        assert_eq!(command, ["kitty", "--directory", "/home/a/project"]);
+        assert!(notes.iter().any(|note| note.contains("where the session lives")));
+        let files = Some(Program::Files { directory: "/home/a/pics".into() });
+        let (command, _) = plan_session("/home/a", &files, "orchard", true, mesh, |_| true, |_| true).unwrap();
+        assert_eq!(command, ["kitty", "--directory", "/home/a", "yazi", "/home/a/pics"]);
+        let (command, notes) = plan_session("/gone/dir", &None, "orchard", true, mesh, |path| path == Path::new("/"), |_| true).unwrap();
+        assert_eq!(command, ["kitty", "--directory", "/"], "a directory that is gone opens in the nearest one");
+        assert!(notes.iter().any(|note| note.contains("does not exist here")));
+    }
+
+    #[test]
+    fn a_session_refuses_names_and_paths_that_are_not_what_they_claim() {
+        let mesh = Path::new("/opt/dojo/dojo-mesh");
+        let refused = |directory: &str, program: &Option<Program>, home: &str| matches!(plan_session(directory, program, home, false, mesh, |_| true, |_| true), Err(Reply::Refused { .. }));
+        assert!(refused("project", &None, "orchard"), "a relative directory");
+        assert!(refused("/home/a", &Some(Program::Files { directory: "pics".into() }), "orchard"), "a relative program path");
+        for home in ["", "-o ProxyCommand=x", "a b", "orchard;id", "a/b"] {
+            assert!(refused("/home/a", &None, home), "{home:?}");
+        }
+        // Without the machine's name there is nothing to connect to.
+        let handoff = Handoff::RemoteTerminal { host: None, directory: "/home/a".into(), program: None };
         assert!(matches!(plan(&handoff, |_| true, |_| true), Err(Reply::Refused { .. })));
     }
 
@@ -424,10 +474,18 @@ mod tests {
     }
 
     #[test]
-    fn a_remote_terminal_summary_says_it_is_connected_back() {
-        let said = summary(&Handoff::RemoteTerminal { directory: "/w".into(), program: None }, &Closes::Nothing { why: "it keeps running".into() });
-        assert!(said.contains("connected back here"), "{said}");
-        assert!(said.contains("the original stays"), "{said}");
+    fn a_remote_terminal_summary_says_which_machine_it_is_connected_to() {
+        let back = summary(&Handoff::RemoteTerminal { host: None, directory: "/w".into(), program: None }, &Closes::Window);
+        assert!(back.contains("connected back here") && back.contains("the window closes here"), "{back}");
+        let named = summary(&Handoff::RemoteTerminal { host: Some("orchard".into()), directory: "/w".into(), program: None }, &Closes::Window);
+        assert!(named.contains("connected to orchard"), "{named}");
+    }
+
+    #[test]
+    fn a_remote_terminal_without_a_host_keeps_the_old_wire_form() {
+        let text = serde_json::to_string(&Handoff::RemoteTerminal { host: None, directory: "/w".into(), program: None }).unwrap();
+        assert!(!text.contains("host"), "{text}");
+        assert_eq!(serde_json::from_str::<Handoff>(&text).unwrap(), Handoff::RemoteTerminal { host: None, directory: "/w".into(), program: None });
     }
 
     #[test]

@@ -247,28 +247,68 @@ fn kitty(window: &Window, context: &Context) -> Result<Captured, Fallback> {
         .ok_or_else(|| relaunch("the terminal could not be matched to a kitty window"))?;
 
     let mut notes = Vec::new();
+    // A window that is itself a session on another machine (`dojo-mesh shell HOST …`, which is what a
+    // sent terminal opens) is sent as that session, so it can go back to the machine it lives on, or
+    // on to a third, rather than start a session on this one. It reopens where the session started:
+    // the directory the shell has moved to since is known only to the machine it runs on.
+    if let Some(session) = chosen.foreground_processes.iter().find_map(|process| session_of(&process.cmdline)) {
+        notes.push(format!("this window is a session on {}; it opens there, in the directory the session started in", session.host));
+        return Ok(Captured { handoff: Handoff::RemoteTerminal { host: Some(session.host), directory: session.directory, program: session.program }, closes: Closes::Window, scopes: Vec::new(), tab_count: None, threads: Vec::new(), notes });
+    }
     let foreground = chosen.foreground_processes.iter().rev().find(|process| !process.cmdline.is_empty());
     let program_name = foreground.and_then(|process| Path::new(&process.cmdline[0]).file_name()).map(|name| name.to_string_lossy().into_owned());
+    let mut other_running: Option<String> = None;
     let program = match (program_name.as_deref(), foreground) {
         (Some("nvim"), Some(process)) => Some(nvim(process, runtime, context)?),
         (Some("yazi"), Some(process)) => Some(Program::Files { directory: yazi_directory(&chosen.title).unwrap_or_else(|| process.cwd.clone()) }),
         (Some(shell), _) if is_shell(shell) => None,
         (Some(other), _) => {
-            notes.push(format!("{other} was running there; it keeps running in the original window and is not carried over"));
+            notes.push(format!("{other} was running there; it is not carried over"));
+            other_running = Some(other.to_string());
             None
         }
         (None, _) => None,
     };
     if program.is_none() {
-        notes.push("a new shell connected back here; the one in this window keeps its history and whatever it runs".into());
+        notes.push("a new shell connected back here; this window's shell starts over there, without its history".into());
     }
     let directory = foreground.map(|process| process.cwd.clone()).filter(|cwd| !cwd.is_empty()).unwrap_or_else(|| chosen.cwd.clone());
     if directory.is_empty() {
         return Err(relaunch("kitty did not say which directory the terminal is in"));
     }
-    // The session stays here: the window on the peer is a second view of this machine, so nothing closes.
-    let closes = Closes::Nothing { why: "the terminal keeps running here; the peer's window is connected back to it".into() };
-    Ok(Captured { handoff: Handoff::RemoteTerminal { directory, program }, closes, scopes: Vec::new(), tab_count: None, threads: Vec::new(), notes })
+    // The window closes once the peer has its session. Anything running here that cannot be carried over
+    // would end with it, so then the window stays.
+    let closes = match other_running {
+        Some(other) => Closes::Nothing { why: format!("{other} is running here and would end with the window") },
+        None => Closes::Window,
+    };
+    Ok(Captured { handoff: Handoff::RemoteTerminal { host: None, directory, program }, closes, scopes: Vec::new(), tab_count: None, threads: Vec::new(), notes })
+}
+
+/// A `dojo-mesh shell HOST --directory DIR [--program JSON]` process: the session a window is a view of.
+struct Session {
+    host: String,
+    directory: String,
+    program: Option<Program>,
+}
+
+fn session_of(cmdline: &[String]) -> Option<Session> {
+    let name = Path::new(cmdline.first()?).file_name()?.to_string_lossy();
+    if name != "dojo-mesh" || cmdline.get(1).map(String::as_str) != Some("shell") {
+        return None;
+    }
+    let host = cmdline.get(2).filter(|host| !host.starts_with('-'))?.clone();
+    let mut directory = None;
+    let mut program = None;
+    let mut words = cmdline[3..].iter();
+    while let Some(word) = words.next() {
+        match word.as_str() {
+            "--directory" => directory = words.next().cloned(),
+            "--program" => program = words.next().and_then(|text| serde_json::from_str::<Program>(text).ok()),
+            _ => {}
+        }
+    }
+    Some(Session { host, directory: directory.filter(|directory| directory.starts_with('/'))?, program })
 }
 
 /// The active window of an OS window's active tab.
@@ -584,9 +624,37 @@ mod tests {
         let fake = kitty_fake(r#"{"pid": 50, "cmdline": ["/bin/rush"], "cwd": "/home/a/project"}"#);
         let entries = entries();
         let captured = capture_tab(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
-        assert_eq!(captured.handoff, Handoff::RemoteTerminal { directory: "/home/a/project".into(), program: None });
+        assert_eq!(captured.handoff, Handoff::RemoteTerminal { host: None, directory: "/home/a/project".into(), program: None });
         assert!(captured.notes[0].contains("connected back"));
-        assert!(matches!(captured.closes, Closes::Nothing { .. }), "the original keeps running, so nothing closes");
+        assert_eq!(captured.closes, Closes::Window, "the window closes once the peer has its session");
+    }
+
+    #[test]
+    fn a_window_that_is_a_session_on_another_machine_is_sent_as_that_session() {
+        let fake = kitty_fake(r#"{"pid": 51, "cmdline": ["/home/a/.local/share/dojo/bin/dojo-mesh", "shell", "orchard", "--directory", "/home/a/project", "--program", "{\"kind\":\"editor\",\"file\":\"/home/a/project/x.rs\",\"line\":4,\"column\":2}"], "cwd": "/home/a"}"#);
+        let entries = entries();
+        let captured = capture_tab(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
+        assert_eq!(captured.handoff, Handoff::RemoteTerminal { host: Some("orchard".into()), directory: "/home/a/project".into(), program: Some(Program::Editor { file: "/home/a/project/x.rs".into(), line: 4, column: 2 }) });
+        assert_eq!(captured.closes, Closes::Window, "the window is only a view, so it closes once the peer has the session");
+    }
+
+    #[test]
+    fn only_dojo_mesh_shell_with_a_directory_counts_as_a_session() {
+        let words = |text: &str| text.split(' ').map(String::from).collect::<Vec<_>>();
+        assert!(session_of(&words("/bin/dojo-mesh shell orchard --directory /w")).is_some());
+        assert!(session_of(&words("/bin/dojo-mesh shell orchard")).is_none(), "without a directory it is not known where it opens");
+        assert!(session_of(&words("/bin/dojo-mesh shell --directory /w")).is_none());
+        assert!(session_of(&words("/bin/ssh orchard")).is_none());
+        assert!(session_of(&words("/bin/dojo-mesh exec orchard -- true")).is_none());
+        assert!(session_of(&words("/bin/dojo-mesh shell orchard --directory relative")).is_none());
+    }
+
+    #[test]
+    fn something_else_running_in_a_terminal_keeps_the_window_open() {
+        let fake = kitty_fake(r#"{"pid": 52, "cmdline": ["/usr/bin/htop"], "cwd": "/home/a"}"#);
+        let entries = entries();
+        let captured = capture_tab(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
+        assert!(matches!(&captured.closes, Closes::Nothing { why } if why.contains("htop")), "{:?}", captured.closes);
     }
 
     #[test]
@@ -595,7 +663,7 @@ mod tests {
         fake.nvim = Some(r#"["/home/a/project/a.rs", 12, 5, 0]"#.into());
         let entries = entries();
         let captured = capture_tab(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
-        assert_eq!(captured.handoff, Handoff::RemoteTerminal { directory: "/home/a/project".into(), program: Some(Program::Editor { file: "/home/a/project/a.rs".into(), line: 12, column: 5 }) });
+        assert_eq!(captured.handoff, Handoff::RemoteTerminal { host: None, directory: "/home/a/project".into(), program: Some(Program::Editor { file: "/home/a/project/a.rs".into(), line: 12, column: 5 }) });
         assert!(captured.notes.is_empty());
     }
 
@@ -613,7 +681,7 @@ mod tests {
         let fake = kitty_fake(r#"{"pid": 60, "cmdline": ["yazi"], "cwd": "/home/a"}"#);
         let entries = entries();
         let captured = capture_tab(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
-        assert_eq!(captured.handoff, Handoff::RemoteTerminal { directory: "/home/a".into(), program: Some(Program::Files { directory: "/home/a/pics".into() }) });
+        assert_eq!(captured.handoff, Handoff::RemoteTerminal { host: None, directory: "/home/a".into(), program: Some(Program::Files { directory: "/home/a/pics".into() }) });
     }
 
     #[test]
@@ -621,7 +689,7 @@ mod tests {
         let fake = kitty_fake(r#"{"pid": 61, "cmdline": ["/usr/bin/cargo", "build"], "cwd": "/w"}"#);
         let entries = entries();
         let captured = capture_tab(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
-        assert_eq!(captured.handoff, Handoff::RemoteTerminal { directory: "/w".into(), program: None });
+        assert_eq!(captured.handoff, Handoff::RemoteTerminal { host: None, directory: "/w".into(), program: None });
         assert!(captured.notes[0].starts_with("cargo was running there"), "{:?}", captured.notes);
     }
 

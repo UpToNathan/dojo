@@ -6,7 +6,9 @@ status: accepted
 
 [Sending windows](../../.scratch/mesh-boundaries/spec.md) first opened a kitty window's directory on the peer, with a fresh shell there: a terminal moved by being started again where the directory might not even exist, and anything it was running ended with the window. That made a sent terminal a different place from the one you were working in.
 
-A terminal is now sent as a window on the peer that is **connected back to the machine it came from**, in the same directory, over the mesh's own channel (`dojo-mesh shell`, with a terminal requested). The files, the history and the programs stay where they were; the peer's window is a second view of that machine. A program the window was running that Dojo knows how to open (nvim on a file at a line, yazi in a directory) is started again in the new session, on the source. Nothing closes at the source, since it is still the real session.
+A terminal is now sent as a window on the peer that is **connected back to the machine it came from**, in the same directory, over the mesh's own channel (`dojo-mesh shell`, with a terminal requested). The files, the history and the programs stay where they were; the peer's window is a second view of that machine. A program the window was running that Dojo knows how to open (nvim on a file at a line, yazi in a directory) is started again in the new session, on the source. The window here closes once the peer has opened its session, unless something Dojo cannot carry over is running in it, which would end with the window.
+
+The handoff can name the machine the session lives on (`host`). A window that is itself such a session (a kitty running `dojo-mesh shell HOST --directory DIR`) is sent as that session, so sending it **back** to HOST opens an ordinary terminal there, and sending it to a third machine connects that one to HOST. It reopens in the directory the session started in: where the shell has moved to since is known only to the machine it runs on.
 
 T3 Code follows the same idea: its thread is not moved either, and the peer's T3 Code opens it through T3 Connect from a `t3code://` link.
 
