@@ -33,15 +33,27 @@ pub enum Style {
     Contours,
     /// Low-poly mountain ridges under a moon, or a sun in a light theme.
     Sunset,
+    /// Curtains of light over a dark sky and stars.
+    Aurora,
+    /// Soft, flowing blooms of colour.
+    Mesh,
+    /// Leaded glass lit from behind: translucent panes divided by dark lead.
+    StainedGlass,
+    /// Layered, soft dunes, each with a lit crest.
+    Dunes,
 }
 
 impl Style {
-    pub const ALL: [Style; 2] = [Style::Contours, Style::Sunset];
+    pub const ALL: [Style; 6] = [Style::Contours, Style::Sunset, Style::Aurora, Style::Mesh, Style::StainedGlass, Style::Dunes];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::Contours => "contours",
             Self::Sunset => "sunset",
+            Self::Aurora => "aurora",
+            Self::Mesh => "mesh",
+            Self::StainedGlass => "stained-glass",
+            Self::Dunes => "dunes",
         }
     }
 
@@ -49,6 +61,10 @@ impl Style {
         match self {
             Self::Contours => "Contours",
             Self::Sunset => "Sunset",
+            Self::Aurora => "Aurora",
+            Self::Mesh => "Mesh",
+            Self::StainedGlass => "Stained glass",
+            Self::Dunes => "Dunes",
         }
     }
 
@@ -370,6 +386,215 @@ fn dither(fx: f64, fy: f64) -> f64 {
     first + second - 1.
 }
 
+// ---- illustrated scenes ---------------------------------------------------------------------
+//
+// Aurora, Mesh, Stained glass and Dunes are drawn the way an illustrator blends colour: on the
+// encoded (gamma) values, so a dark ground and a bright accent make a dark, muted middle. They
+// convert to linear light on the way out. Each is a function of canvas position, the recipe's
+// noise and its per-seed offsets, and nothing else, so a monitor draws only the part it shows.
+
+/// A colour as encoded (gamma) values in `[0, 1]`.
+type Encoded = [f64; 3];
+
+fn encoded_mix(from: Encoded, to: Encoded, amount: f64) -> Encoded {
+    let amount = amount.clamp(0., 1.);
+    std::array::from_fn(|channel| from[channel] + (to[channel] - from[channel]) * amount)
+}
+
+/// `base` plus `amount` of `other`, which is how light adds.
+fn encoded_add(base: Encoded, other: Encoded, amount: f64) -> Encoded {
+    std::array::from_fn(|channel| base[channel] + other[channel] * amount)
+}
+
+fn to_linear(colour: Encoded) -> Colour {
+    colour.map(|channel| decode_unit(channel.clamp(0., 1.)))
+}
+
+/// The recipe's palette, as encoded values.
+struct Ground {
+    background: Encoded,
+    accents: [Encoded; 3],
+}
+
+impl Ground {
+    /// The ground, then the three accents, as one ramp over `[0, 1]`.
+    fn ramp(&self, position: f64) -> Encoded {
+        let position = position.clamp(0., 1.) * 3.;
+        let stops = [
+            self.background,
+            self.accents[0],
+            self.accents[1],
+            self.accents[2],
+        ];
+        let index = (position.floor() as usize).min(2);
+        encoded_mix(stops[index], stops[index + 1], position - index as f64)
+    }
+}
+
+impl Scene {
+    /// Curtains of light hanging in a dark sky, with stars. Where they hang, how they lean and how
+    /// they ripple come from the seed.
+    fn aurora(&self, x: f64, y: f64, _pixel: f64) -> Colour {
+        let (ground, noise) = (&self.ground, &self.noise);
+        let shift = (self.offsets[0] - 0.5) * 0.16;
+        let lean = (self.offsets[1] - 0.5) * 0.3;
+        let phase = self.offsets[2] * std::f64::consts::TAU;
+        let across = x / self.aspect - 0.5;
+        let mut colour = ground.background;
+        for curtain in 0..3 {
+            let index = curtain as f64;
+            let warp = noise.fbm(x * 1.1 + index * 3.1, y * 0.7 + index, 3) * 0.32;
+            let hem = 0.42
+                + shift
+                + 0.1 * index
+                + 0.09 * (x * 2.3 + index * 1.9 + phase + warp * 5.).sin()
+                + lean * across;
+            let distance = (y - hem) / (0.13 + 0.03 * index);
+            // Soft above the hem, where the light thins out, and a sharper edge below it.
+            let falloff = if distance < 0. {
+                (-distance * distance * 0.9).exp()
+            } else {
+                (-distance * distance * 7.).exp()
+            };
+            let rays = (0.55 + 0.72 * noise.fbm(x * 55. + index * 9., y * 1.2, 2).abs()).min(1.2);
+            colour = encoded_add(colour, ground.accents[curtain], falloff * rays * 0.75);
+        }
+        // Star cells are not a round number of cells wide, so a pixel centre never falls on a cell edge.
+        const STARS: f64 = 157.31;
+        let (cell_x, cell_y) = ((x * STARS).floor() as i64, (y * STARS).floor() as i64);
+        if self.hash(7, cell_x, cell_y) > 0.985 {
+            let (dx, dy) = (x * STARS - cell_x as f64 - 0.5, y * STARS - cell_y as f64 - 0.5);
+            let twinkle = 0.4 + 0.6 * self.hash(8, cell_x, cell_y);
+            colour = encoded_add(colour, [1.; 3], (-(dx * dx + dy * dy) * 14.).exp() * 0.7 * twinkle);
+        }
+        to_linear(colour)
+    }
+
+    /// Soft blooms of the accents drifting over the ground, with the field warped so none is round.
+    fn mesh(&self, x: f64, y: f64, _pixel: f64) -> Colour {
+        let (ground, noise, o) = (&self.ground, &self.noise, &self.offsets);
+        let (warped_x, warped_y) = (
+            x + noise.fbm(x * 0.9, y * 0.9, 3) * 0.35,
+            y + noise.fbm(x * 0.9 + 5., y * 0.9 + 3., 3) * 0.35,
+        );
+        let place = |fraction_x: f64, fraction_y: f64, jitter: usize, other: usize| {
+            (
+                self.aspect * (fraction_x + (o[jitter] - 0.5) * 0.2),
+                fraction_y + (o[other] - 0.5) * 0.24,
+            )
+        };
+        let blooms = [
+            (place(0.17, 0.30, 0, 1), 0.55, ground.accents[1]),
+            (place(0.76, 0.72, 2, 3), 0.60, ground.accents[2]),
+            (place(0.48, 0.90, 4, 5), 0.50, ground.accents[0]),
+            (place(0.90, 0.15, 1, 4), 0.45, ground.accents[0]),
+        ];
+        let mut colour = ground.background;
+        for ((bloom_x, bloom_y), radius, accent) in blooms {
+            let distance = ((warped_x - bloom_x).powi(2) + (warped_y - bloom_y).powi(2)) / (radius * radius);
+            colour = encoded_add(colour, accent, (-distance * 1.6).exp() * 0.8);
+        }
+        to_linear(colour)
+    }
+
+    /// Leaded stained glass lit from behind: a mosaic of translucent panes, each with its own hue and
+    /// density and rolled-glass streaks, brighter toward the light and divided by dark lead.
+    fn stained_glass(&self, x: f64, y: f64, pixel: f64) -> Colour {
+        let (ground, noise, o) = (&self.ground, &self.noise, &self.offsets);
+        let size = 0.15;
+        let (u, v) = (x / size, y / size);
+        let (cell_x, cell_y) = (u.floor() as i64, v.floor() as i64);
+        // Each cell holds one pane's centre, kept off the cell's edges so no pane is a sliver.
+        let centre = |gx: i64, gy: i64| {
+            (
+                gx as f64 + 0.15 + 0.7 * self.hash(21, gx, gy),
+                gy as f64 + 0.15 + 0.7 * self.hash(22, gx, gy),
+            )
+        };
+        let (mut nearest, mut pane) = (f64::MAX, (0, 0));
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                let (centre_x, centre_y) = centre(cell_x + dx, cell_y + dy);
+                let distance = (u - centre_x).powi(2) + (v - centre_y).powi(2);
+                if distance < nearest {
+                    nearest = distance;
+                    pane = (cell_x + dx, cell_y + dy);
+                }
+            }
+        }
+        let own = centre(pane.0, pane.1);
+        // The distance to the nearest lead: how far the pixel is from each bisector with a neighbour.
+        let mut border = f64::MAX;
+        for dy in -2..=2 {
+            for dx in -2..=2 {
+                let other = (pane.0 + dx, pane.1 + dy);
+                if other == pane {
+                    continue;
+                }
+                let (other_x, other_y) = centre(other.0, other.1);
+                let (edge_x, edge_y) = (other_x - own.0, other_y - own.1);
+                let length = (edge_x * edge_x + edge_y * edge_y).sqrt();
+                let side = ((0.5 * (own.0 + other_x) - u) * edge_x + (0.5 * (own.1 + other_y) - v) * edge_y) / length;
+                border = border.min(side);
+            }
+        }
+        let hue = (self.hash(23, pane.0, pane.1) * 0.65
+            + (noise.fbm(own.0 * size * 1.3, own.1 * size * 1.3, 2) * 0.5 + 0.5) * 0.35)
+            .clamp(0., 1.);
+        let density = 0.7 + 0.3 * self.hash(24, pane.0, pane.1);
+        let base = ground.ramp(0.30 + hue * 0.70);
+        // Rolled glass: streaks along the pane, and a slow swell in its thickness.
+        let streak = noise.fbm(x * 7. + own.0 * 3., y * 60. + own.1 * 5., 3) * 0.5 + 0.5;
+        let swell = noise.fbm(x * 2.2 + 11., y * 2.2, 3) * 0.5 + 0.5;
+        // The light behind sits off to one side; the glass glows more near it.
+        let (light_x, light_y) = (self.aspect * (0.45 + 0.4 * o[3]), 0.1 + 0.3 * o[4]);
+        let (to_x, to_y) = (x - light_x, y - light_y);
+        let backlight = 0.75 + 0.85 * (-(to_x * to_x + to_y * to_y) * 1.1).exp();
+        // Each pane is brighter on the side nearest the light.
+        let gradient = 0.5 + 0.5 * ((u - own.0) * ((light_x - x) * 6.).tanh() * 0.8).clamp(-1., 1.);
+        let mut light = (0.62 + 0.32 * swell + 0.30 * (streak - 0.5) + 0.22 * gradient) * backlight * density;
+        light *= 0.72 + 0.28 * smoothstep(0., 0.30, border);
+        let mut colour = base.map(|channel| channel * light);
+        // Where the light shines straight through, the colour burns toward white.
+        colour = encoded_add(colour, encoded_mix(base, [1.; 3], 0.6), (light - 0.9).max(0.) * 0.9);
+        // Light spilling over the lead: a soft bloom of the pane's own colour just outside it.
+        colour = encoded_add(colour, base, (-(border / 0.09).powi(2)).exp() * 0.18 * light);
+        // The lead: near black, rounded, with a thin cool sheen along its middle.
+        let width = 0.05 + pixel / size;
+        let lead = 1. - smoothstep(width * 0.55, width * 1.1, border);
+        let sheen = (-((border - width * 0.3) / (width * 0.2)).powi(2)).exp() * lead;
+        let lead_colour = encoded_add(encoded_mix(ground.background, [0.02, 0.026, 0.034], 0.85), [0.55, 0.62, 0.75], sheen * 0.1);
+        to_linear(encoded_mix(colour, lead_colour, lead))
+    }
+
+    /// Seven layers of soft dunes, the nearest in the brightest accent, each with its crest lit.
+    fn dunes(&self, x: f64, y: f64, pixel: f64) -> Colour {
+        let (ground, noise) = (&self.ground, &self.noise);
+        const LAYERS: usize = 7;
+        let height = |layer: usize, along: f64| {
+            let phase = layer as f64 * 5.7 + self.offsets[0] * 50.;
+            let depth = layer as f64 / (LAYERS - 1) as f64;
+            0.30 + depth * 0.55 + 0.11 * noise.fbm(along * 1.1 + phase, phase, 3) + 0.035 * (along * 3. + phase).sin()
+        };
+        // The layers are opaque, so the nearest one whose crest is above the pixel is all there is to see.
+        for layer in (0..LAYERS).rev() {
+            let crest = height(layer, x);
+            if y < crest {
+                continue;
+            }
+            let depth = layer as f64 / (LAYERS - 1) as f64;
+            let slope = (height(layer, x + 0.004) - height(layer, x - 0.004)) / 0.008;
+            let body = encoded_mix(ground.background, ground.ramp(0.2 + depth * 0.75), 0.5 + 0.5 * depth);
+            let lit = (slope * -2.4).clamp(0., 1.) * 0.35;
+            let mut colour = encoded_add(body, ground.ramp(0.9), lit * (1. - depth * 0.4) * 0.2);
+            let edge = 1. - smoothstep(0., 0.004 + pixel, y - crest);
+            colour = encoded_add(colour, ground.ramp(0.6 + depth * 0.4), edge * 0.35);
+            return to_linear(colour);
+        }
+        to_linear(encoded_mix(ground.background, ground.accents[0], (1. - y) * 0.35))
+    }
+}
+
 // ---- colour ---------------------------------------------------------------------------------
 
 type Colour = [f64; 3];
@@ -555,6 +780,8 @@ struct Scene {
     aspect: f64,
     background: Colour,
     accents: [Colour; 3],
+    /// The same colours as encoded values, for the scenes that blend the way an illustrator does.
+    ground: Ground,
     light: bool,
     /// Per-recipe choices that make one seed's picture differ from another's beyond its noise.
     offsets: [f64; 6],
@@ -571,6 +798,10 @@ impl Scene {
             aspect,
             background: linear(recipe.palette.background),
             accents: recipe.palette.accents.map(linear),
+            ground: Ground {
+                background: recipe.palette.background.0.map(|channel| f64::from(channel) / 255.),
+                accents: recipe.palette.accents.map(|accent| accent.0.map(|channel| f64::from(channel) / 255.)),
+            },
             light: recipe.palette.light,
             offsets: std::array::from_fn(|_| random.unit()),
         }
@@ -581,6 +812,10 @@ impl Scene {
         match self.style {
             Style::Contours => self.contours(x, y, pixel),
             Style::Sunset => self.sunset(x, y, pixel),
+            Style::Aurora => self.aurora(x, y, pixel),
+            Style::Mesh => self.mesh(x, y, pixel),
+            Style::StainedGlass => self.stained_glass(x, y, pixel),
+            Style::Dunes => self.dunes(x, y, pixel),
         }
     }
 
@@ -1346,6 +1581,33 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    #[test]
+    fn the_illustrated_styles_keep_their_dark_ground_in_a_light_theme() {
+        // A light theme changes the accents, not the ground: the picture stays dark behind the windows.
+        let mut palette = Palette::from_seed(5);
+        palette.light = true;
+        for style in [Style::Aurora, Style::Mesh, Style::StainedGlass, Style::Dunes] {
+            let image = Recipe::with_palette(style, 5, palette.clone()).render(View::whole(1.8), 96, 54);
+            let mean = image
+                .pixels()
+                .map(|pixel| (f64::from(pixel[0]) + f64::from(pixel[1]) + f64::from(pixel[2])) / 765.)
+                .sum::<f64>()
+                / (96. * 54.);
+            assert!(mean < 0.4, "{style:?} is too bright on a light theme: {mean}");
+        }
+    }
+
+    #[test]
+    fn the_new_styles_are_named_as_their_buttons_say() {
+        assert_eq!(Style::parse("stained-glass"), Some(Style::StainedGlass));
+        assert_eq!(Style::StainedGlass.label(), "Stained glass");
+        assert_eq!(Style::ALL.len(), 6);
+        for style in Style::ALL {
+            let json = serde_json::to_string(&style).unwrap();
+            assert_eq!(json, format!("\"{}\"", style.name()), "a recipe stores the name the command line uses");
+        }
     }
 
     #[test]
