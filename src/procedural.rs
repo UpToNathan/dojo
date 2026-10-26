@@ -476,7 +476,7 @@ impl Scene {
         let across = x / self.frame.width - 0.5;
         let mut colour = encoded_mix(ground.background, ground.accents[0], 0.22 * smoothstep(0.15, 0.8, y));
         // Stars: many, small and crisp, a few larger. None among the ridges.
-        for (scale, keep, radius, strength) in [(210., 0.978, 0.34, 0.55), (120., 0.988, 0.30, 0.8), (62., 0.996, 0.26, 1.0)] {
+        for (scale, keep, radius, strength) in [(210., 0.989, 0.34, 0.55), (120., 0.994, 0.30, 0.8), (62., 0.998, 0.26, 1.0)] {
             let (cell_x, cell_y) = ((x * scale).floor() as i64, (y * scale).floor() as i64);
             let roll = self.hash(7 + scale as i64, cell_x, cell_y);
             if roll > keep {
@@ -720,8 +720,6 @@ fn smoothstep(low: f64, high: f64, value: f64) -> f64 {
 const SUNSET_LAYERS: usize = 8;
 /// How many ridges the aurora's land can have on a very tall canvas.
 const AURORA_LAND: usize = 48;
-/// How far the aurora and its land are raised from where the other scenes put their horizon.
-const AURORA_LIFT: f64 = 0.45;
 /// How many layers of hills a very tall canvas can have in all.
 const SUNSET_MOST: usize = 96;
 
@@ -890,8 +888,6 @@ impl Scene {
             return self.ambient(x, y, pixel);
         }
         let (x, y) = (x - self.frame.left, y - self.frame.top);
-        // The aurora hangs a touch higher than the other scenes' horizon, so its rays reach the screens above.
-        let y = if self.style == Style::Aurora { y + AURORA_LIFT } else { y };
         match self.style {
             Style::Contours => self.contours(x, y, pixel),
             Style::Sunset => self.sunset(x, y, pixel),
