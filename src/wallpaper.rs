@@ -29,6 +29,9 @@ struct Procedural {
     aspect: f64,
     /// How tall the canvas is in the scene's unit: one unless the monitors it spans differ in height.
     height: f64,
+    /// Where the scene's frame starts on this monitor's canvas (see `View`).
+    top: f64,
+    left: f64,
 }
 
 /// A single pixel of the recipe's background, shown until a monitor has drawn its own part.
@@ -321,6 +324,8 @@ impl WallpaperView {
                     aspect: procedural.aspect,
                     height: procedural.height,
                     region,
+                    top: procedural.top,
+                    left: procedural.left,
                 },
                 // Without a layout from Niri each monitor shows the whole canvas in its own shape.
                 None => View::whole(f64::from(target.0) / f64::from(target.1)),
@@ -553,6 +558,8 @@ impl WallpaperController {
                 // Without Niri's layout each monitor shows the whole canvas, so any shape does.
                 aspect: placed.map_or(16. / 9., |placed| placed.aspect),
                 height: placed.map_or(1., |placed| placed.height),
+                top: placed.map_or(0., |placed| placed.top),
+                left: placed.map_or(0., |placed| placed.left),
             });
             if let Some(window) = self.windows.get(&display.id()) {
                 window.update(cx, |view, _window, cx| {

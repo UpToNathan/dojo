@@ -54,11 +54,37 @@ pub struct Placement {
     /// How tall that canvas is in the scene's unit (see [`crate::procedural::View`]).
     pub height: f64,
     pub region: Region,
+    /// The scene's own y at the canvas's top edge, in the scene's unit (see [`crate::procedural::View`]).
+    pub top: f64,
+    /// The scene's own x at the canvas's left edge.
+    pub left: f64,
 }
 
 /// How tall a canvas across `monitors` is in the scene's unit, which is the height of the shortest
 /// monitor: on that monitor the scene is exactly the size it is on a desktop of one monitor, and
 /// monitors of other heights show more of it, not a bigger one. One unit when the monitors are alike.
+fn shortest_height(monitors: &[Monitor]) -> f64 {
+    monitors.iter().map(|m| m.height).fold(f64::INFINITY, f64::min)
+}
+
+/// Which row monitor `index` is in: how many monitors that overlap it sideways sit above it. Monitors
+/// in a row share their scenery; stacked monitors are in different rows.
+fn row_of(monitors: &[Monitor], index: usize) -> (usize, usize) {
+    let this = monitors[index];
+    let above = monitors
+        .iter()
+        .enumerate()
+        .filter(|(other, m)| {
+            *other != index
+                && m.y + 0.5 * m.height <= this.y + 0.5 * this.height
+                && m.x < this.x + this.width * 0.9
+                && m.x + m.width > this.x + this.width * 0.1
+                && (m.y < this.y || (m.y == this.y && *other < index))
+        })
+        .count();
+    (above, monitors.len())
+}
+
 pub fn canvas_height(monitors: &[Monitor]) -> Option<f64> {
     let top = monitors.iter().map(|m| m.y).fold(f64::INFINITY, f64::min);
     let bottom = monitors.iter().map(|m| m.y + m.height).fold(f64::NEG_INFINITY, f64::max);
@@ -76,16 +102,30 @@ pub fn placements(monitors: &[Monitor], layout: WallpaperLayout) -> Option<(f64,
     let placements = monitors
         .iter()
         .zip(regions)
-        .map(|(monitor, spanned)| match layout {
-            WallpaperLayout::Span => Placement {
-                aspect,
-                height,
-                region: spanned,
-            },
+        .enumerate()
+        .map(|(index, (monitor, spanned))| match layout {
+            WallpaperLayout::Span => {
+                // Every monitor's picture starts at its own top edge, so each has a whole scene whatever
+                // its height or where it sits; and the scenery is continuous from one monitor to the next
+                // in a row, but different for monitors stacked over one another.
+                let unit = shortest_height(monitors);
+                let top = monitors.iter().map(|m| m.y).fold(f64::INFINITY, f64::min);
+                let left = monitors.iter().map(|m| m.x).fold(f64::INFINITY, f64::min);
+                let (row, _) = row_of(monitors, index);
+                Placement {
+                    aspect,
+                    height,
+                    region: spanned,
+                    top: -(monitor.y - top) / unit,
+                    left: row as f64 * 0.43 * (aspect * height) + 0. * left,
+                }
+            }
             WallpaperLayout::Fill => Placement {
                 aspect: monitor.width / monitor.height,
                 height: 1.,
                 region: whole(),
+                top: 0.,
+                left: 0.,
             },
         })
         .collect();
@@ -225,6 +265,8 @@ pub fn preview_image(
                 aspect: placement.aspect,
                 height: placement.height,
                 region: placement.region,
+                top: placement.top,
+                left: placement.left,
             },
             width,
             height,
@@ -367,6 +409,29 @@ mod tests {
         assert!(close(spanned_placements[1].region.height * spanned_placements[1].height, 1920. / 1080.));
         assert!(close(spanned_placements[0].region.height * spanned_placements[0].height, 1.));
         assert!(canvas_height(&[]).is_none());
+    }
+
+    #[test]
+    fn each_spanned_monitor_starts_its_scene_at_its_own_top_and_stacked_ones_differ() {
+        // Jupiter-like: two landscape monitors stacked, a portrait one each side.
+        let monitors = [
+            monitor(0., 291., 1080., 1920.),
+            monitor(1080., -457., 1920., 1080.),
+            monitor(3000., 291., 1080., 1920.),
+            monitor(1080., 1071., 1920., 1080.),
+        ];
+        let (_, placed) = placements(&monitors, WallpaperLayout::Span).unwrap();
+        // The scene's top is the monitor's own: the upper landscape monitor starts at 0, and the others are
+        // further down the canvas by their offset in units of the shortest monitor.
+        assert!(close(placed[1].top, 0.));
+        assert!(close(placed[0].top, -(291. + 457.) / 1080.));
+        assert!(close(placed[3].top, -(1071. + 457.) / 1080.));
+        // Monitors in one row share their scenery; the one stacked below another has its own.
+        assert!(close(placed[0].left, 0.) && close(placed[1].left, 0.) && close(placed[2].left, 0.));
+        assert!(placed[3].left > 0.5, "the lower landscape monitor shows different scenery: {}", placed[3].left);
+        // A fill has no offsets at all.
+        let (_, filled) = placements(&monitors, WallpaperLayout::Fill).unwrap();
+        assert!(filled.iter().all(|placement| placement.top == 0. && placement.left == 0.));
     }
 
     #[test]
