@@ -271,6 +271,30 @@ pub fn apply_wallpaper(
     bytes: Vec<u8>,
     fallback: Option<super::SemanticPalette>,
 ) -> anyhow::Result<ApplyReport> {
+    publish_wallpaper(store, fallback, |theme| theme.with_wallpaper_snapshot(path, bytes))
+}
+
+/// Selects a generated wallpaper, keeping the palette, preset, appearance and targets as
+/// [`apply_wallpaper`] does. `aspect` is the canvas's width over its height, which shapes the
+/// reference picture retained for palette derivation and the lock and login screens.
+pub fn apply_procedural(
+    store: &ThemeStore,
+    recipe: crate::procedural::Recipe,
+    aspect: f64,
+    fallback: Option<super::SemanticPalette>,
+) -> anyhow::Result<ApplyReport> {
+    let reference = recipe.reference_png(aspect, REFERENCE_EDGE)?;
+    publish_wallpaper(store, fallback, |theme| theme.with_recipe(recipe, reference))
+}
+
+/// The long edge of the picture retained for a generated wallpaper.
+const REFERENCE_EDGE: u32 = 1920;
+
+fn publish_wallpaper(
+    store: &ThemeStore,
+    fallback: Option<super::SemanticPalette>,
+    retain: impl FnOnce(super::Theme) -> anyhow::Result<super::Theme>,
+) -> anyhow::Result<ApplyReport> {
     let _lock = store.lock()?;
     let (theme, mut selection) = match store.selection()? {
         Some(selection) => (store.theme(&selection.generation)?, selection),
@@ -289,7 +313,7 @@ pub fn apply_wallpaper(
             )
         }
     };
-    let theme = theme.with_wallpaper_snapshot(path, bytes)?;
+    let theme = retain(theme)?;
     selection.generation = store.generate(&theme)?;
     apply_locked(store, selection)
 }

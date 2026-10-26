@@ -907,6 +907,7 @@ mod tests {
             image_bytes: Vec::new(),
             mode: Some(Mode::Normal),
             preset: None,
+            recipe: None,
             algorithm_revision: "test".into(),
             dark: SemanticPalette::derive(&Palette { colors }, Appearance::Dark),
             light: SemanticPalette::derive(&Palette { colors }, Appearance::Light),

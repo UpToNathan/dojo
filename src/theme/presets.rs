@@ -173,6 +173,7 @@ impl Theme {
             image_bytes: Vec::new(),
             mode: None,
             preset: Some(preset.id.clone()),
+            recipe: None,
             algorithm_revision: REVISION.into(),
             // A preset is one authored variant, not a fabricated light/dark pair.
             dark: preset.palette.clone(),
@@ -193,6 +194,7 @@ impl Theme {
                     std::fs::read(&snapshot).context("preserving selected wallpaper snapshot")?;
                 theme.wallpaper = previous.wallpaper;
                 theme.wallpaper_sha256 = previous.wallpaper_sha256;
+                theme.recipe = previous.recipe;
             }
         }
         Ok(theme)
@@ -511,6 +513,60 @@ mod tests {
             store.selection()?.context("selection")?.generation,
             report.selection.generation
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_generated_wallpaper_is_kept_as_a_recipe_until_an_image_replaces_it() -> anyhow::Result<()> {
+        use crate::procedural::{FILE_NAME, Recipe, Style};
+        let dir = TestDir::new()?;
+        let store = store(dir.path());
+        let preset = presets()?.remove(3);
+        let previous = apply_with_mode(&store, &preset, vec!["dojo".into()], |_| Ok(()))?;
+        let before = store.theme(&previous.selection.generation)?;
+        let recipe = Recipe::new(Style::Contours, 42);
+
+        let report = super::super::apply_procedural(&store, recipe.clone(), 2.4, None)?;
+        let after = store.theme(&report.selection.generation)?;
+        // Only the wallpaper changed; the palette, preset and targets are the theme's own.
+        assert_eq!(after.preset, before.preset);
+        assert_eq!(after.dark.colors, before.dark.colors);
+        assert_eq!(report.selection.targets, previous.selection.targets);
+        assert_eq!(after.recipe.as_ref(), Some(&recipe));
+        let selected = std::path::PathBuf::from(std::fs::read_to_string(
+            store.paths.root.join("current/wallpaper.txt"),
+        )?);
+        // The wallpaper surface finds the recipe beside the picture it is pointed at, and the
+        // picture is the reference of the canvas's shape.
+        let stored = Recipe::from_json(&std::fs::read(selected.with_file_name(FILE_NAME))?)?;
+        assert_eq!(stored, recipe);
+        let reference = image::load_from_memory(&std::fs::read(&selected)?)?;
+        assert_eq!((reference.width(), reference.height()), (1920, 800));
+
+        // Switching presets keeps the generated wallpaper.
+        let other = presets()?.remove(5);
+        let switched = apply_with_mode(&store, &other, vec!["dojo".into()], |_| Ok(()))?;
+        assert_eq!(
+            store.theme(&switched.selection.generation)?.recipe,
+            Some(recipe)
+        );
+        let kept = std::path::PathBuf::from(std::fs::read_to_string(
+            store.paths.root.join("current/wallpaper.txt"),
+        )?);
+        assert!(kept.with_file_name(FILE_NAME).is_file());
+
+        // A chosen image replaces it, and no recipe is left beside the new picture.
+        let replaced = super::super::apply_wallpaper(
+            &store,
+            &dir.path().join("photo.png"),
+            image_snapshot()?,
+            None,
+        )?;
+        assert_eq!(store.theme(&replaced.selection.generation)?.recipe, None);
+        let photo = std::path::PathBuf::from(std::fs::read_to_string(
+            store.paths.root.join("current/wallpaper.txt"),
+        )?);
+        assert!(!photo.with_file_name(FILE_NAME).exists());
         Ok(())
     }
 

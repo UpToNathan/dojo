@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context as _;
+use dojo::procedural::{Recipe, View, desktop};
 use dojo::theme::wallpaper_layout::{Monitor, Region, WallpaperLayout, span_regions};
 use gpui::{
     App, AppContext, Asset, Context, DisplayId, Render, Subscription, Window, WindowBounds,
@@ -15,6 +16,24 @@ struct WallpaperSource {
     digest: [u8; 32],
     /// Pixel size read from the image header; spanning needs it to know what each monitor shows.
     size: Option<(u32, u32)>,
+    /// How to draw the wallpaper at any size, when it was generated rather than chosen. The file
+    /// at `path` is then only a reference picture and is never decoded for the screen.
+    recipe: Option<Recipe>,
+}
+
+/// A generated wallpaper as one monitor draws it: the recipe and the canvas's shape.
+#[derive(Clone, PartialEq)]
+struct Procedural {
+    recipe: Recipe,
+    /// The canvas's width over its height, which all monitors share.
+    aspect: f64,
+}
+
+/// A single pixel of the recipe's background, shown until a monitor has drawn its own part.
+fn solid(recipe: &Recipe) -> Arc<gpui::RenderImage> {
+    let [red, green, blue] = recipe.palette.background.0;
+    let pixel = image::RgbaImage::from_pixel(1, 1, image::Rgba([blue, green, red, 255]));
+    Arc::new(gpui::RenderImage::new(vec![image::Frame::new(pixel)]))
 }
 
 /// A monitor-sized wallpaper read back from the cache.
@@ -99,9 +118,29 @@ fn selected_wallpaper(file: PathBuf) -> anyhow::Result<Option<WallpaperSource>> 
         path.is_absolute() && path.is_file(),
         "selected wallpaper must be an existing absolute file"
     );
+    let recipe = match std::fs::read(path.with_file_name(dojo::procedural::FILE_NAME)) {
+        Ok(bytes) => Recipe::from_json(&bytes)
+            .map_err(|error| eprintln!("Dojo shows the retained picture instead: {error:#}"))
+            .ok(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error).context("reading the wallpaper recipe"),
+    };
+    if let Some(recipe) = recipe {
+        return Ok(Some(WallpaperSource {
+            path,
+            digest: recipe.digest(),
+            size: None,
+            recipe: Some(recipe),
+        }));
+    }
     let digest = Sha256::digest(std::fs::read(&path)?).into();
     let size = image_size(&path);
-    Ok(Some(WallpaperSource { path, digest, size }))
+    Ok(Some(WallpaperSource {
+        path,
+        digest,
+        size,
+        recipe: None,
+    }))
 }
 
 /// `region` limits the cover crop to one part of the image, for a wallpaper spanning monitors.
@@ -202,18 +241,22 @@ struct WallpaperView {
     pending_for: Option<(u32, u32)>,
     /// The part of the image this monitor shows when the wallpaper spans monitors.
     region: Option<Region>,
+    /// Set for a generated wallpaper, which this monitor draws itself at its own pixels.
+    procedural: Option<Procedural>,
 }
 
 impl WallpaperView {
     fn new(
         ready: &ReadyWallpaper,
         region: Option<Region>,
+        procedural: Option<Procedural>,
         width: f32,
         height: f32,
     ) -> Option<Self> {
         let (image, prepared_for) = ready.initial(width, height, region.is_some())?;
         Some(Self {
             region,
+            procedural,
             digest: ready.source.digest,
             path: ready.source.path.clone(),
             source: ready.image.clone(),
@@ -229,8 +272,16 @@ impl WallpaperView {
     }
 
     /// Switches to a different wallpaper or region. The old image stays up until the new one is ready.
-    fn adopt(&mut self, ready: &ReadyWallpaper, region: Option<Region>, width: f32, height: f32) {
+    fn adopt(
+        &mut self,
+        ready: &ReadyWallpaper,
+        region: Option<Region>,
+        procedural: Option<Procedural>,
+        width: f32,
+        height: f32,
+    ) {
         self.region = region;
+        self.procedural = procedural;
         self.digest = ready.source.digest;
         self.path = ready.source.path.clone();
         self.source = ready.image.clone();
@@ -248,6 +299,61 @@ impl WallpaperView {
     }
 }
 
+impl WallpaperView {
+    /// Draws this monitor's part of a generated wallpaper at exactly `target` pixels. Nothing is
+    /// decoded, resampled or cached: the picture is a function of position, so a new size, a
+    /// rotated monitor or a changed arrangement is simply drawn again.
+    fn draw_procedural(
+        &mut self,
+        procedural: Procedural,
+        target: (u32, u32),
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending_for = Some(target);
+        let region = self.region;
+        let wanted = procedural.clone();
+        let drawing = cx.background_executor().spawn(async move {
+            let view = match region {
+                Some(region) => View {
+                    aspect: procedural.aspect,
+                    region,
+                },
+                // Without a layout from Niri each monitor shows the whole canvas in its own shape.
+                None => View::whole(f64::from(target.0) / f64::from(target.1)),
+            };
+            let mut image = procedural.recipe.render(view, target.0, target.1);
+            // The renderer's channel order is RGBA; gpui's images are BGRA.
+            for pixel in image.chunks_exact_mut(4) {
+                pixel.swap(0, 2);
+            }
+            Arc::new(gpui::RenderImage::new(vec![image::Frame::new(image)]))
+        });
+        cx.spawn_in(window, async move |view, cx| {
+            let image = drawing.await;
+            let _ = view.update_in(cx, |view, window, cx| {
+                if view.procedural.as_ref() != Some(&wanted)
+                    || view.region != region
+                    || view.pending_for != Some(target)
+                {
+                    return;
+                }
+                view.pending_for = None;
+                view.prepared_for = Some(target);
+                crate::startup::mark("wallpaper-drawn");
+                let previous = std::mem::replace(&mut view.image, image);
+                window.on_next_frame(move |window, _| {
+                    if let Err(error) = window.drop_image(previous) {
+                        eprintln!("Could not retire previous wallpaper: {error:#}");
+                    }
+                });
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+}
+
 impl Render for WallpaperView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let size = window.viewport_size();
@@ -257,7 +363,9 @@ impl Render for WallpaperView {
             (f32::from(size.height) * scale).round().max(1.) as u32,
         );
         if self.prepared_for != Some(target) && self.pending_for != Some(target) {
-            if let Some(hit) = self
+            if let Some(procedural) = self.procedural.clone() {
+                self.draw_procedural(procedural, target, window, cx);
+            } else if let Some(hit) = self
                 .cached
                 .iter()
                 .find(|cached| (cached.width, cached.height) == target)
@@ -366,6 +474,27 @@ fn span_by_display(size: (u32, u32)) -> anyhow::Result<HashMap<uuid::Uuid, Regio
         .collect())
 }
 
+/// What each display shows of a generated wallpaper, keyed by the display's uuid, with the
+/// canvas's shape. Spanned, a display shows the part of the canvas it occupies; filled, the
+/// centred part with its own shape.
+fn procedural_by_display(layout: WallpaperLayout) -> anyhow::Result<(f64, HashMap<uuid::Uuid, Region>)> {
+    let named = desktop::niri_monitors()?;
+    let monitors: Vec<_> = named.iter().map(|(_, monitor)| *monitor).collect();
+    let (aspect, spanned) = desktop::spanned(&monitors).context("no monitors to span")?;
+    let regions = named
+        .iter()
+        .zip(spanned)
+        .map(|((name, monitor), spanned)| {
+            let region = match layout {
+                WallpaperLayout::Span => spanned,
+                WallpaperLayout::Fill => desktop::filled(aspect, monitor.width, monitor.height),
+            };
+            (crate::edge_reservation::display_uuid(name), region)
+        })
+        .collect();
+    Ok((aspect, regions))
+}
+
 struct WallpaperController {
     selection: WallpaperSelection,
     /// The layout the windows were last reconciled with.
@@ -409,18 +538,33 @@ impl WallpaperController {
             }
             _ => HashMap::new(),
         };
-        for display in displays {
-            let region = display
-                .uuid()
+        let placement = ready.source.recipe.as_ref().and_then(|_| {
+            procedural_by_display(self.selection.layout)
+                .map_err(|error| eprintln!("Dojo could not place the wallpaper: {error:#}"))
                 .ok()
-                .and_then(|uuid| regions.get(&uuid).copied());
+        });
+        for display in displays {
+            let uuid = display.uuid().ok();
+            let region = match (&placement, uuid) {
+                (Some((_, regions)), Some(uuid)) => regions.get(&uuid).copied(),
+                _ => uuid.and_then(|uuid| regions.get(&uuid).copied()),
+            };
+            let procedural = ready.source.recipe.clone().map(|recipe| Procedural {
+                recipe,
+                // Without Niri's layout each monitor shows the whole canvas, so any shape does.
+                aspect: placement.as_ref().map_or(16. / 9., |(aspect, _)| *aspect),
+            });
             if let Some(window) = self.windows.get(&display.id()) {
                 window.update(cx, |view, _window, cx| {
-                    if view.digest != ready.source.digest || view.region != region {
+                    if view.digest != ready.source.digest
+                        || view.region != region
+                        || view.procedural != procedural
+                    {
                         let bounds = display.bounds();
                         view.adopt(
                             ready,
                             region,
+                            procedural.clone(),
                             f32::from(bounds.size.width),
                             f32::from(bounds.size.height),
                         );
@@ -432,6 +576,7 @@ impl WallpaperController {
                 let Some(view) = WallpaperView::new(
                     ready,
                     region,
+                    procedural,
                     f32::from(bounds.size.width),
                     f32::from(bounds.size.height),
                 ) else {
@@ -497,14 +642,16 @@ pub fn start(cx: &mut App, events: async_channel::Receiver<()>) -> anyhow::Resul
                 .spawn(async move {
                     (
                         selected_wallpaper(file),
-                        WallpaperLayout::read(&layout_root),
+                        WallpaperLayout::read_saved(&layout_root),
                     )
                 })
                 .await;
+            // A generated wallpaper is one canvas, so it spans unless a layout was chosen.
+            let generated = matches!(&result, Ok(Some(source)) if source.recipe.is_some());
             match layout {
-                Ok(layout) => {
-                    task_controller.update(cx, |controller, _| controller.selection.layout = layout)
-                }
+                Ok(saved) => task_controller.update(cx, |controller, _| {
+                    controller.selection.layout = WallpaperLayout::in_force(saved, generated)
+                }),
                 Err(error) => eprintln!("Dojo kept its wallpaper layout: {error:#}"),
             }
             let ready = match result {
@@ -525,11 +672,21 @@ pub fn start(cx: &mut App, events: async_channel::Receiver<()>) -> anyhow::Resul
                         continue;
                     }
                     let digest = source.digest;
-                    let cached = cx
-                        .background_executor()
-                        .spawn(async move { load_cached(&digest) })
-                        .await;
-                    if cached.is_empty() {
+                    let cached = if source.recipe.is_some() {
+                        Vec::new()
+                    } else {
+                        cx.background_executor()
+                            .spawn(async move { load_cached(&digest) })
+                            .await
+                    };
+                    if let Some(recipe) = source.recipe.as_ref() {
+                        crate::startup::mark("wallpaper-procedural");
+                        Some(ReadyWallpaper {
+                            image: Some(solid(recipe)),
+                            source,
+                            cached,
+                        })
+                    } else if cached.is_empty() {
                         let resource = gpui::Resource::Path(source.path.clone().into());
                         let loading = cx.update(|cx| {
                             let future = gpui::ImageAssetLoader::load(resource, cx);
@@ -666,6 +823,30 @@ mod tests {
         assert_eq!(image_size(&path), Some((30, 20)));
         std::fs::write(&path, b"not an image")?;
         assert_eq!(image_size(&path), None);
+        Ok(())
+    }
+
+    #[test]
+    fn a_recipe_beside_the_picture_makes_a_generated_wallpaper_named_by_the_recipe()
+    -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let picture = directory.path().join("wallpaper");
+        let selected = directory.path().join("wallpaper.txt");
+        std::fs::write(&picture, b"a reference picture, never decoded for the screen")?;
+        std::fs::write(&selected, picture.to_string_lossy().as_bytes())?;
+        let plain = selected_wallpaper(selected.clone())?.unwrap();
+        assert!(plain.recipe.is_none());
+
+        let recipe = Recipe::new(dojo::procedural::Style::Ridges, 3);
+        std::fs::write(directory.path().join(dojo::procedural::FILE_NAME), recipe.to_json())?;
+        let generated = selected_wallpaper(selected.clone())?.unwrap();
+        assert_eq!(generated.recipe.as_ref(), Some(&recipe));
+        assert_eq!(generated.digest, recipe.digest());
+        assert_eq!(generated.size, None);
+
+        // A recipe this build cannot read leaves the retained picture to be shown instead.
+        std::fs::write(directory.path().join(dojo::procedural::FILE_NAME), b"{}")?;
+        assert!(selected_wallpaper(selected)?.unwrap().recipe.is_none());
         Ok(())
     }
 

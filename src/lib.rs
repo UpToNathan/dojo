@@ -12,6 +12,7 @@ pub mod launch_history;
 pub mod launcher_core;
 pub mod lock;
 pub mod power;
+pub mod procedural;
 pub mod send_panel;
 pub mod session;
 pub mod shortcuts;

@@ -40,12 +40,25 @@ impl WallpaperLayout {
 
     /// The saved layout; [`Fill`](Self::Fill) when none was ever chosen.
     pub fn read(root: &Path) -> anyhow::Result<Self> {
+        Ok(Self::read_saved(root)?.unwrap_or_default())
+    }
+
+    /// The saved layout, or `None` when none was ever chosen.
+    pub fn read_saved(root: &Path) -> anyhow::Result<Option<Self>> {
         let path = root.join(FILE_NAME);
         match fs::read_to_string(&path) {
-            Ok(text) => Self::parse(&text).with_context(|| format!("reading {}", path.display())),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Self::Fill),
+            Ok(text) => Self::parse(&text)
+                .map(Some)
+                .with_context(|| format!("reading {}", path.display())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error).with_context(|| format!("reading {}", path.display())),
         }
+    }
+
+    /// The layout in force: the saved choice, else what suits the wallpaper. A photograph is cut
+    /// to fit each monitor; a generated picture is one continuous canvas, so it spans.
+    pub fn in_force(saved: Option<Self>, generated: bool) -> Self {
+        saved.unwrap_or(if generated { Self::Span } else { Self::Fill })
     }
 
     pub fn write(self, root: &Path) -> anyhow::Result<()> {
@@ -181,6 +194,20 @@ mod tests {
             WallpaperLayout::read(directory.path())?,
             WallpaperLayout::Fill
         );
+        Ok(())
+    }
+
+    #[test]
+    fn an_unchosen_layout_suits_the_kind_of_wallpaper() -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let saved = WallpaperLayout::read_saved(directory.path())?;
+        assert_eq!(saved, None);
+        assert_eq!(WallpaperLayout::in_force(saved, false), WallpaperLayout::Fill);
+        assert_eq!(WallpaperLayout::in_force(saved, true), WallpaperLayout::Span);
+        // A choice, including an explicit fill, outranks the default for either kind.
+        WallpaperLayout::Fill.write(directory.path())?;
+        let saved = WallpaperLayout::read_saved(directory.path())?;
+        assert_eq!(WallpaperLayout::in_force(saved, true), WallpaperLayout::Fill);
         Ok(())
     }
 

@@ -16,7 +16,7 @@ fn run() -> anyhow::Result<()> {
     let command = args.next().unwrap_or_else(|| "help".into());
     if command == "help" || command == "--help" {
         println!(
-            "Usage:\n  dojo-theme preview IMAGE OUTPUT.html\n  dojo-theme generate IMAGE [--mode MODE]\n  dojo-theme apply IMAGE [--mode MODE] [--appearance system|dark|light] [--targets LIST]\n  dojo-theme presets\n  dojo-theme preset ID [--targets LIST]\n  dojo-theme select GENERATION [--appearance system|dark|light] [--targets LIST]\n  dojo-theme rollback\n  dojo-theme lock-wallpaper\n  dojo-theme status\n  dojo-theme watch\nTargets: {}",
+            "Usage:\n  dojo-theme preview IMAGE OUTPUT.html\n  dojo-theme generate IMAGE [--mode MODE]\n  dojo-theme apply IMAGE [--mode MODE] [--appearance system|dark|light] [--targets LIST]\n  dojo-theme presets\n  dojo-theme procedural preview STYLE OUTPUT.png [--seed N] [--aspect W/H] [--edge PX] [--colors theme|random | --palette COLORS]\n  dojo-theme procedural apply STYLE [--seed N] [--layout span|fill] [--colors theme|random | --palette COLORS]\n  dojo-theme preset ID [--targets LIST]\n  dojo-theme select GENERATION [--appearance system|dark|light] [--targets LIST]\n  dojo-theme rollback\n  dojo-theme lock-wallpaper\n  dojo-theme status\n  dojo-theme watch\nTargets: {}",
             theme::TARGETS.join(",")
         );
         return Ok(());
@@ -33,6 +33,9 @@ fn run() -> anyhow::Result<()> {
             );
         }
         return Ok(());
+    }
+    if command == "procedural" {
+        return procedural(&store, args);
     }
     if command == "preset" {
         let id = args
@@ -175,6 +178,92 @@ fn run() -> anyhow::Result<()> {
         },
     )?;
     print_report(report)
+}
+
+/// Generated wallpapers: `preview` draws a style to a PNG without touching the desktop, `apply`
+/// selects one, keeping the palette, and saves the layout (span unless told otherwise).
+fn procedural(store: &ThemeStore, mut args: impl Iterator<Item = String>) -> anyhow::Result<()> {
+    use dojo::procedural::{Palette, Recipe, Style, desktop, parse_colors};
+    use dojo::theme::wallpaper_layout::WallpaperLayout;
+
+    let action = args.next().context("procedural takes preview or apply")?;
+    let style = args.next().context("procedural needs a style")?;
+    let style = Style::parse(&style).with_context(|| {
+        format!(
+            "unknown style {style:?}; expected {}",
+            Style::ALL.map(Style::name).join(", ")
+        )
+    })?;
+    let output = match action.as_str() {
+        "preview" => Some(args.next().context("preview needs an output PNG path")?),
+        "apply" => None,
+        other => bail!("unknown procedural action {other:?}"),
+    };
+    let mut seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos() as u64;
+    let mut aspect = None;
+    let mut edge = 1920;
+    let mut layout = WallpaperLayout::Span;
+    let mut colours = None;
+    let mut pasted = None;
+    while let Some(option) = args.next() {
+        let mut value = || args.next().with_context(|| format!("{option} needs a value"));
+        match option.as_str() {
+            "--seed" => seed = value()?.parse().context("--seed is a whole number")?,
+            "--edge" => edge = value()?.parse().context("--edge is a whole number")?,
+            "--aspect" => {
+                let text = value()?;
+                aspect = Some(match text.split_once('/') {
+                    Some((width, height)) => width.parse::<f64>()? / height.parse::<f64>()?,
+                    None => text.parse()?,
+                });
+            }
+            "--colors" => {
+                colours = Some(match value()?.as_str() {
+                    "theme" => true,
+                    "random" => false,
+                    other => bail!("--colors is theme or random, not {other:?}"),
+                })
+            }
+            "--palette" => pasted = Some(value()?),
+            "--layout" => {
+                layout = match value()?.as_str() {
+                    "span" => WallpaperLayout::Span,
+                    "fill" => WallpaperLayout::Fill,
+                    other => bail!("--layout is span or fill, not {other:?}"),
+                }
+            }
+            _ => bail!("unknown option {option:?}"),
+        }
+    }
+    anyhow::ensure!(
+        colours.is_none() || pasted.is_none(),
+        "--colors and --palette choose the colours two ways; give one"
+    );
+    let palette = match (pasted, colours) {
+        (Some(text), _) => Palette::from_colors(&parse_colors(&text))?,
+        (None, Some(false)) => Palette::from_seed(seed),
+        // By default the wallpaper wears the selected theme's colours, when there is one.
+        (None, themed) => match store.selection()? {
+            Some(selection) => {
+                let theme = store.theme(&selection.generation)?;
+                Palette::from_theme(theme.palette(selection.appearance))?
+            }
+            None if themed == Some(true) => bail!("--colors theme needs a selected theme"),
+            None => Palette::from_seed(seed),
+        },
+    };
+    let recipe = Recipe::with_palette(style, seed, palette);
+    let aspect = aspect.unwrap_or_else(desktop::current_aspect);
+    if let Some(output) = output {
+        std::fs::write(&output, recipe.reference_png(aspect, edge)?)?;
+        println!("{} seed {seed} written to {output}", style.name());
+        return Ok(());
+    }
+    layout.write(&store.paths.root)?;
+    println!("{} seed {seed}, layout {}", style.name(), layout.name());
+    print_report(theme::apply_procedural(store, recipe, aspect, None)?)
 }
 
 fn print_report(report: theme::ApplyReport) -> anyhow::Result<()> {
