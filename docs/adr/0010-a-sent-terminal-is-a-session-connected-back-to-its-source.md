@@ -10,7 +10,7 @@ A terminal is now sent as a window on the peer that is **connected back to the m
 
 The handoff can name the machine the session lives on (`host`). A window that is itself such a session (a kitty running `dojo-mesh shell HOST --directory DIR`) is sent as that session, so sending it **back** to HOST opens an ordinary terminal there, and sending it to a third machine connects that one to HOST. It reopens in the directory the session started in: where the shell has moved to since is known only to the machine it runs on.
 
-T3 Code follows the same idea: its thread is not moved either, and the peer's T3 Code opens it through T3 Connect from a `t3code://` link.
+T3 Code follows the same idea: its thread is not moved either, and the peer's T3 Code opens it through T3 Connect from a `t3code://` link. Its window closes afterwards unless an agent is working, since closing the last window quits T3 Code and stops its runs.
 
 ## Consequences
 

@@ -384,32 +384,49 @@ fn t3(context: &Context) -> Result<Captured, Fallback> {
     let home = context.t3_home.as_ref().ok_or_else(|| relaunch("T3 Code's data directory is not known"))?;
     let environment = context.probe.read(&home.join("userdata/environment-id")).map(|text| text.trim().to_string()).filter(|id| !id.is_empty()).ok_or_else(|| relaunch("T3 Code has no environment id here yet"))?;
     let listing = context.probe.t3_threads(home).map_err(|error| relaunch(&format!("T3 Code's threads could not be read: {error}")))?;
-    let threads = parse_t3_threads(&listing).map_err(|error| relaunch(&format!("T3 Code's threads could not be read: {error}")))?;
+    let (threads, running) = parse_t3_threads(&listing).map_err(|error| relaunch(&format!("T3 Code's threads could not be read: {error}")))?;
     let chosen = match &context.thread {
         Some(id) => threads.iter().find(|thread| &thread.id == id).ok_or_else(|| Fallback::Refuse(format!("there is no recent T3 Code thread {id}")))?,
         None => threads.first().ok_or_else(|| relaunch("T3 Code has no threads to open"))?,
     };
     let handoff = Handoff::T3Thread { environment, thread: chosen.id.clone() };
-    let closes = Closes::Nothing { why: "T3 Code's window holds your other threads and its backend, so it stays".into() };
-    let notes = vec!["the thread opens in T3 Code there through T3 Connect; its conversation is not copied".into()];
+    // T3 Code quits when its last window closes, and its backend and every run in progress stop with it.
+    // So the window closes once the peer has the thread, unless an agent is working here.
+    let closes = if running == 0 {
+        Closes::Window
+    } else {
+        Closes::Nothing { why: format!("{running} agent run{} in progress here, and would stop if T3 Code quit", if running == 1 { " is" } else { "s are" }) }
+    };
+    let mut notes = vec!["the thread opens in T3 Code there through T3 Connect; its conversation is not copied".into()];
+    if running == 0 {
+        notes.push("closing T3 Code's window quits it here, backend included".into());
+    }
     Ok(Captured { handoff, closes, scopes: Vec::new(), tab_count: None, threads, notes })
 }
 
-/// The threads in the probe's answer, newest first, skipping any whose id could not be put in a link.
-pub fn parse_t3_threads(listing: &str) -> Result<Vec<Thread>, String> {
+/// The threads in the probe's answer, newest first, skipping any whose id could not be put in a link,
+/// and how many agent runs are in progress.
+pub fn parse_t3_threads(listing: &str) -> Result<(Vec<Thread>, usize), String> {
     #[derive(Deserialize)]
     struct Row {
         id: String,
         title: Option<String>,
         project: Option<String>,
     }
-    let rows: Vec<Row> = serde_json::from_str(listing).map_err(|error| error.to_string())?;
+    #[derive(Deserialize)]
+    struct Listing {
+        threads: Vec<Row>,
+        running: usize,
+    }
+    let listing: Listing = serde_json::from_str(listing).map_err(|error| error.to_string())?;
     let safe = |id: &str| !id.is_empty() && id.len() <= 200 && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'));
-    Ok(rows.into_iter().filter(|row| safe(&row.id)).map(|row| Thread { title: row.title.filter(|title| !title.trim().is_empty()).unwrap_or_else(|| "untitled".into()), id: row.id, project: row.project }).collect())
+    let threads = listing.threads.into_iter().filter(|row| safe(&row.id)).map(|row| Thread { title: row.title.filter(|title| !title.trim().is_empty()).unwrap_or_else(|| "untitled".into()), id: row.id, project: row.project }).collect();
+    Ok((threads, listing.running))
 }
 
 /// Reads T3 Code's own database, read-only, with the Node that ships inside the app (it has
-/// `node:sqlite`). The newest message decides which threads are recent; subagent threads are left out.
+/// `node:sqlite`). The newest message decides which threads are recent; subagent threads are left out;
+/// `running` counts the agent runs in progress, which stop when T3 Code quits.
 const T3_THREADS_SCRIPT: &str = r#"const { DatabaseSync } = require("node:sqlite");
 const db = new DatabaseSync(process.env.T3_STATE_DB, { readOnly: true });
 const rows = db.prepare(`select t.thread_id as id, t.title as title, p.title as project,
@@ -418,7 +435,8 @@ const rows = db.prepare(`select t.thread_id as id, t.title as title, p.title as 
   where t.deleted_at is null and t.archived_at is null
   and t.thread_id not in (select child_thread_id from orchestration_v2_projection_subagents where child_thread_id is not null)
   order by coalesce(last, t.updated_at) desc limit 8`).all();
-console.log(JSON.stringify(rows));"#;
+const running = db.prepare(`select count(*) as n from orchestration_v2_projection_runs where status in ('running', 'starting', 'queued', 'preparing', 'waiting')`).get().n;
+console.log(JSON.stringify({ threads: rows, running }));"#;
 
 impl Probe for System {
     fn kitty_ls(&self, socket: &Path, password: &str, public_key: &str) -> Result<String, String> {
@@ -592,7 +610,7 @@ mod tests {
         Context { t3_home: Some("/home/a/.t3".into()), thread: thread.map(String::from), ..with(fake, entries) }
     }
 
-    const THREADS: &str = r#"[{"id":"t-new","title":"newest","project":"Dojo"},{"id":"t-old","title":"older","project":null},{"id":"bad/id","title":"x","project":null},{"id":"t-blank","title":"  ","project":"Dojo"}]"#;
+    const THREADS: &str = r#"{"running":0,"threads":[{"id":"t-new","title":"newest","project":"Dojo"},{"id":"t-old","title":"older","project":null},{"id":"bad/id","title":"x","project":null},{"id":"t-blank","title":"  ","project":"Dojo"}]}"#;
 
     #[test]
     fn t3_is_sent_as_its_newest_thread_unless_one_is_chosen_and_nothing_closes() {
@@ -601,11 +619,21 @@ mod tests {
         let window = window("com.t3tools.T3Code", "T3 Code (Beta)");
         let captured = capture_tab(&window, &t3_context(&fake, &entries, None)).unwrap();
         assert_eq!(captured.handoff, Handoff::T3Thread { environment: "env-1".into(), thread: "t-new".into() });
-        assert!(matches!(captured.closes, Closes::Nothing { .. }));
+        assert_eq!(captured.closes, Closes::Window, "nothing is running, so the window closes once the peer has the thread");
         let titles: Vec<&str> = captured.threads.iter().map(|thread| thread.title.as_str()).collect();
         assert_eq!(titles, ["newest", "older", "untitled"], "an id that cannot be put in a link is left out, a blank title is named");
         let chosen = capture_tab(&window, &t3_context(&fake, &entries, Some("t-old"))).unwrap();
         assert_eq!(chosen.handoff, Handoff::T3Thread { environment: "env-1".into(), thread: "t-old".into() });
+    }
+
+    #[test]
+    fn t3_stays_open_while_an_agent_is_working_because_quitting_would_stop_it() {
+        let busy = THREADS.replace(r#""running":0"#, r#""running":2"#);
+        let fake = t3_fake(Some(&busy));
+        let entries = entries();
+        let captured = capture_tab(&window("com.t3tools.T3Code", "T3 Code (Beta)"), &t3_context(&fake, &entries, None)).unwrap();
+        assert!(matches!(&captured.closes, Closes::Nothing { why } if why.contains("2 agent runs are in progress")), "{:?}", captured.closes);
+        assert!(!captured.notes.iter().any(|note| note.contains("quits it")));
     }
 
     #[test]
@@ -621,8 +649,9 @@ mod tests {
 
     #[test]
     fn the_thread_list_is_read_as_json_and_a_broken_answer_is_an_error() {
-        assert_eq!(parse_t3_threads("[]").unwrap(), Vec::new());
+        assert_eq!(parse_t3_threads(r#"{"threads":[],"running":2}"#).unwrap(), (Vec::new(), 2));
         assert!(parse_t3_threads("not json").is_err());
+        assert!(parse_t3_threads("[]").is_err(), "the old bare list is no longer what the probe says");
     }
 
     #[test]

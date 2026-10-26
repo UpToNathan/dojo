@@ -49,6 +49,8 @@ pub struct Preview {
     /// When the application cannot say what the window shows (T3 Code), what it might show, newest
     /// first: (id, label). T chooses between them; the first is sent otherwise.
     pub threads: Vec<(String, String)>,
+    /// The window closes here once the peer has what it sent (as `dojo-mesh send --dry-run` says).
+    pub closes_window: bool,
 }
 
 /// What the panel asks its owner to do after a key.
@@ -453,7 +455,7 @@ mod tests {
     #[test]
     fn each_window_is_previewed_once_per_scope_when_selected() {
         let mut model = ready(&Memory::default());
-        let plain = |sent: &str| Preview { sent: sent.into(), notes: vec![], can_send_window: false, tab_count: None, threads: vec![] };
+        let plain = |sent: &str| Preview { sent: sent.into(), notes: vec![], can_send_window: false, tab_count: None, threads: vec![], closes_window: false };
         assert_eq!(model.needs_preview(), Some((9, false)));
         model.set_preview(9, false, Ok(Preview { can_send_window: true, tab_count: Some(4), ..plain("the page https://x") }));
         assert_eq!(model.needs_preview(), None);
@@ -474,7 +476,7 @@ mod tests {
     fn t_chooses_between_a_windows_threads_and_the_send_names_the_one_chosen() {
         let mut model = ready(&Memory { peer: Some("beta".into()), take_input: false, ..Default::default() });
         let threads = vec![("t-1".to_string(), "newest · Dojo".to_string()), ("t-2".to_string(), "older".to_string()), ("t-3".to_string(), "oldest".to_string())];
-        model.set_preview(9, false, Ok(Preview { sent: "the T3 Code thread t-1".into(), notes: vec![], can_send_window: false, tab_count: None, threads }));
+        model.set_preview(9, false, Ok(Preview { sent: "the T3 Code thread t-1".into(), notes: vec![], can_send_window: false, tab_count: None, threads, closes_window: true }));
         assert_eq!(model.chosen_thread().map(|(id, _)| id.as_str()), Some("t-1"), "the newest is chosen until another is");
         model.key("t");
         model.key("t");
@@ -490,7 +492,7 @@ mod tests {
     #[test]
     fn t_does_nothing_for_a_window_with_nothing_to_choose() {
         let mut model = ready(&Memory { peer: Some("beta".into()), take_input: false, ..Default::default() });
-        model.set_preview(9, false, Ok(Preview { sent: "the page https://x".into(), notes: vec![], can_send_window: false, tab_count: None, threads: vec![] }));
+        model.set_preview(9, false, Ok(Preview { sent: "the page https://x".into(), notes: vec![], can_send_window: false, tab_count: None, threads: vec![], closes_window: false }));
         model.key("t");
         assert_eq!(model.thread, 0);
         assert_eq!(model.chosen_thread(), None);
