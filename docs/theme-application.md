@@ -48,7 +48,7 @@ left of the system tray. It opens on Wallpaper and offers Wallpaper, Presets, an
   previews **Span all monitors**, and with no saved layout it spans. **Theme colours**
   (the default) borrow the selected theme's background and its primary and secondary colours (a deep shade of the primary, the primary, then the secondary; its other colours are not used), **Random colours**
   take them from the seed, and **Paste palette** reads two or more `#rrggbb` colours from
-  the clipboard. Colours are made dark enough to sit behind windows. The recipe is kept
+  the clipboard. The ground is the theme's own `background` and nothing is darkened or capped, so the wallpaper meets the shell in the same colour. The recipe is kept
   as `wallpaper-recipe.json` beside the retained `wallpaper` (a PNG of the whole canvas
   that derivation, the lock screen and the login screen read like any image). Applying a
   preset keeps it; choosing an image replaces it; it does not follow later theme changes.

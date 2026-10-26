@@ -19,12 +19,6 @@ use crate::theme::wallpaper_layout::Region;
 
 pub mod desktop;
 
-/// The brightest the wallpaper's ground may be, as linear luminance. Every dark theme's own
-/// background is below it (Tokyo Night Storm's is about 0.022, Nord's 0.03), so the ground is the
-/// shell's colour exactly; it only darkens a background that is not dark, such as a light theme's
-/// pale one, or a pasted colour that is bright.
-const GROUND_CEILING: f64 = 0.05;
-
 /// The recipe format this build reads and writes.
 pub const VERSION: u32 = 1;
 
@@ -151,11 +145,11 @@ impl Palette {
 }
 
 impl Palette {
-    /// Colours borrowed from a theme, so the wallpaper belongs with the rest of the desktop. The
-    /// background is the theme's darker of background and foreground (a light theme's text). The
-    /// accents are chosen by role, not by brightness, so the picture wears the theme's own
-    /// identity: a deep shade of its primary colour, the primary itself, and its secondary. A
-    /// theme's other colours (a cyan "info", a green "success") are left out.
+    /// Colours borrowed from a theme, so the wallpaper belongs with the rest of the desktop,
+    /// used as the theme states them: the ground is its `background`, the shell's own colour.
+    /// The accents are chosen by role, not by brightness, so the picture wears the theme's own
+    /// identity: a shade between the ground and its primary, the primary itself, and its
+    /// secondary. A theme's other colours (a cyan "info", a green "success") are left out.
     pub fn from_theme(theme: &crate::theme::SemanticPalette) -> anyhow::Result<Self> {
         let colour = |role: &str| -> anyhow::Result<Rgb> {
             theme
@@ -163,17 +157,17 @@ impl Palette {
                 .parse()
                 .with_context(|| format!("the theme's {role} colour"))
         };
-        let (background, foreground) = (colour("background")?, colour("foreground")?);
-        let ground = if luminance(linear(background)) <= luminance(linear(foreground)) {
-            background
-        } else {
-            foreground
-        };
-        let (primary, secondary) = (linear(colour("primary")?), linear(colour("secondary")?));
-        let deep = mix(linear(ground), primary, 0.45);
-        let mut palette = Self::finish(ground, [deep, primary, secondary]);
-        palette.light = theme.appearance == crate::theme::Appearance::Light;
-        Ok(palette)
+        let (ground, primary, secondary) = (
+            colour("background")?,
+            colour("primary")?,
+            colour("secondary")?,
+        );
+        let deep = srgb(mix(linear(ground), linear(primary), 0.45));
+        Ok(Self {
+            background: ground,
+            accents: [deep, primary, secondary],
+            light: theme.appearance == crate::theme::Appearance::Light,
+        })
     }
 
     /// A palette from colours the user chose: the darkest is the background, the rest are the
@@ -191,38 +185,31 @@ impl Palette {
     }
 
     /// `accents` may be any number of colours: three are chosen from them, or made up from one or
-    /// two, ordered from dim to bright. The result stays dark enough for a wallpaper: the
-    /// background is darkened to a deep tone and the dimmest accent is held back, so a bright
-    /// palette still gives a picture that sits behind windows.
+    /// two, ordered from dim to bright. Nothing is darkened or limited: the colours are the ones
+    /// given.
     fn from_parts(background: Rgb, accents: &[Rgb]) -> anyhow::Result<Self> {
         anyhow::ensure!(!accents.is_empty(), "a palette needs an accent colour");
         let mut accents = accents.to_vec();
         accents.sort_by(|a, b| luminance(linear(*a)).total_cmp(&luminance(linear(*b))));
         accents.dedup();
-        let ground = limit_luminance(linear(background), GROUND_CEILING);
-        let colours: Vec<Colour> = accents.iter().map(|accent| linear(*accent)).collect();
-        let three: [Colour; 3] = match colours.len() {
+        let three = match accents.len() {
             1 => [
-                mix(ground, colours[0], 0.45),
-                colours[0],
-                mix(colours[0], [1.; 3], 0.35),
+                srgb(mix(linear(background), linear(accents[0]), 0.45)),
+                accents[0],
+                srgb(mix(linear(accents[0]), [1.; 3], 0.35)),
             ],
-            2 => [colours[0], mix(colours[0], colours[1], 0.5), colours[1]],
-            count => [colours[0], colours[count / 2], colours[count - 1]],
+            2 => [
+                accents[0],
+                srgb(mix(linear(accents[0]), linear(accents[1]), 0.5)),
+                accents[1],
+            ],
+            count => [accents[0], accents[count / 2], accents[count - 1]],
         };
-        Ok(Self::finish(background, three))
-    }
-
-    /// `accents` as given, with the background darkened to a deep tone and the dimmest accent held
-    /// back, so a bright palette still gives a picture that sits behind windows.
-    fn finish(background: Rgb, mut accents: [Colour; 3]) -> Self {
-        let ground = limit_luminance(linear(background), GROUND_CEILING);
-        accents[0] = limit_luminance(accents[0], 0.1);
-        Self {
-            background: srgb(ground),
-            accents: accents.map(srgb),
+        Ok(Self {
+            background,
+            accents: three,
             light: false,
-        }
+        })
     }
 }
 
@@ -683,26 +670,42 @@ impl Scene {
 
     fn sunset(&self, x: f64, y: f64, pixel: f64) -> Colour {
         let white = [1.; 3];
-        // The sky climbs from the background to a glow at the horizon, in the palette's own
-        // colours. A light theme gets a bright sky and sun, a dark one a dim moon and stars.
-        let lift = |colour: Colour| mix(colour, white, 0.5);
+        // Brightness is set relative to the theme's own ground, so a theme with a lighter dark
+        // background (Storm's) gets the same picture, a little lifted, rather than one that dips
+        // below its own sky.
+        let ground = luminance(self.background);
+        // The ridges and sky are tuned against a ground like Tokyo Night's (luminance 0.011). A
+        // lighter dark ground lifts them, but only by a fraction of the difference, or a
+        // theme with a lighter background would get a picture twice as bright.
+        let lift_for_ground = (ground / 0.011).powf(0.4).clamp(0.6, 2.);
         let (top, horizon) = if self.light {
-            (
-                lift(self.accents[0]),
-                lift(mix(self.accents[1], self.accents[2], 0.5)),
-            )
-        } else {
-            // A dark sky is the theme's dark ground at the top, deep primary through the middle
-            // and a haze of the secondary at the horizon: dim, but still those colours.
+            // A light theme's sky is its background, warming to the secondary at the horizon.
             (
                 self.background,
-                at_luminance(mix(self.accents[1], self.accents[2], 0.7), 0.045),
+                mix(
+                    self.background,
+                    mix(self.accents[1], self.accents[2], 0.55),
+                    0.4,
+                ),
+            )
+        } else {
+            // A dark sky is the ground at the top, the primary through the middle and a haze of
+            // the secondary at the horizon: the theme's colours at a low value.
+            (
+                self.background,
+                at_luminance(
+                    mix(self.accents[1], self.accents[2], 0.7),
+                    (0.045 * lift_for_ground).max(ground * 1.5),
+                ),
             )
         };
         let mut colour = if self.light {
             mix(top, horizon, smoothstep(0.0, 0.62, y).powf(1.5))
         } else {
-            let middle = at_luminance(self.accents[1], 0.018);
+            let middle = at_luminance(
+                self.accents[1],
+                (0.018 * lift_for_ground).max(ground * 1.15),
+            );
             if y < 0.4 {
                 mix(top, middle, smoothstep(0.0, 0.4, y))
             } else {
@@ -714,7 +717,7 @@ impl Scene {
         let (dx, dy) = (x - sun_x, y - sun_y);
         let distance = (dx * dx + dy * dy).sqrt();
         let (radius, halo, body) = if self.light {
-            (0.07, 0.42, mix(self.accents[2], white, 0.55))
+            (0.07, 0.3, mix(self.accents[2], white, 0.15))
         } else {
             // Dim enough to sit behind a terminal: the brightest accent is no limit on the moon.
             (
@@ -723,10 +726,13 @@ impl Scene {
                 limit_luminance(mix(self.accents[2], self.accents[1], 0.35), 0.14),
             )
         };
-        colour = add(
-            colour,
-            scale(body, halo * (-distance * distance / 0.045).exp()),
-        );
+        let glow = halo * (-distance * distance / 0.045).exp();
+        colour = if self.light {
+            // On a light sky the halo is the sun's colour laid over it, not light added to it.
+            mix(colour, body, glow)
+        } else {
+            add(colour, scale(body, glow))
+        };
         let disc = 1. - smoothstep(radius - pixel, radius + pixel, distance);
         colour = mix(colour, body, disc * if self.light { 0.95 } else { 0.8 });
 
@@ -770,15 +776,13 @@ impl Scene {
             let facet = into.floor() as i64;
             let jitter = self.hash(layer as i64 + 31, k, facet) - 0.5;
 
-            let (body, lit, dark) = if self.light {
-                let fog = mix(horizon, self.background, 0.3 + 0.4 * depth);
-                let body = mix(fog, scale(self.background, 0.85), depth.powf(0.8));
-                let tint = mix(self.accents[1], self.accents[2], 0.35 + 0.35 * (1. - depth));
-                (
-                    body,
-                    mix(body, tint, 0.34 * (1. - 0.5 * depth)),
-                    scale(body, 0.6),
-                )
+            let (lit, dark) = if self.light {
+                // Far ridges are a wash of the hue over the sky; near ones are the hue itself,
+                // darkened, so they stand out against a light sky.
+                let hue = mix(self.accents[2], self.accents[1], (depth * 1.6).min(1.));
+                let wash = mix(horizon, hue, 0.3 + 0.2 * depth);
+                let body = mix(wash, at_luminance(hue, 0.05), depth.powf(1.4));
+                (mix(body, white, 0.25), scale(body, 0.65))
             } else {
                 // Far ridges are the secondary, the middle ones the primary, and the nearest
                 // fall back to the theme's dark ground; each is the theme's own hue scaled to a
@@ -786,15 +790,15 @@ impl Scene {
                 // catch the light are the same hue brighter.
                 let hue = mix(self.accents[2], self.accents[1], (depth * 1.6).min(1.));
                 let near = smoothstep(0.55, 1., depth);
-                let value = 0.05 * (1. - near) + 0.011 * near;
-                let ground = smoothstep(0.7, 1., depth);
-                let body = mix(at_luminance(hue, value), self.background, ground);
+                let value = 0.05 * lift_for_ground * (1. - near) + ground * near;
+                let settle = smoothstep(0.7, 1., depth);
+                let body = mix(at_luminance(hue, value), self.background, settle);
                 let lit = mix(
                     at_luminance(hue, value * 1.8),
                     scale(self.background, 1.5),
-                    ground,
+                    settle,
                 );
-                (body, lit, scale(body, 0.55))
+                (lit, scale(body, 0.55))
             };
             let shade = (0.5 + 0.5 * facing + 0.22 * jitter - 0.025 * facet as f64).clamp(0., 1.);
             colour = mix(colour, mix(dark, lit, shade), coverage);
@@ -861,10 +865,11 @@ impl Scene {
         // light and the lines, so both of the theme's colours are seen across the picture.
         let tone = tone(here, x, y).clamp(0., 1.);
         let high = smoothstep(0.35, 0.95, tone);
+        // The ground is the theme's background, drawn toward the accents by a few percent.
         let mut ground = mix(
             self.background,
-            scale(mix(self.accents[0], self.accents[2], high * 0.6), 0.05),
-            tone * look.tint,
+            mix(self.accents[0], self.accents[2], high * 0.6),
+            0.03 * tone * look.tint,
         );
         if look.shade > 0. {
             // A light from the upper left: surfaces facing it brighten, those facing away dim.
@@ -1125,7 +1130,7 @@ mod tests {
     }
 
     #[test]
-    fn a_dark_themes_own_background_is_kept_exactly() -> anyhow::Result<()> {
+    fn a_themes_own_background_is_the_ground_exactly() -> anyhow::Result<()> {
         use crate::extraction::{Palette as Swatches, Rgb as Swatch};
         use crate::theme::{Appearance, SemanticPalette};
         // Tokyo Night Storm and Tokyo Night differ only in their backgrounds, so a wallpaper that
@@ -1139,11 +1144,11 @@ mod tests {
         };
         let night = Palette::from_theme(&theme(Swatch(26, 27, 38)))?;
         let storm = Palette::from_theme(&theme(Swatch(36, 40, 59)))?;
-        let near =
-            |have: Rgb, want: [u8; 3]| have.0.iter().zip(want).all(|(a, b)| a.abs_diff(b) <= 2);
-        assert!(near(night.background, [26, 27, 38]), "{}", night.background);
-        assert!(near(storm.background, [36, 40, 59]), "{}", storm.background);
-        assert_eq!(night.accents, storm.accents);
+        // No limit touches the ground: it is the theme's background as it is.
+        assert_eq!(night.background, Rgb([26, 27, 38]));
+        assert_eq!(storm.background, Rgb([36, 40, 59]));
+        // Their primary and secondary are the same, so the accents that name them are too.
+        assert_eq!(night.accents[1..], storm.accents[1..]);
         let view = View::whole(1.9);
         for style in Style::ALL {
             assert_ne!(
@@ -1167,21 +1172,16 @@ mod tests {
     }
 
     #[test]
-    fn a_pasted_palette_keeps_its_hues_and_stays_dark_enough_for_a_wallpaper() -> anyhow::Result<()>
-    {
-        // A light palette: the lightest is not the background, and nothing is washed out.
+    fn a_pasted_palette_is_used_exactly_as_given() -> anyhow::Result<()> {
+        // The darkest colour is the ground and the rest are the accents, none of them changed.
         let palette = Palette::from_colors(&[
             Rgb([250, 250, 250]),
             Rgb([20, 20, 40]),
             Rgb([200, 60, 60]),
             Rgb([60, 60, 200]),
         ])?;
-        assert!(luminance(linear(palette.background)) <= GROUND_CEILING + 0.0005);
-        assert!(
-            palette.background.0[2] > palette.background.0[0],
-            "keeps its blue cast"
-        );
-        assert!(luminance(linear(palette.accents[0])) <= 0.101);
+        assert_eq!(palette.background, Rgb([20, 20, 40]));
+        assert_eq!(palette.accents[2], Rgb([250, 250, 250]));
         // The ramp runs from dim to bright.
         let lum = |index: usize| luminance(linear(palette.accents[index]));
         assert!(lum(0) <= lum(1) && lum(1) <= lum(2));
@@ -1233,7 +1233,7 @@ mod tests {
             let palette = Palette::from_theme(&theme)?;
             // Dark either way: a light theme contributes its accents, not its pale background.
             assert!(
-                luminance(linear(palette.background)) <= GROUND_CEILING + 0.0005,
+                palette.background == theme.color("background").parse::<Rgb>().unwrap(),
                 "{appearance:?}"
             );
             // The accents are the theme's primary and secondary, by role. Its cyan "info" colour,
