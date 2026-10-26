@@ -5,7 +5,7 @@
 
 use crate::handoff::{Closes, Handoff, MAX_TABS, Program, Scope, is_web_url};
 use crate::niri::Window;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -22,6 +22,17 @@ pub struct Captured {
     pub tab_count: Option<usize>,
     /// What the receiver will not have, said to the operator.
     pub notes: Vec<String>,
+    /// The things the window might be showing when the application cannot say which (T3 Code: its
+    /// recent threads, newest first); the first is what is sent unless one is chosen. Empty otherwise.
+    pub threads: Vec<Thread>,
+}
+
+/// A T3 Code thread a window might be showing.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Thread {
+    pub id: String,
+    pub title: String,
+    pub project: Option<String>,
 }
 
 /// What adapters may ask this machine.
@@ -41,6 +52,11 @@ pub trait Probe {
     fn tabs(&self, runtime_dir: &Path) -> Option<crate::tabs::Snapshot>;
     fn read(&self, path: &Path) -> Option<String>;
     fn list(&self, dir: &Path) -> Vec<String>;
+    /// T3 Code's recent threads, newest first, as a JSON array of `{id, title, project}`, from the
+    /// data directory `home` (its `userdata`).
+    fn t3_threads(&self, _home: &Path) -> Result<String, String> {
+        Err("this machine cannot read T3 Code's threads".into())
+    }
 }
 
 pub struct Context<'a> {
@@ -48,6 +64,10 @@ pub struct Context<'a> {
     pub entries: &'a [(String, String)],
     pub runtime_dir: Option<PathBuf>,
     pub config_dir: Option<PathBuf>,
+    /// T3 Code's data directory (`~/.t3`, or `T3CODE_HOME`).
+    pub t3_home: Option<PathBuf>,
+    /// The T3 Code thread the operator chose to send, when there is a choice.
+    pub thread: Option<String>,
 }
 
 /// The best handoff for a window.
@@ -55,6 +75,7 @@ pub fn capture(window: &Window, context: &Context, scope: Scope) -> Result<Captu
     let app_id = window.app_id.as_deref().unwrap_or_default();
     let specific = match app_id {
         "kitty" => Some(kitty(window, context)),
+        id if id.starts_with("com.t3tools.T3Code") => Some(t3(context)),
         _ => browser_profile(app_id, context).map(|profile| browser(window, &profile, context, scope)),
     };
     if scope == Scope::Window && specific.is_none() || scope == Scope::Window && app_id == "kitty" {
@@ -80,7 +101,7 @@ enum Fallback {
 
 fn relaunch(app_id: &str, context: &Context) -> Result<Captured, String> {
     let entry = crate::desktop::for_app(app_id, context.entries).ok_or_else(|| format!("{} has no desktop entry here, so it cannot be started elsewhere", if app_id.is_empty() { "this window" } else { app_id }))?;
-    Ok(Captured { handoff: Handoff::Relaunch { desktop_entry: entry }, closes: Closes::Window, scopes: Vec::new(), tab_count: None, notes: vec!["it is started fresh: what the window was showing does not carry over".into()] })
+    Ok(Captured { handoff: Handoff::Relaunch { desktop_entry: entry }, closes: Closes::Window, scopes: Vec::new(), tab_count: None, threads: Vec::new(), notes: vec!["it is started fresh: what the window was showing does not carry over".into()] })
 }
 
 // ---- browsers ---------------------------------------------------------------------------------
@@ -133,7 +154,7 @@ fn browser(window: &Window, (root, name): &(PathBuf, &str), context: &Context, s
         if others > 0 {
             notes.push(format!("{others} tab{} (browser pages) {} not sent", if others == 1 { "" } else { "s" }, if others == 1 { "was" } else { "were" }));
         }
-        return Ok(Captured { handoff: Handoff::BrowserWindow { desktop_entry: entry, urls }, closes, scopes, tab_count, notes });
+        return Ok(Captured { handoff: Handoff::BrowserWindow { desktop_entry: entry, urls }, closes, scopes, tab_count, threads: Vec::new(), notes });
     }
 
     // The front tab: exact when the browser reported it, otherwise the newest visit with its title.
@@ -149,7 +170,7 @@ fn browser(window: &Window, (root, name): &(PathBuf, &str), context: &Context, s
         }
     };
     match url {
-        Some(url) => Ok(Captured { handoff: Handoff::Page { url }, closes: Closes::Tab { title: title.to_string() }, scopes, tab_count, notes: Vec::new() }),
+        Some(url) => Ok(Captured { handoff: Handoff::Page { url }, closes: Closes::Tab { title: title.to_string() }, scopes, tab_count, threads: Vec::new(), notes: Vec::new() }),
         None => Err(Fallback::Relaunch(format!("the page \"{page_title}\" could not be found in {name}'s history"))),
     }
 }
@@ -233,19 +254,21 @@ fn kitty(window: &Window, context: &Context) -> Result<Captured, Fallback> {
         (Some("yazi"), Some(process)) => Some(Program::Files { directory: yazi_directory(&chosen.title).unwrap_or_else(|| process.cwd.clone()) }),
         (Some(shell), _) if is_shell(shell) => None,
         (Some(other), _) => {
-            notes.push(format!("{other} was running there; it does not move, and it ends when the window closes"));
+            notes.push(format!("{other} was running there; it keeps running in the original window and is not carried over"));
             None
         }
         (None, _) => None,
     };
     if program.is_none() {
-        notes.push("the shell starts fresh; its history and anything it was running stay here".into());
+        notes.push("a new shell connected back here; the one in this window keeps its history and whatever it runs".into());
     }
     let directory = foreground.map(|process| process.cwd.clone()).filter(|cwd| !cwd.is_empty()).unwrap_or_else(|| chosen.cwd.clone());
     if directory.is_empty() {
         return Err(relaunch("kitty did not say which directory the terminal is in"));
     }
-    Ok(Captured { handoff: Handoff::Terminal { directory, program }, closes: Closes::Window, scopes: Vec::new(), tab_count: None, notes })
+    // The session stays here: the window on the peer is a second view of this machine, so nothing closes.
+    let closes = Closes::Nothing { why: "the terminal keeps running here; the peer's window is connected back to it".into() };
+    Ok(Captured { handoff: Handoff::RemoteTerminal { directory, program }, closes, scopes: Vec::new(), tab_count: None, threads: Vec::new(), notes })
 }
 
 /// The active window of an OS window's active tab.
@@ -304,6 +327,52 @@ fn run(program: &str, args: &[&str], env: &[(&str, &str)]) -> Result<String, Str
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
+
+// ---- T3 Code ----------------------------------------------------------------------------------
+
+/// The thread a T3 Code window shows is not visible from outside (its title is fixed), so the
+/// recent threads are offered, newest first, and the operator picks. The thread is not moved: T3
+/// Connect keeps it in step between the machines and the peer's T3 opens it from a link.
+fn t3(context: &Context) -> Result<Captured, Fallback> {
+    let relaunch = |why: &str| Fallback::Relaunch(why.to_string());
+    let home = context.t3_home.as_ref().ok_or_else(|| relaunch("T3 Code's data directory is not known"))?;
+    let environment = context.probe.read(&home.join("userdata/environment-id")).map(|text| text.trim().to_string()).filter(|id| !id.is_empty()).ok_or_else(|| relaunch("T3 Code has no environment id here yet"))?;
+    let listing = context.probe.t3_threads(home).map_err(|error| relaunch(&format!("T3 Code's threads could not be read: {error}")))?;
+    let threads = parse_t3_threads(&listing).map_err(|error| relaunch(&format!("T3 Code's threads could not be read: {error}")))?;
+    let chosen = match &context.thread {
+        Some(id) => threads.iter().find(|thread| &thread.id == id).ok_or_else(|| Fallback::Refuse(format!("there is no recent T3 Code thread {id}")))?,
+        None => threads.first().ok_or_else(|| relaunch("T3 Code has no threads to open"))?,
+    };
+    let handoff = Handoff::T3Thread { environment, thread: chosen.id.clone() };
+    let closes = Closes::Nothing { why: "T3 Code's window holds your other threads and its backend, so it stays".into() };
+    let notes = vec!["the thread opens in T3 Code there through T3 Connect; its conversation is not copied".into()];
+    Ok(Captured { handoff, closes, scopes: Vec::new(), tab_count: None, threads, notes })
+}
+
+/// The threads in the probe's answer, newest first, skipping any whose id could not be put in a link.
+pub fn parse_t3_threads(listing: &str) -> Result<Vec<Thread>, String> {
+    #[derive(Deserialize)]
+    struct Row {
+        id: String,
+        title: Option<String>,
+        project: Option<String>,
+    }
+    let rows: Vec<Row> = serde_json::from_str(listing).map_err(|error| error.to_string())?;
+    let safe = |id: &str| !id.is_empty() && id.len() <= 200 && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'));
+    Ok(rows.into_iter().filter(|row| safe(&row.id)).map(|row| Thread { title: row.title.filter(|title| !title.trim().is_empty()).unwrap_or_else(|| "untitled".into()), id: row.id, project: row.project }).collect())
+}
+
+/// Reads T3 Code's own database, read-only, with the Node that ships inside the app (it has
+/// `node:sqlite`). The newest message decides which threads are recent; subagent threads are left out.
+const T3_THREADS_SCRIPT: &str = r#"const { DatabaseSync } = require("node:sqlite");
+const db = new DatabaseSync(process.env.T3_STATE_DB, { readOnly: true });
+const rows = db.prepare(`select t.thread_id as id, t.title as title, p.title as project,
+  (select max(m.created_at) from orchestration_v2_projection_messages m where m.thread_id = t.thread_id) as last
+  from orchestration_v2_projection_threads t left join projection_projects p on p.project_id = t.project_id
+  where t.deleted_at is null and t.archived_at is null
+  and t.thread_id not in (select child_thread_id from orchestration_v2_projection_subagents where child_thread_id is not null)
+  order by coalesce(last, t.updated_at) desc limit 8`).all();
+console.log(JSON.stringify(rows));"#;
 
 impl Probe for System {
     fn kitty_ls(&self, socket: &Path, password: &str, public_key: &str) -> Result<String, String> {
@@ -364,6 +433,12 @@ impl Probe for System {
         std::fs::read_to_string(path).ok()
     }
 
+    fn t3_threads(&self, home: &Path) -> Result<String, String> {
+        let app = std::env::var_os("HOME").map(PathBuf::from).ok_or("HOME is not set")?.join(".local/opt/t3code/t3code");
+        let database = home.join("userdata/statev2.sqlite");
+        run(&app.to_string_lossy(), &["-e", T3_THREADS_SCRIPT], &[("ELECTRON_RUN_AS_NODE", "1"), ("T3_STATE_DB", &database.to_string_lossy())])
+    }
+
     fn list(&self, dir: &Path) -> Vec<String> {
         std::fs::read_dir(dir).map(|listing| listing.flatten().map(|item| item.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default()
     }
@@ -382,6 +457,7 @@ mod tests {
         files: HashMap<PathBuf, String>,
         dirs: HashMap<PathBuf, Vec<String>>,
         snapshot: Option<crate::tabs::Snapshot>,
+        threads: Option<String>,
     }
 
     impl Probe for Fake {
@@ -415,6 +491,10 @@ mod tests {
         fn list(&self, dir: &Path) -> Vec<String> {
             self.dirs.get(dir).cloned().unwrap_or_default()
         }
+        fn t3_threads(&self, home: &Path) -> Result<String, String> {
+            assert_eq!(home, Path::new("/home/a/.t3"));
+            self.threads.clone().ok_or("the database is locked".into())
+        }
     }
 
     fn capture_tab(window: &Window, context: &Context) -> Result<Captured, String> {
@@ -442,7 +522,7 @@ mod tests {
     }
 
     fn with<'a>(fake: &'a Fake, entries: &'a [(String, String)]) -> Context<'a> {
-        Context { probe: fake, entries, runtime_dir: Some("/run/user/1".into()), config_dir: Some("/home/a/.config".into()) }
+        Context { probe: fake, entries, runtime_dir: Some("/run/user/1".into()), config_dir: Some("/home/a/.config".into()), t3_home: None, thread: None }
     }
 
     fn kitty_fake(foreground: &str) -> Fake {
@@ -455,13 +535,58 @@ mod tests {
         fake
     }
 
+    fn t3_fake(threads: Option<&str>) -> Fake {
+        let mut fake = Fake::default();
+        fake.files.insert("/home/a/.t3/userdata/environment-id".into(), "env-1\n".into());
+        fake.threads = threads.map(String::from);
+        fake
+    }
+
+    fn t3_context<'a>(fake: &'a Fake, entries: &'a [(String, String)], thread: Option<&str>) -> Context<'a> {
+        Context { t3_home: Some("/home/a/.t3".into()), thread: thread.map(String::from), ..with(fake, entries) }
+    }
+
+    const THREADS: &str = r#"[{"id":"t-new","title":"newest","project":"Dojo"},{"id":"t-old","title":"older","project":null},{"id":"bad/id","title":"x","project":null},{"id":"t-blank","title":"  ","project":"Dojo"}]"#;
+
     #[test]
-    fn a_shell_in_kitty_moves_as_its_directory() {
+    fn t3_is_sent_as_its_newest_thread_unless_one_is_chosen_and_nothing_closes() {
+        let fake = t3_fake(Some(THREADS));
+        let entries = entries();
+        let window = window("com.t3tools.T3Code", "T3 Code (Beta)");
+        let captured = capture_tab(&window, &t3_context(&fake, &entries, None)).unwrap();
+        assert_eq!(captured.handoff, Handoff::T3Thread { environment: "env-1".into(), thread: "t-new".into() });
+        assert!(matches!(captured.closes, Closes::Nothing { .. }));
+        let titles: Vec<&str> = captured.threads.iter().map(|thread| thread.title.as_str()).collect();
+        assert_eq!(titles, ["newest", "older", "untitled"], "an id that cannot be put in a link is left out, a blank title is named");
+        let chosen = capture_tab(&window, &t3_context(&fake, &entries, Some("t-old"))).unwrap();
+        assert_eq!(chosen.handoff, Handoff::T3Thread { environment: "env-1".into(), thread: "t-old".into() });
+    }
+
+    #[test]
+    fn a_thread_that_is_not_recent_is_refused_and_an_unreadable_database_relaunches() {
+        let entries = entries();
+        let window = window("com.t3tools.T3Code", "T3 Code (Beta)");
+        let fake = t3_fake(Some(THREADS));
+        assert!(capture_tab(&window, &t3_context(&fake, &entries, Some("gone"))).unwrap_err().contains("no recent T3 Code thread"));
+        // No desktop entry for T3 here either, so even the fallback has nothing to start.
+        let locked = t3_fake(None);
+        assert!(capture_tab(&window, &t3_context(&locked, &entries, None)).unwrap_err().contains("no desktop entry"));
+    }
+
+    #[test]
+    fn the_thread_list_is_read_as_json_and_a_broken_answer_is_an_error() {
+        assert_eq!(parse_t3_threads("[]").unwrap(), Vec::new());
+        assert!(parse_t3_threads("not json").is_err());
+    }
+
+    #[test]
+    fn a_shell_in_kitty_is_sent_as_a_session_connected_back_to_its_directory() {
         let fake = kitty_fake(r#"{"pid": 50, "cmdline": ["/bin/rush"], "cwd": "/home/a/project"}"#);
         let entries = entries();
         let captured = capture_tab(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
-        assert_eq!(captured.handoff, Handoff::Terminal { directory: "/home/a/project".into(), program: None });
-        assert!(captured.notes[0].contains("shell starts fresh"));
+        assert_eq!(captured.handoff, Handoff::RemoteTerminal { directory: "/home/a/project".into(), program: None });
+        assert!(captured.notes[0].contains("connected back"));
+        assert!(matches!(captured.closes, Closes::Nothing { .. }), "the original keeps running, so nothing closes");
     }
 
     #[test]
@@ -470,7 +595,7 @@ mod tests {
         fake.nvim = Some(r#"["/home/a/project/a.rs", 12, 5, 0]"#.into());
         let entries = entries();
         let captured = capture_tab(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
-        assert_eq!(captured.handoff, Handoff::Terminal { directory: "/home/a/project".into(), program: Some(Program::Editor { file: "/home/a/project/a.rs".into(), line: 12, column: 5 }) });
+        assert_eq!(captured.handoff, Handoff::RemoteTerminal { directory: "/home/a/project".into(), program: Some(Program::Editor { file: "/home/a/project/a.rs".into(), line: 12, column: 5 }) });
         assert!(captured.notes.is_empty());
     }
 
@@ -488,7 +613,7 @@ mod tests {
         let fake = kitty_fake(r#"{"pid": 60, "cmdline": ["yazi"], "cwd": "/home/a"}"#);
         let entries = entries();
         let captured = capture_tab(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
-        assert_eq!(captured.handoff, Handoff::Terminal { directory: "/home/a".into(), program: Some(Program::Files { directory: "/home/a/pics".into() }) });
+        assert_eq!(captured.handoff, Handoff::RemoteTerminal { directory: "/home/a".into(), program: Some(Program::Files { directory: "/home/a/pics".into() }) });
     }
 
     #[test]
@@ -496,7 +621,7 @@ mod tests {
         let fake = kitty_fake(r#"{"pid": 61, "cmdline": ["/usr/bin/cargo", "build"], "cwd": "/w"}"#);
         let entries = entries();
         let captured = capture_tab(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
-        assert_eq!(captured.handoff, Handoff::Terminal { directory: "/w".into(), program: None });
+        assert_eq!(captured.handoff, Handoff::RemoteTerminal { directory: "/w".into(), program: None });
         assert!(captured.notes[0].starts_with("cargo was running there"), "{:?}", captured.notes);
     }
 

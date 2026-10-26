@@ -1,0 +1,19 @@
+---
+status: accepted
+---
+
+# A sent terminal is a session connected back to its source
+
+[Sending windows](../../.scratch/mesh-boundaries/spec.md) first opened a kitty window's directory on the peer, with a fresh shell there: a terminal moved by being started again where the directory might not even exist, and anything it was running ended with the window. That made a sent terminal a different place from the one you were working in.
+
+A terminal is now sent as a window on the peer that is **connected back to the machine it came from**, in the same directory, over the mesh's own channel (`dojo-mesh shell`, with a terminal requested). The files, the history and the programs stay where they were; the peer's window is a second view of that machine. A program the window was running that Dojo knows how to open (nvim on a file at a line, yazi in a directory) is started again in the new session, on the source. Nothing closes at the source, since it is still the real session.
+
+T3 Code follows the same idea: its thread is not moved either, and the peer's T3 Code opens it through T3 Connect from a `t3code://` link.
+
+## Consequences
+
+- The peer must be able to reach the sender, which a mesh already means: both are members, and each holds the other's host key. Who the sender is comes from the connection (the mesh method's identity), never from the message, so a handoff cannot name some other node to connect to.
+- The peer never runs a command it is sent. It starts its own terminal on `dojo-mesh shell SENDER --directory PATH`, where the path and the program are checked and the program is one of a fixed few.
+- Files the peer lacks no longer stop a terminal send or need copying, because the terminal reads them where they are.
+- Moving a running process is still out of scope. A multiplexer that holds one (tmux, abduco) can be attached to from the new session; recognising it is future work.
+- A peer with an older `dojo-mesh` refuses the new handoff, and says so.

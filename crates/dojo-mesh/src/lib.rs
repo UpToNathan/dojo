@@ -35,6 +35,7 @@ pub mod roster;
 pub mod rostersync;
 pub mod signed;
 pub mod send_cli;
+pub mod shell_cli;
 pub mod session;
 pub mod source;
 pub mod ssh;

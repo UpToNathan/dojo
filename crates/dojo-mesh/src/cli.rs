@@ -367,7 +367,8 @@ pub fn run(env: &Env, args: &[String]) -> Result<u8, Failure> {
         "audit" => audit_command(env, rest),
         "windows" => crate::send_cli::windows(rest),
         "send" => crate::send_cli::send(env, rest),
-        "receive" => crate::send_cli::receive(rest),
+        "receive" => crate::send_cli::receive(env, rest),
+        "shell" => crate::shell_cli::shell(env, rest),
         "tabs-host" => {
             // Started by the browser, not typed: it reads native-messaging frames on stdin.
             let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
@@ -447,6 +448,22 @@ pub(crate) fn call_peer(
     output: Output,
     timeout: Option<Duration>,
 ) -> Result<Done, Failure> {
+    call_peer_tty(env, roster, peer, action, detail, argv, input, output, timeout, false)
+}
+
+/// Like [`call_peer`], asking the peer for a terminal when `tty` is set (an interactive session).
+pub(crate) fn call_peer_tty(
+    env: &Env,
+    roster: &Roster,
+    peer: &str,
+    action: &str,
+    detail: &str,
+    argv: &[String],
+    input: Input,
+    output: Output,
+    timeout: Option<Duration>,
+    tty: bool,
+) -> Result<Done, Failure> {
     let from = roster.this().name.clone();
     if env.origin == Origin::Agent && env.state_dir.as_deref().is_some_and(guard::agent_paused) {
         return Err(refuse(env, &from, peer, action, detail, &Refusal::Paused));
@@ -456,7 +473,7 @@ pub(crate) fn call_peer(
     let remote = transport::remote_command(argv, &provenance).map_err(|message| fail(USAGE_ERROR, message))?;
     let name = member.device.name.clone();
     record(env, &from, &name, action, detail, "started")?;
-    let done = match env.method.channel.run(Call { key: if action == "remote" { crate::channel::Key::Input } else { crate::channel::Key::Node }, peer: Peer { name: name.clone(), host_key: member.device.keys.as_ref().map(|keys| keys.host_key.clone()) }, route: transport::route(member), remote, input, output, timeout }) {
+    let done = match env.method.channel.run(Call { key: if action == "remote" { crate::channel::Key::Input } else { crate::channel::Key::Node }, peer: Peer { name: name.clone(), host_key: member.device.keys.as_ref().map(|keys| keys.host_key.clone()) }, route: transport::route(member), remote, tty, input, output, timeout }) {
         Ok(done) => done,
         Err(message) => {
             let _ = record(env, &from, &name, action, detail, &format!("failed: {message}"));

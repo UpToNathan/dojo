@@ -48,6 +48,8 @@ pub struct Call {
     pub route: Route,
     /// The single command string the peer's shell runs.
     pub remote: String,
+    /// Ask the peer for a terminal (an interactive session); calls that carry data never do.
+    pub tty: bool,
     pub input: Input,
     pub output: Output,
     pub timeout: Option<Duration>,

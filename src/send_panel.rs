@@ -46,6 +46,9 @@ pub struct Preview {
     /// The window could be sent whole (a browser window the extension reports): W switches to that.
     pub can_send_window: bool,
     pub tab_count: Option<usize>,
+    /// When the application cannot say what the window shows (T3 Code), what it might show, newest
+    /// first: (id, label). T chooses between them; the first is sent otherwise.
+    pub threads: Vec<(String, String)>,
 }
 
 /// What the panel asks its owner to do after a key.
@@ -53,7 +56,7 @@ pub struct Preview {
 pub enum Request {
     Nothing,
     Close,
-    Send { window: u64, peer: String, take_input: bool, copy_missing: bool, all_tabs: bool },
+    Send { window: u64, peer: String, take_input: bool, copy_missing: bool, all_tabs: bool, thread: Option<String> },
     /// The send is over: close the original (unless it is kept), then the panel, and then start
     /// taking the cursor and keyboard to the peer if that was asked for.
     Finish { close: Option<(u64, String)>, remote_to: Option<String> },
@@ -76,6 +79,8 @@ pub struct Model {
     pub input_only: bool,
     /// What each window would send, by window and whether all its tabs, as far as it has been asked.
     pub previews: HashMap<(u64, bool), Result<Preview, String>>,
+    /// Which of the selected window's threads is chosen (T3 Code only), counted in its preview.
+    pub thread: usize,
 }
 
 /// What the panel remembers between uses.
@@ -109,7 +114,7 @@ impl Memory {
 
 impl Model {
     pub fn loading(memory: &Memory) -> Self {
-        Self { windows: Vec::new(), peers: Vec::new(), window: 0, peer: 0, list: List::Windows, take_input: memory.take_input, phase: Phase::Loading, all_tabs: false, input_only: memory.input_only, previews: HashMap::new() }
+        Self { windows: Vec::new(), peers: Vec::new(), window: 0, peer: 0, list: List::Windows, take_input: memory.take_input, phase: Phase::Loading, all_tabs: false, input_only: memory.input_only, previews: HashMap::new(), thread: 0 }
     }
 
     /// The windows (focused first is selected) and online peers (the remembered one selected).
@@ -163,6 +168,19 @@ impl Model {
 
     pub fn preview(&self) -> Option<&Result<Preview, String>> {
         self.selected_window().and_then(|id| self.previews.get(&(id, self.all_tabs)))
+    }
+
+    /// The selected window's threads, when it has several to choose from.
+    pub fn threads(&self) -> &[(String, String)] {
+        match self.preview() {
+            Some(Ok(preview)) => &preview.threads,
+            _ => &[],
+        }
+    }
+
+    /// The thread chosen for the selected window, if the window has any.
+    pub fn chosen_thread(&self) -> Option<&(String, String)> {
+        self.threads().get(self.thread)
     }
 
     pub fn set_preview(&mut self, window: u64, all_tabs: bool, preview: Result<Preview, String>) {
@@ -240,6 +258,7 @@ impl Model {
                 if length > 0 {
                     *index = if key == "up" { index.checked_sub(1).unwrap_or(length - 1) } else { (*index + 1) % length };
                 }
+                self.thread = 0;
                 if matches!(self.phase, Phase::Failed(_) | Phase::Missing(_)) {
                     self.phase = Phase::Choosing;
                 }
@@ -255,6 +274,14 @@ impl Model {
                 self.all_tabs = !self.all_tabs;
                 if matches!(self.phase, Phase::Failed(_) | Phase::Missing(_)) {
                     self.phase = Phase::Choosing;
+                }
+                Request::Nothing
+            }
+            "t" => {
+                // The next of the window's threads, when it has several to choose from.
+                let count = self.threads().len();
+                if count > 1 {
+                    self.thread = (self.thread + 1) % count;
                 }
                 Request::Nothing
             }
@@ -288,7 +315,7 @@ impl Model {
         }
         let copy_missing = matches!(self.phase, Phase::Missing(_));
         self.phase = Phase::Sending;
-        Request::Send { window: self.windows[self.window].id, peer: self.peers[self.peer].clone(), take_input: self.take_input, copy_missing, all_tabs: self.all_tabs }
+        Request::Send { window: self.windows[self.window].id, peer: self.peers[self.peer].clone(), take_input: self.take_input, copy_missing, all_tabs: self.all_tabs, thread: self.chosen_thread().map(|(id, _)| id.clone()) }
     }
 }
 
@@ -323,7 +350,7 @@ mod tests {
         model.key("tab");
         model.key("down");
         model.key("space");
-        assert_eq!(model.key("enter"), Request::Send { window: 9, peer: "beta".into(), take_input: true, copy_missing: false, all_tabs: false });
+        assert_eq!(model.key("enter"), Request::Send { window: 9, peer: "beta".into(), take_input: true, copy_missing: false, all_tabs: false, thread: None });
         assert_eq!(model.phase, Phase::Sending);
         assert_eq!(model.key("enter"), Request::Nothing, "one send at a time");
         assert_eq!(model.memory(), Memory { peer: Some("beta".into()), take_input: true, ..Default::default() });
@@ -334,7 +361,7 @@ mod tests {
         let mut model = ready(&Memory::default());
         model.key("enter");
         model.missing(vec!["/w/a.rs".into()]);
-        assert_eq!(model.key("enter"), Request::Send { window: 9, peer: "alpha".into(), take_input: false, copy_missing: true, all_tabs: false });
+        assert_eq!(model.key("enter"), Request::Send { window: 9, peer: "alpha".into(), take_input: false, copy_missing: true, all_tabs: false, thread: None });
         model.missing(vec!["/w/a.rs".into()]);
         assert_eq!(model.key("escape"), Request::Nothing);
         assert_eq!(model.phase, Phase::Choosing);
@@ -426,7 +453,7 @@ mod tests {
     #[test]
     fn each_window_is_previewed_once_per_scope_when_selected() {
         let mut model = ready(&Memory::default());
-        let plain = |sent: &str| Preview { sent: sent.into(), notes: vec![], can_send_window: false, tab_count: None };
+        let plain = |sent: &str| Preview { sent: sent.into(), notes: vec![], can_send_window: false, tab_count: None, threads: vec![] };
         assert_eq!(model.needs_preview(), Some((9, false)));
         model.set_preview(9, false, Ok(Preview { can_send_window: true, tab_count: Some(4), ..plain("the page https://x") }));
         assert_eq!(model.needs_preview(), None);
@@ -444,6 +471,32 @@ mod tests {
     }
 
     #[test]
+    fn t_chooses_between_a_windows_threads_and_the_send_names_the_one_chosen() {
+        let mut model = ready(&Memory { peer: Some("beta".into()), take_input: false, ..Default::default() });
+        let threads = vec![("t-1".to_string(), "newest · Dojo".to_string()), ("t-2".to_string(), "older".to_string()), ("t-3".to_string(), "oldest".to_string())];
+        model.set_preview(9, false, Ok(Preview { sent: "the T3 Code thread t-1".into(), notes: vec![], can_send_window: false, tab_count: None, threads }));
+        assert_eq!(model.chosen_thread().map(|(id, _)| id.as_str()), Some("t-1"), "the newest is chosen until another is");
+        model.key("t");
+        model.key("t");
+        assert_eq!(model.key("enter"), Request::Send { window: 9, peer: "beta".into(), take_input: false, copy_missing: false, all_tabs: false, thread: Some("t-3".into()) });
+        model.phase = Phase::Choosing;
+        model.key("t");
+        assert_eq!(model.chosen_thread().map(|(id, _)| id.as_str()), Some("t-1"), "it wraps round");
+        model.key("down");
+        model.key("up");
+        assert_eq!(model.thread, 0, "another window starts at its own newest thread");
+    }
+
+    #[test]
+    fn t_does_nothing_for_a_window_with_nothing_to_choose() {
+        let mut model = ready(&Memory { peer: Some("beta".into()), take_input: false, ..Default::default() });
+        model.set_preview(9, false, Ok(Preview { sent: "the page https://x".into(), notes: vec![], can_send_window: false, tab_count: None, threads: vec![] }));
+        model.key("t");
+        assert_eq!(model.thread, 0);
+        assert_eq!(model.chosen_thread(), None);
+    }
+
+    #[test]
     fn i_takes_only_the_cursor_and_keyboard_and_needs_no_window() {
         let mut model = ready(&Memory { peer: Some("beta".into()), take_input: false, ..Default::default() });
         model.key("i");
@@ -451,7 +504,7 @@ mod tests {
         assert_eq!(model.key("enter"), Request::RemoteOnly { peer: "beta".into() });
         assert_eq!(model.phase, Phase::Choosing, "nothing was sent, so the panel is not mid-send");
         model.key("i");
-        assert_eq!(model.key("enter"), Request::Send { window: 9, peer: "beta".into(), take_input: false, copy_missing: false, all_tabs: false });
+        assert_eq!(model.key("enter"), Request::Send { window: 9, peer: "beta".into(), take_input: false, copy_missing: false, all_tabs: false, thread: None });
 
         let mut windowless = Model::loading(&Memory::default());
         windowless.loaded(vec![], None, vec!["alpha".into()], &Memory::default());
@@ -470,7 +523,7 @@ mod tests {
     fn w_sends_all_tabs() {
         let mut model = ready(&Memory::default());
         model.key("w");
-        assert_eq!(model.key("enter"), Request::Send { window: 9, peer: "alpha".into(), take_input: false, copy_missing: false, all_tabs: true });
+        assert_eq!(model.key("enter"), Request::Send { window: 9, peer: "alpha".into(), take_input: false, copy_missing: false, all_tabs: true, thread: None });
     }
 
     #[test]
