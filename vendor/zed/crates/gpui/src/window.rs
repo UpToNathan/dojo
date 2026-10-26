@@ -2538,6 +2538,14 @@ impl Window {
         self.platform_window.set_input_region(region);
     }
 
+    /// Linux (Wayland) layer-shell windows only: change whether the window takes the keyboard. A
+    /// surface that must not hold the keyboard while something else needs it (a dialog it waits
+    /// on) lowers this to `None` and raises it again afterwards.
+    #[cfg(all(target_os = "linux", feature = "wayland"))]
+    pub fn set_keyboard_interactivity(&self, interactivity: crate::layer_shell::KeyboardInteractivity) {
+        self.platform_window.set_keyboard_interactivity(interactivity);
+    }
+
     /// Linux (Wayland) only: Ask the compositor to blur the background behind a rounded region.
     pub fn set_background_blur_regions(&self, regions: &[Bounds<Pixels>], corner_radius: Pixels) {
         self.platform_window.set_background_blur_regions(regions, corner_radius);
