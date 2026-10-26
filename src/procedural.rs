@@ -36,7 +36,8 @@ pub enum Style {
     /// Curtains of light over a dark sky and stars.
     Aurora,
     /// Soft, flowing blooms of colour.
-    Mesh,
+    #[serde(alias = "mesh")]
+    Ambient,
     /// Leaded glass lit from behind: translucent panes divided by dark lead.
     StainedGlass,
     /// Layered, soft dunes, each with a lit crest.
@@ -44,14 +45,14 @@ pub enum Style {
 }
 
 impl Style {
-    pub const ALL: [Style; 6] = [Style::Contours, Style::Sunset, Style::Aurora, Style::Mesh, Style::StainedGlass, Style::Dunes];
+    pub const ALL: [Style; 6] = [Style::Contours, Style::Sunset, Style::Aurora, Style::Ambient, Style::StainedGlass, Style::Dunes];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::Contours => "contours",
             Self::Sunset => "sunset",
             Self::Aurora => "aurora",
-            Self::Mesh => "mesh",
+            Self::Ambient => "ambient",
             Self::StainedGlass => "stained-glass",
             Self::Dunes => "dunes",
         }
@@ -62,7 +63,7 @@ impl Style {
             Self::Contours => "Contours",
             Self::Sunset => "Sunset",
             Self::Aurora => "Aurora",
-            Self::Mesh => "Mesh",
+            Self::Ambient => "Ambient",
             Self::StainedGlass => "Stained glass",
             Self::Dunes => "Dunes",
         }
@@ -295,7 +296,7 @@ impl Recipe {
     /// The pixels `view` of the canvas has when drawn `width` by `height`. Channels are RGBA.
     pub fn render(&self, view: View, width: u32, height: u32) -> image::RgbaImage {
         let (width, height) = (width.max(1) as usize, height.max(1) as usize);
-        let scene = Scene::new(self, view.aspect);
+        let scene = Scene::new(self, view.aspect * view.height, view.height);
         let mut pixels = vec![0u8; width * height * 4];
         let threads = std::thread::available_parallelism()
             .map_or(1, usize::from)
@@ -319,13 +320,18 @@ impl Recipe {
     /// The whole canvas as PNG, `edge` pixels along its longer side: what theme derivation, the
     /// lock screen and the login screen read in place of a photograph.
     pub fn reference_png(&self, aspect: f64, edge: u32) -> anyhow::Result<Vec<u8>> {
+        self.reference_png_of(aspect, 1., edge)
+    }
+
+    /// [`reference_png`](Self::reference_png) for a canvas `units` tall.
+    pub fn reference_png_of(&self, aspect: f64, units: f64, edge: u32) -> anyhow::Result<Vec<u8>> {
         let aspect = aspect.clamp(0.4, 4.);
         let (width, height) = if aspect >= 1. {
             (edge, (f64::from(edge) / aspect).round() as u32)
         } else {
             ((f64::from(edge) * aspect).round() as u32, edge)
         };
-        let image = self.render(View::whole(aspect), width, height);
+        let image = self.render(View::whole_of(aspect, units), width, height);
         let mut bytes = Vec::new();
         image::DynamicImage::ImageRgba8(image).write_to(
             &mut std::io::Cursor::new(&mut bytes),
@@ -335,17 +341,28 @@ impl Recipe {
     }
 }
 
-/// Which part of the canvas to draw, and how wide the whole canvas is relative to its height.
+/// Which part of the canvas to draw, how wide the whole canvas is relative to its height, and how
+/// tall it is in the scene's own unit. The unit is what a scene's sizes are measured in (a moon
+/// 0.075 across, ridges 0.5 down): one is the height of a single monitor, so a canvas across
+/// monitors of several heights is taller than one unit and shows more scenery, not a larger scene.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct View {
     pub aspect: f64,
+    pub height: f64,
     pub region: Region,
 }
 
 impl View {
+    /// The whole canvas, one unit tall.
     pub fn whole(aspect: f64) -> Self {
+        Self::whole_of(aspect, 1.)
+    }
+
+    /// The whole canvas, `height` units tall.
+    pub fn whole_of(aspect: f64, height: f64) -> Self {
         Self {
             aspect,
+            height,
             region: Region {
                 left: 0.,
                 top: 0.,
@@ -360,10 +377,10 @@ fn draw_row(scene: &Scene, view: View, width: usize, height: usize, y: usize, ro
     let region = view.region;
     let fy = region.top + (y as f64 + 0.5) / height as f64 * region.height;
     // One pixel's extent in canvas units, which is what keeps drawn lines a fixed thickness.
-    let pixel = region.height / height as f64;
+    let pixel = region.height * view.height / height as f64;
     for (x, out) in row.chunks_exact_mut(4).enumerate() {
         let fx = region.left + (x as f64 + 0.5) / width as f64 * region.width;
-        let colour = scene.colour(fx * view.aspect, fy, pixel);
+        let colour = scene.colour(fx * view.aspect * view.height, fy * view.height, pixel);
         let noise = dither(fx, fy);
         for channel in 0..3 {
             let encoded = encode(colour[channel]) * 255. + noise;
@@ -432,46 +449,95 @@ impl Ground {
 }
 
 impl Scene {
-    /// Curtains of light hanging in a dark sky, with stars. Where they hang, how they lean and how
-    /// they ripple come from the seed.
-    fn aurora(&self, x: f64, y: f64, _pixel: f64) -> Colour {
-        let (ground, noise) = (&self.ground, &self.noise);
-        let shift = (self.offsets[0] - 0.5) * 0.16;
-        let lean = (self.offsets[1] - 0.5) * 0.3;
-        let phase = self.offsets[2] * std::f64::consts::TAU;
+    /// An aurora over a night landscape: layered ribbons of crisp, vertical rays above faceted ridges
+    /// and pines, in a field of stars. Where the ribbons hang, how they lean and ripple, and the lay of
+    /// the land come from the seed.
+    fn aurora(&self, x: f64, y: f64, pixel: f64) -> Colour {
+        let (ground, noise, o) = (&self.ground, &self.noise, &self.offsets);
+        let shift = (o[0] - 0.5) * 0.12;
+        let lean = (o[1] - 0.5) * 0.3;
+        let phase = o[2] * std::f64::consts::TAU;
         let across = x / self.aspect - 0.5;
-        let mut colour = ground.background;
-        for curtain in 0..3 {
-            let index = curtain as f64;
-            let warp = noise.fbm(x * 1.1 + index * 3.1, y * 0.7 + index, 3) * 0.32;
-            let hem = 0.42
-                + shift
-                + 0.1 * index
-                + 0.09 * (x * 2.3 + index * 1.9 + phase + warp * 5.).sin()
-                + lean * across;
-            let distance = (y - hem) / (0.13 + 0.03 * index);
-            // Soft above the hem, where the light thins out, and a sharper edge below it.
-            let falloff = if distance < 0. {
-                (-distance * distance * 0.9).exp()
-            } else {
-                (-distance * distance * 7.).exp()
-            };
-            let rays = (0.55 + 0.72 * noise.fbm(x * 55. + index * 9., y * 1.2, 2).abs()).min(1.2);
-            colour = encoded_add(colour, ground.accents[curtain], falloff * rays * 0.75);
+        let mut colour = encoded_mix(ground.background, ground.accents[0], 0.22 * smoothstep(0.15, 0.8, y));
+        // Stars: many, small and crisp, a few larger. None among the ridges.
+        for (scale, keep, radius, strength) in [(210., 0.955, 0.34, 0.55), (120., 0.975, 0.30, 0.8), (62., 0.992, 0.26, 1.0)] {
+            let (cell_x, cell_y) = ((x * scale).floor() as i64, (y * scale).floor() as i64);
+            let roll = self.hash(7 + scale as i64, cell_x, cell_y);
+            if roll > keep {
+                let (dx, dy) = (x * scale - cell_x as f64 - 0.5, y * scale - cell_y as f64 - 0.5);
+                let distance = (dx * dx + dy * dy).sqrt();
+                let size = radius * (0.5 + 0.5 * self.hash(8, cell_x, cell_y));
+                let edge = (size - distance) / (pixel * scale) + 0.5;
+                colour = encoded_mix(colour, [0.94, 0.97, 1.], edge.clamp(0., 1.) * strength * (1. - smoothstep(0.5, 0.78, y)));
+            }
         }
-        // Star cells are not a round number of cells wide, so a pixel centre never falls on a cell edge.
-        const STARS: f64 = 157.31;
-        let (cell_x, cell_y) = ((x * STARS).floor() as i64, (y * STARS).floor() as i64);
-        if self.hash(7, cell_x, cell_y) > 0.985 {
-            let (dx, dy) = (x * STARS - cell_x as f64 - 0.5, y * STARS - cell_y as f64 - 0.5);
-            let twinkle = 0.4 + 0.6 * self.hash(8, cell_x, cell_y);
-            colour = encoded_add(colour, [1.; 3], (-(dx * dx + dy * dy) * 14.).exp() * 0.7 * twinkle);
+        // The ribbons, farthest and highest first. Each is a band of vertical rays standing on a bright,
+        // sharp lower edge and fading upward; every ray has its own length and brightness.
+        for ribbon in 0..5usize {
+            let index = ribbon as f64;
+            let edge = 0.50
+                + shift
+                + 0.045 * index
+                + 0.065 * (x * (1.7 + 0.35 * index) + index * 1.9 + phase).sin()
+                + 0.06 * noise.fbm(x * 1.2 + index * 5., index * 3.7, 3)
+                + lean * across;
+            let width = 0.0042 + 0.0011 * index;
+            let ray = (x / width).floor() as i64;
+            let tone = self.hash(100 + ribbon as i64, ray, 0);
+            let reach = (0.20 + 0.16 * noise.fbm(x * 2.4 + index * 9., 2. + index, 3).abs() * 2.2) * (0.55 + 0.7 * self.hash(110 + ribbon as i64, ray, 1));
+            let height = (edge - y) / reach;
+            if height < 0. || height > 1. {
+                continue;
+            }
+            // Crisp at the foot of each ray, fading to nothing at its tip, and a thin dark gap between rays.
+            let foot = ((edge - y) / pixel + 0.5).clamp(0., 1.);
+            let inside = (x / width).fract();
+            let gap = smoothstep(0.0, 0.16, inside) * smoothstep(1.0, 0.84, inside);
+            let strength = foot * gap * (1. - height).powf(1.5) * (0.45 + 0.55 * tone);
+            let hue = ground.ramp(0.45 + 0.55 * (0.5 * index / 4. + 0.5 * height));
+            colour = encoded_add(colour, hue, strength * 0.62);
+            // A bright core along each ray's foot.
+            let core = (1. - smoothstep(0., 0.05, height)) * foot * gap;
+            colour = encoded_add(colour, encoded_mix(hue, [1.; 3], 0.55), core * 0.28 * (0.5 + 0.5 * tone));
+        }
+        // The land: three ridges of flat, faceted ground, the nearest with pines, darkest in front.
+        for layer in 0..3usize {
+            let depth = layer as f64 / 2.;
+            let base = 0.78 + 0.075 * layer as f64;
+            let amplitude = 0.10 - 0.02 * layer as f64;
+            let spacing = 0.10 - 0.025 * layer as f64;
+            let trees = if layer >= 1 { self.pines(layer + 3, x, 0.3 + 0.7 * depth) } else { 0. };
+            if y < base - amplitude * 1.3 - trees {
+                continue;
+            }
+            let (_, left, right) = self.segment(layer + 3, x, spacing, base, amplitude);
+            let along = ((x - left.0) / (right.0 - left.0)).clamp(0., 1.);
+            let ridge = left.1 + (right.1 - left.1) * along;
+            let coverage = ((y - (ridge - trees)) / pixel + 0.5).clamp(0., 1.);
+            if coverage == 0. {
+                continue;
+            }
+            let lean = if layer % 2 == 0 { 0.7 } else { -0.7 };
+            let (k, from, to) = self.segment(layer + 3, x + (y - ridge) * lean, spacing, base, amplitude);
+            let slope = (to.1 - from.1) / (to.0 - from.0);
+            let facing = (slope / (1. + slope * slope).sqrt()).clamp(-1., 1.);
+            let facet = (((y - ridge) / 0.035 + 0.6 * (x - from.0) / (to.0 - from.0) * lean.signum()).floor()) as i64;
+            let jitter = self.hash(layer as i64 + 41, k, facet) - 0.5;
+            let body = encoded_mix(ground.background, ground.accents[0], 0.55 * (1. - depth));
+            let lit = encoded_mix(body, ground.accents[1], 0.10 * (1. - 0.4 * depth));
+            let dark = encoded_mix(body, ground.background, 0.62);
+            let surface = if y < ridge {
+                dark
+            } else {
+                encoded_mix(dark, lit, (0.5 + 0.5 * facing + 0.2 * jitter).clamp(0., 1.))
+            };
+            colour = encoded_mix(colour, surface, coverage);
         }
         to_linear(colour)
     }
 
     /// Soft blooms of the accents drifting over the ground, with the field warped so none is round.
-    fn mesh(&self, x: f64, y: f64, _pixel: f64) -> Colour {
+    fn ambient(&self, x: f64, y: f64, _pixel: f64) -> Colour {
         let (ground, noise, o) = (&self.ground, &self.noise, &self.offsets);
         let (warped_x, warped_y) = (
             x + noise.fbm(x * 0.9, y * 0.9, 3) * 0.35,
@@ -480,7 +546,7 @@ impl Scene {
         let place = |fraction_x: f64, fraction_y: f64, jitter: usize, other: usize| {
             (
                 self.aspect * (fraction_x + (o[jitter] - 0.5) * 0.2),
-                fraction_y + (o[other] - 0.5) * 0.24,
+                (fraction_y + (o[other] - 0.5) * 0.24) * self.height.max(1.),
             )
         };
         let blooms = [
@@ -497,101 +563,145 @@ impl Scene {
         to_linear(colour)
     }
 
-    /// Leaded stained glass lit from behind: a mosaic of translucent panes, each with its own hue and
-    /// density and rolled-glass streaks, brighter toward the light and divided by dark lead.
+    /// Stained glass lit from behind: a close mosaic of panes of many sizes, each flat colour cut into
+    /// two lit and shaded facets, divided by clean dark lead. Each seed cuts the glass differently and
+    /// puts the light somewhere else.
     fn stained_glass(&self, x: f64, y: f64, pixel: f64) -> Colour {
         let (ground, noise, o) = (&self.ground, &self.noise, &self.offsets);
-        let size = 0.15;
+        let size = 0.082;
         let (u, v) = (x / size, y / size);
         let (cell_x, cell_y) = (u.floor() as i64, v.floor() as i64);
-        // Each cell holds one pane's centre, kept off the cell's edges so no pane is a sliver.
-        let centre = |gx: i64, gy: i64| {
+        // Each cell holds one pane's centre and a weight; a bigger weight makes a bigger pane, and the
+        // lead stays straight (a power diagram).
+        let site = |gx: i64, gy: i64| {
             (
-                gx as f64 + 0.15 + 0.7 * self.hash(21, gx, gy),
-                gy as f64 + 0.15 + 0.7 * self.hash(22, gx, gy),
+                gx as f64 + 0.12 + 0.76 * self.hash(21, gx, gy),
+                gy as f64 + 0.12 + 0.76 * self.hash(22, gx, gy),
+                0.30 * self.hash(25, gx, gy),
             )
         };
+        let power = |site: (f64, f64, f64)| (u - site.0).powi(2) + (v - site.1).powi(2) - site.2;
         let (mut nearest, mut pane) = (f64::MAX, (0, 0));
-        for dy in -1..=1 {
-            for dx in -1..=1 {
-                let (centre_x, centre_y) = centre(cell_x + dx, cell_y + dy);
-                let distance = (u - centre_x).powi(2) + (v - centre_y).powi(2);
+        for dy in -2..=2 {
+            for dx in -2..=2 {
+                let distance = power(site(cell_x + dx, cell_y + dy));
                 if distance < nearest {
                     nearest = distance;
                     pane = (cell_x + dx, cell_y + dy);
                 }
             }
         }
-        let own = centre(pane.0, pane.1);
-        // The distance to the nearest lead: how far the pixel is from each bisector with a neighbour.
+        let own = site(pane.0, pane.1);
+        // How far the pixel is from the nearest lead: from each bisector of the power diagram.
         let mut border = f64::MAX;
-        for dy in -2..=2 {
-            for dx in -2..=2 {
+        for dy in -3..=3 {
+            for dx in -3..=3 {
                 let other = (pane.0 + dx, pane.1 + dy);
                 if other == pane {
                     continue;
                 }
-                let (other_x, other_y) = centre(other.0, other.1);
-                let (edge_x, edge_y) = (other_x - own.0, other_y - own.1);
-                let length = (edge_x * edge_x + edge_y * edge_y).sqrt();
-                let side = ((0.5 * (own.0 + other_x) - u) * edge_x + (0.5 * (own.1 + other_y) - v) * edge_y) / length;
-                border = border.min(side);
+                let site_other = site(other.0, other.1);
+                let (nx, ny) = (site_other.0 - own.0, site_other.1 - own.1);
+                let length = (nx * nx + ny * ny).sqrt();
+                let along = (site_other.0.powi(2) + site_other.1.powi(2) - own.0.powi(2) - own.1.powi(2) - (site_other.2 - own.2)) / (2. * length);
+                border = border.min(along - (u * nx + v * ny) / length);
             }
         }
-        let hue = (self.hash(23, pane.0, pane.1) * 0.65
-            + (noise.fbm(own.0 * size * 1.3, own.1 * size * 1.3, 2) * 0.5 + 0.5) * 0.35)
-            .clamp(0., 1.);
-        let density = 0.7 + 0.3 * self.hash(24, pane.0, pane.1);
-        let base = ground.ramp(0.30 + hue * 0.70);
-        // Rolled glass: streaks along the pane, and a slow swell in its thickness.
-        let streak = noise.fbm(x * 7. + own.0 * 3., y * 60. + own.1 * 5., 3) * 0.5 + 0.5;
-        let swell = noise.fbm(x * 2.2 + 11., y * 2.2, 3) * 0.5 + 0.5;
-        // The light behind sits off to one side; the glass glows more near it.
-        let (light_x, light_y) = (self.aspect * (0.45 + 0.4 * o[3]), 0.1 + 0.3 * o[4]);
+        // Each pane's colour is one of the accents' tones, with its own lightness; the glass nearer the
+        // light shines more.
+        let tone = self.hash(23, pane.0, pane.1);
+        let family = (tone * 5.).floor() / 5. + 0.1 * self.hash(26, pane.0, pane.1);
+        let base = ground.ramp(0.26 + 0.72 * family.clamp(0., 1.));
+        let (light_x, light_y) = (self.aspect * (0.35 + 0.3 * o[3]), 0.10 + 0.25 * o[4]);
         let (to_x, to_y) = (x - light_x, y - light_y);
-        let backlight = 0.75 + 0.85 * (-(to_x * to_x + to_y * to_y) * 1.1).exp();
-        // Each pane is brighter on the side nearest the light.
-        let gradient = 0.5 + 0.5 * ((u - own.0) * ((light_x - x) * 6.).tanh() * 0.8).clamp(-1., 1.);
-        let mut light = (0.62 + 0.32 * swell + 0.30 * (streak - 0.5) + 0.22 * gradient) * backlight * density;
-        light *= 0.72 + 0.28 * smoothstep(0., 0.30, border);
+        let glow = (-(to_x * to_x + to_y * to_y) * 0.9).exp();
+        // Two facets: a line through the pane's centre at its own angle splits the lit half from the shaded.
+        let angle = self.hash(24, pane.0, pane.1) * std::f64::consts::PI;
+        let side = ((u - own.0) * angle.cos() + (v - own.1) * angle.sin()).signum();
+        let facet = 1. + 0.16 * side;
+        let streak = noise.fbm(x * 8. + own.0, y * 70. + own.1, 2) * 0.5 + 0.5;
+        let mut light = (0.66 + 0.5 * glow + 0.06 * (streak - 0.5)) * facet * (0.82 + 0.18 * self.hash(27, pane.0, pane.1));
+        // A thin, brighter rim just inside the lead, like a bevelled edge.
+        let rim = (-((border - 0.10) / 0.035).powi(2)).exp();
+        light += 0.12 * rim;
         let mut colour = base.map(|channel| channel * light);
-        // Where the light shines straight through, the colour burns toward white.
-        colour = encoded_add(colour, encoded_mix(base, [1.; 3], 0.6), (light - 0.9).max(0.) * 0.9);
-        // Light spilling over the lead: a soft bloom of the pane's own colour just outside it.
-        colour = encoded_add(colour, base, (-(border / 0.09).powi(2)).exp() * 0.18 * light);
-        // The lead: near black, rounded, with a thin cool sheen along its middle.
-        let width = 0.05 + pixel / size;
-        let lead = 1. - smoothstep(width * 0.55, width * 1.1, border);
-        let sheen = (-((border - width * 0.3) / (width * 0.2)).powi(2)).exp() * lead;
-        let lead_colour = encoded_add(encoded_mix(ground.background, [0.02, 0.026, 0.034], 0.85), [0.55, 0.62, 0.75], sheen * 0.1);
-        to_linear(encoded_mix(colour, lead_colour, lead))
+        colour = encoded_add(colour, encoded_mix(base, [1.; 3], 0.55), (light - 0.95).max(0.) * 0.8);
+        // The lead: flat near black, evenly thick, crisp.
+        let width = 0.045 + pixel / size;
+        let lead = 1. - smoothstep(width - pixel / size, width + pixel / size, border);
+        to_linear(encoded_mix(colour, encoded_mix(ground.background, [0.01, 0.012, 0.018], 0.85), lead))
     }
 
-    /// Seven layers of soft dunes, the nearest in the brightest accent, each with its crest lit.
+    /// Thirteen layers of dunes in flat, faceted colour: crests with a gentle windward face and a
+    /// steep, shaded lee, ripples across the lit faces, haze in the distance, a moon and stars. The
+    /// nearest dunes are the strongest accent.
     fn dunes(&self, x: f64, y: f64, pixel: f64) -> Colour {
-        let (ground, noise) = (&self.ground, &self.noise);
-        const LAYERS: usize = 7;
-        let height = |layer: usize, along: f64| {
-            let phase = layer as f64 * 5.7 + self.offsets[0] * 50.;
+        const LAYERS: usize = 13;
+        let (ground, noise, o) = (&self.ground, &self.noise, &self.offsets);
+        let sun = (self.aspect * (0.15 + 0.7 * o[1]), 0.12 + 0.12 * o[2]);
+        let crest = |layer: usize, along: f64| {
             let depth = layer as f64 / (LAYERS - 1) as f64;
-            0.30 + depth * 0.55 + 0.11 * noise.fbm(along * 1.1 + phase, phase, 3) + 0.035 * (along * 3. + phase).sin()
+            let phase = layer as f64 * 7.3 + o[0] * 60.;
+            let base = 0.34 + 0.62 * depth.powf(0.85);
+            let amplitude = 0.035 + 0.075 * depth;
+            let frequency = 2.1 + 1.3 * (1. - depth);
+            // A smooth, asymmetric wave: a long gentle rise to a crest, then a shorter, steeper fall.
+            // The spacing is warped by noise and every crest has its own height, so none repeats.
+            let u = along * frequency + phase + 0.9 * noise.fbm(along * 0.8 + phase, 5. + phase * 0.1, 2);
+            let (index, cycle) = (u.floor(), u - u.floor());
+            let wave = smoothstep(0., 0.62, cycle) * (1. - smoothstep(0.62, 0.90, cycle));
+            let height = 0.45 + 1.0 * self.hash(80 + layer as i64, index as i64, 0);
+            base - amplitude * (0.62 * height * wave + 0.5 * noise.fbm(along * 1.4 + phase, phase * 0.3, 3))
         };
+        let haze = |depth: f64| (1. - depth).powf(1.4);
+        let mut colour = encoded_mix(ground.background, ground.accents[0], 0.20 * smoothstep(0.1, 0.7, y));
+        // The moon and stars, in the sky.
+        let moon = 1. - smoothstep(0.060 - pixel, 0.060 + pixel, ((x - sun.0).powi(2) + (y - sun.1).powi(2)).sqrt());
+        colour = encoded_mix(colour, ground.accents[2], moon);
+        let (cell_x, cell_y) = ((x * 150.).floor() as i64, (y * 150.).floor() as i64);
+        if self.hash(51, cell_x, cell_y) > 0.986 && y < 0.5 {
+            let (dx, dy) = (x * 150. - cell_x as f64 - 0.5, y * 150. - cell_y as f64 - 0.5);
+            let edge = (0.3 - (dx * dx + dy * dy).sqrt()) / (pixel * 150.) + 0.5;
+            colour = encoded_mix(colour, [0.92, 0.95, 1.], edge.clamp(0., 1.) * 0.6);
+        }
         // The layers are opaque, so the nearest one whose crest is above the pixel is all there is to see.
         for layer in (0..LAYERS).rev() {
-            let crest = height(layer, x);
-            if y < crest {
+            let top = crest(layer, x);
+            if y < top {
                 continue;
             }
             let depth = layer as f64 / (LAYERS - 1) as f64;
-            let slope = (height(layer, x + 0.004) - height(layer, x - 0.004)) / 0.008;
-            let body = encoded_mix(ground.background, ground.ramp(0.2 + depth * 0.75), 0.5 + 0.5 * depth);
-            let lit = (slope * -2.4).clamp(0., 1.) * 0.35;
-            let mut colour = encoded_add(body, ground.ramp(0.9), lit * (1. - depth * 0.4) * 0.2);
-            let edge = 1. - smoothstep(0., 0.004 + pixel, y - crest);
-            colour = encoded_add(colour, ground.ramp(0.6 + depth * 0.4), edge * 0.35);
-            return to_linear(colour);
+            let slope = (crest(layer, x + 0.003) - crest(layer, x - 0.003)) / 0.006;
+            // Lit on the windward face, which rises to the crest; the shorter lee falls away in shade.
+            let facing = (-slope * 1.8).clamp(-1., 1.);
+            // Flat bands of tone running down the face, leaning with the slope, so the face reads as cut.
+            let band = ((y - top) / 0.03 + 0.5 * slope).floor() as i64;
+            let jitter = self.hash(layer as i64 + 71, band, 0) - 0.5;
+            let hue = ground.ramp(0.30 + 0.70 * depth.powf(0.8));
+            let far = encoded_mix(ground.background, ground.accents[0], 0.55);
+            let body = encoded_mix(encoded_mix(far, hue, 1. - haze(depth)), ground.background, 0.18 * (1. - depth));
+            let lit = encoded_mix(body, ground.accents[2], 0.18 * (1. - 0.4 * depth));
+            let shade = encoded_mix(body, ground.background, 0.52);
+            // The face is flat bands of tone, a little brighter where it rises to the sun, with variation
+            // from band to band down it.
+            let tone = (0.62 + 0.26 * facing.max(0.) + 0.14 * jitter - 0.010 * band as f64).clamp(0., 1.);
+            let mut surface = encoded_mix(shade, lit, tone);
+            // The lee: a wedge of shadow just under the crest, deepest where the fall is steepest and
+            // gone where it flattens, with a crisp edge.
+            let reach = 0.055 * (-facing).max(0.);
+            let in_shadow = (((reach - (y - top)) / pixel) * 0.5 + 0.5).clamp(0., 1.);
+            surface = encoded_mix(surface, shade, in_shadow * 0.9);
+            // Wind ripples: thin lines following the crest, strongest just below it on the lit face.
+            let ripple = (((y - top) / 0.011).fract() - 0.5).abs();
+            let line = (1. - smoothstep(0.03, 0.10, ripple)) * smoothstep(0.0, 0.006, y - top) * (1. - smoothstep(0.0, 0.14, y - top)) * tone;
+            surface = encoded_add(surface, ground.accents[2], line * 0.10);
+            // A crisp lit line along the crest.
+            let rim = 1. - smoothstep(0., 0.0035 + pixel, y - top);
+            surface = encoded_mix(surface, encoded_mix(lit, [1.; 3], 0.25), rim * 0.55 * (0.4 + 0.6 * tone));
+            colour = surface;
+            break;
         }
-        to_linear(encoded_mix(ground.background, ground.accents[0], (1. - y) * 0.35))
+        to_linear(colour)
     }
 }
 
@@ -777,7 +887,10 @@ impl Noise {
 struct Scene {
     style: Style,
     noise: Noise,
+    /// How wide the canvas is, in the scene's unit.
     aspect: f64,
+    /// How tall it is: one unit for a single monitor, more across monitors of several heights.
+    height: f64,
     background: Colour,
     accents: [Colour; 3],
     /// The same colours as encoded values, for the scenes that blend the way an illustrator does.
@@ -788,7 +901,7 @@ struct Scene {
 }
 
 impl Scene {
-    fn new(recipe: &Recipe, aspect: f64) -> Self {
+    fn new(recipe: &Recipe, aspect: f64, height: f64) -> Self {
         let mut random = Random::new(recipe.seed);
         Self {
             style: recipe.style,
@@ -796,6 +909,7 @@ impl Scene {
                 seed: mix64(recipe.seed ^ 0x6e6f_6973_65),
             },
             aspect,
+            height,
             background: linear(recipe.palette.background),
             accents: recipe.palette.accents.map(linear),
             ground: Ground {
@@ -813,7 +927,7 @@ impl Scene {
             Style::Contours => self.contours(x, y, pixel),
             Style::Sunset => self.sunset(x, y, pixel),
             Style::Aurora => self.aurora(x, y, pixel),
-            Style::Mesh => self.mesh(x, y, pixel),
+            Style::Ambient => self.ambient(x, y, pixel),
             Style::StainedGlass => self.stained_glass(x, y, pixel),
             Style::Dunes => self.dunes(x, y, pixel),
         }
@@ -1207,6 +1321,7 @@ mod tests {
             let whole = recipe.render(View::whole(aspect), 120, 40);
             let half = |left: f64| View {
                 aspect,
+                height: 1.,
                 region: Region {
                     left,
                     top: 0.,
@@ -1468,6 +1583,7 @@ mod tests {
         .unwrap();
         let slice = View {
             aspect: 1.89,
+            height: 1.,
             region: Region {
                 left: 0.,
                 top: 0.,
@@ -1588,7 +1704,7 @@ mod tests {
         // A light theme changes the accents, not the ground: the picture stays dark behind the windows.
         let mut palette = Palette::from_seed(5);
         palette.light = true;
-        for style in [Style::Aurora, Style::Mesh, Style::StainedGlass, Style::Dunes] {
+        for style in [Style::Aurora, Style::Ambient, Style::StainedGlass, Style::Dunes] {
             let image = Recipe::with_palette(style, 5, palette.clone()).render(View::whole(1.8), 96, 54);
             let mean = image
                 .pixels()
@@ -1597,6 +1713,14 @@ mod tests {
                 / (96. * 54.);
             assert!(mean < 0.4, "{style:?} is too bright on a light theme: {mean}");
         }
+    }
+
+    #[test]
+    fn a_recipe_saved_as_mesh_still_reads_as_ambient() {
+        let recipe = Recipe::new(Style::Ambient, 3);
+        let saved = String::from_utf8(recipe.to_json()).unwrap().replace("\"ambient\"", "\"mesh\"");
+        assert_eq!(Recipe::from_json(saved.as_bytes()).unwrap(), recipe);
+        assert_eq!(Style::Ambient.label(), "Ambient");
     }
 
     #[test]

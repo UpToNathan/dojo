@@ -260,16 +260,16 @@ fn procedural(store: &ThemeStore, mut args: impl Iterator<Item = String>) -> any
     palette.light |= light;
     let recipe = Recipe::with_palette(style, seed, palette);
     let outputs = desktop::niri_outputs().unwrap_or_default();
-    let (shape, retained_edge) = desktop::retained(&outputs, layout);
-    let aspect = aspect.unwrap_or(shape);
+    let retained = desktop::retained(&outputs, layout);
+    let aspect = aspect.unwrap_or(retained.aspect);
     if let Some(output) = output {
-        std::fs::write(&output, recipe.reference_png(aspect, edge)?)?;
+        std::fs::write(&output, recipe.reference_png_of(aspect, retained.height, edge)?)?;
         println!("{} seed {seed} written to {output}", style.name());
         return Ok(());
     }
     layout.write(&store.paths.root)?;
     println!("{} seed {seed}, layout {}", style.name(), layout.name());
-    print_report(theme::apply_procedural(store, recipe, aspect, retained_edge, None)?)
+    print_report(theme::apply_procedural(store, recipe, aspect, retained.height, retained.edge, None)?)
 }
 
 fn print_report(report: theme::ApplyReport) -> anyhow::Result<()> {

@@ -25,8 +25,10 @@ struct WallpaperSource {
 #[derive(Clone, PartialEq)]
 struct Procedural {
     recipe: Recipe,
-    /// The canvas's width over its height, which all monitors share.
+    /// The canvas's width over its height.
     aspect: f64,
+    /// How tall the canvas is in the scene's unit: one unless the monitors it spans differ in height.
+    height: f64,
 }
 
 /// A single pixel of the recipe's background, shown until a monitor has drawn its own part.
@@ -317,6 +319,7 @@ impl WallpaperView {
             let view = match region {
                 Some(region) => View {
                     aspect: procedural.aspect,
+                    height: procedural.height,
                     region,
                 },
                 // Without a layout from Niri each monitor shows the whole canvas in its own shape.
@@ -549,6 +552,7 @@ impl WallpaperController {
                 recipe,
                 // Without Niri's layout each monitor shows the whole canvas, so any shape does.
                 aspect: placed.map_or(16. / 9., |placed| placed.aspect),
+                height: placed.map_or(1., |placed| placed.height),
             });
             if let Some(window) = self.windows.get(&display.id()) {
                 window.update(cx, |view, _window, cx| {

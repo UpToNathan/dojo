@@ -526,7 +526,7 @@ mod tests {
         let before = store.theme(&previous.selection.generation)?;
         let recipe = Recipe::new(Style::Contours, 42);
 
-        let report = super::super::apply_procedural(&store, recipe.clone(), 2.4, 1920, None)?;
+        let report = super::super::apply_procedural(&store, recipe.clone(), 2.4, 1., 1920, None)?;
         let after = store.theme(&report.selection.generation)?;
         // Only the wallpaper changed; the palette, preset and targets are the theme's own.
         assert_eq!(after.preset, before.preset);
