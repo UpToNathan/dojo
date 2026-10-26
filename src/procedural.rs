@@ -418,27 +418,6 @@ fn luminance(colour: Colour) -> f64 {
     0.2126 * colour[0] + 0.7152 * colour[1] + 0.0722 * colour[2]
 }
 
-/// `colour` darkened, hue kept, until its luminance is at most `ceiling`.
-fn limit_luminance(colour: Colour, ceiling: f64) -> Colour {
-    let current = luminance(colour);
-    if current > ceiling {
-        scale(colour, ceiling / current)
-    } else {
-        colour
-    }
-}
-
-/// `colour` scaled to exactly `target` luminance, keeping its hue and saturation. Mixing a colour
-/// with the dark background to make it dim drains its chroma and leaves grey; scaling does not.
-fn at_luminance(colour: Colour, target: f64) -> Colour {
-    let current = luminance(colour);
-    if current <= 1e-6 {
-        colour
-    } else {
-        scale(colour, target / current)
-    }
-}
-
 fn srgb(colour: Colour) -> Rgb {
     Rgb(colour.map(|channel| (encode(channel) * 255.).round() as u8))
 }
@@ -669,78 +648,30 @@ impl Scene {
     }
 
     fn sunset(&self, x: f64, y: f64, pixel: f64) -> Colour {
-        let white = [1.; 3];
-        // Brightness is set relative to the theme's own ground, so a theme with a lighter dark
-        // background (Storm's) gets the same picture, a little lifted, rather than one that dips
-        // below its own sky.
-        let ground = luminance(self.background);
-        // The ridges and sky are tuned against a ground like Tokyo Night's (luminance 0.011). A
-        // lighter dark ground lifts them, but only by a fraction of the difference, or a
-        // theme with a lighter background would get a picture twice as bright.
-        let lift_for_ground = (ground / 0.011).powf(0.4).clamp(0.6, 2.);
-        let (top, horizon) = if self.light {
-            // A light theme's sky is its background, warming to the secondary at the horizon.
-            (
-                self.background,
-                mix(
-                    self.background,
-                    mix(self.accents[1], self.accents[2], 0.55),
-                    0.4,
-                ),
-            )
+        // Everything here is the theme's own colours blended, never scaled to a brightness of my
+        // choosing: the sky runs from the ground through the primary to a glow of the secondary,
+        // the ridges are the secondary and then the primary over the ground, and the moon (or
+        // sun) is the secondary itself.
+        let (ground, primary, secondary) = (self.background, self.accents[1], self.accents[2]);
+        let middle = mix(ground, primary, 0.3);
+        let horizon = mix(ground, mix(primary, secondary, 0.6), 0.5);
+        let mut colour = if y < 0.4 {
+            mix(ground, middle, smoothstep(0.0, 0.4, y))
         } else {
-            // A dark sky is the ground at the top, the primary through the middle and a haze of
-            // the secondary at the horizon: the theme's colours at a low value.
-            (
-                self.background,
-                at_luminance(
-                    mix(self.accents[1], self.accents[2], 0.7),
-                    (0.045 * lift_for_ground).max(ground * 1.5),
-                ),
-            )
-        };
-        let mut colour = if self.light {
-            mix(top, horizon, smoothstep(0.0, 0.62, y).powf(1.5))
-        } else {
-            let middle = at_luminance(
-                self.accents[1],
-                (0.018 * lift_for_ground).max(ground * 1.15),
-            );
-            if y < 0.4 {
-                mix(top, middle, smoothstep(0.0, 0.4, y))
-            } else {
-                mix(middle, horizon, smoothstep(0.4, 0.66, y))
-            }
+            mix(middle, horizon, smoothstep(0.4, 0.66, y))
         };
 
         let (sun_x, sun_y) = (self.aspect * (0.2 + 0.6 * self.offsets[0]), 0.4);
         let (dx, dy) = (x - sun_x, y - sun_y);
         let distance = (dx * dx + dy * dy).sqrt();
-        let (radius, halo, body) = if self.light {
-            (0.07, 0.3, mix(self.accents[2], white, 0.15))
-        } else {
-            // Dim enough to sit behind a terminal: the brightest accent is no limit on the moon.
-            (
-                0.045,
-                0.10,
-                limit_luminance(mix(self.accents[2], self.accents[1], 0.35), 0.14),
-            )
-        };
-        let glow = halo * (-distance * distance / 0.045).exp();
-        colour = if self.light {
-            // On a light sky the halo is the sun's colour laid over it, not light added to it.
-            mix(colour, body, glow)
-        } else {
-            add(colour, scale(body, glow))
-        };
-        let disc = 1. - smoothstep(radius - pixel, radius + pixel, distance);
-        colour = mix(colour, body, disc * if self.light { 0.95 } else { 0.8 });
+        let glow = 0.18 * (-distance * distance / 0.045).exp();
+        colour = mix(colour, secondary, glow);
+        let disc = 1. - smoothstep(0.055 - pixel, 0.055 + pixel, distance);
+        colour = mix(colour, secondary, disc);
 
         if !self.light {
-            colour = add(
-                colour,
-                scale(self.accents[2], 0.5 * self.stars(x, y, pixel, sun_x, sun_y)),
-            );
+            let star = self.stars(x, y, pixel, sun_x, sun_y);
+            colour = mix(colour, secondary, 0.5 * star);
         }
 
         const LAYERS: usize = 5;
@@ -776,29 +707,20 @@ impl Scene {
             let facet = into.floor() as i64;
             let jitter = self.hash(layer as i64 + 31, k, facet) - 0.5;
 
+            // Far ridges are the secondary, nearer ones the primary, over the ground. On a dark
+            // ground the nearest ridge settles back to the ground; on a light one it is the
+            // primary itself, so it still stands out.
+            let hue = mix(secondary, primary, (depth * 1.6).min(1.));
+            let settle = smoothstep(0.7, 1., depth);
             let (lit, dark) = if self.light {
-                // Far ridges are a wash of the hue over the sky; near ones are the hue itself,
-                // darkened, so they stand out against a light sky.
-                let hue = mix(self.accents[2], self.accents[1], (depth * 1.6).min(1.));
-                let wash = mix(horizon, hue, 0.3 + 0.2 * depth);
-                let body = mix(wash, at_luminance(hue, 0.05), depth.powf(1.4));
-                (mix(body, white, 0.25), scale(body, 0.65))
+                let body = mix(mix(horizon, hue, 0.4), primary, depth.powf(1.4));
+                (mix(body, ground, 0.5), scale(body, 0.7))
             } else {
-                // Far ridges are the secondary, the middle ones the primary, and the nearest
-                // fall back to the theme's dark ground; each is the theme's own hue scaled to a
-                // dark value, so it stays saturated rather than turning grey. The faces that
-                // catch the light are the same hue brighter.
-                let hue = mix(self.accents[2], self.accents[1], (depth * 1.6).min(1.));
-                let near = smoothstep(0.55, 1., depth);
-                let value = 0.05 * lift_for_ground * (1. - near) + ground * near;
-                let settle = smoothstep(0.7, 1., depth);
-                let body = mix(at_luminance(hue, value), self.background, settle);
-                let lit = mix(
-                    at_luminance(hue, value * 1.8),
-                    scale(self.background, 1.5),
-                    settle,
-                );
-                (lit, scale(body, 0.55))
+                let body = mix(mix(ground, hue, 0.45), ground, settle);
+                (
+                    mix(body, mix(hue, ground, settle * 0.9), 0.55),
+                    mix(body, ground, 0.55),
+                )
             };
             let shade = (0.5 + 0.5 * facing + 0.22 * jitter - 0.025 * facet as f64).clamp(0., 1.);
             colour = mix(colour, mix(dark, lit, shade), coverage);
@@ -1040,28 +962,28 @@ mod tests {
     }
 
     #[test]
-    fn the_moon_of_a_dark_theme_is_dim_and_the_sun_of_a_light_one_is_not() {
-        let brightest = |light: bool| {
+    fn the_moon_and_the_sun_are_the_themes_secondary_as_it_is() {
+        // The brightest, most saturated thing in a sunset is its moon or sun, and it is the
+        // palette's secondary colour itself, not a dimmed or lightened version of it.
+        for light in [false, true] {
             let mut palette = Palette::from_colors(&[
-                Rgb([10, 10, 20]),
-                Rgb([90, 110, 200]),
-                Rgb([230, 235, 255]),
+                Rgb([0x1a, 0x1b, 0x26]),
+                Rgb([0x7a, 0xa2, 0xf7]),
+                Rgb([0xbb, 0x9a, 0xf7]),
             ])
             .unwrap();
             palette.light = light;
+            let secondary = palette.accents[2];
             let image =
-                Recipe::with_palette(Style::Sunset, 3, palette).render(View::whole(1.8), 180, 100);
-            image
-                .pixels()
-                .map(|p| (f64::from(p[0]) + f64::from(p[1]) + f64::from(p[2])) / 765.)
-                .fold(0., f64::max)
-        };
-        let (dark, light) = (brightest(false), brightest(true));
-        assert!(dark < 0.75, "the dark moon blinds: {dark}");
-        assert!(
-            light > dark + 0.15,
-            "the light sun is no brighter: {light} vs {dark}"
-        );
+                Recipe::with_palette(Style::Sunset, 3, palette).render(View::whole(1.8), 360, 200);
+            let found = image.pixels().any(|p| {
+                p.0[..3]
+                    .iter()
+                    .zip(secondary.0)
+                    .all(|(have, want)| have.abs_diff(want) <= 2)
+            });
+            assert!(found, "no pixel is the secondary colour (light: {light})");
+        }
     }
 
     #[test]
@@ -1076,7 +998,7 @@ mod tests {
         ])
         .unwrap();
         let wanted = luminance(linear(palette.background));
-        for (style, allowed) in [(Style::Contours, 1.8), (Style::Sunset, 3.5)] {
+        for (style, allowed) in [(Style::Contours, 1.8)] {
             let image =
                 Recipe::with_palette(style, 21, palette.clone()).render(View::whole(1.9), 760, 400);
             let mut lums: Vec<f64> = image
