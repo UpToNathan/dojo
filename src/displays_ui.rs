@@ -726,7 +726,7 @@ impl Render for Editor {
                     .text_size(px(11.))
                     .text_color(colors.foreground_muted.rgb())
                     .child(
-                        "Drag monitors to match your desk. Numbers match the badges on each screen. Changes apply after you press Apply.",
+                        "Drag to match your desk. Press Apply to try a change.",
                     ),
             )
             .child(map)
@@ -753,7 +753,7 @@ impl Render for Editor {
                 .child(self.button("display-rotate-cw","↻".into(),Edit::Rotate(true),editing && output.enabled,cx))
                 .child(self.button("display-enabled",if output.enabled { "Enabled" } else { "Disabled" }.into(),Edit::Enabled,editing,cx))
                 .child(self.button("display-main",if snapshot.main.as_deref() == Some(output.name.as_str()) { "Main monitor ✓" } else { "Make main" }.into(),Edit::Main,editing && output.enabled && !self.dirty,cx)))
-                .child(div().text_size(px(10.)).text_color(colors.foreground_muted.rgb()).child(format!("Position {}, {} · Arrow keys move the selected monitor. Shift moves one pixel. The main monitor is where Niri starts with focus and where the login screen appears.",output.position.0,output.position.1)));
+                .child(div().text_size(px(10.)).text_color(colors.foreground_muted.rgb()).child(format!("Position {}, {} · arrows move it · the main monitor starts focused and hosts the login screen",output.position.0,output.position.1)));
         } else {
             content = content.child(div().child("No connected monitors."));
         }
@@ -867,10 +867,13 @@ impl Render for Editor {
                     .child(error.clone()),
             );
         }
-        // The panel is as tall as its content needs, up to the screen: the map, the title and help,
-        // the monitor chips, two rows of controls (they wrap on a narrow screen), the position note,
-        // the Apply row and an error. It never scrolls, so the estimate errs on the large side.
-        let height = (map_height + 430.).min((f32::from(viewport.height) - top - 20.).max(100.));
+        // The panel is as tall as its content, up to the screen, and never scrolls. Fixed parts: padding,
+        // title, one help line, the monitor chips, the position note and the Apply row, with the gaps
+        // between them. The controls wrap to a second row on a narrow panel, and an error adds a line.
+        let control_rows = if width < 780. { 2. } else { 1. };
+        let error_line = if self.error.is_some() || snapshot.error.is_some() { 30. } else { 0. };
+        let height = (map_height + 300. + (control_rows - 1.) * 41. + error_line)
+            .min((f32::from(viewport.height) - top - 20.).max(100.));
         let bounds = Bounds::new(
             point(viewport.width - px(width + right), px(top)),
             gpui::size(px(width), px(height * entry)),
