@@ -2,15 +2,16 @@
 //!
 //! The canvas is the bounding box of the monitors in the compositor's logical coordinates, which
 //! already account for scale and rotation. Spanned, each monitor samples the rectangle it
-//! occupies, so a gap between monitors skips the picture behind it. Filled, each monitor samples
-//! the largest centred part of the canvas that has its own shape.
+//! occupies, so a gap between monitors skips the picture behind it. Filled ("each monitor"), each
+//! monitor draws a whole picture in its own shape, at its own pixels, rather than a crop of a
+//! canvas shaped for the whole desktop.
 //!
 //! Unlike a photograph, nothing here decides how much to enlarge: the picture is drawn at each
 //! monitor's own pixels, so the monitors' sizes only choose what is in view.
 
 use anyhow::Context as _;
 
-use crate::theme::wallpaper_layout::{Monitor, Region};
+use crate::theme::wallpaper_layout::{Monitor, Region, WallpaperLayout};
 
 /// What a spanned wallpaper shows on each monitor, in the order given, with the canvas's width
 /// over its height. `None` for no monitors or a monitor without area.
@@ -45,30 +46,35 @@ pub fn spanned(monitors: &[Monitor]) -> Option<(f64, Vec<Region>)> {
     Some((width / height, regions))
 }
 
-/// What a filled wallpaper shows on a monitor `width` by `height`: the largest part of a canvas
-/// of shape `aspect` that has the monitor's shape, centred.
-pub fn filled(aspect: f64, width: f64, height: f64) -> Region {
-    let monitor = width / height;
-    if !(monitor.is_finite() && aspect.is_finite() && monitor > 0. && aspect > 0.) {
-        return whole();
-    }
-    if monitor >= aspect {
-        let shown = aspect / monitor;
-        Region {
-            left: 0.,
-            top: (1. - shown) / 2.,
-            width: 1.,
-            height: shown,
-        }
-    } else {
-        let shown = monitor / aspect;
-        Region {
-            left: (1. - shown) / 2.,
-            top: 0.,
-            width: shown,
-            height: 1.,
-        }
-    }
+/// What one monitor draws of a procedural wallpaper: the shape of the canvas it samples (its width
+/// over its height) and the part of that canvas it shows.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Placement {
+    pub aspect: f64,
+    pub region: Region,
+}
+
+/// What each monitor draws under `layout`, in the order given, with the whole desktop's aspect.
+/// Spanned, every monitor samples the rectangle it occupies of one canvas across the desktop.
+/// Filled, each draws a whole canvas in its own shape, so a portrait monitor gets a portrait picture
+/// and nothing is cropped away or stretched to fit.
+pub fn placements(monitors: &[Monitor], layout: WallpaperLayout) -> Option<(f64, Vec<Placement>)> {
+    let (aspect, regions) = spanned(monitors)?;
+    let placements = monitors
+        .iter()
+        .zip(regions)
+        .map(|(monitor, spanned)| match layout {
+            WallpaperLayout::Span => Placement {
+                aspect,
+                region: spanned,
+            },
+            WallpaperLayout::Fill => Placement {
+                aspect: monitor.width / monitor.height,
+                region: whole(),
+            },
+        })
+        .collect();
+    Some((aspect, placements))
 }
 
 pub fn whole() -> Region {
@@ -80,8 +86,25 @@ pub fn whole() -> Region {
     }
 }
 
+/// An output Niri has laid out: where it is in logical coordinates and how many pixels each logical
+/// unit is.
+#[derive(Clone, Debug)]
+pub struct Output {
+    pub name: String,
+    pub monitor: Monitor,
+    pub scale: f64,
+}
+
 /// The compositor's outputs with a logical position, by name.
 pub fn niri_monitors() -> anyhow::Result<Vec<(String, Monitor)>> {
+    Ok(niri_outputs()?
+        .into_iter()
+        .map(|output| (output.name, output.monitor))
+        .collect())
+}
+
+/// The compositor's outputs with a logical position, sorted by name, each with its scale.
+pub fn niri_outputs() -> anyhow::Result<Vec<Output>> {
     let mut socket = niri_ipc::socket::Socket::connect().context("connecting to Niri")?;
     socket.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
     socket.set_write_timeout(Some(std::time::Duration::from_secs(2)))?;
@@ -95,18 +118,19 @@ pub fn niri_monitors() -> anyhow::Result<Vec<(String, Monitor)>> {
         .into_values()
         .filter_map(|output| {
             let logical = output.logical?;
-            Some((
-                output.name,
-                Monitor {
+            Some(Output {
+                name: output.name,
+                monitor: Monitor {
                     x: f64::from(logical.x),
                     y: f64::from(logical.y),
                     width: f64::from(logical.width),
                     height: f64::from(logical.height),
                 },
-            ))
+                scale: logical.scale,
+            })
         })
         .collect();
-    monitors.sort_by(|a, b| a.0.cmp(&b.0));
+    monitors.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(monitors)
 }
 
@@ -119,6 +143,70 @@ pub fn current_aspect() -> f64 {
             spanned(&monitors)
         })
         .map_or(16. / 9., |(aspect, _)| aspect)
+}
+
+/// The shortest long edge of the picture retained for the lock and login screens and palette
+/// derivation, and the longest.
+const RETAINED_EDGES: (u32, u32) = (1920, 3840);
+
+/// The shape and long edge of the picture retained for a generated wallpaper under `layout`. Spanned
+/// it is the whole canvas; for each monitor it is the first monitor's own shape. Either way its long
+/// edge covers the largest monitor's own pixels, so the lock screen is not made from a small picture
+/// stretched up.
+pub fn retained(outputs: &[Output], layout: WallpaperLayout) -> (f64, u32) {
+    let monitors: Vec<Monitor> = outputs.iter().map(|output| output.monitor).collect();
+    let Some((aspect, placements)) = placements(&monitors, layout) else {
+        return (16. / 9., RETAINED_EDGES.0);
+    };
+    let shape = match layout {
+        WallpaperLayout::Span => aspect,
+        WallpaperLayout::Fill => placements[0].aspect,
+    };
+    let widest = outputs
+        .iter()
+        .map(|output| output.monitor.width.max(output.monitor.height) * output.scale)
+        .fold(0., f64::max);
+    (shape, (widest.round() as u32).clamp(RETAINED_EDGES.0, RETAINED_EDGES.1))
+}
+
+/// A miniature of the desktop as `layout` will draw it: every monitor's own picture at its place,
+/// `edge` pixels along the desktop's longer side, with the ground showing in any gap. Each monitor is
+/// drawn at the miniature's own pixels, not cut from one picture, so it shows what that monitor will.
+pub fn preview_image(
+    recipe: &crate::procedural::Recipe,
+    monitors: &[Monitor],
+    layout: WallpaperLayout,
+    edge: u32,
+) -> Option<image::RgbaImage> {
+    let (_, placements) = placements(monitors, layout)?;
+    let left = monitors.iter().map(|m| m.x).fold(f64::INFINITY, f64::min);
+    let top = monitors.iter().map(|m| m.y).fold(f64::INFINITY, f64::min);
+    let right = monitors.iter().map(|m| m.x + m.width).fold(f64::NEG_INFINITY, f64::max);
+    let bottom = monitors.iter().map(|m| m.y + m.height).fold(f64::NEG_INFINITY, f64::max);
+    let scale = f64::from(edge.max(1)) / (right - left).max(bottom - top);
+    let size = (
+        ((right - left) * scale).round().max(1.) as u32,
+        ((bottom - top) * scale).round().max(1.) as u32,
+    );
+    let [red, green, blue] = recipe.palette.background.0;
+    let mut desktop = image::RgbaImage::from_pixel(size.0, size.1, image::Rgba([red, green, blue, 255]));
+    for (monitor, placement) in monitors.iter().zip(placements) {
+        let (x, y) = (((monitor.x - left) * scale).round() as i64, ((monitor.y - top) * scale).round() as i64);
+        let (width, height) = (
+            ((monitor.width * scale).round().max(1.)) as u32,
+            ((monitor.height * scale).round().max(1.)) as u32,
+        );
+        let tile = recipe.render(
+            crate::procedural::View {
+                aspect: placement.aspect,
+                region: placement.region,
+            },
+            width,
+            height,
+        );
+        image::imageops::replace(&mut desktop, &tile, x, y);
+    }
+    Some(desktop)
 }
 
 #[cfg(test)]
@@ -180,20 +268,84 @@ mod tests {
         assert!(spanned(&[monitor(0., 0., 0., 100.)]).is_none());
     }
 
+    fn two_monitors() -> [Monitor; 2] {
+        // A landscape monitor and a portrait one beside it.
+        [monitor(0., 0., 1920., 1080.), monitor(1920., 0., 1080., 1920.)]
+    }
+
     #[test]
-    fn a_filled_monitor_takes_the_centred_part_with_its_own_shape() {
-        // A wide canvas on a portrait monitor: a narrow centred slice, full height.
-        let slice = filled(3., 1080., 1920.);
-        assert!(close(slice.height, 1.) && close(slice.top, 0.));
-        assert!(close(slice.width * 3. / 1., 1080. / 1920.));
-        assert!(close(slice.left, (1. - slice.width) / 2.));
-        // A tall canvas on a landscape monitor: a short centred band, full width.
-        let band = filled(0.5, 1920., 1080.);
-        assert!(close(band.width, 1.) && close(band.left, 0.));
-        assert!(close(band.top, (1. - band.height) / 2.));
-        // Its own shape: the whole canvas.
-        assert_eq!(filled(1.6, 1600., 1000.), whole());
-        // Nonsense falls back to everything rather than to nothing.
-        assert_eq!(filled(f64::NAN, 1., 1.), whole());
+    fn spanned_monitors_share_one_canvas_and_each_samples_its_own_rectangle() {
+        let (aspect, placements) = placements(&two_monitors(), WallpaperLayout::Span).unwrap();
+        assert!(close(aspect, 3000. / 1920.));
+        for placement in &placements {
+            assert!(close(placement.aspect, aspect), "one canvas for every monitor");
+        }
+        assert!(close(placements[0].region.left, 0.) && close(placements[0].region.width, 1920. / 3000.));
+        assert!(close(placements[1].region.left, 1920. / 3000.) && close(placements[1].region.height, 1.));
+    }
+
+    #[test]
+    fn each_monitor_draws_a_whole_picture_in_its_own_shape() {
+        let (_, placements) = placements(&two_monitors(), WallpaperLayout::Fill).unwrap();
+        assert!(close(placements[0].aspect, 1920. / 1080.));
+        assert!(close(placements[1].aspect, 1080. / 1920.), "a portrait monitor gets a portrait picture");
+        for placement in placements {
+            assert_eq!(placement.region, whole(), "nothing is cropped away");
+        }
+        assert!(placements_empty_is_none());
+    }
+
+    fn placements_empty_is_none() -> bool {
+        placements(&[], WallpaperLayout::Fill).is_none() && placements(&[monitor(0., 0., 0., 10.)], WallpaperLayout::Span).is_none()
+    }
+
+    fn output(name: &str, monitor: Monitor, scale: f64) -> Output {
+        Output { name: name.into(), monitor, scale }
+    }
+
+    #[test]
+    fn the_retained_picture_follows_the_layout_and_covers_the_largest_monitors_pixels() {
+        // A 4K monitor at scale 2 (1920x1080 logical) beside a 1080p portrait one.
+        let outputs = [
+            output("A", monitor(0., 0., 1920., 1080.), 2.),
+            output("B", monitor(1920., 0., 1080., 1920.), 1.),
+        ];
+        let (spanned_shape, spanned_edge) = retained(&outputs, WallpaperLayout::Span);
+        assert!(close(spanned_shape, 3000. / 1920.));
+        assert_eq!(spanned_edge, 3840, "the 4K monitor's own pixels, capped");
+        let (filled_shape, _) = retained(&outputs, WallpaperLayout::Fill);
+        assert!(close(filled_shape, 1920. / 1080.), "the first monitor's own shape");
+        // One ordinary monitor: no larger than it needs to be, never smaller than the floor.
+        let (_, small) = retained(&[output("A", monitor(0., 0., 1366., 768.), 1.)], WallpaperLayout::Span);
+        assert_eq!(small, 1920);
+        assert_eq!(retained(&[], WallpaperLayout::Span), (16. / 9., 1920));
+    }
+
+    #[test]
+    fn the_preview_draws_each_monitor_for_the_layout_at_the_previews_own_pixels() {
+        use crate::procedural::{Palette, Recipe, Style, View};
+        let recipe = Recipe::with_palette(Style::Aurora, 3, Palette::from_seed(3));
+        let monitors = two_monitors();
+        let spanned = preview_image(&recipe, &monitors, WallpaperLayout::Span, 300).unwrap();
+        let filled = preview_image(&recipe, &monitors, WallpaperLayout::Fill, 300).unwrap();
+        // The desktop's own shape, long side `edge`, either way.
+        assert_eq!(spanned.dimensions(), filled.dimensions());
+        assert_eq!(spanned.width(), 300);
+        // Spanned, the miniature is the one canvas drawn at its own size, up to the rounding of where
+        // each monitor's tile falls: shown here with no gap between monitors, since a gap is skipped.
+        let side_by_side = [monitor(0., 0., 1920., 1080.), monitor(1920., 0., 1920., 1080.)];
+        let spanned = preview_image(&recipe, &side_by_side, WallpaperLayout::Span, 300).unwrap();
+        let whole_canvas = recipe.render(View::whole(3840. / 1080.), spanned.width(), spanned.height());
+        let difference: f64 = spanned
+            .pixels()
+            .zip(whole_canvas.pixels())
+            .map(|(a, b)| (0..3).map(|c| (f64::from(a[c]) - f64::from(b[c])).abs()).sum::<f64>() / 3.)
+            .sum::<f64>()
+            / f64::from(spanned.width() * spanned.height());
+        assert!(difference < 6., "the spanned miniature is the whole canvas: {difference}");
+        // Each monitor draws its own whole picture instead of a part of that one.
+        assert_ne!(spanned, filled);
+        let landscape = recipe.render(View::whole(1920. / 1080.), 192, 108);
+        assert_eq!(*filled.get_pixel(0, 0), *landscape.get_pixel(0, 0), "the landscape monitor's own picture starts at its corner");
     }
 }

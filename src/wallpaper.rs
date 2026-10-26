@@ -474,25 +474,17 @@ fn span_by_display(size: (u32, u32)) -> anyhow::Result<HashMap<uuid::Uuid, Regio
         .collect())
 }
 
-/// What each display shows of a generated wallpaper, keyed by the display's uuid, with the
-/// canvas's shape. Spanned, a display shows the part of the canvas it occupies; filled, the
-/// centred part with its own shape.
-fn procedural_by_display(layout: WallpaperLayout) -> anyhow::Result<(f64, HashMap<uuid::Uuid, Region>)> {
+/// What each display draws of a generated wallpaper, keyed by the display's uuid: spanned, the part of
+/// one canvas across the desktop that it occupies; filled, a whole picture in its own shape.
+fn procedural_by_display(layout: WallpaperLayout) -> anyhow::Result<HashMap<uuid::Uuid, desktop::Placement>> {
     let named = desktop::niri_monitors()?;
     let monitors: Vec<_> = named.iter().map(|(_, monitor)| *monitor).collect();
-    let (aspect, spanned) = desktop::spanned(&monitors).context("no monitors to span")?;
-    let regions = named
+    let (_, placements) = desktop::placements(&monitors, layout).context("no monitors to span")?;
+    Ok(named
         .iter()
-        .zip(spanned)
-        .map(|((name, monitor), spanned)| {
-            let region = match layout {
-                WallpaperLayout::Span => spanned,
-                WallpaperLayout::Fill => desktop::filled(aspect, monitor.width, monitor.height),
-            };
-            (crate::edge_reservation::display_uuid(name), region)
-        })
-        .collect();
-    Ok((aspect, regions))
+        .zip(placements)
+        .map(|((name, _), placement)| (crate::edge_reservation::display_uuid(name), placement))
+        .collect())
 }
 
 struct WallpaperController {
@@ -545,14 +537,18 @@ impl WallpaperController {
         });
         for display in displays {
             let uuid = display.uuid().ok();
-            let region = match (&placement, uuid) {
-                (Some((_, regions)), Some(uuid)) => regions.get(&uuid).copied(),
-                _ => uuid.and_then(|uuid| regions.get(&uuid).copied()),
+            let placed = placement
+                .as_ref()
+                .zip(uuid)
+                .and_then(|(placements, uuid)| placements.get(&uuid).copied());
+            let region = match placed {
+                Some(placed) => Some(placed.region),
+                None => uuid.and_then(|uuid| regions.get(&uuid).copied()),
             };
             let procedural = ready.source.recipe.clone().map(|recipe| Procedural {
                 recipe,
                 // Without Niri's layout each monitor shows the whole canvas, so any shape does.
-                aspect: placement.as_ref().map_or(16. / 9., |(aspect, _)| *aspect),
+                aspect: placed.map_or(16. / 9., |placed| placed.aspect),
             });
             if let Some(window) = self.windows.get(&display.id()) {
                 window.update(cx, |view, _window, cx| {

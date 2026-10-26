@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use dojo::extraction::Mode;
-use dojo::procedural::{Palette, Recipe, Style, parse_colors};
-use dojo::theme::wallpaper_layout::WallpaperLayout;
+use dojo::procedural::{Palette, Recipe, Style, desktop, parse_colors};
+use dojo::theme::wallpaper_layout::{Monitor, WallpaperLayout};
 use dojo::theme::{Appearance, Paths, Preset, Selection, SemanticPalette, Theme, ThemeStore};
 use gpui::{
     App, AppContext, Context, FocusHandle, KeyDownEvent, MouseButton, Render, Window,
@@ -133,17 +133,34 @@ fn selected_theme_palette() -> Option<Palette> {
     Palette::from_theme(theme.palette(selection.appearance)).ok()
 }
 
-/// A generated wallpaper's reference picture, ready to preview and to derive a palette from.
-fn analyze_recipe(recipe: Recipe, preview_edge: u32) -> anyhow::Result<Analysis> {
+/// A generated wallpaper's reference picture, ready to preview and to derive a palette from, for
+/// `layout`. The retained picture has the shape the layout gives it and covers the largest monitor's
+/// own pixels; the preview is a miniature of the desktop with every monitor drawn as it will be, so
+/// switching layout shows what changes instead of stretching one picture.
+fn analyze_recipe(recipe: Recipe, preview_edge: u32, layout: WallpaperLayout) -> anyhow::Result<Analysis> {
     let path = std::path::Path::new("/dojo/procedural").join(format!(
         "{}-{}.png",
         recipe.style.name(),
         recipe.seed
     ));
-    let bytes = recipe.reference_png(dojo::procedural::desktop::current_aspect(), 1920)?;
+    let outputs = desktop::niri_outputs().unwrap_or_default();
+    let (shape, edge) = desktop::retained(&outputs, layout);
+    let bytes = recipe.reference_png(shape, edge)?;
     let mut analysis = analyze_bytes(path, bytes, preview_edge)?;
+    let monitors: Vec<Monitor> = outputs.iter().map(|output| output.monitor).collect();
+    if let Some(miniature) = desktop::preview_image(&recipe, &monitors, layout, preview_edge) {
+        analysis.preview = Arc::new(gpui::RenderImage::new(vec![bgra_frame(miniature)]));
+    }
     analysis.recipe = Some(recipe);
     Ok(analysis)
+}
+
+/// An RGBA picture as gpui's BGRA frame.
+fn bgra_frame(mut picture: image::RgbaImage) -> image::Frame {
+    for pixel in picture.chunks_exact_mut(4) {
+        pixel.swap(0, 2);
+    }
+    image::Frame::new(picture)
 }
 
 fn wallpaper_thumbnail(bytes: &[u8], preview_edge: u32) -> anyhow::Result<Arc<gpui::RenderImage>> {
@@ -534,12 +551,17 @@ impl PickerView {
     }
 
     /// Like an image, the layout is only previewed here; Apply wallpaper saves it.
-    fn set_layout(&mut self, layout: WallpaperLayout, cx: &mut Context<Self>) {
+    fn set_layout(&mut self, layout: WallpaperLayout, window: &mut Window, cx: &mut Context<Self>) {
         if self.layout == layout || self.applying {
             return;
         }
         self.layout = layout;
         self.message = "Preview only. Apply wallpaper saves the layout.".into();
+        // A generated wallpaper is drawn for its layout: the preview shows every monitor's own picture
+        // and the retained one takes the layout's shape, so it is drawn again, not stretched.
+        if let Some((style, seed)) = self.generated {
+            self.generate_for(style, Some(seed), layout, window, cx);
+        }
         cx.notify();
     }
 
@@ -616,6 +638,18 @@ impl PickerView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.generate_for(style, seed, WallpaperLayout::Span, window, cx);
+    }
+
+    /// [`generate`](Self::generate) for `layout`, which a picture drawn again for another layout keeps.
+    fn generate_for(
+        &mut self,
+        style: Style,
+        seed: Option<u64>,
+        layout: WallpaperLayout,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.applying || self.file_request.is_some() || !self.reveal.is_open() {
             return;
         }
@@ -645,7 +679,7 @@ impl PickerView {
                 .background_executor()
                 .spawn(async move {
                     let palette = source.palette(seed, &shell);
-                    analyze_recipe(Recipe::with_palette(style, seed, palette), preview_edge)
+                    analyze_recipe(Recipe::with_palette(style, seed, palette), preview_edge, layout)
                 })
                 .await;
             if let Err(error) = this.update_in(cx, |view, window, cx| {
@@ -658,7 +692,7 @@ impl PickerView {
                         view.generated = Some((style, seed));
                         view.replace_analysis(analysis, window);
                         view.image_chosen = true;
-                        view.layout = WallpaperLayout::Span;
+                        view.layout = layout;
                         view.message =
                             "Preview only. Apply wallpaper keeps your selected theme.".into();
                         if !view.show_wallpaper && !view.show_presets {
@@ -688,7 +722,7 @@ impl PickerView {
         }
         self.palette_source = source;
         match self.generated {
-            Some((style, seed)) => self.generate(style, Some(seed), window, cx),
+            Some((style, seed)) => self.generate_for(style, Some(seed), self.layout, window, cx),
             None => {
                 self.message = "Colours chosen. Pick a style to draw a wallpaper.".into();
                 cx.notify();
@@ -766,6 +800,7 @@ impl PickerView {
                 return;
             };
             let colors = *cx.global::<ThemeColors>();
+            let layout = self.layout;
             let (layout_to_save, apply_image) =
                 wallpaper_apply_plan(self.layout, self.saved_layout, self.image_chosen);
             self.applying = true;
@@ -791,12 +826,11 @@ impl PickerView {
                                 None
                             };
                             match analysis.recipe.clone() {
-                                Some(recipe) => dojo::theme::apply_procedural(
-                                    &store,
-                                    recipe,
-                                    dojo::procedural::desktop::current_aspect(),
-                                    fallback,
-                                ),
+                                Some(recipe) => {
+                                    let outputs = desktop::niri_outputs().unwrap_or_default();
+                                    let (shape, edge) = desktop::retained(&outputs, layout);
+                                    dojo::theme::apply_procedural(&store, recipe, shape, edge, fallback)
+                                }
                                 None => dojo::theme::apply_wallpaper(
                                     &store,
                                     &analysis.path,
@@ -1093,7 +1127,7 @@ impl Render for PickerView {
                         .child(label)
                         .on_mouse_down(
                             MouseButton::Left,
-                            cx.listener(move |view, _, _, cx| view.set_layout(layout, cx)),
+                            cx.listener(move |view, _, window, cx| view.set_layout(layout, window, cx)),
                         ),
                 );
             }
@@ -1186,7 +1220,13 @@ impl Render for PickerView {
                     } else {
                         160.
                     }))
-                    .object_fit(gpui::ObjectFit::Cover)
+                    // A generated wallpaper is a miniature of the whole desktop, shown whole; a photograph
+                    // is cropped to fill the box.
+                    .object_fit(if analysis.recipe.is_some() {
+                        gpui::ObjectFit::Contain
+                    } else {
+                        gpui::ObjectFit::Cover
+                    })
                     .rounded(px(10.)),
             );
         }
@@ -2081,12 +2121,13 @@ mod tests {
     #[test]
     fn a_generated_wallpaper_previews_as_its_recipe_with_the_picture_to_derive_from() -> anyhow::Result<()> {
         let recipe = Recipe::new(Style::Sunset, 4);
-        let analysis = analyze_recipe(recipe.clone(), 256)?;
+        let analysis = analyze_recipe(recipe.clone(), 256, super::WallpaperLayout::Span)?;
         assert_eq!(analysis.recipe.as_ref(), Some(&recipe));
         assert!(analysis.path.is_absolute());
         // The bytes are a real PNG of the canvas, which the derive tab can read like any image.
         let picture = image::load_from_memory(&analysis.bytes)?;
-        assert_eq!(picture.width().max(picture.height()), 1920);
+        // Its long edge covers the largest monitor's pixels, whatever monitors this machine has.
+        assert!((1920..=3840).contains(&picture.width().max(picture.height())));
         assert!(!derive_candidates(&analysis.bytes)?.is_empty());
         Ok(())
     }
