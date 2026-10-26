@@ -867,7 +867,10 @@ impl Render for Editor {
                     .child(error.clone()),
             );
         }
-        let height = (map_height + 280.).min((f32::from(viewport.height) - top - 20.).max(100.));
+        // The panel is as tall as its content needs, up to the screen: the map, the title and help,
+        // the monitor chips, two rows of controls (they wrap on a narrow screen), the position note,
+        // the Apply row and an error. It never scrolls, so the estimate errs on the large side.
+        let height = (map_height + 430.).min((f32::from(viewport.height) - top - 20.).max(100.));
         let bounds = Bounds::new(
             point(viewport.width - px(width + right), px(top)),
             gpui::size(px(width), px(height * entry)),
@@ -975,7 +978,7 @@ impl Render for Editor {
                     .right(px(right))
                     .w(px(width))
                     .h(px(height * entry))
-                    .overflow_y_scroll()
+                    .overflow_hidden()
                     .child(
                         content
                             .absolute()
