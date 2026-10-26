@@ -2379,6 +2379,60 @@ describe("BrowserControlSessions", () => {
     }))
   })
 
+  describe("a lease whose owner process is gone", () => {
+    const gone = "browser-control-999999999-1-deadbeef"
+    const hooks = () => {
+      const retire = vi.fn(() => Effect.succeed({ nativeRetired: true, extensionAcknowledged: true, unknownCommandIds: [] }))
+      return { retire, hooks: { onDojoRetire: retire, onDojoBind: () => Effect.succeed(true) } }
+    }
+
+    it("is retired by the reaper, so a new client resumes the session", async () => {
+      const { retire, hooks: dojoHooks } = hooks()
+      const sessions = new BrowserControlSessions("http://127.0.0.1:0", () => makeFakeSandbox(), dojoHooks)
+      await Effect.runPromise(sessions.sessionResume("agent-session", gone))
+      expect(sessions.dojoLease("agent-session")).toEqual({ owner: gone, generation: 1, retired: false })
+
+      await Effect.runPromise(sessions.reapDeadOwners())
+      expect(sessions.dojoLease("agent-session")).toEqual({ owner: gone, generation: 1, retired: true })
+      expect(retire).toHaveBeenCalledWith({ sessionId: "agent-session", owner: gone, generation: 1 })
+
+      const resumed = await Effect.runPromise(sessions.sessionResume("agent-session", "agent-b"))
+      expect(resumed.dojoGeneration).toBe(2)
+      expect(sessions.dojoLease("agent-session")).toEqual({ owner: "agent-b", generation: 2, retired: false })
+    })
+
+    it("is taken over by a resume from another client without waiting for the reaper", async () => {
+      const { retire, hooks: dojoHooks } = hooks()
+      const sessions = new BrowserControlSessions("http://127.0.0.1:0", () => makeFakeSandbox(), dojoHooks)
+      await Effect.runPromise(sessions.sessionResume("agent-session", gone))
+      const resumed = await Effect.runPromise(sessions.sessionResume("agent-session", "agent-b"))
+      expect(resumed.dojoGeneration).toBe(2)
+      expect(retire).toHaveBeenCalledTimes(1)
+    })
+
+    it("can be cancelled by another client", async () => {
+      const { hooks: dojoHooks } = hooks()
+      const sessions = new BrowserControlSessions("http://127.0.0.1:0", () => makeFakeSandbox(), dojoHooks)
+      await Effect.runPromise(sessions.sessionResume("agent-session", gone))
+      const cancelled = await Effect.runPromise(sessions.executeCancel("agent-session", "agent-b"))
+      expect(cancelled.nativeRetired).toBe(true)
+    })
+
+    it("leaves a live owner's lease alone: not reaped, not taken over, not cancelled", async () => {
+      const { retire, hooks: dojoHooks } = hooks()
+      const sessions = new BrowserControlSessions("http://127.0.0.1:0", () => makeFakeSandbox(), dojoHooks)
+      // An owner that names no process cannot be shown to be gone.
+      await Effect.runPromise(sessions.sessionResume("agent-session", "agent-a"))
+      await Effect.runPromise(sessions.reapDeadOwners())
+      expect(retire).not.toHaveBeenCalled()
+      const taken = await Effect.runPromise(sessions.sessionResume("agent-session", "agent-b").pipe(Effect.flip))
+      expect(taken.message).toContain("not owned by this Browser Control client")
+      const cancelled = await Effect.runPromise(sessions.executeCancel("agent-session", "agent-b").pipe(Effect.flip))
+      expect(cancelled.message).toContain("not owned by this Browser Control client")
+      expect(sessions.dojoLease("agent-session")).toEqual({ owner: "agent-a", generation: 1, retired: false })
+    })
+  })
+
   it("refuses a generation before execution when native lease binding is refused", async () => {
     const sessions = new BrowserControlSessions("http://127.0.0.1:0", () => makeFakeSandbox(), {
       onDojoBind: () => Effect.succeed(false),

@@ -399,6 +399,9 @@ describe("MCP tool results", () => {
   it("adds session recovery guidance at the MCP boundary", () => {
     expect(mcpErrorMessage("execute", "Session not found: stale")).toContain("omit the explicit session id")
     expect(mcpErrorMessage("session_use", "Session not found: stale")).toContain("Create it with session_new first")
+    expect(mcpErrorMessage("session_resume", "Native browser lease refused; explicitly yield browser control and resume again")).toContain("Super+Alt+Y")
+    expect(mcpErrorMessage("session_resume", "Session generation must be retired before resume: s")).toContain("call execute_cancel")
+    expect(mcpErrorMessage("session_adopt", "Session is not owned by this Browser Control client: s")).toContain("retired automatically")
     expect(mcpErrorMessage("execute", "Extension disconnected")).toBe("Extension disconnected")
   })
 

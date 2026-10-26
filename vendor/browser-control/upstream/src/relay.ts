@@ -826,8 +826,15 @@ const makeRelay = Effect.fnUntraced(function* (options: {
     : undefined
   idleReapTimer?.unref()
 
+  // A lease whose MCP process is gone is retired within seconds, so a restarted client can resume.
+  const deadOwnerTimer = setInterval(() => {
+    Effect.runPromise(sessions.reapDeadOwners()).catch(() => {})
+  }, 10_000)
+  deadOwnerTimer.unref()
+
   const cleanup = Effect.fnUntraced(function* () {
     if (idleReapTimer) clearInterval(idleReapTimer)
+    clearInterval(deadOwnerTimer)
     yield* shutdownControl.close().pipe(Effect.ignore)
     yield* sessions.closeAll()
     yield* rootLifecycle.close()

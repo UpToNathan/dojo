@@ -6,6 +6,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import type { JsonObject } from "./protocol.ts"
 import { getObject, getString, parseTargetSelection } from "./relay-helpers.ts"
+import { makeOwnerName } from "./owner-liveness.ts"
 import * as RelayClient from "./relay-client.ts"
 import * as RelayLifecycle from "./relay-lifecycle.ts"
 import type { TargetSelection } from "./relay-schema.ts"
@@ -572,7 +573,7 @@ const registerTools = Effect.gen(function* () {
   const configuredSession = Option.getOrUndefined(yield* Config.option(Config.String("BROWSER_CONTROL_SESSION")))
   const dojoMode = process.env.DOJO_BROWSER_CONTROL_MODE === "1"
   const configuredDojoOwner = Option.getOrUndefined(yield* Config.option(Config.String("DOJO_BROWSER_OWNER")))
-  const dojoOwner = dojoMode ? configuredDojoOwner ?? `browser-control-${crypto.randomUUID()}` : undefined
+  const dojoOwner = dojoMode ? configuredDojoOwner ?? makeOwnerName() : undefined
   const currentSession: CurrentSession = {
     id: configuredSession || `mcp-${crypto.randomUUID().slice(0, 8)}`,
     established: Boolean(configuredSession),
@@ -792,6 +793,15 @@ export function toolResultForValue(value: unknown): McpSchema.CallToolResult {
 }
 
 export function mcpErrorMessage(tool: string, message: string): string {
+  if (message.startsWith("Native browser lease refused")) {
+    return `${message}. The person at the keyboard has used the browser or the desktop since the last lease. Ask them to press Super+Alt+Y (or run \`~/.local/share/dojo/niri/current/niri msg yield-human-input\`; the \`niri\` on PATH does not have that command), then call session_resume again. Do not run it yourself.`
+  }
+  if (message.startsWith("Session generation must be retired before resume")) {
+    return `${message}. This client still holds an active generation: call execute_cancel for this session, then session_resume.`
+  }
+  if (message.startsWith("Session is not owned by this Browser Control client") || message.startsWith("Existing session is not owned by this Browser Control client")) {
+    return `${message}. It belongs to another running client. If that client was an earlier MCP process that is gone, its lease is retired automatically within about ten seconds; then call session_resume again.`
+  }
   if (!message.startsWith("Session not found:")) {
     return message
   }

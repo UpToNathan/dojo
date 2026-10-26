@@ -1,6 +1,7 @@
 import { Deferred, Effect, Exit, Fiber, Latch, Result, Schema, Semaphore } from "effect"
 import { defaultPageClosedWarning, ExecuteSandbox, hasExplicitTargetSelection, type ExecuteResult, type ExecuteTargetSelection } from "./execute.ts"
 import type { NetworkCaptureOptions, NetworkCaptureResult, NetworkCaptureStatus, NetworkCaptureStopOptions } from "./network-capture.ts"
+import { ownerProcessIsGone } from "./owner-liveness.ts"
 import { generateSessionId } from "./relay-helpers.ts"
 import type { BrowserControlSession, ExecuteSandboxLike, SessionSummary, SessionTarget } from "./relay-types.ts"
 import type { AuthenticatedJsonOutcome, AuthenticatedJsonRequest } from "./relay-schema.ts"
@@ -562,7 +563,7 @@ export class BrowserControlSessions {
     return Effect.gen(function* () {
       const session = manager.sessions.get(id)
       if (!session) return yield* sessionError("not-found", `Session not found: ${id}`, id)
-      if (owner !== undefined && session.dojoOwner !== owner) {
+      if (owner !== undefined && session.dojoOwner !== owner && !(session.dojoOwner !== undefined && ownerProcessIsGone(session.dojoOwner))) {
         return yield* sessionError("inactive", `Session is not owned by this Browser Control client: ${id}`, id)
       }
       if (session.dojoRetired) {
@@ -589,6 +590,21 @@ export class BrowserControlSessions {
     })
   }
 
+  /**
+   * Retires the active generation of every session whose owner process is gone, through the same path
+   * as `execute_cancel`, so the native lease is released and the session can be resumed by a new client.
+   */
+  reapDeadOwners(): Effect.Effect<void> {
+    const manager = this
+    return Effect.gen(function* () {
+      for (const session of Array.from(manager.sessions.values())) {
+        if (session.dojoOwner === undefined || session.dojoRetired || !ownerProcessIsGone(session.dojoOwner)) continue
+        console.error(`Retiring Browser Control session ${session.id}: its owner ${session.dojoOwner} is gone`)
+        yield* manager.executeCancel(session.id).pipe(Effect.catch(() => Effect.void))
+      }
+    })
+  }
+
   sessionResume(id: string, owner: string): Effect.Effect<SessionSummary, Error> {
     const manager = this
     return Effect.gen(function* () {
@@ -599,7 +615,11 @@ export class BrowserControlSessions {
         created = true
       }
       if (session.dojoOwner !== undefined && session.dojoOwner !== owner) {
-        return yield* sessionError("inactive", `Session is not owned by this Browser Control client: ${id}`, id)
+        if (!ownerProcessIsGone(session.dojoOwner)) {
+          return yield* sessionError("inactive", `Session is not owned by this Browser Control client: ${id}`, id)
+        }
+        // The process that held this lease is gone: retire its generation so this client can take over.
+        yield* manager.reapDeadOwners()
       }
       if (!created && session.dojoOwner === undefined && manager.hooks.onDojoResume && session.dojoGeneration === 0) {
         return yield* sessionError("inactive", `Existing session is not owned by this Browser Control client: ${id}`, id)

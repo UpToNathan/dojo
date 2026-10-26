@@ -34,11 +34,13 @@ and prevents old work from adopting a later generation.
 To attach an existing page, click the extension toolbar button on that page and
 adopt it deliberately. Human browser input retires browser command generations.
 Dojo's talk-key release yields human input ownership; other workflows require
-an explicit operator command:
+an explicit operator command, bound to **Super+Alt+Y**:
 
 ```sh
-niri msg yield-human-input
+~/.local/share/dojo/niri/current/niri msg yield-human-input
 ```
+
+The `niri` on `PATH` is stock and has no such command; the compositor's own binary does.
 
 This does not move the human cursor or keyboard focus. Held keys and active grabs
 must first finish. Agents must not run this command to override takeover.
@@ -53,6 +55,15 @@ reconnect or retry cannot prove the earlier operation did not happen.
 The gate covers browser clients conservatively. It does not claim an exact
 mapping between a browser tab and a native Niri window. No focus activation,
 primary-pointer fallback, raw CDP bypass or automatic effect retry is permitted.
+
+## When it will not resume
+
+- **Native lease refused**: the person used the keyboard or mouse since the last lease. Press Super+Alt+Y,
+  then call `session_resume` again. The agent never does this itself.
+- **A restarted MCP client**: each MCP process names itself `browser-control-<pid>-<start>-<uuid>`. The relay
+  retires the lease of any owner whose process is gone, within ten seconds (or at once when another client
+  resumes or cancels that session), so a restarted client takes the session over instead of finding it
+  held. An owner set by `DOJO_BROWSER_OWNER` names no process and is never reaped.
 
 ## Checks
 
