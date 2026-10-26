@@ -476,7 +476,7 @@ impl Scene {
         let across = x / self.frame.width - 0.5;
         let mut colour = encoded_mix(ground.background, ground.accents[0], 0.22 * smoothstep(0.15, 0.8, y));
         // Stars: many, small and crisp, a few larger. None among the ridges.
-        for (scale, keep, radius, strength) in [(210., 0.955, 0.34, 0.55), (120., 0.975, 0.30, 0.8), (62., 0.992, 0.26, 1.0)] {
+        for (scale, keep, radius, strength) in [(210., 0.978, 0.34, 0.55), (120., 0.988, 0.30, 0.8), (62., 0.996, 0.26, 1.0)] {
             let (cell_x, cell_y) = ((x * scale).floor() as i64, (y * scale).floor() as i64);
             let roll = self.hash(7 + scale as i64, cell_x, cell_y);
             if roll > keep {
@@ -519,10 +519,10 @@ impl Scene {
             let core = (1. - smoothstep(0., 0.05, height)) * foot * gap;
             colour = encoded_add(colour, encoded_mix(hue, [1.; 3], 0.55), core * 0.28 * (0.5 + 0.5 * tone));
         }
-        // The land: ranges of three ridges of flat, faceted ground, the nearer ones with pines, darkest in
-        // front. A canvas taller than one monitor goes on with further ranges, each a little darker.
+        // The land: three ridges of flat, faceted ground, the nearer ones with pines, darkest in front. A
+        // canvas taller than one monitor goes on with more of the nearest ridge, low and wooded.
         let land_shape = |layer: usize| {
-            let within = layer % 3;
+            let within = layer.min(2);
             (within as f64 / 2., 0.78 + 0.075 * layer as f64, 0.10 - 0.02 * within as f64, 0.10 - 0.025 * within as f64)
         };
         let first = (0..AURORA_LAND).rev().find(|&layer| {
@@ -531,8 +531,7 @@ impl Scene {
         }).unwrap_or(0);
         for layer in first..AURORA_LAND {
             let (depth, base, amplitude, spacing) = land_shape(layer);
-            let dim = 0.7f64.powi((layer / 3) as i32);
-            let trees = if layer % 3 >= 1 { self.pines(layer + 3, x, 0.3 + 0.7 * depth) } else { 0. };
+            let trees = if layer >= 1 { self.pines(layer + 3, x, 0.3 + 0.7 * depth) } else { 0. };
             if y < base - amplitude * 1.3 - trees {
                 continue;
             }
@@ -549,7 +548,7 @@ impl Scene {
             let facing = (slope / (1. + slope * slope).sqrt()).clamp(-1., 1.);
             let facet = (((y - ridge) / 0.035 + 0.6 * (x - from.0) / (to.0 - from.0) * lean.signum()).floor()) as i64;
             let jitter = self.hash(layer as i64 + 41, k, facet) - 0.5;
-            let body = encoded_mix(ground.background, ground.accents[0], 0.55 * dim * (1. - depth));
+            let body = encoded_mix(ground.background, ground.accents[0], 0.55 * (1. - depth));
             let lit = encoded_mix(body, ground.accents[1], 0.10 * (1. - 0.4 * depth));
             let dark = encoded_mix(body, ground.background, 0.62);
             let surface = if y < ridge {
@@ -719,10 +718,12 @@ fn smoothstep(low: f64, high: f64, value: f64) -> f64 {
 
 /// How many ridges a sunset has.
 const SUNSET_LAYERS: usize = 8;
-/// How many ridges the aurora's land can have on a very tall canvas, in ranges of three.
+/// How many ridges the aurora's land can have on a very tall canvas.
 const AURORA_LAND: usize = 48;
-/// How many ranges of hills a very tall canvas can have, one after another.
-const SUNSET_RANGES: usize = 12;
+/// How far the aurora and its land are raised from where the other scenes put their horizon.
+const AURORA_LIFT: f64 = 0.45;
+/// How many layers of hills a very tall canvas can have in all.
+const SUNSET_MOST: usize = 96;
 
 fn luminance(colour: Colour) -> f64 {
     0.2126 * colour[0] + 0.7152 * colour[1] + 0.0722 * colour[2]
@@ -889,6 +890,8 @@ impl Scene {
             return self.ambient(x, y, pixel);
         }
         let (x, y) = (x - self.frame.left, y - self.frame.top);
+        // The aurora hangs a touch higher than the other scenes' horizon, so its rays reach the screens above.
+        let y = if self.style == Style::Aurora { y + AURORA_LIFT } else { y };
         match self.style {
             Style::Contours => self.contours(x, y, pixel),
             Style::Sunset => self.sunset(x, y, pixel),
@@ -951,9 +954,8 @@ impl Scene {
             .fbm(along * 1.3 + layer as f64 * 13.7, layer as f64 * 7.1, 3);
         let jag = self.hash(layer as i64, k, 1) * 2. - 1.;
         // The ridges dip toward the sun, more the further away they are, so it sets in a valley.
-        let depth = (layer % SUNSET_LAYERS) as f64 / (SUNSET_LAYERS - 1) as f64;
-        let range = (layer / SUNSET_LAYERS) as f64;
-        let valley = 0.09 / (1. + 2. * range) * (1. - 0.8 * depth) * (-((along - self.sun_x()) / 0.55).powi(2)).exp();
+        let depth = layer.min(SUNSET_LAYERS - 1) as f64 / (SUNSET_LAYERS - 1) as f64;
+        let valley = 0.09 * (1. - 0.8 * depth) * (-((along - self.sun_x()) / 0.55).powi(2)).exp();
         (along, base - amplitude * (0.7 * broad + 0.5 * jag) + valley)
     }
 
@@ -1012,24 +1014,23 @@ impl Scene {
         // Flat clouds, as faint as the sky's gradient.
         colour = mix(colour, blend(colour, glow, 0.1), self.clouds(x, y, pixel));
 
-        // Eight layers are one range of hills. A canvas taller than one monitor goes on with further
-        // ranges in front, each a little darker, so there is always scenery and never a flat fill.
+        // Eight layers are the range of hills. A canvas taller than one monitor goes on with more of the
+        // nearest layer, low and wooded, so the ground in front is a forest rather than a flat fill.
         // Layers are opaque: start at the nearest one that surely covers this pixel.
         let sunset_shape = |layer: usize| {
-            let depth = (layer % SUNSET_LAYERS) as f64 / (SUNSET_LAYERS - 1) as f64;
+            let depth = layer.min(SUNSET_LAYERS - 1) as f64 / (SUNSET_LAYERS - 1) as f64;
             (depth, 0.5 + 0.06 * layer as f64, 0.14 - 0.07 * depth, 0.12 - 0.05 * depth)
         };
-        let first = (0..SUNSET_LAYERS * SUNSET_RANGES)
+        let first = (0..SUNSET_MOST)
             .rev()
             .find(|&layer| {
                 let (_, base, amplitude, _) = sunset_shape(layer);
                 y > base + 1.3 * amplitude + 0.1
             })
             .unwrap_or(0);
-        for layer in first..SUNSET_LAYERS * SUNSET_RANGES {
+        for layer in first..SUNSET_MOST {
             let (depth, base, amplitude, spacing) = sunset_shape(layer);
-            let dim = 0.7f64.powi((layer / SUNSET_LAYERS) as i32);
-            let trees = if layer % SUNSET_LAYERS >= SUNSET_LAYERS - 3 {
+            let trees = if layer >= SUNSET_LAYERS - 3 {
                 self.pines(layer, x, depth)
             } else {
                 0.
@@ -1070,7 +1071,7 @@ impl Scene {
                 let body = blend(ground, hue, 0.2 + 0.7 * depth);
                 (blend(body, ground, 0.3), blend(body, hue, 0.3))
             } else {
-                let body = blend(ground, hue, 0.5 * dim * (1. - depth).powf(0.9));
+                let body = blend(ground, hue, 0.5 * (1. - depth).powf(0.9));
                 (
                     blend(body, hue, 0.2 * (1. - 0.5 * depth)),
                     blend(body, ground, 0.4),
