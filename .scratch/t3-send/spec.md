@@ -14,7 +14,7 @@ Sending a T3 Code window to a peer opens the chosen thread in the peer's own T3 
 - A T3 Code window has its own handoff adapter. Sending it shows the machine's recent threads (unsettled first, newest by `updatedAt`), preselects the first, and the status line names the thread that will open. The operator can pick another before sending.
 - The handoff carries the environment id and thread id only. The peer opens `t3code://threads/…` through its own handler, with `ELECTRON_RUN_AS_NODE` and other variables a T3 child process inherits cleared. It never runs a command it is sent, and it refuses while its screen is locked, like every handoff.
 - The peer refuses, with the reason, when it has no T3 Code, or has not got that environment (the thread is not there to open).
-- A T3 window is never closed by a send: the backend belongs to the desktop app and the window holds other threads. It is sent with the source kept, and the panel says so.
+- A T3 window closes once the peer has the thread, which quits T3 Code here (it quits when its last window closes), backend included. It stays open while any agent run is in progress, since quitting would stop it, and the panel says when it will quit T3 Code.
 - A node that has T3 Code publishes a `t3-code` capability holding its environment id, through the existing `-file` attribute convention (`environment-id-file`), so `dojo-mesh find t3-code` lists the peers that can receive one. No machine name appears in tracked source.
 - When a call waits for a person (1Password approving the node key, a locked agent), the send panel must not cover the prompt: see `.scratch/mesh-boundaries/issues/05-panel-hides-the-key-approval.md`.
 

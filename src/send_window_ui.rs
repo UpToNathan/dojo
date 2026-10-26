@@ -158,6 +158,7 @@ fn run_preview(window: u64, all_tabs: bool) -> Result<Preview, String> {
         notes: value["notes"].as_array().map(|notes| notes.iter().filter_map(|note| note.as_str().map(String::from)).collect()).unwrap_or_default(),
         can_send_window: value["scopes"].as_array().is_some_and(|scopes| scopes.iter().any(|scope| scope == "window")),
         tab_count: value["tab_count"].as_u64().map(|count| count as usize),
+        closes_window: value["closes"]["scope"] == "window",
         threads: value["threads"]
             .as_array()
             .map(|threads| {
@@ -419,7 +420,8 @@ impl Panel {
                 match self.model.preview() {
                     Some(Ok(preview)) if !preview.threads.is_empty() => {
                         let (_, label) = &preview.threads[self.model.thread.min(preview.threads.len() - 1)];
-                        Some(if preview.threads.len() > 1 { format!("Opens the T3 Code thread “{label}” there · T for another") } else { format!("Opens the T3 Code thread “{label}” there") })
+                        let closes = if preview.closes_window { " · quits T3 Code here" } else { "" };
+                        Some(if preview.threads.len() > 1 { format!("Opens the T3 Code thread “{label}” there{closes} · T for another") } else { format!("Opens the T3 Code thread “{label}” there{closes}") })
                     }
                     Some(Ok(preview)) => Some(format!("Sends {}", preview.sent)),
                     Some(Err(message)) if message.starts_with("Reading") => Some(message.clone()),
