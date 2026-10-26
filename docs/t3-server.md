@@ -4,6 +4,14 @@
 `t3`. The wrapper uses `~/.local/opt/t3code` and runs the bundled
 `apps/server/dist/bin.mjs` entrypoint in Electron Node mode.
 
+`scripts/install-t3code.py` installs the app itself into `~/.local/opt/t3code`
+from the `pingdotgg/t3code` GitHub releases. It follows the `stable` channel
+unless `--channel` or `--version` says otherwise, refuses a download whose
+SHA-256 does not match the checksum GitHub publishes, and swaps the new tree in
+by rename, so a failed install leaves the old app. `bootstrap-host user` and
+`dojo-update` run it, so a new machine gets the app and an existing one follows
+the channel. A running T3 keeps its old files until you restart it.
+
 T3 Desktop owns the local backend. Keep **Settings → Connections → Local
 environment** enabled. Dojo does not start a standalone server or disable the
 local environment through Home Manager.

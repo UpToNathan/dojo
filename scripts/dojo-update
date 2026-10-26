@@ -108,13 +108,11 @@ def update_group(group, runner, args, now):
     elif group == "mise":
         runner.command("mise", ["mise", "upgrade", "--minimum-release-age", f"{days}d", "--no-prune"])
         runner.report("mise-self", "manual", "packslip owns mise; its installer has no release-age filter")
-    elif group in ("codex", "claude", "t3code"):
-        tool = "t3" if group == "t3code" else group
-        # The t3 wrapper is installed everywhere, but the app it runs is placed by hand.
-        if group == "t3code" and not (Path.home() / ".local/opt/t3code/t3code").exists():
-            runner.report(group, "skipped", "T3 Code is not installed in ~/.local/opt/t3code")
-        else:
-            runner.command(group, [tool, "update"])
+    elif group == "t3code":
+        # Installs the app where it is missing and follows its channel where it is not.
+        runner.command(group, [sys.executable, str(runner.repo / "scripts/install-t3code.py")])
+    elif group in ("codex", "claude"):
+        runner.command(group, [group, "update"])
     elif group == "nvim":
         if days:
             runner.report("nvim", "held", "Lazy has no release-age filter; use --buffer-days 0 --only nvim")
