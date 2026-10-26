@@ -253,7 +253,13 @@ fn kitty(window: &Window, context: &Context) -> Result<Captured, Fallback> {
     // the directory the shell has moved to since is known only to the machine it runs on.
     if let Some(session) = chosen.foreground_processes.iter().find_map(|process| session_of(&process.cmdline)) {
         notes.push(format!("this window is a session on {}; it opens there, in the directory the session started in", session.host));
-        return Ok(Captured { handoff: Handoff::RemoteTerminal { host: Some(session.host), directory: session.directory, program: session.program }, closes: Closes::Window, scopes: Vec::new(), tab_count: None, threads: Vec::new(), notes });
+        // A program running over there may hold unsaved work this side cannot see, and closing the window
+        // ends it, so such a window stays; a plain shell holds nothing.
+        let closes = match &session.program {
+            Some(_) => Closes::Nothing { why: format!("the program running on {} may have unsaved work, and would end with the window", session.host) },
+            None => Closes::Window,
+        };
+        return Ok(Captured { handoff: Handoff::RemoteTerminal { host: Some(session.host), directory: session.directory, program: session.program }, closes, scopes: Vec::new(), tab_count: None, threads: Vec::new(), notes });
     }
     let foreground = chosen.foreground_processes.iter().rev().find(|process| !process.cmdline.is_empty());
     let program_name = foreground.and_then(|process| Path::new(&process.cmdline[0]).file_name()).map(|name| name.to_string_lossy().into_owned());
@@ -635,7 +641,10 @@ mod tests {
         let entries = entries();
         let captured = capture_tab(&window("kitty", "x"), &with(&fake, &entries)).unwrap();
         assert_eq!(captured.handoff, Handoff::RemoteTerminal { host: Some("orchard".into()), directory: "/home/a/project".into(), program: Some(Program::Editor { file: "/home/a/project/x.rs".into(), line: 4, column: 2 }) });
-        assert_eq!(captured.closes, Closes::Window, "the window is only a view, so it closes once the peer has the session");
+        assert!(matches!(&captured.closes, Closes::Nothing { why } if why.contains("unsaved work")), "a program over there may hold unsaved work: {:?}", captured.closes);
+        let plain = kitty_fake(r#"{"pid": 51, "cmdline": ["/home/a/.local/share/dojo/bin/dojo-mesh", "shell", "orchard", "--directory", "/home/a/project"], "cwd": "/home/a"}"#);
+        let captured = capture_tab(&window("kitty", "x"), &with(&plain, &entries)).unwrap();
+        assert_eq!(captured.closes, Closes::Window, "a plain shell holds nothing, so the window is only a view");
     }
 
     #[test]
