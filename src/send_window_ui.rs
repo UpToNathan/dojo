@@ -38,6 +38,12 @@ fn mesh_binary() -> PathBuf {
 }
 
 pub fn toggle(display_id: gpui::DisplayId, cx: &mut App) -> anyhow::Result<()> {
+    toggle_for(display_id, None, false, cx)
+}
+
+/// Opens the panel with `peer` already chosen, and in control-only mode when `control_only` is set
+/// (the mesh panel's machine cards open it this way); closes it when it is open.
+pub fn toggle_for(display_id: gpui::DisplayId, peer: Option<String>, control_only: bool, cx: &mut App) -> anyhow::Result<()> {
     if !cx.has_global::<SendWindow>() {
         cx.set_global(SendWindow::default());
     }
@@ -55,7 +61,13 @@ pub fn toggle(display_id: gpui::DisplayId, cx: &mut App) -> anyhow::Result<()> {
         .into_iter()
         .find(|display| display.id() == display_id)
         .ok_or_else(|| anyhow::anyhow!("the send panel's output disappeared"))?;
-    let memory = memory_path().map(|path| Memory::load(&path)).unwrap_or_default();
+    let mut memory = memory_path().map(|path| Memory::load(&path)).unwrap_or_default();
+    if peer.is_some() {
+        memory.peer = peer;
+    }
+    if control_only {
+        memory.input_only = true;
+    }
     let panel = cx.open_window(
         WindowOptions {
             display_id: Some(display_id),
@@ -87,7 +99,11 @@ pub fn toggle(display_id: gpui::DisplayId, cx: &mut App) -> anyhow::Result<()> {
                     reveal: dojo::design::MenuReveal::opening(Instant::now()),
                     task: None,
                     preview_task: None,
+                    mode_t: 0.,
+                    last_frame: Instant::now(),
+                    show_keys: false,
                 };
+                panel.mode_t = if panel.model.input_only { 1. } else { 0. };
                 panel.load(windows, cx);
                 panel
             })
@@ -104,6 +120,12 @@ struct Panel {
     reveal: dojo::design::MenuReveal,
     task: Option<gpui::Task<()>>,
     preview_task: Option<gpui::Task<()>>,
+    /// 0 while a window is being sent, 1 in control-only mode; it moves between them so the panel changes
+    /// shape instead of jumping.
+    mode_t: f32,
+    last_frame: Instant,
+    /// The key list is shown on request (`?`), not all the time.
+    show_keys: bool,
 }
 
 /// The machines a window can go to: online members of the mesh other than this one.
@@ -309,63 +331,93 @@ impl Panel {
 
 mod size {
     pub const PADDING: f32 = 18.;
-    pub const GAP: f32 = 8.;
-    pub const LINE: f32 = 20.;
-    pub const ROW: f32 = 36.;
-    pub const TITLE: f32 = 24.;
-    pub const NOTE: f32 = 16.;
-    pub const HINT: f32 = 16.;
-    pub const WIDTH: f32 = 720.;
-    pub const ROWS: usize = 6;
+    pub const GAP: f32 = 10.;
+    pub const HEADER: f32 = 36.;
+    pub const TILE_HEIGHT: f32 = 84.;
+    pub const TILE_WIDTH: f32 = 112.;
+    pub const TILE_GAP: f32 = 8.;
+    pub const ROW: f32 = 34.;
+    pub const STATUS: f32 = 18.;
+    pub const FOOTER: f32 = 40.;
+    pub const BIG: f32 = 44.;
+    pub const WIDTH_WINDOW: f32 = 640.;
+    pub const WIDTH_CONTROL: f32 = 420.;
+    pub const ROWS: usize = 5;
 }
 
+mod glyph {
+    pub const WINDOW: &str = "\u{f05b2}";
+    pub const KEYBOARD: &str = "\u{f030c}";
+    pub const MOUSE: &str = "\u{f037d}";
+    pub const MONITOR: &str = "\u{f0379}";
+    pub const SEND: &str = "\u{f048a}";
+}
+
+/// The colour between `a` and `b`, `t` of the way.
+fn mix(a: gpui::Rgba, b: gpui::Rgba, t: f32) -> gpui::Rgba {
+    gpui::Rgba { r: a.r + (b.r - a.r) * t, g: a.g + (b.g - a.g) * t, b: a.b + (b.b - a.b) * t, a: a.a + (b.a - a.a) * t }
+}
+
+/// The accent when only the cursor and keyboard go: warmer, so the mode shows from across the room.
+const CONTROL_ACCENT: u32 = 0xe5a550;
+
 impl Panel {
-    fn status_lines(&self) -> Vec<String> {
+    /// The one line under the choices, when there is something to say. Sentences are for what a
+    /// glyph cannot say: a failure, a missing file, what is about to be sent.
+    fn status_line(&self) -> Option<String> {
         match &self.model.phase {
-            Phase::Loading => vec!["Reading windows and machines…".into()],
-            Phase::Sending => vec!["Sending…".into()],
-            Phase::Failed(message) => vec![format!("Not sent: {message}")],
+            Phase::Loading => Some("Reading windows and machines…".into()),
+            Phase::Sending => Some("Sending…".into()),
+            Phase::Failed(message) => Some(format!("Not sent: {message}")),
             Phase::Missing(files) => {
-                let mut lines = vec![format!("{} does not have {} file{}. Enter copies {} across and sends; Esc goes back.", self.model.peers.get(self.model.peer).cloned().unwrap_or_default(), files.len(), if files.len() == 1 { "" } else { "s" }, if files.len() == 1 { "it" } else { "them" })];
-                lines.extend(files.iter().take(3).cloned());
-                lines
+                let peer = self.model.peers.get(self.model.peer).cloned().unwrap_or_default();
+                Some(format!("{peer} lacks {} file{}: Enter copies them and sends", files.len(), if files.len() == 1 { "" } else { "s" }))
             }
-            Phase::Sent { peer, sent, notes, source, take_input } => {
-                let mut lines = vec![format!("Sent to {peer}: {sent}.")];
-                lines.extend(notes.iter().cloned());
-                if *take_input {
-                    lines.push(format!("Your cursor and keyboard go to {peer} next. Super+Alt+F11 brings them back."));
-                }
-                lines.push(match source {
-                    Source::Pending { .. } => "Closing the original in a moment · Enter closes it now · Esc keeps it".into(),
-                    Source::Kept => "The original is kept.".into(),
-                });
-                lines
-            }
+            Phase::Sent { peer, sent, source, take_input, .. } => Some(match (source, take_input) {
+                (Source::Pending { .. }, true) => format!("Sent to {peer}: {sent}. Taking control next · Esc keeps the original"),
+                (Source::Pending { .. }, false) => format!("Sent to {peer}: {sent} · Esc keeps the original"),
+                (Source::Kept, _) => format!("Sent to {peer}. The original is kept"),
+            }),
             Phase::Choosing => {
                 if let Some(why) = self.model.blocked() {
-                    return vec![why.to_owned()];
+                    return Some(why.to_owned());
                 }
                 if self.model.input_only {
-                    let peer = self.model.peers.get(self.model.peer).cloned().unwrap_or_default();
-                    return vec![format!("No window is sent. Enter takes your cursor and keyboard to {peer}; Super+Alt+F11 brings them back.")];
+                    return None;
                 }
                 match self.model.preview() {
-                    Some(Ok(preview)) => {
-                        let mut lines = vec![format!("Sends {}.", preview.sent)];
-                        lines.extend(preview.notes.iter().take(2).cloned());
-                        if preview.can_send_window {
-                            let all = preview.tab_count.map(|count| format!("all {count} tabs")).unwrap_or_else(|| "the whole window".into());
-                            lines.push(if self.model.all_tabs { "W sends only the tab in front instead.".into() } else { format!("W sends {all} instead.") });
-                        }
-                        lines
-                    }
-                    Some(Err(message)) if message.starts_with("Reading") => vec![message.clone()],
-                    Some(Err(message)) => vec![format!("This window cannot be sent: {message}")],
-                    None => Vec::new(),
+                    Some(Ok(preview)) => Some(format!("Sends {}", preview.sent)),
+                    Some(Err(message)) if message.starts_with("Reading") => Some(message.clone()),
+                    Some(Err(message)) => Some(format!("This window cannot be sent: {message}")),
+                    None => None,
                 }
             }
         }
+    }
+
+    fn glyph_button(&self, id: &'static str, glyph: &'static str, lit: bool, accent: gpui::Rgba, cx: &mut Context<Self>, action: impl Fn(&mut Panel, &mut Window, &mut Context<Panel>) + 'static) -> gpui::AnyElement {
+        let colors = *cx.global::<ThemeColors>();
+        div()
+            .id(id)
+            .size(px(32.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(dojo::design::PILL_RADIUS))
+            .text_size(px(16.))
+            .when(lit, |el| el.bg(accent).text_color(colors.primary_foreground.rgb()))
+            .when(!lit, |el| el.text_color(colors.foreground_muted.rgb()).hover(|el| el.bg(colors.background_highlight.rgb())))
+            .cursor_pointer()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |panel, _, window, cx| {
+                    action(panel, window, cx);
+                    cx.stop_propagation();
+                }),
+            )
+            .child(glyph)
+            .into_any_element()
     }
 }
 
@@ -374,19 +426,45 @@ impl Render for Panel {
         let colors = *cx.global::<ThemeColors>();
         let viewport = window.viewport_size();
         let (progress, moving) = self.reveal.sample_with_motion(Instant::now(), cx.reduce_motion());
-        if moving {
+
+        // The mode moves towards where the model says it is.
+        let now = Instant::now();
+        let dt = now.duration_since(self.last_frame).as_secs_f32().min(0.05);
+        self.last_frame = now;
+        let target = if self.model.input_only { 1. } else { 0. };
+        if cx.reduce_motion() {
+            self.mode_t = target;
+        } else if self.mode_t < target {
+            self.mode_t = (self.mode_t + dt / 0.18).min(target);
+        } else if self.mode_t > target {
+            self.mode_t = (self.mode_t - dt / 0.18).max(target);
+        }
+        let t = self.mode_t;
+        if moving || (t - target).abs() > f32::EPSILON {
             window.request_animation_frame();
         }
-        let status = self.status_lines();
-        let rows = self.model.windows.len().max(self.model.peers.len()).clamp(1, size::ROWS);
+        let accent = mix(colors.primary.rgb(), gpui::rgb(CONTROL_ACCENT), t);
+        let blocked = self.model.blocked().is_some();
+
+        let status = if self.show_keys {
+            Some("Tab list · ←→ machine · ↑↓ window · I control only · W all tabs · Space bring control · Enter go · Esc close".to_string())
+        } else {
+            self.status_line()
+        };
+        let windows_rows = self.model.windows.len().clamp(1, size::ROWS) as f32;
+        let windows_height = (size::GAP + size::ROW * windows_rows) * (1. - t);
+        let big_height = (size::GAP + size::BIG) * t;
         let content_height = size::PADDING * 2.
-            + size::TITLE
-            + size::ROW * rows as f32
-            + size::LINE
-            + size::NOTE * status.len() as f32
-            + size::HINT
-            + size::GAP * 4.;
-        let width = size::WIDTH.min((f32::from(viewport.width) - 120.).max(200.));
+            + size::HEADER
+            + size::GAP
+            + size::TILE_HEIGHT
+            + windows_height
+            + big_height
+            + status.as_ref().map_or(0., |_| size::GAP + size::STATUS)
+            + size::GAP
+            + size::FOOTER;
+        let full_width = size::WIDTH_WINDOW + (size::WIDTH_CONTROL - size::WIDTH_WINDOW) * t;
+        let width = full_width.min((f32::from(viewport.width) - 120.).max(200.));
         let height = content_height.min((f32::from(viewport.height) - 80.).max(80.));
         let bottom = crate::geometry::BOTTOM_INSET as f32;
         let left = (f32::from(viewport.width) - width) / 2.;
@@ -395,60 +473,148 @@ impl Render for Panel {
             gpui::size(px(width), px(height * progress)),
         );
 
-        let row = |id: String, text: String, sub: String, selected: bool, active: bool, list: List, index: usize, cx: &mut Context<Self>| {
-            let strong = if selected && active { colors.selection_foreground.rgb() } else { colors.foreground.rgb() };
-            div()
-                .id(id)
-                .h(px(size::ROW))
-                .px(px(12.))
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .rounded(px(10.))
-                .bg(if selected { colors.background_highlight.rgb() } else { colors.background.rgb() })
-                .text_color(strong)
-                .cursor_pointer()
-                .child(div().flex_none().child(text))
-                .child(div().flex_1().min_w_0().truncate().text_color(if selected && active { strong } else { colors.foreground_muted.rgb() }).child(sub))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |panel, _, _, cx| {
-                        panel.model.select(list, index);
-                        panel.fetch_preview(cx);
-                        cx.notify();
-                        cx.stop_propagation();
-                    }),
-                )
-        };
+        // Header: the mode as a two-way toggle of glyphs, and nothing else.
+        let toggle = div()
+            .flex()
+            .items_center()
+            .gap(px(2.))
+            .p(px(2.))
+            .rounded(px(dojo::design::PILL_RADIUS))
+            .bg(colors.surface_raised.rgb())
+            .child(self.glyph_button("send-mode-window", glyph::WINDOW, !self.model.input_only, accent, cx, |panel, _, cx| {
+                panel.model.set_control_only(false);
+                cx.notify();
+            }))
+            .child(self.glyph_button("send-mode-control", glyph::KEYBOARD, self.model.input_only, accent, cx, |panel, _, cx| {
+                panel.model.set_control_only(true);
+                cx.notify();
+            }));
+        let heading = if self.model.input_only { "Take control" } else { "Send a window" };
+        let header = div()
+            .h(px(size::HEADER))
+            .flex()
+            .items_center()
+            .justify_between()
+            .child(div().text_size(px(15.)).text_color(mix(colors.foreground.rgb(), accent, t)).child(heading))
+            .child(toggle);
 
-        let windows_active = self.model.list == List::Windows;
+        // Machines as tiles.
+        let columns = (((width - size::PADDING * 2.) + size::TILE_GAP) / (size::TILE_WIDTH + size::TILE_GAP)).floor().max(1.) as usize;
+        let peer_start = self.model.peer.saturating_sub(columns - 1);
+        let machines_focused = self.model.list == List::Peers || self.model.input_only;
+        let mut tiles = div().flex().gap(px(size::TILE_GAP)).h(px(size::TILE_HEIGHT));
+        for (index, peer) in self.model.peers.iter().enumerate().skip(peer_start).take(columns) {
+            let selected = index == self.model.peer;
+            tiles = tiles.child(
+                div()
+                    .id(format!("send-peer-{index}"))
+                    .w(px(size::TILE_WIDTH))
+                    .h_full()
+                    .flex_none()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(6.))
+                    .rounded(px(16.))
+                    .border_2()
+                    .border_color(if selected { accent } else { colors.surface_raised.rgb() })
+                    .bg(if selected { colors.background_highlight.rgb() } else { colors.surface_raised.rgb() })
+                    .opacity(if selected || machines_focused { 1. } else { 0.8 })
+                    .cursor_pointer()
+                    .child(div().text_size(px(24.)).text_color(if selected { accent } else { colors.foreground_muted.rgb() }).child(glyph::MONITOR))
+                    .child(div().text_size(px(13.)).truncate().child(peer.clone()))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |panel, _, _, cx| {
+                            panel.model.select(List::Peers, index);
+                            cx.notify();
+                            cx.stop_propagation();
+                        }),
+                    ),
+            );
+        }
+        if self.model.peers.is_empty() {
+            tiles = tiles.child(div().flex().items_center().text_size(px(12.)).text_color(colors.foreground_muted.rgb()).child("No other machine is online"));
+        }
+
+        // Windows: a short list that folds away in control-only mode.
+        let windows_active = self.model.list == List::Windows && !self.model.input_only;
         let window_start = self.model.window.saturating_sub(size::ROWS - 1);
-        let mut windows_column = div().flex().flex_col().flex_1().min_w_0();
+        let mut windows_column = div().flex().flex_col().gap(px(2.));
         for (index, choice) in self.model.windows.iter().enumerate().skip(window_start).take(size::ROWS) {
-            windows_column = windows_column.child(row(
-                format!("send-window-{index}"),
-                choice.app_id.clone(),
-                choice.title.clone(),
-                index == self.model.window,
-                windows_active,
-                List::Windows,
-                index,
-                cx,
-            ));
+            let selected = index == self.model.window;
+            windows_column = windows_column.child(
+                div()
+                    .id(format!("send-window-{index}"))
+                    .h(px(size::ROW - 2.))
+                    .px(px(12.))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .rounded(px(10.))
+                    .bg(if selected && windows_active { colors.background_highlight.rgb() } else { colors.background.rgb() })
+                    .text_size(px(13.))
+                    .cursor_pointer()
+                    .child(div().flex_none().text_color(if selected && windows_active { accent } else { colors.foreground.rgb() }).child(choice.app_id.clone()))
+                    .child(div().flex_1().min_w_0().truncate().text_color(colors.foreground_muted.rgb()).child(choice.title.clone()))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |panel, _, _, cx| {
+                            panel.model.select(List::Windows, index);
+                            panel.fetch_preview(cx);
+                            cx.notify();
+                            cx.stop_propagation();
+                        }),
+                    ),
+            );
         }
-        let mut peers_column = div().flex().flex_col().w(px(200.)).flex_none();
-        for (index, peer) in self.model.peers.iter().enumerate().take(size::ROWS) {
-            peers_column = peers_column.child(row(
-                format!("send-peer-{index}"),
-                peer.clone(),
-                String::new(),
-                index == self.model.peer,
-                !windows_active,
-                List::Peers,
-                index,
-                cx,
-            ));
-        }
+
+        // Footer: whether the cursor and keyboard come along (window mode), a way to see the keys, and the go button.
+        let go_label = if self.model.input_only { "Take control" } else { "Send" };
+        let go = div()
+            .id("send-go")
+            .h(px(32.))
+            .px(px(16.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .rounded(px(dojo::design::PILL_RADIUS))
+            .text_size(px(13.))
+            .when(!blocked, |el| el.bg(accent).text_color(colors.primary_foreground.rgb()).cursor_pointer())
+            .when(blocked, |el| el.bg(colors.surface_raised.rgb()).text_color(colors.foreground_muted.rgb()))
+            .child(div().text_size(px(15.)).child(if self.model.input_only { glyph::KEYBOARD } else { glyph::SEND }))
+            .child(go_label)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|panel, _, window, cx| {
+                    let request = panel.model.enter();
+                    panel.fetch_preview(cx);
+                    panel.handle(request, window, cx);
+                    cx.stop_propagation();
+                }),
+            );
+        let bring = self.glyph_button("send-take-input", glyph::KEYBOARD, self.model.take_input, accent, cx, |panel, _, cx| {
+            panel.model.take_input = !panel.model.take_input;
+            cx.notify();
+        });
+        let footer = div()
+            .h(px(size::FOOTER))
+            .flex()
+            .items_center()
+            .justify_between()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(self.glyph_button("send-keys", "?", self.show_keys, accent, cx, |panel, _, cx| {
+                        panel.show_keys = !panel.show_keys;
+                        cx.notify();
+                    }))
+                    .child(div().opacity(1. - t).child(bring)),
+            )
+            .child(go);
 
         let mut content = div()
             .flex()
@@ -456,37 +622,14 @@ impl Render for Panel {
             .gap(px(size::GAP))
             .p(px(size::PADDING))
             .text_size(px(13.))
-            .line_height(px(size::LINE))
-            .child(div().text_size(px(16.)).line_height(px(size::TITLE)).truncate().child("Send a window to another machine"))
-            .child(div().flex().gap(px(12.)).child(windows_column).child(div().text_color(colors.foreground_muted.rgb()).child("→")).child(peers_column))
-            .child(
-                div()
-                    .id("send-take-input")
-                    .flex()
-                    .gap(px(8.))
-                    .cursor_pointer()
-                    .child(if self.model.take_input { "[x]" } else { "[ ]" })
-                    .child("Take my cursor and keyboard")
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|panel, _, _, cx| {
-                            panel.model.take_input = !panel.model.take_input;
-                            cx.notify();
-                            cx.stop_propagation();
-                        }),
-                    ),
-            );
-        for line in status {
-            content = content.child(div().text_size(px(11.)).line_height(px(size::NOTE)).truncate().child(line));
+            .child(header)
+            .child(tiles)
+            .child(div().h(px(big_height)).overflow_hidden().opacity(t).flex().items_center().justify_center().gap(px(14.)).text_size(px(size::BIG * 0.8)).text_color(accent).child(glyph::KEYBOARD).child(glyph::MOUSE))
+            .child(div().h(px(windows_height)).overflow_hidden().opacity(1. - t).child(div().pt(px(size::GAP)).child(windows_column)));
+        if let Some(line) = status {
+            content = content.child(div().h(px(size::STATUS)).text_size(px(11.)).truncate().text_color(if self.show_keys { colors.foreground_muted.rgb() } else { colors.foreground.rgb() }).child(line));
         }
-        content = content.child(
-            div()
-                .text_size(px(11.))
-                .line_height(px(size::HINT))
-                .text_color(colors.foreground_muted.rgb())
-                .truncate()
-                .child("Tab windows/machines · W all tabs · I only cursor and keyboard · Space take them along · Enter go · Esc close"),
-        );
+        content = content.child(footer);
 
         div()
             .size_full()
@@ -499,9 +642,15 @@ impl Render for Panel {
                 if event.is_held {
                     return;
                 }
+                if event.keystroke.key == "?" || (event.keystroke.key == "/" && event.keystroke.modifiers.shift) {
+                    panel.show_keys = !panel.show_keys;
+                    cx.notify();
+                    return;
+                }
                 let request = panel.model.key(&event.keystroke.key);
                 panel.fetch_preview(cx);
                 panel.handle(request, window, cx);
+                cx.notify();
             }))
             .on_mouse_down(
                 MouseButton::Left,

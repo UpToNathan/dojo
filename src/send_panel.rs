@@ -84,6 +84,9 @@ pub struct Memory {
     pub peer: Option<String>,
     #[serde(default)]
     pub take_input: bool,
+    /// The panel was last left in control-only mode (no window sent).
+    #[serde(default)]
+    pub input_only: bool,
 }
 
 impl Memory {
@@ -106,7 +109,7 @@ impl Memory {
 
 impl Model {
     pub fn loading(memory: &Memory) -> Self {
-        Self { windows: Vec::new(), peers: Vec::new(), window: 0, peer: 0, list: List::Windows, take_input: memory.take_input, phase: Phase::Loading, all_tabs: false, input_only: false, previews: HashMap::new() }
+        Self { windows: Vec::new(), peers: Vec::new(), window: 0, peer: 0, list: List::Windows, take_input: memory.take_input, phase: Phase::Loading, all_tabs: false, input_only: memory.input_only, previews: HashMap::new() }
     }
 
     /// The windows (focused first is selected) and online peers (the remembered one selected).
@@ -116,6 +119,9 @@ impl Model {
         self.windows = windows;
         self.peers = peers;
         self.phase = Phase::Choosing;
+        if self.input_only {
+            self.list = List::Peers;
+        }
     }
 
     pub fn failed(&mut self, message: String) {
@@ -175,7 +181,7 @@ impl Model {
     }
 
     pub fn memory(&self) -> Memory {
-        Memory { peer: self.peers.get(self.peer).cloned(), take_input: self.take_input }
+        Memory { peer: self.peers.get(self.peer).cloned(), take_input: self.take_input, input_only: self.input_only }
     }
 
     /// Selects a row by click.
@@ -208,8 +214,22 @@ impl Model {
                 }
                 Request::Close
             }
-            "tab" | "left" | "right" => {
-                self.list = if self.list == List::Windows { List::Peers } else { List::Windows };
+            // With no window in play there is only one list to be in.
+            "tab" => {
+                if !self.input_only {
+                    self.list = if self.list == List::Windows { List::Peers } else { List::Windows };
+                }
+                Request::Nothing
+            }
+            // The machines are laid out side by side, so the sideways arrows move among them.
+            "left" | "right" => {
+                let length = self.peers.len();
+                if length > 0 {
+                    self.peer = if key == "left" { self.peer.checked_sub(1).unwrap_or(length - 1) } else { (self.peer + 1) % length };
+                }
+                if matches!(self.phase, Phase::Failed(_) | Phase::Missing(_)) {
+                    self.phase = Phase::Choosing;
+                }
                 Request::Nothing
             }
             "up" | "down" => {
@@ -227,10 +247,7 @@ impl Model {
             }
             "i" => {
                 // Just the cursor and keyboard, no window.
-                self.input_only = !self.input_only;
-                if matches!(self.phase, Phase::Failed(_) | Phase::Missing(_)) {
-                    self.phase = Phase::Choosing;
-                }
+                self.set_control_only(!self.input_only);
                 Request::Nothing
             }
             "w" => {
@@ -247,6 +264,18 @@ impl Model {
             }
             "enter" => self.enter(),
             _ => Request::Nothing,
+        }
+    }
+
+    /// Switches between sending a window and taking only the cursor and keyboard. In the second there is
+    /// no window to choose, so the machines are the only list.
+    pub fn set_control_only(&mut self, on: bool) {
+        self.input_only = on;
+        if on {
+            self.list = List::Peers;
+        }
+        if matches!(self.phase, Phase::Failed(_) | Phase::Missing(_)) {
+            self.phase = Phase::Choosing;
         }
     }
 
@@ -282,7 +311,7 @@ mod tests {
 
     #[test]
     fn opens_on_the_focused_window_and_the_remembered_peer() {
-        let model = ready(&Memory { peer: Some("beta".into()), take_input: true });
+        let model = ready(&Memory { peer: Some("beta".into()), take_input: true, ..Default::default() });
         assert_eq!((model.window, model.peer, model.take_input), (1, 1, true));
         let fresh = ready(&Memory::default());
         assert_eq!((fresh.window, fresh.peer, fresh.take_input), (1, 0, false));
@@ -297,7 +326,7 @@ mod tests {
         assert_eq!(model.key("enter"), Request::Send { window: 9, peer: "beta".into(), take_input: true, copy_missing: false, all_tabs: false });
         assert_eq!(model.phase, Phase::Sending);
         assert_eq!(model.key("enter"), Request::Nothing, "one send at a time");
-        assert_eq!(model.memory(), Memory { peer: Some("beta".into()), take_input: true });
+        assert_eq!(model.memory(), Memory { peer: Some("beta".into()), take_input: true, ..Default::default() });
     }
 
     #[test]
@@ -319,9 +348,41 @@ mod tests {
         assert_eq!(model.window, 0);
         model.key("up");
         assert_eq!(model.window, 1);
-        model.key("right");
+        model.key("tab");
         model.key("up");
         assert_eq!((model.list, model.peer), (List::Peers, 1));
+    }
+
+    #[test]
+    fn the_sideways_arrows_move_among_the_machines_wherever_the_focus_is() {
+        let mut model = ready(&Memory::default());
+        assert_eq!((model.list, model.peer), (List::Windows, 0));
+        model.key("right");
+        assert_eq!((model.list, model.peer), (List::Windows, 1), "the window list keeps the focus");
+        model.key("right");
+        assert_eq!(model.peer, 0, "wraps");
+        model.key("left");
+        assert_eq!(model.peer, 1);
+    }
+
+    #[test]
+    fn control_only_leaves_the_machines_as_the_one_list_and_is_remembered() {
+        let mut model = ready(&Memory::default());
+        model.set_control_only(true);
+        assert!(model.input_only);
+        assert_eq!(model.list, List::Peers);
+        model.key("tab");
+        assert_eq!(model.list, List::Peers, "there is no window list to tab to");
+        model.key("down");
+        assert_eq!(model.peer, 1, "up and down move among the machines too");
+        assert_eq!(model.memory().input_only, true);
+        // Opening the panel again starts in the mode it was left in, with the machines focused.
+        let mut again = Model::loading(&model.memory());
+        again.loaded(windows(), None, vec!["alpha".into(), "beta".into()], &model.memory());
+        assert!(again.input_only);
+        assert_eq!((again.list, again.peer), (List::Peers, 1));
+        again.set_control_only(false);
+        assert!(!again.input_only);
     }
 
     #[test]
@@ -384,7 +445,7 @@ mod tests {
 
     #[test]
     fn i_takes_only_the_cursor_and_keyboard_and_needs_no_window() {
-        let mut model = ready(&Memory { peer: Some("beta".into()), take_input: false });
+        let mut model = ready(&Memory { peer: Some("beta".into()), take_input: false, ..Default::default() });
         model.key("i");
         assert!(model.input_only);
         assert_eq!(model.key("enter"), Request::RemoteOnly { peer: "beta".into() });
@@ -427,7 +488,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("dojo-send-memory-{}", std::process::id()));
         let path = dir.join("send-window.json");
         assert_eq!(Memory::load(&path), Memory::default());
-        let memory = Memory { peer: Some("beta".into()), take_input: true };
+        let memory = Memory { peer: Some("beta".into()), take_input: true, ..Default::default() };
         memory.save(&path).unwrap();
         assert_eq!(Memory::load(&path), memory);
         std::fs::remove_dir_all(&dir).unwrap();

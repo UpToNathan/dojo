@@ -566,8 +566,8 @@ impl Mesh {
         row = row.child(self.icon_button(format!("mesh-send-{}", card.name), glyph::SEND, reachable && idle, None, cx, move |mesh, window, cx| {
             let display = mesh.display;
             window.remove_window();
-            let _ = &peer;
-            if let Err(error) = crate::send_window_ui::toggle(display, cx) {
+            // The switch panel opens with this machine already chosen.
+            if let Err(error) = crate::send_window_ui::toggle_for(display, Some(peer.clone()), false, cx) {
                 eprintln!("Dojo mesh: could not open the send panel: {error:#}");
             }
         }));
