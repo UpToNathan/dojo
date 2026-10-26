@@ -35,16 +35,24 @@ pub enum Style {
     Strata,
     /// Rings from a few centres that interfere with each other.
     Ripples,
+    /// Low-poly mountain ridges under a moon, or a sun in a light theme.
+    Sunset,
 }
 
 impl Style {
-    pub const ALL: [Style; 3] = [Style::Contours, Style::Strata, Style::Ripples];
+    pub const ALL: [Style; 4] = [
+        Style::Contours,
+        Style::Sunset,
+        Style::Strata,
+        Style::Ripples,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::Contours => "contours",
             Self::Strata => "strata",
             Self::Ripples => "ripples",
+            Self::Sunset => "sunset",
         }
     }
 
@@ -53,11 +61,14 @@ impl Style {
             Self::Contours => "Contours",
             Self::Strata => "Strata",
             Self::Ripples => "Ripples",
+            Self::Sunset => "Sunset",
         }
     }
 
     pub fn parse(text: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|style| style.name() == text.trim())
+        Self::ALL
+            .into_iter()
+            .find(|style| style.name() == text.trim())
     }
 }
 
@@ -108,6 +119,10 @@ impl<'de> Deserialize<'de> for Rgb {
 pub struct Palette {
     pub background: Rgb,
     pub accents: [Rgb; 3],
+    /// The palette is a light theme's. The pictures stay on a dark ground either way; this only
+    /// tells a scene that has a sun or a moon which to draw.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub light: bool,
 }
 
 impl Palette {
@@ -137,6 +152,7 @@ impl Palette {
         Self {
             background,
             accents,
+            light: false,
         }
     }
 }
@@ -162,7 +178,9 @@ impl Palette {
             .into_iter()
             .map(colour)
             .collect::<anyhow::Result<Vec<_>>>()?;
-        Self::from_parts(darker, &accents)
+        let mut palette = Self::from_parts(darker, &accents)?;
+        palette.light = theme.appearance == crate::theme::Appearance::Light;
+        Ok(palette)
     }
 
     /// A palette from colours the user chose: the darkest is the background, the rest are the
@@ -204,6 +222,7 @@ impl Palette {
         Ok(Self {
             background: srgb(ground),
             accents: three.map(srgb),
+            light: false,
         })
     }
 }
@@ -543,6 +562,7 @@ struct Scene {
     aspect: f64,
     background: Colour,
     accents: [Colour; 3],
+    light: bool,
     /// Per-recipe choices that make one seed's picture differ from another's beyond its noise.
     offsets: [f64; 6],
 }
@@ -558,6 +578,7 @@ impl Scene {
             aspect,
             background: linear(recipe.palette.background),
             accents: recipe.palette.accents.map(linear),
+            light: recipe.palette.light,
             offsets: std::array::from_fn(|_| random.unit()),
         }
     }
@@ -568,6 +589,7 @@ impl Scene {
             Style::Contours => self.contours(x, y, pixel),
             Style::Strata => self.strata(x, y, pixel),
             Style::Ripples => self.ripples(x, y, pixel),
+            Style::Sunset => self.sunset(x, y, pixel),
         }
     }
 
@@ -656,6 +678,162 @@ impl Scene {
         };
         let tone = |_: f64, x: f64, y: f64| noise.fbm(x * 0.5 + shift, y * 0.5, 3) * 0.5 + 0.5;
         self.lines(&wave, &tone, x, y, pixel, &look)
+    }
+
+    /// A number in `[0, 1)` fixed by the recipe and three integers.
+    fn hash(&self, a: i64, b: i64, c: i64) -> f64 {
+        let hash = mix64(
+            self.noise.seed
+                ^ (a as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15)
+                ^ (b as u64).wrapping_mul(0xc2b2_ae3d_27d4_eb4f)
+                ^ (c as u64).wrapping_mul(0x1656_67b1_9e37_79f9),
+        );
+        (hash >> 11) as f64 / (1u64 << 53) as f64
+    }
+
+    /// Vertex `k` of a ridge: where it sits along the canvas and how high its crest is. Heights
+    /// mix smooth noise with a random jag per vertex, so the crests come out sharp.
+    fn vertex(&self, layer: usize, k: i64, spacing: f64, base: f64, amplitude: f64) -> (f64, f64) {
+        let along = (k as f64 + (self.hash(layer as i64, k, 0) - 0.5) * 0.55) * spacing;
+        let broad = self
+            .noise
+            .fbm(along * 1.3 + layer as f64 * 13.7, layer as f64 * 7.1, 3);
+        let jag = self.hash(layer as i64, k, 1) * 2. - 1.;
+        (along, base - amplitude * (0.7 * broad + 0.5 * jag))
+    }
+
+    /// The segment of ridge `layer` under `x`: its two vertices.
+    fn segment(
+        &self,
+        layer: usize,
+        x: f64,
+        spacing: f64,
+        base: f64,
+        amplitude: f64,
+    ) -> (i64, (f64, f64), (f64, f64)) {
+        let guess = (x / spacing).floor() as i64;
+        for k in guess - 1..=guess + 1 {
+            let left = self.vertex(layer, k, spacing, base, amplitude);
+            let right = self.vertex(layer, k + 1, spacing, base, amplitude);
+            if left.0 <= x && x < right.0 {
+                return (k, left, right);
+            }
+        }
+        let k = guess;
+        (
+            k,
+            self.vertex(layer, k, spacing, base, amplitude),
+            self.vertex(layer, k + 1, spacing, base, amplitude),
+        )
+    }
+
+    fn sunset(&self, x: f64, y: f64, pixel: f64) -> Colour {
+        let white = [1.; 3];
+        // The sky climbs from the background to a glow at the horizon, in the palette's own
+        // colours. A light theme gets a bright sky and sun, a dark one a dim moon and stars.
+        let lift = |colour: Colour| mix(colour, white, 0.5);
+        let (top, horizon) = if self.light {
+            (
+                lift(self.accents[0]),
+                lift(mix(self.accents[1], self.accents[2], 0.5)),
+            )
+        } else {
+            (
+                self.background,
+                mix(self.background, scale(self.accents[1], 0.6), 0.55),
+            )
+        };
+        let mut colour = mix(top, horizon, smoothstep(0.0, 0.62, y).powf(1.5));
+
+        let (sun_x, sun_y) = (self.aspect * (0.2 + 0.6 * self.offsets[0]), 0.4);
+        let (dx, dy) = (x - sun_x, y - sun_y);
+        let distance = (dx * dx + dy * dy).sqrt();
+        let (radius, halo, body) = if self.light {
+            (0.07, 0.42, mix(self.accents[2], white, 0.55))
+        } else {
+            // Dim enough to sit behind a terminal: the brightest accent is no limit on the moon.
+            (
+                0.045,
+                0.10,
+                limit_luminance(mix(self.accents[2], self.accents[1], 0.35), 0.2),
+            )
+        };
+        colour = add(
+            colour,
+            scale(body, halo * (-distance * distance / 0.045).exp()),
+        );
+        let disc = 1. - smoothstep(radius - pixel, radius + pixel, distance);
+        colour = mix(colour, body, disc * if self.light { 0.95 } else { 0.8 });
+
+        if !self.light {
+            colour = add(
+                colour,
+                scale(self.accents[2], 0.5 * self.stars(x, y, pixel, sun_x, sun_y)),
+            );
+        }
+
+        const LAYERS: usize = 5;
+        for layer in 0..LAYERS {
+            let depth = layer as f64 / (LAYERS - 1) as f64;
+            let base = 0.56 + 0.09 * layer as f64;
+            let amplitude = 0.17 - 0.07 * depth;
+            let spacing = 0.2 - 0.07 * depth;
+            if y < base - amplitude * 1.3 {
+                continue;
+            }
+            let (_, left, right) = self.segment(layer, x, spacing, base, amplitude);
+            let along = ((x - left.0) / (right.0 - left.0)).clamp(0., 1.);
+            let top = left.1 + (right.1 - left.1) * along;
+            let coverage = ((y - top) / pixel + 0.5).clamp(0., 1.);
+            if coverage == 0. {
+                continue;
+            }
+
+            // The facets are cut along lines that lean from the crests, so they read as triangles
+            // and strips rather than as columns: shade by the segment found along the lean.
+            let lean = if layer % 2 == 0 { 0.7 } else { -0.7 };
+            let (k, from, to) = self.segment(layer, x + (y - top) * lean, spacing, base, amplitude);
+            let slope = (to.1 - from.1) / (to.0 - from.0);
+            // The surface faces the light when it falls away from it: down to the right of a
+            // sun that is further right, say. Straight below the light the facets are lit
+            // evenly, so the shading eases through zero there instead of flipping at a seam.
+            let toward = ((sun_x - x) / 0.35).clamp(-1., 1.);
+            let facing = (slope * toward / (1. + slope * slope).sqrt()).clamp(-1., 1.);
+            let band_height = 0.045;
+            let into =
+                (y - top) / band_height + 0.6 * (x - from.0) / (to.0 - from.0) * lean.signum();
+            let facet = into.floor() as i64;
+            let jitter = self.hash(layer as i64 + 31, k, facet) - 0.5;
+
+            let fog = mix(horizon, self.background, 0.15 + 0.5 * depth);
+            let body = mix(fog, scale(self.background, 1.1), depth.powf(0.8));
+            let body = add(body, scale(self.accents[0], 0.05 * (1. - depth)));
+            let lit = mix(body, self.accents[1], 0.34 * (1. - 0.5 * depth));
+            let dark = scale(body, 0.6);
+            let shade = (0.5 + 0.5 * facing + 0.22 * jitter - 0.025 * facet as f64).clamp(0., 1.);
+            colour = mix(colour, mix(dark, lit, shade), coverage);
+        }
+        colour
+    }
+
+    /// Sparse points of light in a dark sky, none near the moon or the horizon.
+    fn stars(&self, x: f64, y: f64, pixel: f64, moon_x: f64, moon_y: f64) -> f64 {
+        const CELL: f64 = 0.03;
+        let (cx, cy) = ((x / CELL).floor() as i64, (y / CELL).floor() as i64);
+        if self.hash(cx, cy, 90) > 0.16 {
+            return 0.;
+        }
+        let star_x = (cx as f64 + 0.15 + 0.7 * self.hash(cx, cy, 91)) * CELL;
+        let star_y = (cy as f64 + 0.15 + 0.7 * self.hash(cx, cy, 92)) * CELL;
+        let radius = (pixel * 0.85).max(0.0011 * (0.6 + self.hash(cx, cy, 93)));
+        let reach = (((x - star_x).powi(2) + (y - star_y).powi(2)).sqrt() / radius).min(1.);
+        let sky = 1. - smoothstep(0.1, 0.5, y);
+        let clear = smoothstep(
+            0.1,
+            0.22,
+            ((star_x - moon_x).powi(2) + (star_y - moon_y).powi(2)).sqrt(),
+        );
+        (1. - reach).powi(2) * (0.25 + 0.6 * self.hash(cx, cy, 94)) * sky * clear
     }
 
     /// Level lines of `field` over a ground tinted by `tone` and shaded as relief, drawn
@@ -857,6 +1035,31 @@ mod tests {
         let tall = image::load_from_memory(&recipe(Style::Ripples).reference_png(0.5, 400)?)?;
         assert_eq!((tall.width(), tall.height()), (200, 400));
         Ok(())
+    }
+
+    #[test]
+    fn the_moon_of_a_dark_theme_is_dim_and_the_sun_of_a_light_one_is_not() {
+        let brightest = |light: bool| {
+            let mut palette = Palette::from_colors(&[
+                Rgb([10, 10, 20]),
+                Rgb([90, 110, 200]),
+                Rgb([230, 235, 255]),
+            ])
+            .unwrap();
+            palette.light = light;
+            let image =
+                Recipe::with_palette(Style::Sunset, 3, palette).render(View::whole(1.8), 180, 100);
+            image
+                .pixels()
+                .map(|p| (f64::from(p[0]) + f64::from(p[1]) + f64::from(p[2])) / 765.)
+                .fold(0., f64::max)
+        };
+        let (dark, light) = (brightest(false), brightest(true));
+        assert!(dark < 0.75, "the dark moon blinds: {dark}");
+        assert!(
+            light > dark + 0.15,
+            "the light sun is no brighter: {light} vs {dark}"
+        );
     }
 
     #[test]

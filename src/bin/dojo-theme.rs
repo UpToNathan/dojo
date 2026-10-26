@@ -16,7 +16,7 @@ fn run() -> anyhow::Result<()> {
     let command = args.next().unwrap_or_else(|| "help".into());
     if command == "help" || command == "--help" {
         println!(
-            "Usage:\n  dojo-theme preview IMAGE OUTPUT.html\n  dojo-theme generate IMAGE [--mode MODE]\n  dojo-theme apply IMAGE [--mode MODE] [--appearance system|dark|light] [--targets LIST]\n  dojo-theme presets\n  dojo-theme procedural preview STYLE OUTPUT.png [--seed N] [--aspect W/H] [--edge PX] [--colors theme|random | --palette COLORS]\n  dojo-theme procedural apply STYLE [--seed N] [--layout span|fill] [--colors theme|random | --palette COLORS]\n  dojo-theme preset ID [--targets LIST]\n  dojo-theme select GENERATION [--appearance system|dark|light] [--targets LIST]\n  dojo-theme rollback\n  dojo-theme lock-wallpaper\n  dojo-theme status\n  dojo-theme watch\nTargets: {}",
+            "Usage:\n  dojo-theme preview IMAGE OUTPUT.html\n  dojo-theme generate IMAGE [--mode MODE]\n  dojo-theme apply IMAGE [--mode MODE] [--appearance system|dark|light] [--targets LIST]\n  dojo-theme presets\n  dojo-theme procedural preview STYLE OUTPUT.png [--seed N] [--aspect W/H] [--edge PX] [--colors theme|random | --palette COLORS] [--light]\n  dojo-theme procedural apply STYLE [--seed N] [--layout span|fill] [--colors theme|random | --palette COLORS]\n  dojo-theme preset ID [--targets LIST]\n  dojo-theme select GENERATION [--appearance system|dark|light] [--targets LIST]\n  dojo-theme rollback\n  dojo-theme lock-wallpaper\n  dojo-theme status\n  dojo-theme watch\nTargets: {}",
             theme::TARGETS.join(",")
         );
         return Ok(());
@@ -207,6 +207,7 @@ fn procedural(store: &ThemeStore, mut args: impl Iterator<Item = String>) -> any
     let mut layout = WallpaperLayout::Span;
     let mut colours = None;
     let mut pasted = None;
+    let mut light = false;
     while let Some(option) = args.next() {
         let mut value = || args.next().with_context(|| format!("{option} needs a value"));
         match option.as_str() {
@@ -227,6 +228,7 @@ fn procedural(store: &ThemeStore, mut args: impl Iterator<Item = String>) -> any
                 })
             }
             "--palette" => pasted = Some(value()?),
+            "--light" => light = true,
             "--layout" => {
                 layout = match value()?.as_str() {
                     "span" => WallpaperLayout::Span,
@@ -241,7 +243,7 @@ fn procedural(store: &ThemeStore, mut args: impl Iterator<Item = String>) -> any
         colours.is_none() || pasted.is_none(),
         "--colors and --palette choose the colours two ways; give one"
     );
-    let palette = match (pasted, colours) {
+    let mut palette = match (pasted, colours) {
         (Some(text), _) => Palette::from_colors(&parse_colors(&text))?,
         (None, Some(false)) => Palette::from_seed(seed),
         // By default the wallpaper wears the selected theme's colours, when there is one.
@@ -254,6 +256,8 @@ fn procedural(store: &ThemeStore, mut args: impl Iterator<Item = String>) -> any
             None => Palette::from_seed(seed),
         },
     };
+    // A theme's own appearance wins; for other colours `--light` asks for the sun.
+    palette.light |= light;
     let recipe = Recipe::with_palette(style, seed, palette);
     let aspect = aspect.unwrap_or_else(desktop::current_aspect);
     if let Some(output) = output {
