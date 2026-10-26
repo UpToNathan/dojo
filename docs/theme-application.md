@@ -45,7 +45,9 @@ left of the system tray. It opens on Wallpaper and offers Wallpaper, Presets, an
   Under **Choose image…**, the style buttons (Contours, Sunset, Aurora, Mesh, Stained glass, Dunes) draw a
   *procedural wallpaper*: a recipe each monitor draws at its own resolution, so it is
   sharp on rotated and high-density monitors and continuous across a span. Drawing one
-  previews **Span all monitors**, and with no saved layout it spans. **Theme colours**
+  previews **Span all monitors**, and with no saved layout it spans. Switching layout draws the preview
+  again as a miniature of your monitors for that layout (each at its own pixels, not one picture
+  stretched), and **Each monitor** gives every monitor a whole picture in its own shape. **Theme colours**
   (the default) borrow the selected theme's background and its primary and secondary colours (a deep shade of the primary, the primary, then the secondary; its other colours are not used), **Random colours**
   take them from the seed, and **Paste palette** reads two or more `#rrggbb` colours from
   the clipboard. The ground is the theme's own `background` and nothing is darkened or capped, so the wallpaper meets the shell in the same colour. The recipe is kept

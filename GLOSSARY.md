@@ -46,7 +46,7 @@ The copy of a user's palette, pre-blurred wallpaper, display name and greeting s
 _Avoid_: Theme cache, profile
 
 **Procedural wallpaper**:
-A wallpaper drawn from a recipe rather than chosen as an image. Each monitor draws its part of the canvas at its own pixels, so it is as sharp as the monitor and continuous across monitors. It spans all monitors unless a layout was chosen.
+A wallpaper drawn from a recipe rather than chosen as an image. Each monitor draws its part of the canvas at its own pixels, so it is as sharp as the monitor and continuous across monitors. It spans all monitors unless a layout was chosen; with **each monitor**, every monitor draws a whole picture in its own shape instead.
 _Avoid_: Generated image, live wallpaper
 
 **Recipe**:
