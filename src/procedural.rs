@@ -29,37 +29,35 @@ pub const FILE_NAME: &str = "wallpaper-recipe.json";
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Style {
-    /// Soft luminous bands drifting through a dark field.
-    Aurora,
-    /// Topographic contour lines.
+    /// Topographic contour lines over shaded relief, with finer terrain on a finer monitor.
     Contours,
-    /// Layered mountain ridges fading into haze, under a low sun.
-    Ridges,
+    /// Flowing layers of sediment, drawn as fine bands.
+    Strata,
+    /// Rings from a few centres that interfere with each other.
+    Ripples,
 }
 
 impl Style {
-    pub const ALL: [Style; 3] = [Style::Aurora, Style::Contours, Style::Ridges];
+    pub const ALL: [Style; 3] = [Style::Contours, Style::Strata, Style::Ripples];
 
     pub fn name(self) -> &'static str {
         match self {
-            Self::Aurora => "aurora",
             Self::Contours => "contours",
-            Self::Ridges => "ridges",
+            Self::Strata => "strata",
+            Self::Ripples => "ripples",
         }
     }
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Aurora => "Aurora",
             Self::Contours => "Contours",
-            Self::Ridges => "Ridges",
+            Self::Strata => "Strata",
+            Self::Ripples => "Ripples",
         }
     }
 
     pub fn parse(text: &str) -> Option<Self> {
-        Self::ALL
-            .into_iter()
-            .find(|style| style.name() == text.trim())
+        Self::ALL.into_iter().find(|style| style.name() == text.trim())
     }
 }
 
@@ -519,13 +517,18 @@ impl Noise {
 
     /// Several octaves of [`perlin`](Self::perlin), roughly in `[-1, 1]`. Each octave is turned a
     /// little so the lattice does not show as straight creases.
-    fn fbm(&self, mut x: f64, mut y: f64, octaves: u32) -> f64 {
+    fn fbm(&self, x: f64, y: f64, octaves: u32) -> f64 {
+        self.fbm_gain(x, y, octaves, 0.5)
+    }
+
+    /// [`fbm`](Self::fbm) with each octave `gain` times as strong as the last: nearer 1 is rougher.
+    fn fbm_gain(&self, mut x: f64, mut y: f64, octaves: u32, gain: f64) -> f64 {
         let (mut total, mut amplitude, mut weight) = (0., 1., 0.);
         for octave in 0..octaves {
             total +=
                 amplitude * self.perlin(x + f64::from(octave) * 17.3, y - f64::from(octave) * 9.1);
             weight += amplitude;
-            amplitude *= 0.5;
+            amplitude *= gain;
             (x, y) = (2.02 * (x * 0.8 - y * 0.6), 2.02 * (x * 0.6 + y * 0.8));
         }
         (total / weight).clamp(-1., 1.)
@@ -562,118 +565,172 @@ impl Scene {
     /// The linear colour at canvas position `(x, y)`, with `pixel` the canvas extent of a pixel.
     fn colour(&self, x: f64, y: f64, pixel: f64) -> Colour {
         match self.style {
-            Style::Aurora => self.aurora(x, y),
             Style::Contours => self.contours(x, y, pixel),
-            Style::Ridges => self.ridges(x, y, pixel),
+            Style::Strata => self.strata(x, y, pixel),
+            Style::Ripples => self.ripples(x, y, pixel),
         }
     }
 
-    fn aurora(&self, x: f64, y: f64) -> Colour {
-        let noise = &self.noise;
-        let (shift_x, shift_y) = (self.offsets[0] * 40., self.offsets[1] * 40.);
-        let (x, y) = (x * 0.9 + shift_x, y * 0.9 + shift_y);
-        let warp_x = noise.fbm(x * 0.8, y * 0.8, 3);
-        let warp_y = noise.fbm(x * 0.8 + 7.3, y * 0.8 - 2.1, 3);
-        let (px, py) = (x + 0.7 * warp_x, y + 0.7 * warp_y);
-        let body = noise.fbm(px * 1.2 + 3.1, py * 1.2, 5);
-        // Filaments sit where a second field crosses zero.
-        let filament = 1. - noise.fbm(px * 2.2, py * 2.2 + 9.0, 4).abs();
-        let energy = smoothstep(-0.25, 0.85, body * 0.85 + filament.powf(3.) * 0.35 - 0.1);
-        let glow = energy.powf(1.7);
-        let ramp = glow * 3.;
-        let accent = |index: usize| scale(self.accents[index], 0.9);
-        let colour = if ramp < 1. {
-            mix(self.background, accent(0), ramp)
-        } else if ramp < 2. {
-            mix(accent(0), accent(1), ramp - 1.)
-        } else {
-            mix(accent(1), accent(2), ramp - 2.)
-        };
-        // A little of the second accent lifts the thin, bright cores.
-        add(
-            colour,
-            scale(self.accents[2], 0.18 * filament.powf(8.) * energy),
-        )
+    /// How many octaves of noise that starts at `base` cycles per canvas unit still have features
+    /// a few pixels wide. A finer monitor gets finer detail rather than the same picture larger.
+    fn octaves(base: f64, pixel: f64, cap: u32) -> u32 {
+        let finest = 1. / (4. * pixel);
+        let count = (finest / base).max(1.).log(2.02).floor() as u32 + 1;
+        count.clamp(3, cap)
     }
 
     fn contours(&self, x: f64, y: f64, pixel: f64) -> Colour {
-        const LEVELS: f64 = 24.;
         let noise = &self.noise;
         let (shift_x, shift_y) = (self.offsets[0] * 40., self.offsets[1] * 40.);
+        let octaves = Self::octaves(4.4, pixel, 8);
         let height = |x: f64, y: f64| {
             let (x, y) = (x * 1.1 + shift_x, y * 1.1 + shift_y);
             let warp = noise.fbm(x * 0.7 + 4.4, y * 0.7, 2);
-            (noise.fbm(x + 0.5 * warp, y - 0.5 * warp, 5) * 1.7 * 0.5 + 0.5).clamp(0., 1.)
+            let broad = noise.fbm(x + 0.5 * warp, y - 0.5 * warp, 5);
+            // Folding a second field at zero cuts ridge lines and gullies into the broad relief.
+            let gully = 1. - 2. * noise.fbm(x * 1.7 + 11., y * 1.7, 3).abs();
+            // The finest terrain is whatever the monitor has pixels to show.
+            let detail = noise.fbm_gain(x * 4. + 3.3, y * 4., octaves, 0.55);
+            // Squashed rather than clamped, so no plateau has an edge for the shading to catch.
+            0.5 + 0.5 * ((broad * 1.55 + 0.3 * gully) * 0.95 + 0.05 * detail).tanh()
         };
-        let here = height(x, y);
-        let step = (pixel * 0.75).max(1e-6);
-        let slope_x = height(x + step, y) - height(x - step, y);
-        let slope_y = height(x, y + step) - height(x, y - step);
-        let slope = (slope_x * slope_x + slope_y * slope_y).sqrt() / (2. * step);
-        let level = here * LEVELS;
-        let fraction = level - level.floor();
-        let between = fraction.min(1. - fraction);
-        // Distance to the nearest line in pixels: levels away, over levels per pixel.
-        let distance = between / (slope * LEVELS * pixel).max(1e-9);
-        let major = (level.floor() as i64).rem_euclid(5) == 0;
-        let half_width = if major { 0.0021 } else { 0.0012 } / pixel / 2.;
-        let line = (half_width - distance + 0.5).clamp(0., 1.);
-        let sheen = smoothstep(0.1, 0.9, here);
-        let ground = mix(
-            self.background,
-            scale(self.accents[0], 0.14),
-            sheen * 0.8 + y * 0.2,
-        );
-        let ink = if major {
-            self.accents[2]
-        } else {
-            self.accents[1]
+        let look = Look {
+            levels: 48.,
+            relief: 0.3,
+            shade: 0.16,
+            tint: 1.,
+            widths: [0.0007, 0.0011, 0.0017],
         };
-        mix(ground, scale(ink, if major { 0.85 } else { 0.5 }), line)
+        self.lines(&height, &|value, _, _| value, x, y, pixel, &look)
     }
 
-    fn ridges(&self, x: f64, y: f64, pixel: f64) -> Colour {
+    fn strata(&self, x: f64, y: f64, pixel: f64) -> Colour {
         let noise = &self.noise;
-        let horizon = mix(self.background, scale(self.accents[1], 0.5), 0.42);
-        let high = mix(self.background, scale(self.accents[0], 0.3), 0.3);
-        let mut colour = mix(high, horizon, smoothstep(0.0, 0.7, y).powf(1.4));
-        // A low sun, placed once for the whole canvas so a spanned picture has a single sun.
-        let (sun_x, sun_y) = (self.aspect * (0.2 + 0.6 * self.offsets[0]), 0.42);
-        let (dx, dy) = (x - sun_x, y - sun_y);
-        let distance = (dx * dx + dy * dy).sqrt();
-        let halo = (-distance * distance / 0.05).exp();
-        let disc = 1. - smoothstep(0.07 - pixel, 0.07 + pixel, distance);
-        colour = add(colour, scale(self.accents[2], 0.42 * halo));
-        colour = mix(colour, mix(self.accents[2], [1.; 3], 0.35), disc * 0.9);
-
-        const LAYERS: usize = 6;
-        for layer in 0..LAYERS {
-            let depth = layer as f64 / (LAYERS - 1) as f64;
-            let base = 0.5 + 0.085 * layer as f64;
-            let amplitude = 0.19 - 0.12 * depth;
-            let frequency = 0.9 + 1.5 * depth;
-            let origin = self.offsets[1 + layer % 5] * 100. + layer as f64 * 13.7;
-            let smooth = noise.fbm(x * frequency + origin, layer as f64 * 7.7 + 0.5, 4);
-            // Peaks come from folding a second field at zero, which leaves a sharp crest.
-            let crest = 1.
-                - 2. * noise
-                    .fbm(x * frequency * 1.3 + origin, layer as f64 * 5.1 + 40., 4)
-                    .abs();
-            let wave = 0.4 * smooth + 0.6 * crest * (1. - 0.5 * depth);
-            let top = base - amplitude * wave;
-            let coverage = ((y - top) / pixel + 0.5).clamp(0., 1.);
-            if coverage == 0. {
-                continue;
-            }
-            let fog = mix(horizon, self.accents[1], 0.25);
-            let body = mix(fog, self.background, 0.38 + 0.62 * depth);
-            let lit = mix(body, self.accents[2], 0.3 * (1. - depth));
-            let below = y - top;
-            let surface = mix(lit, body, 1. - (-below * 7.).exp());
-            colour = mix(colour, surface, coverage);
-        }
-        colour
+        let (shift_x, shift_y) = (self.offsets[0] * 40., self.offsets[1] * 40.);
+        let tilt = (self.offsets[2] - 0.5) * 0.5;
+        let octaves = Self::octaves(3., pixel, 8);
+        let layer = |x: f64, y: f64| {
+            let flow = noise.fbm_gain(x * 0.55 + shift_x, y * 1.25 + shift_y, 5, 0.55);
+            let grain = noise.fbm_gain(x * 3. + shift_y, y * 3. + shift_x, octaves, 0.55);
+            y + tilt * x + 0.5 * flow + 0.045 * grain
+        };
+        let look = Look {
+            levels: 58.,
+            relief: 0.,
+            shade: 0.,
+            tint: 0.9,
+            widths: [0.0007, 0.0011, 0.0017],
+        };
+        let tone = |_: f64, x: f64, y: f64| {
+            noise.fbm(x * 0.45 + shift_y, y * 0.45 + shift_x, 3) * 0.5 + 0.5
+        };
+        self.lines(&layer, &tone, x, y, pixel, &look)
     }
+
+    fn ripples(&self, x: f64, y: f64, pixel: f64) -> Colour {
+        let noise = &self.noise;
+        let shift = self.offsets[5] * 40.;
+        // Three centres, each placed once for the whole canvas.
+        let centres: [(f64, f64); 3] = std::array::from_fn(|index| {
+            (
+                self.aspect * (0.12 + 0.76 * self.offsets[index]),
+                0.15 + 0.7 * self.offsets[(index + 3) % 6],
+            )
+        });
+        let weights = [1., 0.72, -0.55];
+        let octaves = Self::octaves(2., pixel, 7);
+        let wave = |x: f64, y: f64| {
+            let warp = noise.fbm_gain(x * 1.6 + shift, y * 1.6, octaves, 0.5);
+            let mut total = 0.12 * warp;
+            for (index, (cx, cy)) in centres.iter().enumerate() {
+                total += weights[index] * ((x - cx).powi(2) + (y - cy).powi(2)).sqrt();
+            }
+            total
+        };
+        let look = Look {
+            levels: 34.,
+            relief: 0.,
+            shade: 0.,
+            tint: 0.9,
+            widths: [0.0007, 0.0011, 0.0017],
+        };
+        let tone = |_: f64, x: f64, y: f64| noise.fbm(x * 0.5 + shift, y * 0.5, 3) * 0.5 + 0.5;
+        self.lines(&wave, &tone, x, y, pixel, &look)
+    }
+
+    /// Level lines of `field` over a ground tinted by `tone` and shaded as relief, drawn
+    /// anti-aliased at a thickness set in canvas units, so it is the same at any resolution.
+    /// Every fifth line is stronger and every tenth stronger again.
+    #[allow(clippy::too_many_arguments)]
+    fn lines(
+        &self,
+        field: &dyn Fn(f64, f64) -> f64,
+        tone: &dyn Fn(f64, f64, f64) -> f64,
+        x: f64,
+        y: f64,
+        pixel: f64,
+        look: &Look,
+    ) -> Colour {
+        let here = field(x, y);
+        let step = (pixel * 0.75).max(1e-6);
+        let slope_x = (field(x + step, y) - field(x - step, y)) / (2. * step);
+        let slope_y = (field(x, y + step) - field(x, y - step)) / (2. * step);
+        let slope = (slope_x * slope_x + slope_y * slope_y).sqrt();
+
+        let level = here * look.levels;
+        let nearest = level.round();
+        // Distance to the nearest line in pixels: levels away, over levels per pixel.
+        let distance = (level - nearest).abs() / (slope * look.levels * pixel).max(1e-9);
+        let index = nearest as i64;
+        let tier = if index.rem_euclid(10) == 0 {
+            2
+        } else if index.rem_euclid(5) == 0 {
+            1
+        } else {
+            0
+        };
+        // Never thinner than about a pixel, or a line would fade out on a coarse monitor.
+        let half_width = (look.widths[tier] / pixel / 2.).max(0.45);
+        let coverage = (half_width - distance + 0.5).clamp(0., 1.);
+
+        let mut ground = mix(
+            self.background,
+            scale(self.accents[0], 0.17),
+            tone(here, x, y).clamp(0., 1.) * look.tint,
+        );
+        if look.shade > 0. {
+            // A light from the upper left: surfaces facing it brighten, those facing away dim.
+            let (nx, ny) = (-slope_x * look.relief, -slope_y * look.relief);
+            let length = (nx * nx + ny * ny + 1.).sqrt();
+            let lit = (nx * -0.45 + ny * -0.55 + 0.70) / length - 0.70;
+            ground = if lit >= 0. {
+                add(ground, scale(self.accents[1], lit * look.shade))
+            } else {
+                // Shadow darkens without shifting the hue, which subtracting a colour would.
+                scale(ground, (1. + lit * look.shade * 5.).max(0.45))
+            };
+        }
+        let (ink, strength) = match tier {
+            0 => (mix(self.accents[1], self.background, 0.35), 0.5),
+            1 => (self.accents[1], 0.78),
+            _ => (self.accents[2], 1.),
+        };
+        mix(ground, ink, coverage * strength)
+    }
+}
+
+/// How [`Scene::lines`] draws a field.
+struct Look {
+    /// Lines per unit of the field.
+    levels: f64,
+    /// How steeply relief shading reads the field's slope.
+    relief: f64,
+    /// How strongly relief shading lightens and darkens the ground.
+    shade: f64,
+    /// How far the ground follows the tone.
+    tint: f64,
+    /// Thickness of the thin, fifth and tenth lines, in canvas units.
+    widths: [f64; 3],
 }
 
 #[cfg(test)]
@@ -748,31 +805,6 @@ mod tests {
     }
 
     #[test]
-    fn resolution_adds_detail_instead_of_blurring() {
-        // The scene is a function of position, so a coarse drawing is the fine drawing sampled
-        // at fewer places: neighbouring fine pixels agree closely with the coarse one. Contour
-        // lines are thinner than a coarse pixel, so only the smooth styles can be compared.
-        for style in [Style::Aurora, Style::Ridges] {
-            let recipe = recipe(style);
-            let view = View::whole(1.5);
-            let coarse = recipe.render(view, 30, 20);
-            let fine = recipe.render(view, 120, 80);
-            let mut worst = 0u32;
-            for y in 0..20 {
-                for x in 0..30 {
-                    let reference = coarse.get_pixel(x, y);
-                    let sample = fine.get_pixel(x * 4 + 1, y * 4 + 1);
-                    for channel in 0..3 {
-                        let difference = u32::from(reference[channel].abs_diff(sample[channel]));
-                        worst = worst.max(difference);
-                    }
-                }
-            }
-            assert!(worst < 90, "{style:?} differs by {worst}");
-        }
-    }
-
-    #[test]
     fn pictures_stay_dark_and_use_the_whole_tonal_range() {
         for style in Style::ALL {
             let image = recipe(style).render(View::whole(16. / 9.), 96, 54);
@@ -804,13 +836,13 @@ mod tests {
 
     #[test]
     fn the_digest_follows_every_part_of_the_recipe() {
-        let base = Recipe::new(Style::Aurora, 5);
+        let base = Recipe::new(Style::Strata, 5);
         let mut other_seed = base.clone();
         other_seed.seed = 6;
         let mut other_colour = base.clone();
         other_colour.palette.background = Rgb([1, 2, 3]);
         let mut other_style = base.clone();
-        other_style.style = Style::Ridges;
+        other_style.style = Style::Ripples;
         for other in [other_seed, other_colour, other_style] {
             assert_ne!(base.digest(), other.digest());
         }
@@ -819,10 +851,10 @@ mod tests {
 
     #[test]
     fn the_reference_picture_has_the_canvas_shape() -> anyhow::Result<()> {
-        let png = recipe(Style::Ridges).reference_png(2., 400)?;
+        let png = recipe(Style::Ripples).reference_png(2., 400)?;
         let image = image::load_from_memory(&png)?;
         assert_eq!((image.width(), image.height()), (400, 200));
-        let tall = image::load_from_memory(&recipe(Style::Ridges).reference_png(0.5, 400)?)?;
+        let tall = image::load_from_memory(&recipe(Style::Ripples).reference_png(0.5, 400)?)?;
         assert_eq!((tall.width(), tall.height()), (200, 400));
         Ok(())
     }
@@ -868,10 +900,10 @@ mod tests {
             Rgb([180, 240, 200]),
         ])?;
         let picture =
-            Recipe::with_palette(Style::Aurora, 1, three).render(View::whole(1.5), 32, 20);
+            Recipe::with_palette(Style::Strata, 1, three).render(View::whole(1.5), 32, 20);
         assert_ne!(
             picture,
-            Recipe::new(Style::Aurora, 1).render(View::whole(1.5), 32, 20)
+            Recipe::new(Style::Strata, 1).render(View::whole(1.5), 32, 20)
         );
         Ok(())
     }

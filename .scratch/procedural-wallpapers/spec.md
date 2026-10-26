@@ -6,7 +6,7 @@ See [the glossary](../../GLOSSARY.md) for **Procedural wallpaper**, **Recipe** a
 
 ## Experience
 
-The Wallpaper tab of the theme picker gains a row of styles (Aurora, Contours, Ridges) under **Choose image…**. Clicking a style draws a new one with a new seed and previews it; the layout switches to **Span all monitors**, which stays a choice until **Apply wallpaper**. A second row picks the colours: **Theme colours** (the default), **Random colours**, or **Paste palette**, which reads any text on the clipboard with at least two `#rrggbb` colours. Choosing colours redraws the same picture in them so palettes can be compared.
+The Wallpaper tab of the theme picker gains a row of styles (Contours, Strata, Ripples) under **Choose image…**. Clicking a style draws a new one with a new seed and previews it; the layout switches to **Span all monitors**, which stays a choice until **Apply wallpaper**. A second row picks the colours: **Theme colours** (the default), **Random colours**, or **Paste palette**, which reads any text on the clipboard with at least two `#rrggbb` colours. Choosing colours redraws the same picture in them so palettes can be compared.
 
 Applying keeps the palette, preset, appearance and targets, as for an image. The generated wallpaper does not follow later theme changes: regenerate it.
 

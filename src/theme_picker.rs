@@ -2073,7 +2073,7 @@ mod tests {
 
     #[test]
     fn a_generated_wallpaper_previews_as_its_recipe_with_the_picture_to_derive_from() -> anyhow::Result<()> {
-        let recipe = Recipe::new(Style::Aurora, 4);
+        let recipe = Recipe::new(Style::Strata, 4);
         let analysis = analyze_recipe(recipe.clone(), 256)?;
         assert_eq!(analysis.recipe.as_ref(), Some(&recipe));
         assert!(analysis.path.is_absolute());

@@ -837,7 +837,7 @@ mod tests {
         let plain = selected_wallpaper(selected.clone())?.unwrap();
         assert!(plain.recipe.is_none());
 
-        let recipe = Recipe::new(dojo::procedural::Style::Ridges, 3);
+        let recipe = Recipe::new(dojo::procedural::Style::Ripples, 3);
         std::fs::write(directory.path().join(dojo::procedural::FILE_NAME), recipe.to_json())?;
         let generated = selected_wallpaper(selected.clone())?.unwrap();
         assert_eq!(generated.recipe.as_ref(), Some(&recipe));
