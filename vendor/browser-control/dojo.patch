@@ -1724,10 +1724,17 @@ index 8130106..b140197 100644
        const { setupFailed: _setupFailed, ...wireResult } = result
        sendJson(options.response, { ...wireResult, session })
 diff --git a/src/mcp.ts b/src/mcp.ts
-index 440350f..7e37544 100644
+index 440350f..153b1b0 100644
 --- a/src/mcp.ts
 +++ b/src/mcp.ts
-@@ -12,7 +12,13 @@ import type { TargetSelection } from "./relay-schema.ts"
+@@ -6,13 +6,20 @@ import path from "node:path"
+ import { fileURLToPath } from "node:url"
+ import type { JsonObject } from "./protocol.ts"
+ import { getObject, getString, parseTargetSelection } from "./relay-helpers.ts"
++import { makeOwnerName } from "./owner-liveness.ts"
+ import * as RelayClient from "./relay-client.ts"
+ import * as RelayLifecycle from "./relay-lifecycle.ts"
+ import type { TargetSelection } from "./relay-schema.ts"
  import { browserControlVersion } from "./version.ts"
  
  const packageRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
@@ -1742,7 +1749,7 @@ index 440350f..7e37544 100644
  
  type ToolSpec = {
    readonly name: string
-@@ -44,13 +50,13 @@ const sessionOnlyInputSchema = objectSchema({
+@@ -44,13 +51,13 @@ const sessionOnlyInputSchema = objectSchema({
    session: sessionSchemaProperty,
  })
  
@@ -1758,7 +1765,7 @@ index 440350f..7e37544 100644
      {
        name: "execute",
        description: "Execute trusted Playwright JavaScript against the Browser Control session. The result includes console logs, warnings, a bounded execution-context diagnostic when relevant, and an aftermath summary (URL movement, navigations, error counts, handoffs).",
-@@ -67,20 +73,67 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
+@@ -67,20 +74,67 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
          const args = yield* Effect.try(() => parseExecuteArguments(input))
          yield* RelayLifecycle.ensureExtensionConnected({ relay, waitForReconnect: true })
          const sessionId = args.session ?? currentSession.id
@@ -1826,7 +1833,7 @@ index 440350f..7e37544 100644
      {
        name: "status",
        description: "Return relay, extension, target, and session status.",
-@@ -107,6 +160,17 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
+@@ -107,6 +161,17 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
        handle: (input) => Effect.gen(function* () {
          const requestedId = optionalStringField(input, "id")
          const readOnly = optionalBooleanField(input, "readOnly")
@@ -1844,7 +1851,7 @@ index 440350f..7e37544 100644
          const session = yield* relay.sessionNew(requestedId, readOnly ? { readOnly: true } : {})
          establishCurrentSession(session.id)
          return { session }
-@@ -195,10 +259,15 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
+@@ -195,10 +260,15 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
        handle: (input) => Effect.gen(function* () {
          const args = yield* Effect.try(() => parseAdoptArguments(input))
          const sessionId = args.session ?? currentSession.id
@@ -1860,7 +1867,7 @@ index 440350f..7e37544 100644
          })
          establishCurrentSession(sessionId)
          return { ...result, confirmation: `Adopted session '${result.session.id}' default page: ${result.adoptedUrl}` }
-@@ -492,17 +561,54 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
+@@ -492,17 +562,54 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
        }),
      },
    ]
@@ -1875,7 +1882,7 @@ index 440350f..7e37544 100644
    const configuredSession = Option.getOrUndefined(yield* Config.option(Config.String("BROWSER_CONTROL_SESSION")))
 +  const dojoMode = process.env.DOJO_BROWSER_CONTROL_MODE === "1"
 +  const configuredDojoOwner = Option.getOrUndefined(yield* Config.option(Config.String("DOJO_BROWSER_OWNER")))
-+  const dojoOwner = dojoMode ? configuredDojoOwner ?? `browser-control-${crypto.randomUUID()}` : undefined
++  const dojoOwner = dojoMode ? configuredDojoOwner ?? makeOwnerName() : undefined
    const currentSession: CurrentSession = {
      id: configuredSession || `mcp-${crypto.randomUUID().slice(0, 8)}`,
      established: Boolean(configuredSession),
@@ -1899,7 +1906,8 @@ index 440350f..7e37544 100644
 +    process.removeListener("SIGINT", onSigint)
 +    process.exitCode = signal === "SIGINT" ? 130 : 143
 +    void Effect.runPromise(retireOwnedSessions).finally(() => process.exit())
-+  }
+   }
+-  yield* Effect.forEach(makeToolSpecs(relay, currentSession), (spec) => {
 +  const onSigterm = () => onSignal("SIGTERM")
 +  const onSigint = () => onSignal("SIGINT")
 +  if (dojoMode) {
@@ -1910,12 +1918,68 @@ index 440350f..7e37544 100644
 +      process.removeListener("SIGINT", onSigint)
 +      yield* retireOwnedSessions
 +    }))
-   }
--  yield* Effect.forEach(makeToolSpecs(relay, currentSession), (spec) => {
++  }
 +  yield* Effect.forEach(makeToolSpecs(relay, currentSession, dojoMode), (spec) => {
      return server.addTool({
        tool: new McpSchema.Tool({
          name: spec.name,
+@@ -686,6 +793,15 @@ export function toolResultForValue(value: unknown): McpSchema.CallToolResult {
+ }
+ 
+ export function mcpErrorMessage(tool: string, message: string): string {
++  if (message.startsWith("Native browser lease refused")) {
++    return `${message}. The person at the keyboard has used the browser or the desktop since the last lease. Ask them to press Super+Alt+Y (or run \`~/.local/share/dojo/niri/current/niri msg yield-human-input\`; the \`niri\` on PATH does not have that command), then call session_resume again. Do not run it yourself.`
++  }
++  if (message.startsWith("Session generation must be retired before resume")) {
++    return `${message}. This client still holds an active generation: call execute_cancel for this session, then session_resume.`
++  }
++  if (message.startsWith("Session is not owned by this Browser Control client") || message.startsWith("Existing session is not owned by this Browser Control client")) {
++    return `${message}. It belongs to another running client. If that client was an earlier MCP process that is gone, its lease is retired automatically within about ten seconds; then call session_resume again.`
++  }
+   if (!message.startsWith("Session not found:")) {
+     return message
+   }
+diff --git a/src/owner-liveness.ts b/src/owner-liveness.ts
+new file mode 100644
+index 0000000..04a1f13
+--- /dev/null
++++ b/src/owner-liveness.ts
+@@ -0,0 +1,35 @@
++import { existsSync, readFileSync } from "node:fs"
++
++/**
++ * An MCP process that owns browser leases names itself `browser-control-<pid>-<start>-<uuid>`, where
++ * `start` is the process's start time from /proc. A lease whose owner process has gone can then be
++ * recognised and retired, so a restarted MCP server (or a crashed one that never got to cancel) does
++ * not leave a generation behind that nobody can resume or cancel.
++ */
++const OWNER_PATTERN = /^browser-control-(\d+)-(\d+)-/
++
++/** Field 22 of /proc/<pid>/stat: when the process started, in clock ticks since boot. */
++export function processStartTime(pid: number | "self"): string | undefined {
++  try {
++    const stat = readFileSync(`/proc/${pid}/stat`, "utf8")
++    // The command name is in parentheses and may contain spaces; the fields after it do not.
++    return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]
++  } catch {
++    return undefined
++  }
++}
++
++/** A new owner name for this process, unique across restarts. */
++export function makeOwnerName(): string {
++  return `browser-control-${process.pid}-${processStartTime("self") ?? "0"}-${crypto.randomUUID()}`
++}
++
++/**
++ * Whether the process behind an owner name is gone. An owner that does not name a process (one set by
++ * `DOJO_BROWSER_OWNER`, or on a system without /proc) cannot be checked, and is never called gone.
++ */
++export function ownerProcessIsGone(owner: string): boolean {
++  const match = OWNER_PATTERN.exec(owner)
++  if (!match || !existsSync("/proc/self/stat")) return false
++  return processStartTime(Number(match[1])) !== match[2]
++}
 diff --git a/src/protocol.ts b/src/protocol.ts
 index 0926064..9e7763b 100644
 --- a/src/protocol.ts
@@ -2128,7 +2192,7 @@ index 6b53aa7..93f0708 100644
  
  export type { SessionSummary }
 diff --git a/src/relay.ts b/src/relay.ts
-index dab5e90..ca12e0a 100644
+index dab5e90..d5beb82 100644
 --- a/src/relay.ts
 +++ b/src/relay.ts
 @@ -1,6 +1,7 @@
@@ -2277,7 +2341,23 @@ index dab5e90..ca12e0a 100644
      const target = registry.tabTargets.get(tabId)
      scheduleTabGrouping(tabId, target && pageStatusSessionId(target) ? "tabs.group" : "tabs.ungroup")
    }
-@@ -775,6 +861,10 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+@@ -740,8 +826,15 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+     : undefined
+   idleReapTimer?.unref()
+ 
++  // A lease whose MCP process is gone is retired within seconds, so a restarted client can resume.
++  const deadOwnerTimer = setInterval(() => {
++    Effect.runPromise(sessions.reapDeadOwners()).catch(() => {})
++  }, 10_000)
++  deadOwnerTimer.unref()
++
+   const cleanup = Effect.fnUntraced(function* () {
+     if (idleReapTimer) clearInterval(idleReapTimer)
++    clearInterval(deadOwnerTimer)
+     yield* shutdownControl.close().pipe(Effect.ignore)
+     yield* sessions.closeAll()
+     yield* rootLifecycle.close()
+@@ -775,6 +868,10 @@ const makeRelay = Effect.fnUntraced(function* (options: {
      const requestUrl = new URL(request.url ?? "/", endpointUrl)
      const origin = Array.isArray(request.headers.origin) ? request.headers.origin[0] : request.headers.origin
      if (requestUrl.pathname === "/extension") {
@@ -2288,7 +2368,7 @@ index dab5e90..ca12e0a 100644
        const originError = validateWebSocketOrigin({
          origin,
          requireChromeExtension: true,
-@@ -792,6 +882,19 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+@@ -792,6 +889,19 @@ const makeRelay = Effect.fnUntraced(function* (options: {
      }
      if (requestUrl.pathname.startsWith("/devtools/browser/")) {
        const sessionId = requestUrl.searchParams.get("browserControlSessionId") ?? headerValue(request.headers["browser-control-session-id"])
@@ -2308,7 +2388,7 @@ index dab5e90..ca12e0a 100644
        if (!shutdownControl.accepting && (headerValue(request.headers["browser-control-client-kind"]) !== "sandbox" || !sessionId || !sessions.hasPendingWork(sessionId))) {
          sendUpgradeError({ socket, status: 503, message: "Relay is draining for an explicit restart" })
          return
-@@ -855,15 +958,28 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+@@ -855,15 +965,28 @@ const makeRelay = Effect.fnUntraced(function* (options: {
      }
  
      const browserControlSessionId = requestUrl.searchParams.get("browserControlSessionId") ?? headerValue(request.headers["browser-control-session-id"])
@@ -2339,7 +2419,7 @@ index dab5e90..ca12e0a 100644
      })
      socket.on("close", () => {
        debugLog?.(`client- ${cdpClients.sessionId(socket) ?? "raw"} total=${cdpClients.size - 1}`)
-@@ -931,7 +1047,7 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+@@ -931,7 +1054,7 @@ const makeRelay = Effect.fnUntraced(function* (options: {
      })
    }
  
@@ -2348,7 +2428,7 @@ index dab5e90..ca12e0a 100644
      const message = parseJsonObject(raw)
      if (isExtensionResponse(message)) {
        extensionRpc.handleResponse(message)
-@@ -946,6 +1062,15 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+@@ -946,6 +1069,15 @@ const makeRelay = Effect.fnUntraced(function* (options: {
      if (extensionMethod === "hello") {
        return
      }
@@ -2364,7 +2444,7 @@ index dab5e90..ca12e0a 100644
      if (extensionMethod === "log") {
        const text = getString(message.params, "message")
        if (!text) return
-@@ -955,7 +1080,8 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+@@ -955,7 +1087,8 @@ const makeRelay = Effect.fnUntraced(function* (options: {
      }
      if (extensionMethod === "ready") {
        void Effect.runPromise(rootLifecycle.settle(generation)).then((reconciled) => {
@@ -2374,7 +2454,7 @@ index dab5e90..ca12e0a 100644
          if (reconciled) {
            for (const target of registry.listRootTargets()) {
              if (!announcedRootTabIds.has(target.tabId)) detachTargetState(target.tabId)
-@@ -963,7 +1089,8 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+@@ -963,7 +1096,8 @@ const makeRelay = Effect.fnUntraced(function* (options: {
            extensionRpc.markReady()
            for (const target of registry.listRootTargets()) refreshTabGrouping(target.tabId)
          } else {
@@ -2384,7 +2464,7 @@ index dab5e90..ca12e0a 100644
          }
        })
        return
-@@ -971,6 +1098,10 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+@@ -971,6 +1105,10 @@ const makeRelay = Effect.fnUntraced(function* (options: {
      if (extensionMethod === "debugger.attached") {
        if (eventTabId) {
          announcedRootTabIds.add(eventTabId)
@@ -2395,7 +2475,7 @@ index dab5e90..ca12e0a 100644
          const openerTabId = getNumber(message.params, "openerTabId")
          const openerTarget = openerTabId !== undefined ? registry.routingRootTarget(openerTabId) : undefined
          rootLifecycle.queue({
-@@ -990,6 +1121,10 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+@@ -990,6 +1128,10 @@ const makeRelay = Effect.fnUntraced(function* (options: {
      if (extensionMethod === "toolbar.clicked") {
        if (eventTabId) {
          announcedRootTabIds.add(eventTabId)
@@ -2406,7 +2486,7 @@ index dab5e90..ca12e0a 100644
          handleToolbarClick(eventTabId)
        }
        return
-@@ -1273,6 +1408,28 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+@@ -1273,6 +1415,28 @@ const makeRelay = Effect.fnUntraced(function* (options: {
      }
    }
  
@@ -2435,7 +2515,7 @@ index dab5e90..ca12e0a 100644
    function handleToolbarClick(tabId: number): void {
      const target = registry.tabTargets.get(tabId)
      if (target) {
-@@ -1350,6 +1507,9 @@ const makeRelay = Effect.fnUntraced(function* (options: {
+@@ -1350,6 +1514,9 @@ const makeRelay = Effect.fnUntraced(function* (options: {
    }
  
    const routeCdpCommand = Effect.fn("Relay.routeCdpCommand")(function* (socket: WebSocket, message: CdpRequest) {
@@ -2491,10 +2571,18 @@ index c1a0fa0..c8b0fac 100644
              }).pipe(Effect.asVoid)
              : Effect.void
 diff --git a/src/session-manager.ts b/src/session-manager.ts
-index a1977a0..698a9b1 100644
+index a1977a0..8d1a634 100644
 --- a/src/session-manager.ts
 +++ b/src/session-manager.ts
-@@ -46,6 +46,14 @@ export type SessionHooks = {
+@@ -1,6 +1,7 @@
+ import { Deferred, Effect, Exit, Fiber, Latch, Result, Schema, Semaphore } from "effect"
+ import { defaultPageClosedWarning, ExecuteSandbox, hasExplicitTargetSelection, type ExecuteResult, type ExecuteTargetSelection } from "./execute.ts"
+ import type { NetworkCaptureOptions, NetworkCaptureResult, NetworkCaptureStatus, NetworkCaptureStopOptions } from "./network-capture.ts"
++import { ownerProcessIsGone } from "./owner-liveness.ts"
+ import { generateSessionId } from "./relay-helpers.ts"
+ import type { BrowserControlSession, ExecuteSandboxLike, SessionSummary, SessionTarget } from "./relay-types.ts"
+ import type { AuthenticatedJsonOutcome, AuthenticatedJsonRequest } from "./relay-schema.ts"
+@@ -46,6 +47,14 @@ export type SessionHooks = {
    readonly onReleaseRelayTarget?: (targetId: string) => Effect.Effect<void, Error>
    /** Persist session identity and target continuity after durable lifecycle changes. */
    readonly onSessionsChanged?: (sessions: readonly PersistedSession[]) => unknown | Promise<unknown>
@@ -2509,7 +2597,7 @@ index a1977a0..698a9b1 100644
  }
  
  export class SessionError extends Schema.TaggedError<SessionError>()(
-@@ -416,6 +424,8 @@ export class BrowserControlSessions {
+@@ -416,6 +425,8 @@ export class BrowserControlSessions {
      readonly code: string
      readonly createIfMissing: boolean
      readonly targetSelection?: ExecuteTargetSelection
@@ -2518,7 +2606,7 @@ index a1977a0..698a9b1 100644
    }): Effect.Effect<ExecutionResponse, Error> {
      const manager = this
      return this.withAdmission(options.sessionId, Effect.uninterruptibleMask((restore) => Effect.gen(function* () {
-@@ -424,20 +434,60 @@ export class BrowserControlSessions {
+@@ -424,20 +435,60 @@ export class BrowserControlSessions {
        const response = yield* Deferred.make<ExecutionResponse, Error>()
        let started = false
        let cancelled = false
@@ -2581,7 +2669,7 @@ index a1977a0..698a9b1 100644
            if (resolved.created && result.setupFailed) {
              return yield* sessionError("setup-failed", result.text, session.id)
            }
-@@ -453,7 +503,7 @@ export class BrowserControlSessions {
+@@ -453,7 +504,7 @@ export class BrowserControlSessions {
            session.updatedAt = new Date().toISOString()
            yield* manager.recordExecute({
              sessionId: session.id,
@@ -2590,7 +2678,7 @@ index a1977a0..698a9b1 100644
              durationMs: Date.now() - startedAt,
              result: resultWithHint,
            })
-@@ -461,9 +511,34 @@ export class BrowserControlSessions {
+@@ -461,9 +512,34 @@ export class BrowserControlSessions {
            return { result: resultWithHint, session: manager.createdSummary(session, resolved.created) }
          })
        const worker = session.executeSemaphore.withPermit(operation.pipe(Effect.matchEffect({
@@ -2628,7 +2716,7 @@ index a1977a0..698a9b1 100644
          onSuccess: (value) => Deferred.succeed(response, value),
        })))
        const workerFiber = yield* manager.forkTracked(worker, session.id)
-@@ -482,16 +557,123 @@ export class BrowserControlSessions {
+@@ -482,16 +558,142 @@ export class BrowserControlSessions {
      })))
    }
  
@@ -2637,7 +2725,7 @@ index a1977a0..698a9b1 100644
 +    return Effect.gen(function* () {
 +      const session = manager.sessions.get(id)
 +      if (!session) return yield* sessionError("not-found", `Session not found: ${id}`, id)
-+      if (owner !== undefined && session.dojoOwner !== owner) {
++      if (owner !== undefined && session.dojoOwner !== owner && !(session.dojoOwner !== undefined && ownerProcessIsGone(session.dojoOwner))) {
 +        return yield* sessionError("inactive", `Session is not owned by this Browser Control client: ${id}`, id)
 +      }
 +      if (session.dojoRetired) {
@@ -2664,6 +2752,21 @@ index a1977a0..698a9b1 100644
 +    })
 +  }
 +
++  /**
++   * Retires the active generation of every session whose owner process is gone, through the same path
++   * as `execute_cancel`, so the native lease is released and the session can be resumed by a new client.
++   */
++  reapDeadOwners(): Effect.Effect<void> {
++    const manager = this
++    return Effect.gen(function* () {
++      for (const session of Array.from(manager.sessions.values())) {
++        if (session.dojoOwner === undefined || session.dojoRetired || !ownerProcessIsGone(session.dojoOwner)) continue
++        console.error(`Retiring Browser Control session ${session.id}: its owner ${session.dojoOwner} is gone`)
++        yield* manager.executeCancel(session.id).pipe(Effect.catch(() => Effect.void))
++      }
++    })
++  }
++
 +  sessionResume(id: string, owner: string): Effect.Effect<SessionSummary, Error> {
 +    const manager = this
 +    return Effect.gen(function* () {
@@ -2674,7 +2777,11 @@ index a1977a0..698a9b1 100644
 +        created = true
 +      }
 +      if (session.dojoOwner !== undefined && session.dojoOwner !== owner) {
-+        return yield* sessionError("inactive", `Session is not owned by this Browser Control client: ${id}`, id)
++        if (!ownerProcessIsGone(session.dojoOwner)) {
++          return yield* sessionError("inactive", `Session is not owned by this Browser Control client: ${id}`, id)
++        }
++        // The process that held this lease is gone: retire its generation so this client can take over.
++        yield* manager.reapDeadOwners()
 +      }
 +      if (!created && session.dojoOwner === undefined && manager.hooks.onDojoResume && session.dojoGeneration === 0) {
 +        return yield* sessionError("inactive", `Existing session is not owned by this Browser Control client: ${id}`, id)
@@ -2752,7 +2859,7 @@ index a1977a0..698a9b1 100644
        const result = yield* Deferred.make<AdoptionResult, Error>()
        let state: "pending" | "reserved" | "committed" = "pending"
        let cancelled = false
-@@ -697,6 +879,30 @@ export class BrowserControlSessions {
+@@ -697,6 +899,30 @@ export class BrowserControlSessions {
      }
    }
  
@@ -2783,7 +2890,7 @@ index a1977a0..698a9b1 100644
    private recordExecute(record: SessionExecuteRecord): Effect.Effect<void> {
      const hook = this.hooks.onExecuteRecord
      if (!hook) return Effect.void
-@@ -728,19 +934,34 @@ export class BrowserControlSessions {
+@@ -728,19 +954,34 @@ export class BrowserControlSessions {
    }): BrowserControlSession {
      const now = new Date().toISOString()
      let session: BrowserControlSession | undefined
@@ -2821,7 +2928,7 @@ index a1977a0..698a9b1 100644
    /** Resolve execute/adopt work before any permit; the caller owns cleanup of a created session. */
    private resolveWorkSession(id: string | undefined, createIfMissing: boolean): Effect.Effect<{ readonly session: BrowserControlSession; readonly created: boolean }, SessionError> {
      return Effect.suspend(() => {
-@@ -769,6 +990,7 @@ export class BrowserControlSessions {
+@@ -769,6 +1010,7 @@ export class BrowserControlSessions {
        pageUrl: status.pageUrl,
        stateKeys: status.stateKeys,
        ...(session.readOnly ? { readOnly: true } : {}),
@@ -3053,6 +3160,49 @@ index 72c2259..848fe6d 100644
    it("a command timeout fails only that command and leaves the socket open", async () => {
      const rpc = new ExtensionRpc({ commandTimeoutMs: 20, livenessProbeTimeoutMs: 1_000 })
      const socket = connect(rpc)
+diff --git a/test/mcp.test.ts b/test/mcp.test.ts
+index dd77072..5753c62 100644
+--- a/test/mcp.test.ts
++++ b/test/mcp.test.ts
+@@ -399,6 +399,9 @@ describe("MCP tool results", () => {
+   it("adds session recovery guidance at the MCP boundary", () => {
+     expect(mcpErrorMessage("execute", "Session not found: stale")).toContain("omit the explicit session id")
+     expect(mcpErrorMessage("session_use", "Session not found: stale")).toContain("Create it with session_new first")
++    expect(mcpErrorMessage("session_resume", "Native browser lease refused; explicitly yield browser control and resume again")).toContain("Super+Alt+Y")
++    expect(mcpErrorMessage("session_resume", "Session generation must be retired before resume: s")).toContain("call execute_cancel")
++    expect(mcpErrorMessage("session_adopt", "Session is not owned by this Browser Control client: s")).toContain("retired automatically")
+     expect(mcpErrorMessage("execute", "Extension disconnected")).toBe("Extension disconnected")
+   })
+ 
+diff --git a/test/owner-liveness.test.ts b/test/owner-liveness.test.ts
+new file mode 100644
+index 0000000..0ee20a5
+--- /dev/null
++++ b/test/owner-liveness.test.ts
+@@ -0,0 +1,23 @@
++import { describe, expect, it } from "vitest"
++import { makeOwnerName, ownerProcessIsGone, processStartTime } from "../src/owner-liveness.ts"
++
++describe("owner liveness", () => {
++  it("names this process and sees it alive", () => {
++    const owner = makeOwnerName()
++    expect(owner).toMatch(new RegExp(`^browser-control-${process.pid}-\\d+-`))
++    expect(ownerProcessIsGone(owner)).toBe(false)
++  })
++
++  it("calls an owner gone when its process does not exist or is a different one under the same pid", () => {
++    expect(ownerProcessIsGone("browser-control-999999999-1-aaaa")).toBe(true)
++    // Same pid as this process, but a start time that is not this process's: the pid was reused.
++    const start = processStartTime("self")
++    expect(start).toBeDefined()
++    expect(ownerProcessIsGone(`browser-control-${process.pid}-${Number(start) + 1}-aaaa`)).toBe(true)
++  })
++
++  it("never calls an owner gone when it does not name a process", () => {
++    expect(ownerProcessIsGone("agent-a")).toBe(false)
++    expect(ownerProcessIsGone("browser-control-not-a-pid")).toBe(false)
++  })
++})
 diff --git a/test/relay-extension-handshake.test.ts b/test/relay-extension-handshake.test.ts
 index 871a8c7..0ead5aa 100644
 --- a/test/relay-extension-handshake.test.ts
@@ -3135,7 +3285,7 @@ index 871a8c7..0ead5aa 100644
      const port = 24_000 + Math.floor(Math.random() * 10_000)
      const directory = fs.mkdtempSync(path.join(os.tmpdir(), "browser-control-extension-handshake-"))
 diff --git a/test/session-manager.test.ts b/test/session-manager.test.ts
-index 016d442..522e414 100644
+index 016d442..d92901d 100644
 --- a/test/session-manager.test.ts
 +++ b/test/session-manager.test.ts
 @@ -19,8 +19,10 @@ type FakeSandbox = ExecuteSandboxLike & {
@@ -3180,7 +3330,7 @@ index 016d442..522e414 100644
      authenticatedJson: (request) => options?.onAuthenticatedJson
        ? options.onAuthenticatedJson(request)
        : Effect.succeed(AuthenticatedJsonOutcome.cases.Success.make({
-@@ -2312,4 +2317,108 @@ describe("BrowserControlSessions", () => {
+@@ -2312,4 +2317,162 @@ describe("BrowserControlSessions", () => {
        "Tip: an attached tab is open (https://example.com/path). Use browser-control session adopt --target-url 'example.com' to drive it instead of this new tab.",
      )
    })
@@ -3244,6 +3394,60 @@ index 016d442..522e414 100644
 +      yield* Fiber.await(execution)
 +      expect(executeOptions).toEqual([{ dojoGeneration: 1 }])
 +    }))
++  })
++
++  describe("a lease whose owner process is gone", () => {
++    const gone = "browser-control-999999999-1-deadbeef"
++    const hooks = () => {
++      const retire = vi.fn(() => Effect.succeed({ nativeRetired: true, extensionAcknowledged: true, unknownCommandIds: [] }))
++      return { retire, hooks: { onDojoRetire: retire, onDojoBind: () => Effect.succeed(true) } }
++    }
++
++    it("is retired by the reaper, so a new client resumes the session", async () => {
++      const { retire, hooks: dojoHooks } = hooks()
++      const sessions = new BrowserControlSessions("http://127.0.0.1:0", () => makeFakeSandbox(), dojoHooks)
++      await Effect.runPromise(sessions.sessionResume("agent-session", gone))
++      expect(sessions.dojoLease("agent-session")).toEqual({ owner: gone, generation: 1, retired: false })
++
++      await Effect.runPromise(sessions.reapDeadOwners())
++      expect(sessions.dojoLease("agent-session")).toEqual({ owner: gone, generation: 1, retired: true })
++      expect(retire).toHaveBeenCalledWith({ sessionId: "agent-session", owner: gone, generation: 1 })
++
++      const resumed = await Effect.runPromise(sessions.sessionResume("agent-session", "agent-b"))
++      expect(resumed.dojoGeneration).toBe(2)
++      expect(sessions.dojoLease("agent-session")).toEqual({ owner: "agent-b", generation: 2, retired: false })
++    })
++
++    it("is taken over by a resume from another client without waiting for the reaper", async () => {
++      const { retire, hooks: dojoHooks } = hooks()
++      const sessions = new BrowserControlSessions("http://127.0.0.1:0", () => makeFakeSandbox(), dojoHooks)
++      await Effect.runPromise(sessions.sessionResume("agent-session", gone))
++      const resumed = await Effect.runPromise(sessions.sessionResume("agent-session", "agent-b"))
++      expect(resumed.dojoGeneration).toBe(2)
++      expect(retire).toHaveBeenCalledTimes(1)
++    })
++
++    it("can be cancelled by another client", async () => {
++      const { hooks: dojoHooks } = hooks()
++      const sessions = new BrowserControlSessions("http://127.0.0.1:0", () => makeFakeSandbox(), dojoHooks)
++      await Effect.runPromise(sessions.sessionResume("agent-session", gone))
++      const cancelled = await Effect.runPromise(sessions.executeCancel("agent-session", "agent-b"))
++      expect(cancelled.nativeRetired).toBe(true)
++    })
++
++    it("leaves a live owner's lease alone: not reaped, not taken over, not cancelled", async () => {
++      const { retire, hooks: dojoHooks } = hooks()
++      const sessions = new BrowserControlSessions("http://127.0.0.1:0", () => makeFakeSandbox(), dojoHooks)
++      // An owner that names no process cannot be shown to be gone.
++      await Effect.runPromise(sessions.sessionResume("agent-session", "agent-a"))
++      await Effect.runPromise(sessions.reapDeadOwners())
++      expect(retire).not.toHaveBeenCalled()
++      const taken = await Effect.runPromise(sessions.sessionResume("agent-session", "agent-b").pipe(Effect.flip))
++      expect(taken.message).toContain("not owned by this Browser Control client")
++      const cancelled = await Effect.runPromise(sessions.executeCancel("agent-session", "agent-b").pipe(Effect.flip))
++      expect(cancelled.message).toContain("not owned by this Browser Control client")
++      expect(sessions.dojoLease("agent-session")).toEqual({ owner: "agent-a", generation: 1, retired: false })
++    })
 +  })
 +
 +  it("refuses a generation before execution when native lease binding is refused", async () => {

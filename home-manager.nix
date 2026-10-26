@@ -785,6 +785,12 @@ in
 	  _props.hotkey-overlay-title = "Toggle idle inhibition";
 	  spawn = [ "toggle-vigiland" ];
 	};
+	# Hands the desktop back to the agent after the person has used the keyboard or mouse. The
+	# stock `niri` on PATH has no such command; the compositor's own binary does.
+	settings.binds."Super+Alt+Y" = {
+	  _props.hotkey-overlay-title = "Yield the desktop and browser to the agent";
+	  spawn = [ "${homeDirectory}/.local/share/dojo/niri/current/niri" "msg" "yield-human-input" ];
+	};
 	settings.binds."Super+Alt+L" = {
 	  _props.hotkey-overlay-title = "Lock the screen";
 	  spawn = [ "${dojoLockNow}" ];

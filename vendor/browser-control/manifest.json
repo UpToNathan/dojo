@@ -6,11 +6,11 @@
     },
     {
       "path": "vendor/niri/src/niri.rs",
-      "sha256": "0f36098390902dad723168b757123442360d9c68f0461b16fb02c3121b96ed3c"
+      "sha256": "7635961102fbe39f7599c5e4b15baf2dc7ebfc36a964d9bfdeb1cf982db8ca2d"
     },
     {
       "path": "vendor/niri/src/lib.rs",
-      "sha256": "17c91074bc55269d066e0c27da0f932495c58ad1d74b7be563bea46310908520"
+      "sha256": "32348a8dbafd4665ad64b0783b46cc911f19a076dbf3c721da337e4775be7847"
     },
     {
       "path": "vendor/niri/src/agent_input/shared.rs",
@@ -18,11 +18,11 @@
     },
     {
       "path": "vendor/niri/src/input/mod.rs",
-      "sha256": "65714507cd61ac8ce1ed4b479c0c8ed51978eca34220ea44e4d28bf552b37a50"
+      "sha256": "b280f57f9a76a3bd990e9adb481ffc869960d8e2418475c96f602c433b23cec9"
     },
     {
       "path": "vendor/niri/src/ipc/client.rs",
-      "sha256": "b8b75ee0f1dac413ff95a39757bf68caeb3e41835008eb76b8bb90916c211f8a"
+      "sha256": "d9553884e6e069633a9321025ac68c2457736b2d9240cf82776871f99dd9fe0b"
     }
   ],
   "repository": "https://github.com/anomalyco/browser-control",
@@ -30,7 +30,7 @@
   "version": "0.8.4",
   "pnpmVersion": "11.20.0",
   "extensionVersion": "0.0.25",
-  "patchSha256": "05020011c96c158080a918a5d79b3010afde479cd575b4e1bb626e99f9dbf96d",
+  "patchSha256": "ab1bcd577649e751ea8cbae636799d627259826d1e70e1b4675bfacfad10ec3f",
   "lockSha256": "453160ba7b8c8979eb7c772467b130374973ecc02a229c74ff65012fca8387d9",
   "files": [
     {
@@ -767,7 +767,7 @@
     },
     {
       "path": "src/mcp.ts",
-      "sha256": "a20286c1e62cac2de621464dd8c9f2d9ff9b9809aa9720217d65c9d42498940c",
+      "sha256": "2d6c569927aba63ab9d489efc44c7aa98fcb65d956e870852e4372895a53838c",
       "upstreamSha256": "0ec719ffe9d7980ebd8f51d4b70550b4fb5c662e7842e2028c4182669238f539",
       "state": "modified"
     },
@@ -794,6 +794,12 @@
       "sha256": "ab2a8d555067a4c375037c9a5c1b8358a5ea2fa43e9034482c5abefce255669c",
       "upstreamSha256": "ab2a8d555067a4c375037c9a5c1b8358a5ea2fa43e9034482c5abefce255669c",
       "state": "copied"
+    },
+    {
+      "path": "src/owner-liveness.ts",
+      "sha256": "ce3364a43ca03b6d19d8f12f92dfa278379886c83665e0f3f3bd11753addf79a",
+      "upstreamSha256": null,
+      "state": "added"
     },
     {
       "path": "src/page-read-timeout.ts",
@@ -875,7 +881,7 @@
     },
     {
       "path": "src/relay.ts",
-      "sha256": "580bebca1713dae1a51c574f75de4d3c0ab5580e579d13ef193ad73df42e5222",
+      "sha256": "bb50a597d5612d7f6d673c3434c31a490ae6d52ad3edd05862f0374d2be3976a",
       "upstreamSha256": "a06c021ab7ebc76bd3d761f820c2576a6b1b1a30d0537a552c1ae40480c44155",
       "state": "modified"
     },
@@ -917,7 +923,7 @@
     },
     {
       "path": "src/session-manager.ts",
-      "sha256": "e63e6015f84842b4f0abf0e7d0246aba65f263822758616496b6cba5acaaba50",
+      "sha256": "73476a2f01f50e4cf94e683cd10ac31412394f869f59b157e3b7ed722e5fefaf",
       "upstreamSha256": "943ef0a4afb80a6b62a9890cde53a9b8424c7fa08c114e58fa229f653f1f1fcc",
       "state": "modified"
     },
@@ -1169,9 +1175,9 @@
     },
     {
       "path": "test/mcp.test.ts",
-      "sha256": "14f9aad3bc62c6174365f075423a5204af413c968dafb72b09bcc532880fe3d8",
+      "sha256": "2b3e6af3a16380d40a54c893a57ac31bf0c873e307e194d43a50510f73842cfc",
       "upstreamSha256": "14f9aad3bc62c6174365f075423a5204af413c968dafb72b09bcc532880fe3d8",
-      "state": "copied"
+      "state": "modified"
     },
     {
       "path": "test/network-capture.test.ts",
@@ -1196,6 +1202,12 @@
       "sha256": "de0759a6be736e8b7646e232c1bd76785a850f8adf808bbeac2809d19da1abdb",
       "upstreamSha256": "de0759a6be736e8b7646e232c1bd76785a850f8adf808bbeac2809d19da1abdb",
       "state": "copied"
+    },
+    {
+      "path": "test/owner-liveness.test.ts",
+      "sha256": "f0ffaeaa61464712eecf78d1a6c5413ee7953e97614ed46a4cf3106ca3b7617f",
+      "upstreamSha256": null,
+      "state": "added"
     },
     {
       "path": "test/page-read-timeout.test.ts",
@@ -1355,7 +1367,7 @@
     },
     {
       "path": "test/session-manager.test.ts",
-      "sha256": "d571bb1e6e6a0e8c01cecf1e8810a099e2e63cc4a95d47a91523afe9c15fa9b2",
+      "sha256": "c4d3cd91c7c90c9ffce1046e105356e3ec58bc74c08b6e49ce9cf8cde5903799",
       "upstreamSha256": "08d2ee96e04c74a841175fcdd505d730901cbed8727d07d00a8c39df05ec2612",
       "state": "modified"
     },
@@ -1414,5 +1426,5 @@
       "sha256": "83e690edaa8c22ed20871a0b1e94262fa0d730ee6c45c313487553a502277a45"
     }
   ],
-  "sourceIdentity": "81420ac8cefc1e3df54e52c4bc3ffb57a0072a9e03749c9a36ace2d33f4b3f33"
+  "sourceIdentity": "7fa76d692e955e80fad8e694896dcb9f17c7c771e0b1f3cbd9b38279c8c1df54"
 }
