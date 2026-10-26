@@ -407,8 +407,6 @@ fn t3_colors(p: &SemanticPalette) -> Value {
             "background_highlight",
             &[
                 "toolbarControlHover",
-                "accentSurface",
-                "messageActionHover",
                 "sidebarRowHover",
                 "sidebarRowActive",
                 "sidebarRowSelected",
@@ -418,11 +416,7 @@ fn t3_colors(p: &SemanticPalette) -> Value {
         ),
         (
             "selection_foreground",
-            &[
-                "accentSurfaceForeground",
-                "searchMatchForeground",
-                "searchMatchActiveForeground",
-            ],
+            &["searchMatchForeground", "searchMatchActiveForeground"],
         ),
         (
             "warning",
@@ -484,11 +478,21 @@ fn t3_colors(p: &SemanticPalette) -> Value {
         );
         colors.insert(role.into(), json!(foreground.hex()));
     }
-    let button_text = Rgb::parse(p.color("primary_foreground")).expect("validated palette");
-    let button_hover = Rgb::parse(p.color("background_highlight")).expect("validated palette");
-    if button_text.contrast(button_hover) < 4.5 {
-        colors.insert("messageActionHover".into(), json!(p.color("primary")));
-    }
+    let parse = |role: &str| Rgb::parse(p.color(role)).expect("validated palette");
+    // T3 Code draws its ordinary text and icons on `accentSurface` (a selected toolbar toggle, a chip),
+    // so it has to be a background those are readable on. The selection colour is often the text colour
+    // itself, which left the icon invisible on a pale pill. Tint the surface toward the accent instead,
+    // so it still reads as selected, and say which foreground goes with it.
+    let accent_surface = super::blend(parse("surface_raised"), parse("primary"), 0.25);
+    let accent_surface = if parse("foreground").contrast(accent_surface) >= 4.5 { accent_surface } else { Rgb::parse(unpaired_background(p, "surface_raised")).expect("validated palette") };
+    colors.insert("accentSurface".into(), json!(accent_surface.hex()));
+    colors.insert("accentSurfaceForeground".into(), json!(super::readable(parse("foreground"), accent_surface, 4.5).hex()));
+    // The hover of the accent-coloured action button: the accent a little lighter, while the button's own
+    // text stays readable on it.
+    let button_text = parse("primary_foreground");
+    let hover = super::blend(parse("primary"), parse("foreground"), 0.18);
+    let hover = if button_text.contrast(hover) >= 4.5 { hover } else { parse("primary") };
+    colors.insert("messageActionHover".into(), json!(hover.hex()));
     Value::Object(colors)
 }
 
@@ -785,6 +789,24 @@ mod tests {
         let yazi: toml::Value = toml::from_str(&super::yazi(&preset.palette))?;
         assert_eq!(yazi["indicator"]["current"]["bg"].as_str(), Some("#c5c9c5"));
         assert_eq!(yazi["indicator"]["current"]["fg"].as_str(), Some("#535453"));
+        Ok(())
+    }
+
+    #[test]
+    fn t3_accent_surface_keeps_its_icons_readable_and_the_action_hover_keeps_its_text() -> anyhow::Result<()> {
+        // T3 Code draws its ordinary text and icons on `accentSurface`; a selection colour that is the text
+        // colour itself left a toolbar toggle as a blank pale pill.
+        for preset in crate::theme::presets()? {
+            let t3 = super::t3_colors(&preset.palette);
+            let color = |key: &str| crate::extraction::Rgb::parse(t3[key].as_str().unwrap()).unwrap();
+            let surface = color("accentSurface");
+            let name = &preset.id;
+            assert!(color("accentSurfaceForeground").contrast(surface) >= 4.5, "{name}: the foreground on accentSurface");
+            assert!(color("toolbarControlForeground").contrast(surface) >= 3., "{name}: ordinary icons on accentSurface");
+            // Never worse than the button itself, which some authored palettes already leave below 4.5.
+            let wanted = f64::min(4.5, color("messageActionForeground").contrast(color("messageAction")));
+            assert!(color("messageActionForeground").contrast(color("messageActionHover")) >= wanted, "{name}: the action button's text on its hover");
+        }
         Ok(())
     }
 
