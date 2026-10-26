@@ -27,6 +27,7 @@ pub mod method;
 pub mod niri;
 pub mod onboard;
 pub mod openssh;
+pub mod panel;
 pub mod roster;
 pub mod rostersync;
 pub mod signed;

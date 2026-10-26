@@ -27,6 +27,36 @@ pub enum LauncherNavigation {
     Dismiss,
 }
 
+/// Which part of the mesh panel to open on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MeshTab {
+    Machines,
+    Requests,
+    Keys,
+    Health,
+}
+
+impl MeshTab {
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Machines => "machines",
+            Self::Requests => "requests",
+            Self::Keys => "keys",
+            Self::Health => "health",
+        }
+    }
+
+    pub fn from_word(word: &str) -> Option<Self> {
+        match word {
+            "machines" => Some(Self::Machines),
+            "requests" => Some(Self::Requests),
+            "keys" => Some(Self::Keys),
+            "health" => Some(Self::Health),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ControlCommand {
     Toggle,
@@ -39,6 +69,9 @@ pub enum ControlCommand {
     LauncherNavigation(LauncherNavigation),
     Theme,
     Displays,
+    /// Open the mesh panel on a part of it: the machines this one is in a mesh with, the requests
+    /// waiting, the keys it trusts, or its health.
+    Mesh(MeshTab),
     Wifi,
     SystemMenu,
     Models,
@@ -74,6 +107,7 @@ impl ControlCommand {
             Self::LauncherNavigation(LauncherNavigation::Dismiss) => "launcher-dismiss",
             Self::Theme => "theme",
             Self::Displays => "displays",
+            Self::Mesh(tab) => return format!("mesh {}", tab.word()),
             Self::Wifi => "wifi",
             Self::SystemMenu => "system-menu",
             Self::Models => "models",
@@ -97,6 +131,7 @@ impl ControlCommand {
             "launcher-dismiss" => Some(Self::LauncherNavigation(LauncherNavigation::Dismiss)),
             "theme" => Some(Self::Theme),
             "displays" => Some(Self::Displays),
+            "mesh" => Some(Self::Mesh(MeshTab::Machines)),
             "wifi" => Some(Self::Wifi),
             "system-menu" => Some(Self::SystemMenu),
             "models" => Some(Self::Models),
@@ -105,6 +140,9 @@ impl ControlCommand {
             "send-window" => Some(Self::SendWindow),
             _ => {
                 use crate::session::action::Departure;
+                if let Some(word) = value.strip_prefix("mesh ") {
+                    return MeshTab::from_word(word).map(Self::Mesh);
+                }
                 if let Some(key) = value.strip_prefix("launcher-view ") {
                     return crate::launcher_core::commands::CommandId::from_key(key)
                         .map(Self::LauncherView);
@@ -326,6 +364,8 @@ mod tests {
             ("system-menu", ControlCommand::SystemMenu),
             ("models", ControlCommand::Models),
             ("send-window", ControlCommand::SendWindow),
+            ("mesh", ControlCommand::Mesh(MeshTab::Machines)),
+            ("mesh requests", ControlCommand::Mesh(MeshTab::Requests)),
         ] {
             assert_eq!(ControlCommand::parse(token), Some(expected.clone()));
             let (sender, receiver) = async_channel::bounded(1);

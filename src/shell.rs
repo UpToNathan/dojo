@@ -636,6 +636,14 @@ fn run_with_surfaces(
                                     })?;
                                 crate::send_window_ui::toggle(display, cx)
                             }
+                            ControlCommand::Mesh(tab) => {
+                                let display = focused_display_id(cx)
+                                    .or_else(|| cx.primary_display().map(|display| display.id()))
+                                    .ok_or_else(|| {
+                                        anyhow::anyhow!("no output available for the mesh panel")
+                                    })?;
+                                crate::mesh_ui::toggle(display, tab, cx)
+                            }
                             ControlCommand::Displays => {
                                 let display = focused_display_id(cx)
                                     .or_else(|| cx.primary_display().map(|display| display.id()))

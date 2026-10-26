@@ -1151,8 +1151,9 @@ impl Render for FrameView {
             + TOP_BAR_BUTTON_WIDTH
             + TOP_BAR_BUTTON_WIDTH
             + TOP_BAR_BUTTON_WIDTH
+            + TOP_BAR_BUTTON_WIDTH
             + TOP_BAR_GAP
-            + TOP_BAR_GAP * 2.
+            + TOP_BAR_GAP * 3.
             + (tray_count + indicator_count) as f32 * (TOP_BAR_BUTTON_WIDTH + TOP_BAR_GAP);
         let clock_bounds = crate::geometry::top_bar_clock_bounds(viewport, top_bar_width);
         let tray_group = div()
@@ -1194,6 +1195,32 @@ impl Render for FrameView {
                             if let Some(display) = window.display(cx) {
                                 if let Err(error) = crate::displays_ui::toggle(display.id(), cx) {
                                     eprintln!("Dojo could not open display settings: {error:#}");
+                                }
+                            }
+                        }),
+                    ),
+            )
+            .child(
+                div()
+                    .id("mesh-button")
+                    .aria_label("Open the mesh panel")
+                    .w(px(TOP_BAR_BUTTON_WIDTH))
+                    .h(px(18.))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(14.))
+                    .cursor_pointer()
+                    .child(top_bar_icon("\u{f0317}", 0.7))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| {
+                            this.close_tray_menu(cx);
+                            cx.stop_propagation();
+                            if let Some(display) = window.display(cx) {
+                                if let Err(error) = crate::mesh_ui::toggle(display.id(), crate::control::MeshTab::Machines, cx) {
+                                    eprintln!("Dojo could not open the mesh panel: {error:#}");
                                 }
                             }
                         }),

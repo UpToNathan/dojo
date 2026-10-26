@@ -3,6 +3,7 @@ mod bluetooth;
 mod bluetooth_ui;
 mod clock;
 mod displays_ui;
+mod mesh_ui;
 mod edge_reservation;
 mod file_events;
 mod frame;
@@ -63,6 +64,13 @@ fn run() -> anyhow::Result<()> {
         }
         Some("--theme") => ControlCommand::Theme,
         Some("--displays") => ControlCommand::Displays,
+        Some("--mesh") => {
+            let tab = match arguments.next().as_deref() {
+                None => control::MeshTab::Machines,
+                Some(word) => control::MeshTab::from_word(word).ok_or_else(|| anyhow::anyhow!("--mesh takes machines, requests, keys or health"))?,
+            };
+            ControlCommand::Mesh(tab)
+        }
         Some("--wifi") => ControlCommand::Wifi,
         Some("--system-menu") => ControlCommand::SystemMenu,
         Some("--models") => ControlCommand::Models,
@@ -125,7 +133,7 @@ fn run() -> anyhow::Result<()> {
         }
         Some("--help") | Some("-h") => {
             println!(
-                "Usage: dojo [--toggle|--enable|--disable|--quit|--launcher|--launcher-up|--launcher-down|--launcher-activate|--launcher-dismiss|--theme|--displays|--wifi|--system-menu|--models|--terminal|--send-window|--leave OCCASION|--farewell OCCASION|--launcher-benchmark|--speech-state STATE|--speech-response TEXT|--speech-transcript TEXT]"
+                "Usage: dojo [--toggle|--enable|--disable|--quit|--launcher|--launcher-up|--launcher-down|--launcher-activate|--launcher-dismiss|--theme|--displays|--mesh [machines|requests|keys|health]|--wifi|--system-menu|--models|--terminal|--send-window|--leave OCCASION|--farewell OCCASION|--launcher-benchmark|--speech-state STATE|--speech-response TEXT|--speech-transcript TEXT]"
             );
             return Ok(());
         }
@@ -153,7 +161,7 @@ fn run() -> anyhow::Result<()> {
         ControlCommand::LauncherView(_) => bail!("start Dojo before opening a launcher view"),
         ControlCommand::Theme => shell::run_with_theme_picker(None),
         ControlCommand::Models => shell::run_with_models(None),
-        ControlCommand::Displays | ControlCommand::Wifi | ControlCommand::SystemMenu => {
+        ControlCommand::Displays | ControlCommand::Mesh(_) | ControlCommand::Wifi | ControlCommand::SystemMenu => {
             bail!("start Dojo before opening shell settings")
         }
         ControlCommand::Terminal | ControlCommand::TerminalClosed => {

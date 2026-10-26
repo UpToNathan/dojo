@@ -563,3 +563,8 @@ pub fn bottom_center_shell_extension(
     .size_full()
     .into_any_element()
 }
+
+/// Status colours for things that need a person's eye. The theme has no warning or error colour, so
+/// these two stay fixed: a warm amber for "look soon" and a red for "broken".
+pub const ATTENTION: u32 = 0xe5a550;
+pub const PROBLEM: u32 = 0xe06c75;
