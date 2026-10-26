@@ -145,7 +145,7 @@ fn analyze_recipe(recipe: Recipe, preview_edge: u32, layout: WallpaperLayout) ->
     ));
     let outputs = desktop::niri_outputs().unwrap_or_default();
     let retained = desktop::retained(&outputs, layout);
-    let bytes = recipe.reference_png_of(retained.aspect, retained.height, retained.edge)?;
+    let bytes = recipe.reference_png_of(retained.aspect, retained.height, retained.frame, retained.edge)?;
     let mut analysis = analyze_bytes(path, bytes, preview_edge)?;
     let monitors: Vec<Monitor> = outputs.iter().map(|output| output.monitor).collect();
     if let Some(miniature) = desktop::preview_image(&recipe, &monitors, layout, preview_edge) {
@@ -829,7 +829,7 @@ impl PickerView {
                                 Some(recipe) => {
                                     let outputs = desktop::niri_outputs().unwrap_or_default();
                                     let retained = desktop::retained(&outputs, layout);
-                                    dojo::theme::apply_procedural(&store, recipe, retained.aspect, retained.height, retained.edge, fallback)
+                                    dojo::theme::apply_procedural(&store, recipe, retained.aspect, retained.height, retained.frame, retained.edge, fallback)
                                 }
                                 None => dojo::theme::apply_wallpaper(
                                     &store,

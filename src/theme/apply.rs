@@ -276,17 +276,19 @@ pub fn apply_wallpaper(
 
 /// Selects a generated wallpaper, keeping the palette, preset, appearance and targets as
 /// [`apply_wallpaper`] does. `aspect` is the width over the height of the reference picture retained for palette
-/// derivation and the lock and login screens, `height` how tall its canvas is in the scene's unit, and
+/// derivation and the lock and login screens, `height` how tall its canvas is in the scene's unit, `frame`
+/// where the scene is composed on it, and
 /// `edge` its long side in pixels (see [`crate::procedural::desktop::retained`]).
 pub fn apply_procedural(
     store: &ThemeStore,
     recipe: crate::procedural::Recipe,
     aspect: f64,
     height: f64,
+    frame: Option<crate::procedural::Frame>,
     edge: u32,
     fallback: Option<super::SemanticPalette>,
 ) -> anyhow::Result<ApplyReport> {
-    let reference = recipe.reference_png_of(aspect, height, edge)?;
+    let reference = recipe.reference_png_of(aspect, height, frame, edge)?;
     publish_wallpaper(store, fallback, |theme| theme.with_recipe(recipe, reference))
 }
 

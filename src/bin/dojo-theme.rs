@@ -261,15 +261,17 @@ fn procedural(store: &ThemeStore, mut args: impl Iterator<Item = String>) -> any
     let recipe = Recipe::with_palette(style, seed, palette);
     let outputs = desktop::niri_outputs().unwrap_or_default();
     let retained = desktop::retained(&outputs, layout);
+    // A shape asked for by hand is a canvas of its own, not the desktop's, so it has no frame.
+    let frame = if aspect.is_some() { None } else { retained.frame };
     let aspect = aspect.unwrap_or(retained.aspect);
     if let Some(output) = output {
-        std::fs::write(&output, recipe.reference_png_of(aspect, retained.height, edge)?)?;
+        std::fs::write(&output, recipe.reference_png_of(aspect, retained.height, frame, edge)?)?;
         println!("{} seed {seed} written to {output}", style.name());
         return Ok(());
     }
     layout.write(&store.paths.root)?;
     println!("{} seed {seed}, layout {}", style.name(), layout.name());
-    print_report(theme::apply_procedural(store, recipe, aspect, retained.height, retained.edge, None)?)
+    print_report(theme::apply_procedural(store, recipe, aspect, retained.height, frame, retained.edge, None)?)
 }
 
 fn print_report(report: theme::ApplyReport) -> anyhow::Result<()> {

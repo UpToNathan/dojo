@@ -54,7 +54,7 @@ The style, seed and palette that fix one procedural wallpaper. Kept beside the r
 _Avoid_: Preset, template
 
 **Canvas**:
-The bounding box of the monitors in the compositor's logical coordinates, over which a procedural wallpaper is a continuous picture. Its unit is the height of the shortest monitor, so the scene is the size it would be on one monitor and a larger desktop only shows more of it.
+The bounding box of the monitors in the compositor's logical coordinates, over which a procedural wallpaper is a continuous picture. Its unit is the height of the shortest monitor, so the scene is the size it would be on one monitor and a larger desktop only shows more of it. The scene is composed in a frame, the topmost row of the shortest monitors, and carries on from there across the rest of the canvas.
 _Avoid_: Desktop image, virtual screen
 
 **Unlock method**:

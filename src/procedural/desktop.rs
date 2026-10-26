@@ -11,6 +11,7 @@
 
 use anyhow::Context as _;
 
+use crate::procedural::Frame;
 use crate::theme::wallpaper_layout::{Monitor, Region, WallpaperLayout};
 
 /// What a spanned wallpaper shows on each monitor, in the order given, with the canvas's width
@@ -54,42 +55,47 @@ pub struct Placement {
     /// How tall that canvas is in the scene's unit (see [`crate::procedural::View`]).
     pub height: f64,
     pub region: Region,
-    /// The scene's own y at the canvas's top edge, in the scene's unit (see [`crate::procedural::View`]).
-    pub top: f64,
-    /// The scene's own x at the canvas's left edge.
-    pub left: f64,
+    /// Where the scene is composed on the canvas; `None` for the canvas itself.
+    pub frame: Option<Frame>,
 }
 
-/// How tall a canvas across `monitors` is in the scene's unit, which is the height of the shortest
-/// monitor: on that monitor the scene is exactly the size it is on a desktop of one monitor, and
-/// monitors of other heights show more of it, not a bigger one. One unit when the monitors are alike.
+/// The height of the shortest monitor: the scene's unit, so that on a monitor that tall the scene is
+/// exactly the size it is on a desktop of one monitor, and monitors of other heights show more of it
+/// rather than a bigger one.
 fn shortest_height(monitors: &[Monitor]) -> f64 {
     monitors.iter().map(|m| m.height).fold(f64::INFINITY, f64::min)
-}
-
-/// Which row monitor `index` is in: how many monitors that overlap it sideways sit above it. Monitors
-/// in a row share their scenery; stacked monitors are in different rows.
-fn row_of(monitors: &[Monitor], index: usize) -> (usize, usize) {
-    let this = monitors[index];
-    let above = monitors
-        .iter()
-        .enumerate()
-        .filter(|(other, m)| {
-            *other != index
-                && m.y + 0.5 * m.height <= this.y + 0.5 * this.height
-                && m.x < this.x + this.width * 0.9
-                && m.x + m.width > this.x + this.width * 0.1
-                && (m.y < this.y || (m.y == this.y && *other < index))
-        })
-        .count();
-    (above, monitors.len())
 }
 
 pub fn canvas_height(monitors: &[Monitor]) -> Option<f64> {
     let top = monitors.iter().map(|m| m.y).fold(f64::INFINITY, f64::min);
     let bottom = monitors.iter().map(|m| m.y + m.height).fold(f64::NEG_INFINITY, f64::max);
-    let shortest = monitors.iter().map(|m| m.height).fold(f64::INFINITY, f64::min);
+    let shortest = shortest_height(monitors);
     (shortest > 0. && bottom > top).then(|| (bottom - top) / shortest)
+}
+
+/// Where a scene is composed on a canvas across `monitors`: the topmost row of the shortest monitors,
+/// where the moon and the mountains are exactly as on a desktop of one monitor. The scenery then
+/// carries on from there across the rest of the canvas, one picture over every monitor.
+fn frame_of(monitors: &[Monitor]) -> Option<Frame> {
+    let unit = shortest_height(monitors);
+    let close = |a: f64, b: f64| (a - b).abs() <= 0.005 * unit;
+    let top = monitors
+        .iter()
+        .filter(|m| close(m.height, unit))
+        .map(|m| m.y)
+        .fold(f64::INFINITY, f64::min);
+    let row: Vec<&Monitor> = monitors.iter().filter(|m| close(m.height, unit) && close(m.y, top)).collect();
+    let left = row.iter().map(|m| m.x).fold(f64::INFINITY, f64::min);
+    let right = row.iter().map(|m| m.x + m.width).fold(f64::NEG_INFINITY, f64::max);
+    let (canvas_left, canvas_top) = (
+        monitors.iter().map(|m| m.x).fold(f64::INFINITY, f64::min),
+        monitors.iter().map(|m| m.y).fold(f64::INFINITY, f64::min),
+    );
+    (unit > 0. && right > left).then(|| Frame {
+        left: (left - canvas_left) / unit,
+        top: (top - canvas_top) / unit,
+        width: (right - left) / unit,
+    })
 }
 
 /// What each monitor draws under `layout`, in the order given, with the whole desktop's aspect.
@@ -99,33 +105,17 @@ pub fn canvas_height(monitors: &[Monitor]) -> Option<f64> {
 pub fn placements(monitors: &[Monitor], layout: WallpaperLayout) -> Option<(f64, Vec<Placement>)> {
     let (aspect, regions) = spanned(monitors)?;
     let height = canvas_height(monitors)?;
+    let frame = frame_of(monitors)?;
     let placements = monitors
         .iter()
         .zip(regions)
-        .enumerate()
-        .map(|(index, (monitor, spanned))| match layout {
-            WallpaperLayout::Span => {
-                // Every monitor's picture starts at its own top edge, so each has a whole scene whatever
-                // its height or where it sits; and the scenery is continuous from one monitor to the next
-                // in a row, but different for monitors stacked over one another.
-                let unit = shortest_height(monitors);
-                let top = monitors.iter().map(|m| m.y).fold(f64::INFINITY, f64::min);
-                let left = monitors.iter().map(|m| m.x).fold(f64::INFINITY, f64::min);
-                let (row, _) = row_of(monitors, index);
-                Placement {
-                    aspect,
-                    height,
-                    region: spanned,
-                    top: -(monitor.y - top) / unit,
-                    left: row as f64 * 0.43 * (aspect * height) + 0. * left,
-                }
-            }
+        .map(|(monitor, spanned)| match layout {
+            WallpaperLayout::Span => Placement { aspect, height, region: spanned, frame: Some(frame) },
             WallpaperLayout::Fill => Placement {
                 aspect: monitor.width / monitor.height,
                 height: 1.,
                 region: whole(),
-                top: 0.,
-                left: 0.,
+                frame: None,
             },
         })
         .collect();
@@ -209,6 +199,7 @@ const RETAINED_EDGES: (u32, u32) = (1920, 3840);
 pub struct Retained {
     pub aspect: f64,
     pub height: f64,
+    pub frame: Option<Frame>,
     pub edge: u32,
 }
 
@@ -218,7 +209,7 @@ pub struct Retained {
 pub fn retained(outputs: &[Output], layout: WallpaperLayout) -> Retained {
     let monitors: Vec<Monitor> = outputs.iter().map(|output| output.monitor).collect();
     let Some((_, placements)) = placements(&monitors, layout) else {
-        return Retained { aspect: 16. / 9., height: 1., edge: RETAINED_EDGES.0 };
+        return Retained { aspect: 16. / 9., height: 1., frame: None, edge: RETAINED_EDGES.0 };
     };
     let widest = outputs
         .iter()
@@ -230,7 +221,7 @@ pub fn retained(outputs: &[Output], layout: WallpaperLayout) -> Retained {
         WallpaperLayout::Span => spanned(&monitors).map_or(shown.aspect, |(aspect, _)| aspect),
         WallpaperLayout::Fill => shown.aspect,
     };
-    Retained { aspect, height: shown.height, edge: (widest.round() as u32).clamp(RETAINED_EDGES.0, RETAINED_EDGES.1) }
+    Retained { aspect, height: shown.height, frame: shown.frame, edge: (widest.round() as u32).clamp(RETAINED_EDGES.0, RETAINED_EDGES.1) }
 }
 
 /// A miniature of the desktop as `layout` will draw it: every monitor's own picture at its place,
@@ -265,8 +256,7 @@ pub fn preview_image(
                 aspect: placement.aspect,
                 height: placement.height,
                 region: placement.region,
-                top: placement.top,
-                left: placement.left,
+                frame: placement.frame,
             },
             width,
             height,
@@ -386,7 +376,7 @@ mod tests {
         // One ordinary monitor: no larger than it needs to be, never smaller than the floor.
         let small = retained(&[output("A", monitor(0., 0., 1366., 768.), 1.)], WallpaperLayout::Span);
         assert_eq!(small.edge, 1920);
-        assert_eq!(retained(&[], WallpaperLayout::Span), Retained { aspect: 16. / 9., height: 1., edge: 1920 });
+        assert_eq!(retained(&[], WallpaperLayout::Span), Retained { aspect: 16. / 9., height: 1., frame: None, edge: 1920 });
     }
 
     #[test]
@@ -412,7 +402,7 @@ mod tests {
     }
 
     #[test]
-    fn each_spanned_monitor_starts_its_scene_at_its_own_top_and_stacked_ones_differ() {
+    fn a_span_has_one_frame_on_the_topmost_shortest_row_so_the_picture_is_continuous() {
         // Jupiter-like: two landscape monitors stacked, a portrait one each side.
         let monitors = [
             monitor(0., 291., 1080., 1920.),
@@ -421,17 +411,24 @@ mod tests {
             monitor(1080., 1071., 1920., 1080.),
         ];
         let (_, placed) = placements(&monitors, WallpaperLayout::Span).unwrap();
-        // The scene's top is the monitor's own: the upper landscape monitor starts at 0, and the others are
-        // further down the canvas by their offset in units of the shortest monitor.
-        assert!(close(placed[1].top, 0.));
-        assert!(close(placed[0].top, -(291. + 457.) / 1080.));
-        assert!(close(placed[3].top, -(1071. + 457.) / 1080.));
-        // Monitors in one row share their scenery; the one stacked below another has its own.
-        assert!(close(placed[0].left, 0.) && close(placed[1].left, 0.) && close(placed[2].left, 0.));
-        assert!(placed[3].left > 0.5, "the lower landscape monitor shows different scenery: {}", placed[3].left);
-        // A fill has no offsets at all.
+        // Every monitor shares the one frame: the upper landscape monitor, which is the canvas's top.
+        let frame = placed[0].frame.unwrap();
+        assert!(placed.iter().all(|placement| placement.frame == Some(frame)));
+        assert!(close(frame.top, 0.) && close(frame.left, 1080. / 1080.) && close(frame.width, 1920. / 1080.));
+        // A fill has no frame: each monitor's picture is composed for itself.
         let (_, filled) = placements(&monitors, WallpaperLayout::Fill).unwrap();
-        assert!(filled.iter().all(|placement| placement.top == 0. && placement.left == 0.));
+        assert!(filled.iter().all(|placement| placement.frame.is_none()));
+    }
+
+    #[test]
+    fn a_row_of_alike_monitors_is_all_frame_and_a_lower_row_leaves_the_frame_at_the_top() {
+        let row = [monitor(0., 0., 1920., 1080.), monitor(1920., 0., 1920., 1080.)];
+        let frame = frame_of(&row).unwrap();
+        assert!(close(frame.left, 0.) && close(frame.top, 0.) && close(frame.width, 3840. / 1080.));
+        // A tall monitor beside a short one that sits lower: the frame is the short one.
+        let mixed = [monitor(0., 0., 1080., 1920.), monitor(1080., 840., 1920., 1080.)];
+        let frame = frame_of(&mixed).unwrap();
+        assert!(close(frame.left, 1.) && close(frame.top, 840. / 1080.) && close(frame.width, 1920. / 1080.));
     }
 
     #[test]

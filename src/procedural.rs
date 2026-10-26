@@ -296,7 +296,8 @@ impl Recipe {
     /// The pixels `view` of the canvas has when drawn `width` by `height`. Channels are RGBA.
     pub fn render(&self, view: View, width: u32, height: u32) -> image::RgbaImage {
         let (width, height) = (width.max(1) as usize, height.max(1) as usize);
-        let scene = Scene::new(self, view.aspect * view.height, view.height);
+        let canvas = view.aspect * view.height;
+        let scene = Scene::new(self, canvas, view.height, view.frame.unwrap_or(Frame { left: 0., top: 0., width: canvas }));
         let mut pixels = vec![0u8; width * height * 4];
         let threads = std::thread::available_parallelism()
             .map_or(1, usize::from)
@@ -320,18 +321,18 @@ impl Recipe {
     /// The whole canvas as PNG, `edge` pixels along its longer side: what theme derivation, the
     /// lock screen and the login screen read in place of a photograph.
     pub fn reference_png(&self, aspect: f64, edge: u32) -> anyhow::Result<Vec<u8>> {
-        self.reference_png_of(aspect, 1., edge)
+        self.reference_png_of(aspect, 1., None, edge)
     }
 
     /// [`reference_png`](Self::reference_png) for a canvas `units` tall.
-    pub fn reference_png_of(&self, aspect: f64, units: f64, edge: u32) -> anyhow::Result<Vec<u8>> {
+    pub fn reference_png_of(&self, aspect: f64, units: f64, frame: Option<Frame>, edge: u32) -> anyhow::Result<Vec<u8>> {
         let aspect = aspect.clamp(0.4, 4.);
         let (width, height) = if aspect >= 1. {
             (edge, (f64::from(edge) / aspect).round() as u32)
         } else {
             ((f64::from(edge) * aspect).round() as u32, edge)
         };
-        let image = self.render(View::whole_of(aspect, units), width, height);
+        let image = self.render(View { frame, ..View::whole_of(aspect, units) }, width, height);
         let mut bytes = Vec::new();
         image::DynamicImage::ImageRgba8(image).write_to(
             &mut std::io::Cursor::new(&mut bytes),
@@ -339,6 +340,18 @@ impl Recipe {
         )?;
         Ok(bytes)
     }
+}
+
+/// The part of a canvas a scene is composed for: where its moon and mountains are framed, in the
+/// scene's unit. A desktop of monitors of several heights has one such frame, on its shortest
+/// monitors, where the scene is exactly what a desktop of one monitor draws; the rest of the canvas
+/// is scenery that carries on from it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Frame {
+    pub left: f64,
+    pub top: f64,
+    /// How wide the frame is. It is one unit tall.
+    pub width: f64,
 }
 
 /// Which part of the canvas to draw, how wide the whole canvas is relative to its height, and how
@@ -350,12 +363,8 @@ pub struct View {
     pub aspect: f64,
     pub height: f64,
     pub region: Region,
-    /// Where the scene's own frame starts: added to the canvas's y, in the scene's unit. A monitor
-    /// whose picture should start at its own top has the negative of its top edge here.
-    pub top: f64,
-    /// Added to the canvas's x, in the scene's unit, so monitors stacked over one another show
-    /// different scenery rather than the same picture twice.
-    pub left: f64,
+    /// Where the scene is composed; `None` for the whole canvas.
+    pub frame: Option<Frame>,
 }
 
 impl View {
@@ -369,8 +378,7 @@ impl View {
         Self {
             aspect,
             height,
-            top: 0.,
-            left: 0.,
+            frame: None,
             region: Region {
                 left: 0.,
                 top: 0.,
@@ -388,7 +396,7 @@ fn draw_row(scene: &Scene, view: View, width: usize, height: usize, y: usize, ro
     let pixel = region.height * view.height / height as f64;
     for (x, out) in row.chunks_exact_mut(4).enumerate() {
         let fx = region.left + (x as f64 + 0.5) / width as f64 * region.width;
-        let colour = scene.colour(fx * view.aspect * view.height + view.left, fy * view.height + view.top, pixel);
+        let colour = scene.colour(fx * view.aspect * view.height, fy * view.height, pixel);
         let noise = dither(fx, fy);
         for channel in 0..3 {
             let encoded = encode(colour[channel]) * 255. + noise;
@@ -465,7 +473,7 @@ impl Scene {
         let shift = (o[0] - 0.5) * 0.12;
         let lean = (o[1] - 0.5) * 0.3;
         let phase = o[2] * std::f64::consts::TAU;
-        let across = x / self.aspect - 0.5;
+        let across = x / self.frame.width - 0.5;
         let mut colour = encoded_mix(ground.background, ground.accents[0], 0.22 * smoothstep(0.15, 0.8, y));
         // Stars: many, small and crisp, a few larger. None among the ridges.
         for (scale, keep, radius, strength) in [(210., 0.955, 0.34, 0.55), (120., 0.975, 0.30, 0.8), (62., 0.992, 0.26, 1.0)] {
@@ -511,13 +519,20 @@ impl Scene {
             let core = (1. - smoothstep(0., 0.05, height)) * foot * gap;
             colour = encoded_add(colour, encoded_mix(hue, [1.; 3], 0.55), core * 0.28 * (0.5 + 0.5 * tone));
         }
-        // The land: three ridges of flat, faceted ground, the nearest with pines, darkest in front.
-        for layer in 0..3usize {
-            let depth = layer as f64 / 2.;
-            let base = 0.78 + 0.075 * layer as f64;
-            let amplitude = 0.10 - 0.02 * layer as f64;
-            let spacing = 0.10 - 0.025 * layer as f64;
-            let trees = if layer >= 1 { self.pines(layer + 3, x, 0.3 + 0.7 * depth) } else { 0. };
+        // The land: ranges of three ridges of flat, faceted ground, the nearer ones with pines, darkest in
+        // front. A canvas taller than one monitor goes on with further ranges, each a little darker.
+        let land_shape = |layer: usize| {
+            let within = layer % 3;
+            (within as f64 / 2., 0.78 + 0.075 * layer as f64, 0.10 - 0.02 * within as f64, 0.10 - 0.025 * within as f64)
+        };
+        let first = (0..AURORA_LAND).rev().find(|&layer| {
+            let (_, base, amplitude, _) = land_shape(layer);
+            y > base + 1.3 * amplitude + 0.1
+        }).unwrap_or(0);
+        for layer in first..AURORA_LAND {
+            let (depth, base, amplitude, spacing) = land_shape(layer);
+            let dim = 0.7f64.powi((layer / 3) as i32);
+            let trees = if layer % 3 >= 1 { self.pines(layer + 3, x, 0.3 + 0.7 * depth) } else { 0. };
             if y < base - amplitude * 1.3 - trees {
                 continue;
             }
@@ -534,7 +549,7 @@ impl Scene {
             let facing = (slope / (1. + slope * slope).sqrt()).clamp(-1., 1.);
             let facet = (((y - ridge) / 0.035 + 0.6 * (x - from.0) / (to.0 - from.0) * lean.signum()).floor()) as i64;
             let jitter = self.hash(layer as i64 + 41, k, facet) - 0.5;
-            let body = encoded_mix(ground.background, ground.accents[0], 0.55 * (1. - depth));
+            let body = encoded_mix(ground.background, ground.accents[0], 0.55 * dim * (1. - depth));
             let lit = encoded_mix(body, ground.accents[1], 0.10 * (1. - 0.4 * depth));
             let dark = encoded_mix(body, ground.background, 0.62);
             let surface = if y < ridge {
@@ -623,7 +638,7 @@ impl Scene {
         let tone = self.hash(23, pane.0, pane.1);
         let family = (tone * 5.).floor() / 5. + 0.1 * self.hash(26, pane.0, pane.1);
         let base = ground.ramp(0.26 + 0.72 * family.clamp(0., 1.));
-        let (light_x, light_y) = (self.aspect * (0.35 + 0.3 * o[3]), 0.10 + 0.25 * o[4]);
+        let (light_x, light_y) = (self.frame.width * (0.35 + 0.3 * o[3]), 0.10 + 0.25 * o[4]);
         let (to_x, to_y) = (x - light_x, y - light_y);
         let glow = (-(to_x * to_x + to_y * to_y) * 0.9).exp();
         // Two facets: a line through the pane's centre at its own angle splits the lit half from the shaded.
@@ -651,7 +666,7 @@ impl Scene {
         const LAYERS: usize = 13;
         const MOST: usize = 44;
         let (ground, noise, o) = (&self.ground, &self.noise, &self.offsets);
-        let sun = (self.aspect * (0.15 + 0.7 * o[1]), 0.12 + 0.12 * o[2]);
+        let sun = (self.frame.width * (0.15 + 0.7 * o[1]), 0.12 + 0.12 * o[2]);
         // Where layer `layer`'s crests sit on average: spread over one unit for the first thirteen, then a
         // layer every 0.045 beyond them.
         let base_of = |layer: usize| {
@@ -788,6 +803,10 @@ fn smoothstep(low: f64, high: f64, value: f64) -> f64 {
 
 /// How many ridges a sunset has.
 const SUNSET_LAYERS: usize = 8;
+/// How many ridges the aurora's land can have on a very tall canvas, in ranges of three.
+const AURORA_LAND: usize = 48;
+/// How many ranges of hills a very tall canvas can have, one after another.
+const SUNSET_RANGES: usize = 12;
 
 fn luminance(colour: Colour) -> f64 {
     0.2126 * colour[0] + 0.7152 * colour[1] + 0.0722 * colour[2]
@@ -914,6 +933,9 @@ struct Scene {
     aspect: f64,
     /// How tall it is: one unit for a single monitor, more across monitors of several heights.
     height: f64,
+    /// Where the composition is framed. Every style but the ambient one is drawn in the frame's own
+    /// coordinates, so its sun, moon and mountains sit as they do on one monitor.
+    frame: Frame,
     background: Colour,
     accents: [Colour; 3],
     /// The same colours as encoded values, for the scenes that blend the way an illustrator does.
@@ -924,7 +946,7 @@ struct Scene {
 }
 
 impl Scene {
-    fn new(recipe: &Recipe, aspect: f64, height: f64) -> Self {
+    fn new(recipe: &Recipe, aspect: f64, height: f64, frame: Frame) -> Self {
         let mut random = Random::new(recipe.seed);
         Self {
             style: recipe.style,
@@ -933,6 +955,7 @@ impl Scene {
             },
             aspect,
             height,
+            frame,
             background: linear(recipe.palette.background),
             accents: recipe.palette.accents.map(linear),
             ground: Ground {
@@ -946,11 +969,15 @@ impl Scene {
 
     /// The linear colour at canvas position `(x, y)`, with `pixel` the canvas extent of a pixel.
     fn colour(&self, x: f64, y: f64, pixel: f64) -> Colour {
+        if self.style == Style::Ambient {
+            return self.ambient(x, y, pixel);
+        }
+        let (x, y) = (x - self.frame.left, y - self.frame.top);
         match self.style {
             Style::Contours => self.contours(x, y, pixel),
             Style::Sunset => self.sunset(x, y, pixel),
             Style::Aurora => self.aurora(x, y, pixel),
-            Style::Ambient => self.ambient(x, y, pixel),
+            Style::Ambient => unreachable!("drawn above"),
             Style::StainedGlass => self.stained_glass(x, y, pixel),
             Style::Dunes => self.dunes(x, y, pixel),
         }
@@ -1009,14 +1036,15 @@ impl Scene {
             .fbm(along * 1.3 + layer as f64 * 13.7, layer as f64 * 7.1, 3);
         let jag = self.hash(layer as i64, k, 1) * 2. - 1.;
         // The ridges dip toward the sun, more the further away they are, so it sets in a valley.
-        let depth = layer as f64 / (SUNSET_LAYERS - 1) as f64;
-        let valley = 0.09 * (1. - 0.8 * depth) * (-((along - self.sun_x()) / 0.55).powi(2)).exp();
+        let depth = (layer % SUNSET_LAYERS) as f64 / (SUNSET_LAYERS - 1) as f64;
+        let range = (layer / SUNSET_LAYERS) as f64;
+        let valley = 0.09 / (1. + 2. * range) * (1. - 0.8 * depth) * (-((along - self.sun_x()) / 0.55).powi(2)).exp();
         (along, base - amplitude * (0.7 * broad + 0.5 * jag) + valley)
     }
 
     /// Where along the canvas the sun sets.
     fn sun_x(&self) -> f64 {
-        self.aspect * (0.2 + 0.6 * self.offsets[0])
+        self.frame.width * (0.2 + 0.6 * self.offsets[0])
     }
 
     /// The segment of ridge `layer` under `x`: its two vertices.
@@ -1069,12 +1097,24 @@ impl Scene {
         // Flat clouds, as faint as the sky's gradient.
         colour = mix(colour, blend(colour, glow, 0.1), self.clouds(x, y, pixel));
 
-        for layer in 0..SUNSET_LAYERS {
-            let depth = layer as f64 / (SUNSET_LAYERS - 1) as f64;
-            let base = 0.5 + 0.06 * layer as f64;
-            let amplitude = 0.14 - 0.07 * depth;
-            let spacing = 0.12 - 0.05 * depth;
-            let trees = if layer >= SUNSET_LAYERS - 3 {
+        // Eight layers are one range of hills. A canvas taller than one monitor goes on with further
+        // ranges in front, each a little darker, so there is always scenery and never a flat fill.
+        // Layers are opaque: start at the nearest one that surely covers this pixel.
+        let sunset_shape = |layer: usize| {
+            let depth = (layer % SUNSET_LAYERS) as f64 / (SUNSET_LAYERS - 1) as f64;
+            (depth, 0.5 + 0.06 * layer as f64, 0.14 - 0.07 * depth, 0.12 - 0.05 * depth)
+        };
+        let first = (0..SUNSET_LAYERS * SUNSET_RANGES)
+            .rev()
+            .find(|&layer| {
+                let (_, base, amplitude, _) = sunset_shape(layer);
+                y > base + 1.3 * amplitude + 0.1
+            })
+            .unwrap_or(0);
+        for layer in first..SUNSET_LAYERS * SUNSET_RANGES {
+            let (depth, base, amplitude, spacing) = sunset_shape(layer);
+            let dim = 0.7f64.powi((layer / SUNSET_LAYERS) as i32);
+            let trees = if layer % SUNSET_LAYERS >= SUNSET_LAYERS - 3 {
                 self.pines(layer, x, depth)
             } else {
                 0.
@@ -1115,7 +1155,7 @@ impl Scene {
                 let body = blend(ground, hue, 0.2 + 0.7 * depth);
                 (blend(body, ground, 0.3), blend(body, hue, 0.3))
             } else {
-                let body = blend(ground, hue, 0.5 * (1. - depth).powf(0.9));
+                let body = blend(ground, hue, 0.5 * dim * (1. - depth).powf(0.9));
                 (
                     blend(body, hue, 0.2 * (1. - 0.5 * depth)),
                     blend(body, ground, 0.4),
@@ -1345,8 +1385,7 @@ mod tests {
             let half = |left: f64| View {
                 aspect,
                 height: 1.,
-                top: 0.,
-                left: 0.,
+                frame: None,
                 region: Region {
                     left,
                     top: 0.,
@@ -1609,8 +1648,7 @@ mod tests {
         let slice = View {
             aspect: 1.89,
             height: 1.,
-            top: 0.,
-            left: 0.,
+            frame: None,
             region: Region {
                 left: 0.,
                 top: 0.,
