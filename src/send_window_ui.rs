@@ -17,8 +17,6 @@ use crate::config::ThemeColors;
 
 /// How long the panel shows what was sent before the original closes, so it can be read and kept.
 const SENT_LINGER: Duration = Duration::from_secs(4);
-/// How long a send may take before the panel steps aside for whatever it is waiting on.
-const STEP_ASIDE_AFTER: Duration = Duration::from_millis(1500);
 
 #[derive(Default)]
 struct SendWindow {
@@ -252,6 +250,12 @@ impl Panel {
         }));
     }
 
+    /// Gives the keyboard and pointer to whatever is under the panel (`lend`), or takes them back.
+    fn lend_input(window: &mut Window, lend: bool) {
+        window.set_keyboard_interactivity(if lend { layer_shell::KeyboardInteractivity::None } else { layer_shell::KeyboardInteractivity::Exclusive });
+        window.set_input_region(if lend { Some(&[]) } else { None });
+    }
+
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         window.remove_window();
         cx.defer(|cx| {
@@ -270,36 +274,14 @@ impl Panel {
                 if let Some(path) = memory_path() {
                     let _ = self.memory.save(&path);
                 }
+                // A send can wait on a person: 1Password asks to approve the node key in an ordinary
+                // window. While it waits, the panel takes neither the keyboard nor the pointer, so the
+                // prompt can be answered; both come back with the result.
+                Self::lend_input(window, true);
                 self.task = Some(cx.spawn_in(window, async move |this, cx| {
                     let target = peer.clone();
-                    let mut send = cx.background_executor().spawn(async move { run_send(id, &target, copy_missing, all_tabs) });
-                    // A send that waits on a person (1Password asking to approve the node key, in an
-                    // ordinary window) must not wait under a full-screen panel that holds the keyboard.
-                    // Past a moment, the panel steps aside and comes back with the answer.
-                    let quick = {
-                        let step_aside = cx.background_executor().timer(STEP_ASIDE_AFTER);
-                        futures_lite::future::or(async { Some((&mut send).await) }, async {
-                            step_aside.await;
-                            None
-                        })
-                        .await
-                    };
-                    let outcome = match quick {
-                        Some(outcome) => outcome,
-                        None => {
-                            let hidden = this.update_in(cx, |_, window: &mut Window, _| window.hide()).unwrap_or(false);
-                            let outcome = send.await;
-                            if hidden {
-                                let _ = this.update_in(cx, |panel: &mut Panel, window, cx| {
-                                    panel.reveal = dojo::design::MenuReveal::opening(Instant::now());
-                                    if window.show() {
-                                        window.focus(&panel.focus, cx);
-                                    }
-                                });
-                            }
-                            outcome
-                        }
-                    };
+                    let outcome = cx.background_executor().spawn(async move { run_send(id, &target, copy_missing, all_tabs) }).await;
+                    let _ = this.update_in(cx, |_, window: &mut Window, _| Self::lend_input(window, false));
                     let sent = matches!(outcome, Outcome::Sent { .. });
                     let _ = this.update(cx, |panel: &mut Panel, cx| {
                         match outcome {

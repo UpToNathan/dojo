@@ -1353,6 +1353,8 @@ pub trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     #[cfg(all(target_os = "linux", feature = "wayland"))]
     fn set_exclusive_edge(&self, _edge: layer_shell::Anchor) {}
     fn set_input_region(&self, _region: Option<&[Bounds<Pixels>]>) {}
+    #[cfg(all(target_os = "linux", feature = "wayland"))]
+    fn set_keyboard_interactivity(&self, _interactivity: layer_shell::KeyboardInteractivity) {}
     /// Sets a surface-local region whose background should receive a blur effect.
     fn set_background_blur_regions(&self, _regions: &[Bounds<Pixels>], _corner_radius: Pixels) {}
     fn window_decorations(&self) -> Decorations {
