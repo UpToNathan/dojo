@@ -610,7 +610,7 @@ impl Scene {
         let look = Look {
             levels: 48.,
             relief: 0.3,
-            shade: 0.16,
+            shade: 0.07,
             tint: 1.,
             widths: [0.0007, 0.0011, 0.0017],
         };
@@ -680,7 +680,7 @@ impl Scene {
                 self.background,
                 mix(
                     self.background,
-                    scale(mix(self.accents[1], self.accents[2], 0.55), 0.3),
+                    scale(mix(self.accents[1], self.accents[2], 0.55), 0.2),
                     0.5,
                 ),
             )
@@ -697,7 +697,7 @@ impl Scene {
             (
                 0.045,
                 0.10,
-                limit_luminance(mix(self.accents[2], self.accents[1], 0.35), 0.2),
+                limit_luminance(mix(self.accents[2], self.accents[1], 0.35), 0.14),
             )
         };
         colour = add(
@@ -826,7 +826,7 @@ impl Scene {
         let high = smoothstep(0.35, 0.95, tone);
         let mut ground = mix(
             self.background,
-            scale(mix(self.accents[0], self.accents[2], high * 0.6), 0.17),
+            scale(mix(self.accents[0], self.accents[2], high * 0.6), 0.05),
             tone * look.tint,
         );
         if look.shade > 0. {
@@ -1020,6 +1020,35 @@ mod tests {
             light > dark + 0.15,
             "the light sun is no brighter: {light} vs {dark}"
         );
+    }
+
+    #[test]
+    fn the_ground_stays_close_to_the_themes_background() {
+        // The shell is drawn in the theme's background, so the wallpaper behind it should be that
+        // colour with the picture as a departure from it, not a brighter wash. The median pixel
+        // is the ground: lines cover a few percent.
+        let palette = Palette::from_colors(&[
+            Rgb([0x1a, 0x1b, 0x26]),
+            Rgb([0x7a, 0xa2, 0xf7]),
+            Rgb([0xbb, 0x9a, 0xf7]),
+        ])
+        .unwrap();
+        let wanted = luminance(linear(palette.background));
+        for (style, allowed) in [(Style::Contours, 1.8), (Style::Sunset, 3.5)] {
+            let image =
+                Recipe::with_palette(style, 21, palette.clone()).render(View::whole(1.9), 760, 400);
+            let mut lums: Vec<f64> = image
+                .pixels()
+                .map(|p| luminance([decode(p[0]), decode(p[1]), decode(p[2])]))
+                .collect();
+            lums.sort_by(f64::total_cmp);
+            let ground = lums[lums.len() / 2];
+            assert!(
+                ground <= wanted * allowed,
+                "{style:?} ground is {:.1}x the background",
+                ground / wanted
+            );
+        }
     }
 
     #[test]
