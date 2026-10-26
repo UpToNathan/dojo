@@ -42,7 +42,7 @@ left of the system tray. It opens on Wallpaper and offers Wallpaper, Presets, an
   (`fill` or `span`). That file lives outside the theme generations and survives theme
   changes. Changing only the layout and pressing Apply saves just the layout; the
   wallpaper image and theme are left alone.
-  Under **Choose image…**, the style buttons (Contours, Sunset, Aurora, Ambient, Stained glass, Dunes) draw a
+  Under **Choose image…**, the style buttons (Contours, Sunset, Aurora, Ambient, Stained glass) draw a
   *procedural wallpaper*: a recipe each monitor draws at its own resolution, so it is
   sharp on rotated and high-density monitors and continuous across a span. Drawing one
   previews **Span all monitors**, and with no saved layout it spans. Switching layout draws the preview

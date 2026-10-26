@@ -32,6 +32,7 @@ pub enum Style {
     /// Topographic contour lines over shaded relief, with finer terrain on a finer monitor.
     Contours,
     /// Low-poly mountain ridges under a moon, or a sun in a light theme.
+    #[serde(alias = "dunes")]
     Sunset,
     /// Curtains of light over a dark sky and stars.
     Aurora,
@@ -40,12 +41,10 @@ pub enum Style {
     Ambient,
     /// Leaded glass lit from behind: translucent panes divided by dark lead.
     StainedGlass,
-    /// Layered, soft dunes, each with a lit crest.
-    Dunes,
 }
 
 impl Style {
-    pub const ALL: [Style; 6] = [Style::Contours, Style::Sunset, Style::Aurora, Style::Ambient, Style::StainedGlass, Style::Dunes];
+    pub const ALL: [Style; 5] = [Style::Contours, Style::Sunset, Style::Aurora, Style::Ambient, Style::StainedGlass];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -54,7 +53,6 @@ impl Style {
             Self::Aurora => "aurora",
             Self::Ambient => "ambient",
             Self::StainedGlass => "stained-glass",
-            Self::Dunes => "dunes",
         }
     }
 
@@ -65,7 +63,6 @@ impl Style {
             Self::Aurora => "Aurora",
             Self::Ambient => "Ambient",
             Self::StainedGlass => "Stained glass",
-            Self::Dunes => "Dunes",
         }
     }
 
@@ -421,7 +418,7 @@ fn dither(fx: f64, fy: f64) -> f64 {
 
 // ---- illustrated scenes ---------------------------------------------------------------------
 //
-// Aurora, Mesh, Stained glass and Dunes are drawn the way an illustrator blends colour: on the
+// Aurora, Ambient and Stained glass are drawn the way an illustrator blends colour: on the
 // encoded (gamma) values, so a dark ground and a bright accent make a dark, muted middle. They
 // convert to linear light on the way out. Each is a function of canvas position, the recipe's
 // noise and its per-seed offsets, and nothing else, so a monitor draws only the part it shows.
@@ -656,90 +653,6 @@ impl Scene {
         let width = 0.045 + pixel / size;
         let lead = 1. - smoothstep(width - pixel / size, width + pixel / size, border);
         to_linear(encoded_mix(colour, encoded_mix(ground.background, [0.01, 0.012, 0.018], 0.85), lead))
-    }
-
-    /// Dunes in flat, faceted colour: crests with a gentle windward face and a steep, shaded lee, ripples
-    /// across the lit faces, haze in the distance, a moon and stars. Thirteen layers make up one
-    /// monitor's height; on a taller one the layers keep coming, each nearer and bigger, so there is
-    /// always more dune in front and never a flat fill. The nearest are the strongest accent.
-    fn dunes(&self, x: f64, y: f64, pixel: f64) -> Colour {
-        const LAYERS: usize = 13;
-        const MOST: usize = 44;
-        let (ground, noise, o) = (&self.ground, &self.noise, &self.offsets);
-        let sun = (self.frame.width * (0.15 + 0.7 * o[1]), 0.12 + 0.12 * o[2]);
-        // Where layer `layer`'s crests sit on average: spread over one unit for the first thirteen, then a
-        // layer every 0.045 beyond them.
-        let base_of = |layer: usize| {
-            let depth = layer as f64 / (LAYERS - 1) as f64;
-            0.34 + 0.62 * depth.min(1.).powf(0.85) + 0.045 * layer.saturating_sub(LAYERS - 1) as f64
-        };
-        let crest = |layer: usize, along: f64| {
-            let depth = layer as f64 / (LAYERS - 1) as f64;
-            let phase = layer as f64 * 7.3 + o[0] * 60.;
-            let amplitude = (0.035 + 0.075 * depth).min(0.22);
-            let frequency = (2.1 + 1.3 * (1. - depth)).max(0.9);
-            // A smooth, asymmetric wave: a long gentle rise to a crest, then a shorter, steeper fall.
-            // The spacing is warped by noise and every crest has its own height, so none repeats.
-            let u = along * frequency + phase + 0.9 * noise.fbm(along * 0.8 + phase, 5. + phase * 0.1, 2);
-            let (index, cycle) = (u.floor(), u - u.floor());
-            let wave = smoothstep(0., 0.62, cycle) * (1. - smoothstep(0.62, 0.90, cycle));
-            let height = 0.45 + 1.0 * self.hash(80 + layer as i64, index as i64, 0);
-            base_of(layer) - amplitude * (0.62 * height * wave + 0.5 * noise.fbm(along * 1.4 + phase, phase * 0.3, 3))
-        };
-        let haze = |depth: f64| (1. - depth).powf(1.4);
-        let mut colour = encoded_mix(ground.background, ground.accents[0], 0.20 * smoothstep(0.1, 0.7, y));
-        // The moon and stars, in the sky.
-        let moon = 1. - smoothstep(0.060 - pixel, 0.060 + pixel, ((x - sun.0).powi(2) + (y - sun.1).powi(2)).sqrt());
-        colour = encoded_mix(colour, ground.accents[2], moon);
-        let (cell_x, cell_y) = ((x * 150.).floor() as i64, (y * 150.).floor() as i64);
-        if self.hash(51, cell_x, cell_y) > 0.986 && y < 0.5 {
-            let (dx, dy) = (x * 150. - cell_x as f64 - 0.5, y * 150. - cell_y as f64 - 0.5);
-            let edge = (0.3 - (dx * dx + dy * dy).sqrt()) / (pixel * 150.) + 0.5;
-            colour = encoded_mix(colour, [0.92, 0.95, 1.], edge.clamp(0., 1.) * 0.6);
-        }
-        // The layers are opaque, so the nearest one whose crest is above the pixel is all there is to see.
-        for layer in (0..MOST).rev() {
-            // A layer whose crests are all below the pixel by more than its tallest cannot cover it.
-            if base_of(layer) - 0.30 > y {
-                continue;
-            }
-            let top = crest(layer, x);
-            if y < top {
-                continue;
-            }
-            let nearness = layer as f64 / (LAYERS - 1) as f64;
-            let depth = nearness.min(1.);
-            let slope = (crest(layer, x + 0.003) - crest(layer, x - 0.003)) / 0.006;
-            // Lit on the windward face, which rises to the crest; the shorter lee falls away in shade.
-            let facing = (-slope * 1.8).clamp(-1., 1.);
-            // Flat bands of tone running down the face, leaning with the slope, so the face reads as cut.
-            let band = ((y - top) / 0.03 + 0.5 * slope).floor() as i64;
-            let jitter = self.hash(layer as i64 + 71, band, 0) - 0.5;
-            let hue = ground.ramp(0.30 + 0.70 * depth.powf(0.8));
-            let far = encoded_mix(ground.background, ground.accents[0], 0.55);
-            let body = encoded_mix(encoded_mix(far, hue, 1. - haze(depth)), ground.background, 0.18 * (1. - depth) + 0.30 * (nearness - 1.).clamp(0., 1.));
-            let lit = encoded_mix(body, ground.accents[2], 0.18 * (1. - 0.4 * depth));
-            let shade = encoded_mix(body, ground.background, 0.52);
-            // The face is flat bands of tone, a little brighter where it rises to the sun, with variation
-            // from band to band down it.
-            let tone = (0.62 + 0.26 * facing.max(0.) + 0.14 * jitter - 0.010 * band as f64).clamp(0., 1.);
-            let mut surface = encoded_mix(shade, lit, tone);
-            // The lee: a wedge of shadow just under the crest, deepest where the fall is steepest and
-            // gone where it flattens, with a crisp edge.
-            let reach = 0.055 * (-facing).max(0.);
-            let in_shadow = (((reach - (y - top)) / pixel) * 0.5 + 0.5).clamp(0., 1.);
-            surface = encoded_mix(surface, shade, in_shadow * 0.9);
-            // Wind ripples: thin lines following the crest, strongest just below it on the lit face.
-            let ripple = (((y - top) / 0.011).fract() - 0.5).abs();
-            let line = (1. - smoothstep(0.03, 0.10, ripple)) * smoothstep(0.0, 0.006, y - top) * (1. - smoothstep(0.0, 0.14, y - top)) * tone;
-            surface = encoded_add(surface, ground.accents[2], line * 0.10);
-            // A crisp lit line along the crest.
-            let rim = 1. - smoothstep(0., 0.0035 + pixel, y - top);
-            surface = encoded_mix(surface, encoded_mix(lit, [1.; 3], 0.25), rim * 0.55 * (0.4 + 0.6 * tone));
-            colour = surface;
-            break;
-        }
-        to_linear(colour)
     }
 }
 
@@ -979,7 +892,6 @@ impl Scene {
             Style::Aurora => self.aurora(x, y, pixel),
             Style::Ambient => unreachable!("drawn above"),
             Style::StainedGlass => self.stained_glass(x, y, pixel),
-            Style::Dunes => self.dunes(x, y, pixel),
         }
     }
 
@@ -1769,7 +1681,7 @@ mod tests {
         // A light theme changes the accents, not the ground: the picture stays dark behind the windows.
         let mut palette = Palette::from_seed(5);
         palette.light = true;
-        for style in [Style::Aurora, Style::Ambient, Style::StainedGlass, Style::Dunes] {
+        for style in [Style::Aurora, Style::Ambient, Style::StainedGlass] {
             let image = Recipe::with_palette(style, 5, palette.clone()).render(View::whole(1.8), 96, 54);
             let mean = image
                 .pixels()
@@ -1789,10 +1701,16 @@ mod tests {
     }
 
     #[test]
+    fn a_recipe_saved_as_dunes_still_draws_as_a_sunset() {
+        let saved = String::from_utf8(Recipe::new(Style::Sunset, 3).to_json()).unwrap().replace("\"sunset\"", "\"dunes\"");
+        assert_eq!(Recipe::from_json(saved.as_bytes()).unwrap(), Recipe::new(Style::Sunset, 3));
+    }
+
+    #[test]
     fn the_new_styles_are_named_as_their_buttons_say() {
         assert_eq!(Style::parse("stained-glass"), Some(Style::StainedGlass));
         assert_eq!(Style::StainedGlass.label(), "Stained glass");
-        assert_eq!(Style::ALL.len(), 6);
+        assert_eq!(Style::ALL.len(), 5);
         for style in Style::ALL {
             let json = serde_json::to_string(&style).unwrap();
             assert_eq!(json, format!("\"{}\"", style.name()), "a recipe stores the name the command line uses");
