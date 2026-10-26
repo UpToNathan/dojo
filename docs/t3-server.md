@@ -5,7 +5,7 @@
 `apps/server/dist/bin.mjs` entrypoint in Electron Node mode.
 
 `scripts/install-t3code.py` installs the app itself into `~/.local/opt/t3code`
-from the `pingdotgg/t3code` GitHub releases. It follows the `nightly` channel
+from the `pingdotgg/t3code` GitHub releases. It follows the `stable` channel
 unless `--channel` or `--version` says otherwise, refuses a download whose
 SHA-256 does not match the checksum GitHub publishes, and swaps the new tree in
 by rename, so a failed install leaves the old app. `bootstrap-host user` and

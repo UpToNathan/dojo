@@ -4,7 +4,7 @@
 The `t3` wrapper that Home Manager installs runs the app in ~/.local/opt/t3code; this puts the
 app there. See .scratch/t3-install/spec.md.
 
-    scripts/install-t3code.py [--channel nightly|preview|stable] [--version TAG] [--force] [--dry-run]
+    scripts/install-t3code.py [--channel stable|preview|nightly] [--version TAG] [--force] [--dry-run]
 """
 import argparse
 import hashlib
@@ -20,7 +20,7 @@ import tempfile
 import urllib.request
 
 REPOSITORY = "pingdotgg/t3code"
-CHANNELS = ("nightly", "preview", "stable")
+CHANNELS = ("stable", "preview", "nightly")
 MARKER = ".dojo-install.json"
 ARCHITECTURES = {"x86_64": "x86_64", "amd64": "x86_64", "aarch64": "arm64", "arm64": "arm64"}
 
@@ -172,7 +172,7 @@ def install(args, say=print):
 def main(argv=None):
     data_home = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--channel", choices=CHANNELS, default="nightly", help="release channel to follow (default: nightly)")
+    parser.add_argument("--channel", choices=CHANNELS, default="stable", help="release channel to follow (default: stable)")
     parser.add_argument("--version", help="install this exact release tag instead of the newest on the channel")
     parser.add_argument("--force", action="store_true", help="reinstall even if this release is installed")
     parser.add_argument("--dry-run", action="store_true", help="say what would be installed and change nothing")

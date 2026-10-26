@@ -5,7 +5,7 @@ T3 Code is a Dojo dependency (its Codex provider hosts the Dojo desktop tools, a
 ## Requirements
 
 - `scripts/install-t3code.py` installs T3 Code from its GitHub releases (`pingdotgg/t3code`) into `~/.local/opt/t3code`, the directory the Home Manager wrapper and the desktop entries already expect.
-- It follows a channel (`nightly` by default, as the installed app does; `stable` and `preview` too) or one exact `--version`. The channel is decided from the release tag, never from where a file was found.
+- It follows a channel (`stable` by default; `preview` and `nightly` too) or one exact `--version`. The channel is decided from the release tag, never from where a file was found.
 - It downloads the AppImage for this machine's architecture and refuses to continue unless its SHA-256 matches the digest GitHub reports for the asset, and the release's `SHA256SUMS` when that lists the file. It extracts with the AppImage's own `--appimage-extract`; nothing is mounted or run as the app.
 - It records what it installed (tag, asset, checksum) beside the app, so a later run with nothing newer changes nothing, and `--force` reinstalls.
 - Replacing is atomic: the new tree is built next to the old one and swapped in by rename, a failed install leaves the old app as it was, and the old tree is removed once the new one is in place. A running T3 keeps working from the old files until it is restarted; the installer says so and never stops it.
