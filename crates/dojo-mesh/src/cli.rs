@@ -39,7 +39,7 @@ usage: dojo-mesh [--config PATH] <command>
   windows [--json]                 this node's windows
   send [--window ID] (--to PEER | --dry-run) [--scope tab|window] [--copy-missing] [--keep-source] [--json]
                                    open a window on a peer and close it here (exit 5: files missing there)
-  remote PEER                      drive a peer with this cursor and keyboard (Super+F11 returns)
+  remote PEER                      drive a peer with this cursor and keyboard (Super+Alt+F11 returns)
   pause | resume                   switch the agent's peer access off or on
   audit [--last N] [--json]        what this node has sent to peers
   roster [check | sync | authorize | export | receive]

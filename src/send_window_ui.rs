@@ -291,7 +291,7 @@ impl Panel {
                         }
                     }
                     if let Some(peer) = remote_to {
-                        // Runs until the operator lets go (Super+F11) or the connection ends.
+                        // Runs until the operator lets go (Super+Alt+F11) or the connection ends.
                         match Command::new(mesh_binary()).args(["remote", &peer]).output() {
                             Ok(output) if !output.status.success() => {
                                 eprintln!("Dojo send window: remote input ended: {}", String::from_utf8_lossy(&output.stderr).trim());
@@ -334,7 +334,7 @@ impl Panel {
                 let mut lines = vec![format!("Sent to {peer}: {sent}.")];
                 lines.extend(notes.iter().cloned());
                 if *take_input {
-                    lines.push(format!("Your cursor and keyboard go to {peer} next. Super+F11 brings them back."));
+                    lines.push(format!("Your cursor and keyboard go to {peer} next. Super+Alt+F11 brings them back."));
                 }
                 lines.push(match source {
                     Source::Pending { .. } => "Closing the original in a moment · Enter closes it now · Esc keeps it".into(),
@@ -348,7 +348,7 @@ impl Panel {
                 }
                 if self.model.input_only {
                     let peer = self.model.peers.get(self.model.peer).cloned().unwrap_or_default();
-                    return vec![format!("No window is sent. Enter takes your cursor and keyboard to {peer}; Super+F11 brings them back.")];
+                    return vec![format!("No window is sent. Enter takes your cursor and keyboard to {peer}; Super+Alt+F11 brings them back.")];
                 }
                 match self.model.preview() {
                     Some(Ok(preview)) => {

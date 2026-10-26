@@ -40,8 +40,10 @@ const KEY_RIGHT_ALT: u32 = 100;
 const KEY_LEFT_META: u32 = 125;
 const KEY_RIGHT_META: u32 = 126;
 
-/// Watches the keys going by for the chords that bring input back: Super+F11 (the key that sent
-/// the window, pressed again) and Ctrl+Alt+Shift+Esc, which is always there for when it goes wrong.
+/// Watches the keys going by for the chords that bring input back: Super+Alt+F11, and
+/// Ctrl+Alt+Shift+Esc, which is always there for when it goes wrong. The keys may go down in any order;
+/// the chord completes when the last of them does. Super+F11 alone is not one, since that is the key
+/// that opens the send panel and it should not end a session by accident.
 #[derive(Default)]
 pub struct ReleaseChords {
     down: HashSet<u32>,
@@ -56,8 +58,12 @@ impl ReleaseChords {
         }
         self.down.insert(code);
         let held = |codes: &[u32]| codes.iter().any(|code| self.down.contains(code));
-        (code == KEY_F11 && held(&[KEY_LEFT_META, KEY_RIGHT_META]))
-            || (code == KEY_ESC && held(&[KEY_LEFT_CTRL, KEY_RIGHT_CTRL]) && held(&[KEY_LEFT_ALT, KEY_RIGHT_ALT]) && held(&[KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT]))
+        let home = held(&[KEY_F11]) && held(&[KEY_LEFT_META, KEY_RIGHT_META]) && held(&[KEY_LEFT_ALT, KEY_RIGHT_ALT]);
+        let panic = held(&[KEY_ESC]) && held(&[KEY_LEFT_CTRL, KEY_RIGHT_CTRL]) && held(&[KEY_LEFT_ALT, KEY_RIGHT_ALT]) && held(&[KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT]);
+        // Only a key that is part of a chord can complete it.
+        let part_of_home = [KEY_F11, KEY_LEFT_META, KEY_RIGHT_META, KEY_LEFT_ALT, KEY_RIGHT_ALT].contains(&code);
+        let part_of_panic = [KEY_ESC, KEY_LEFT_CTRL, KEY_RIGHT_CTRL, KEY_LEFT_ALT, KEY_RIGHT_ALT, KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT].contains(&code);
+        (home && part_of_home) || (panic && part_of_panic)
     }
 }
 
@@ -251,18 +257,35 @@ mod tests {
     }
 
     #[test]
-    fn super_f11_and_the_panic_chord_bring_input_home_and_nothing_else_does() {
-        let mut chords = ReleaseChords::default();
-        assert!(!chords.feed(KEY_F11, true), "F11 alone is just F11");
-        chords.feed(KEY_F11, false);
-        assert!(!chords.feed(KEY_LEFT_META, true));
-        assert!(chords.feed(KEY_F11, true));
-
-        let mut panic = ReleaseChords::default();
-        for key in [KEY_RIGHT_CTRL, KEY_LEFT_ALT, KEY_RIGHT_SHIFT] {
-            assert!(!panic.feed(key, true));
+    fn super_alt_f11_and_the_panic_chord_bring_input_home_in_any_order_and_nothing_else_does() {
+        for order in [
+            [KEY_LEFT_META, KEY_LEFT_ALT, KEY_F11],
+            [KEY_F11, KEY_LEFT_META, KEY_LEFT_ALT],
+            [KEY_LEFT_ALT, KEY_F11, KEY_RIGHT_META],
+        ] {
+            let mut chords = ReleaseChords::default();
+            assert!(!chords.feed(order[0], true) && !chords.feed(order[1], true), "{order:?}");
+            assert!(chords.feed(order[2], true), "the last key of {order:?} completes it");
         }
-        assert!(panic.feed(KEY_ESC, true));
+        // Not chords: F11 alone, Super+F11 (the send panel's own key), Alt+F11.
+        let mut other = ReleaseChords::default();
+        assert!(!other.feed(KEY_F11, true), "F11 alone is just F11");
+        other.feed(KEY_F11, false);
+        assert!(!other.feed(KEY_LEFT_META, true));
+        assert!(!other.feed(KEY_F11, true), "Super+F11 no longer ends a session");
+        other.feed(KEY_LEFT_META, false);
+        assert!(!other.feed(KEY_RIGHT_ALT, true), "Alt+F11 is left to the peer");
+
+        for order in [
+            [KEY_RIGHT_CTRL, KEY_LEFT_ALT, KEY_RIGHT_SHIFT, KEY_ESC],
+            [KEY_ESC, KEY_LEFT_SHIFT, KEY_LEFT_CTRL, KEY_RIGHT_ALT],
+        ] {
+            let mut panic = ReleaseChords::default();
+            for key in &order[..3] {
+                assert!(!panic.feed(*key, true), "{order:?}");
+            }
+            assert!(panic.feed(order[3], true), "{order:?}");
+        }
 
         let mut partial = ReleaseChords::default();
         partial.feed(KEY_LEFT_CTRL, true);
@@ -274,6 +297,7 @@ mod tests {
     fn a_released_modifier_no_longer_counts() {
         let mut chords = ReleaseChords::default();
         chords.feed(KEY_LEFT_META, true);
+        chords.feed(KEY_LEFT_ALT, true);
         chords.feed(KEY_LEFT_META, false);
         assert!(!chords.feed(KEY_F11, true));
     }

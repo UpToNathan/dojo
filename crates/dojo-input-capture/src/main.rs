@@ -4,7 +4,7 @@
 //!
 //! It covers the focused output with a transparent layer-shell surface that has the keyboard
 //! exclusively, locks the pointer to it (so motion keeps coming at the screen's edge) and hides the
-//! cursor, and asks the compositor to leave its own shortcuts to it. Nothing reaches local windows meanwhile. It ends, giving everything back, on Super+F11 or
+//! cursor, and asks the compositor to leave its own shortcuts to it. Nothing reaches local windows meanwhile. It ends, giving everything back, on Super+Alt+F11 or
 //! Ctrl+Alt+Shift+Esc, when the compositor takes the surface or the pointer lock away, or when its
 //! output is closed.
 

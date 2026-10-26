@@ -28,7 +28,7 @@ fn capture_binary(env: &Env) -> Option<PathBuf> {
     Some(data.join("dojo/bin/dojo-input-capture"))
 }
 
-/// `dojo-mesh remote PEER`: the pointer and keyboard drive the peer until Super+F11 (or
+/// `dojo-mesh remote PEER`: the pointer and keyboard drive the peer until Super+Alt+F11 (or
 /// Ctrl+Alt+Shift+Esc), or until the connection ends. The capture helper reads local input and the
 /// peer replays it; see `inject`.
 pub fn remote(env: &Env, rest: &[String]) -> Result<u8, Failure> {
