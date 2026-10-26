@@ -135,8 +135,11 @@ _Avoid_: Remote key
 **Join request**:
 What a new node sends the operator to be enrolled: its name, node key, input key, SSH host key and routes, signed by its own node key so that none of it can be changed on the way. It carries no authority; the operator compares the node key's fingerprint and signs an entry for it.
 
+**Invite**:
+A one-time offer to join a mesh, posted by a machine that signs (its name and the signing keys it trusts, valid for 15 minutes) and found by the new machine, which leaves its request in the same place. It travels through the person's own 1Password, so nothing is moved by hand or compared by eye.
+
 **Mesh panel**:
-The top-right panel of the shell for the machines this one is in a mesh with: a card per machine with its actions (take control, send a window, renew, remove), the health of the mesh, the join requests waiting to be approved and the signing keys this node trusts. It runs `dojo-mesh` for every change.
+The top-right panel of the shell for the machines this one is in a mesh with: a card per machine with its actions (take control, send a window, renew, remove), the health of the mesh, adding a machine with an invite, and the keys this node signs with and trusts. It runs `dojo-mesh` for every change.
 
 **Switch panel**:
 The bottom-centre panel (Super+F11) for moving to another machine: pick a machine, then either send a window there or, in control-only mode, take the cursor and keyboard there. Control-only mode reshapes the panel so the mode is visible.

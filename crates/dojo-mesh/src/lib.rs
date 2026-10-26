@@ -20,6 +20,8 @@ pub mod device;
 pub mod enroll;
 pub mod enroll_cli;
 pub mod invite_cli;
+pub mod keys;
+pub mod keys_cli;
 pub mod doctor;
 pub mod guard;
 pub mod handoff;

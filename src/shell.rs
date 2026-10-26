@@ -369,6 +369,8 @@ fn run_with_surfaces(
 ) -> anyhow::Result<()> {
     // Connects to the compositor while GPUI initializes; the frame's edges are made on it.
     crate::edge_reservation::prewarm();
+    // Keeps this machine's mesh memberships from lapsing; it does nothing where there is no mesh.
+    crate::mesh_renew::start();
     let launcher = Launcher::new()?;
     crate::startup::mark("launcher-built");
     let mut config_store = ConfigStore::user_default()?;

@@ -60,6 +60,8 @@ usage: dojo-mesh [--config PATH] <command>
   renew NAME [--days N]            sign a node's entry again for a fresh period
   rm NAME [--reason TEXT]          remove a node and revoke its keys
   leave                            stop letting the mesh in (removes the authorized_keys block)
+  keys [list | move PATH up|down | unsign PATH | distrust FP | add 1password|security-key|file PATH]
+                                   the keys this node signs with (in order) and trusts, and changes to them
   trust [list | add KEY --fingerprint SHA256:… | remove SHA256:…]
                                    the signing keys this node believes
   enroll [--tag TAG] [--expires SECS]
@@ -320,6 +322,7 @@ pub fn run(env: &Env, args: &[String]) -> Result<u8, Failure> {
         "join" => crate::enroll_cli::join(env, rest),
         "approve" => crate::enroll_cli::approve(env, rest),
         "invite" => crate::invite_cli::invite(env, rest),
+        "keys" => crate::keys_cli::keys(env, rest),
         "requests" => crate::invite_cli::requests(env, rest),
         "deny" => crate::invite_cli::deny(env, rest),
         "renew" => crate::enroll_cli::renew(env, rest),

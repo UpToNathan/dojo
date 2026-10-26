@@ -150,7 +150,11 @@ pub(crate) fn join_through_invite(env: &Env, ctx: &Ctx, request: &JoinRequest, v
                 println!("{} joined {}'s mesh", request.name, chosen.operator);
                 return Ok(0);
             }
-            Answer::Denied(reason) => return Err(fail(FAILED, format!("{} turned the request down: {reason}", chosen.operator))),
+            Answer::Denied(reason) => {
+                // Read, so it goes: nothing is left in the vault.
+                let _ = carrier.delete(&chosen.id);
+                return Err(fail(FAILED, format!("{} turned the request down: {reason}", chosen.operator)));
+            }
             Answer::Gone => return Err(fail(FAILED, "the invite ran out or was withdrawn before it was answered")),
             Answer::Waiting if Instant::now() >= deadline => return Err(fail(FAILED, "no answer in time; the invite is still open, run this again to keep waiting")),
             Answer::Waiting => std::thread::sleep(interval),

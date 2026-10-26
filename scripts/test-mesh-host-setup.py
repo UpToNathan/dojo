@@ -356,5 +356,43 @@ class InstallOnePasswordCli(Host):
         self.assertFalse(self.target.exists())
 
 
+class Askpass(Host):
+    def setUp(self):
+        super().setUp()
+        self.pinentry = self.bin / "pinentry"
+
+    def ask(self, pinentry_output, prompt="Enter the PIN for your key"):
+        script(self.pinentry, f"cat >> {self.root}/assuan; printf '%b' '{pinentry_output}'")
+        return subprocess.run([str(REPO / "scripts/dojo-askpass"), prompt], env={"PATH": os.environ["PATH"], "DOJO_PINENTRY": str(self.pinentry)}, capture_output=True, text=True)
+
+    def test_the_pin_comes_back_on_standard_output_and_the_prompt_is_shown(self):
+        result = self.ask("OK Pleased\\nD 123456\\nOK\\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "123456\n")
+        assuan = (self.root / "assuan").read_text()
+        self.assertIn("SETDESC Enter the PIN for your key", assuan)
+        self.assertIn("GETPIN", assuan)
+
+    def test_escaped_characters_in_a_pin_are_decoded(self):
+        result = self.ask("D a%25b%20c\\nOK\\n")
+        self.assertEqual(result.stdout, "a%b c\n")
+
+    def test_cancelling_fails_so_the_caller_stops_instead_of_trying_an_empty_pin(self):
+        result = self.ask("ERR 83886179 Operation cancelled\\n")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+
+    def test_a_prompt_cannot_inject_assuan_commands(self):
+        self.ask("D 1\\nOK\\n", prompt="Enter\nCANCEL %41")
+        assuan = (self.root / "assuan").read_text().splitlines()
+        self.assertEqual([line for line in assuan if line.startswith("SETDESC")], ["SETDESC Enter CANCEL  41"])
+        self.assertNotIn("CANCEL", assuan)
+
+    def test_without_pinentry_it_says_so(self):
+        result = subprocess.run([str(REPO / "scripts/dojo-askpass")], env={"PATH": "/nonexistent"}, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("pinentry is not installed", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

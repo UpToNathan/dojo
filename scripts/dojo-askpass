@@ -1,0 +1,17 @@
+#!/bin/sh
+# Asks for a secret in a window, for programs that take an SSH_ASKPASS: a security key's PIN, when
+# ssh-keygen is not running in a terminal (the mesh panel adds a security key this way). It uses the
+# system's pinentry, so the dialog is the desktop's own; without one it says so and fails, and the
+# caller reports it.
+#
+#   SSH_ASKPASS=.../dojo-askpass SSH_ASKPASS_REQUIRE=force ssh-keygen ...
+prompt=${1:-PIN}
+pinentry=${DOJO_PINENTRY:-$(command -v pinentry 2>/dev/null)}
+[ -n "$pinentry" ] || { echo "dojo-askpass: pinentry is not installed" >&2; exit 1; }
+# Assuan lines are single lines, and % starts an escape.
+description=$(printf '%s' "$prompt" | tr '\n%' '  ')
+reply=$(printf 'SETTITLE Dojo\nSETDESC %s\nSETPROMPT PIN:\nGETPIN\n' "$description" | "$pinentry" 2>/dev/null) || exit 1
+pin=$(printf '%s\n' "$reply" | sed -n 's/^D //p' | head -n 1)
+[ -n "$pin" ] || exit 1
+# Assuan escapes %, CR and LF as %XX.
+printf '%b\n' "$(printf '%s' "$pin" | sed 's/%\([0-9A-Fa-f][0-9A-Fa-f]\)/\\x\1/g')"

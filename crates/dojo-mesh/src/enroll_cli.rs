@@ -318,8 +318,14 @@ pub(crate) fn code_for(message: &str) -> u8 {
 /// `dojo-mesh renew NAME [--days N]`: the same entry, signed again for a fresh period.
 pub fn renew(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     let ctx = context(env)?;
-    let (words, values) = split(rest, &[], &["--days"])?;
-    let [name] = words.positional.as_slice() else { return Err(fail(USAGE_ERROR, "usage: dojo-mesh renew NAME [--days N]")) };
+    let (words, values) = split(rest, &["--due"], &["--days"])?;
+    if has(&words, "--due") {
+        if !words.positional.is_empty() {
+            return Err(fail(USAGE_ERROR, "renew --due takes no name"));
+        }
+        return renew_due(env, &ctx, days(&values)?);
+    }
+    let [name] = words.positional.as_slice() else { return Err(fail(USAGE_ERROR, "usage: dojo-mesh renew NAME [--days N] | renew --due [--days N]")) };
     let days = days(&values)?;
     let path = device_file(&ctx, name);
     let mut entry = read_device(&path).map_err(|message| fail(FAILED, message))?;
@@ -331,6 +337,57 @@ pub fn renew(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     enroll::write_signed(&path, &enroll::device_json(&entry), &ctx.signing()).map_err(|message| fail(code_for(&message), message))?;
     println!("renewed {name} until {}", entry.expires.format("%Y-%m-%d"));
     println!("{}", publish(&ctx.paths.dir, &format!("Renew {name}")));
+    follow(env, &ctx.config);
+    Ok(0)
+}
+
+/// An entry this close to expiring (or past it) is renewed by `renew --due`.
+const DUE_DAYS: i64 = 30;
+
+/// `dojo-mesh renew --due`: renews every entry within a month of expiring, with nobody present. It
+/// signs only with keys that need no touch, so it never waits on a security key; when it has none and
+/// something is due it says so (exit 3) and the person renews by hand. Saying nothing means nothing was due.
+fn renew_due(env: &Env, ctx: &Ctx, days: i64) -> Result<u8, Failure> {
+    let now = Utc::now();
+    let folder = ctx.paths.dir.join("devices");
+    let mut due: Vec<(String, PathBuf, signed::DeviceEntry)> = Vec::new();
+    for entry in std::fs::read_dir(&folder).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(device) = read_device(&path) else { continue };
+        if device.expires - now <= Duration::days(DUE_DAYS) && !revoked_keys(&ctx.paths.dir).contains(&device.node_key) {
+            due.push((device.name.clone(), path, device));
+        }
+    }
+    if due.is_empty() {
+        return Ok(0);
+    }
+    let keys = crate::keys::signing_without_touch(&ctx.config);
+    if keys.is_empty() {
+        return Err(fail(NEEDS_HUMAN, format!("{} membership(s) are due and no signing key here can sign without a touch: renew them by hand", due.len())));
+    }
+    let signing = Signing { keys, agent: ctx.paths.agent.clone() };
+    due.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut renewed = Vec::new();
+    for (name, path, mut device) in due {
+        device.issued = now;
+        device.expires = now + Duration::days(days);
+        match enroll::write_signed(&path, &enroll::device_json(&device), &signing) {
+            Ok(()) => renewed.push(name),
+            Err(message) => {
+                // The same keys would fail again: say what was done and stop.
+                if renewed.is_empty() {
+                    return Err(fail(code_for(&message), message));
+                }
+                eprintln!("dojo-mesh: stopped after {}: {message}", renewed.join(", "));
+                break;
+            }
+        }
+    }
+    println!("renewed {}", renewed.join(", "));
+    println!("{}", publish(&ctx.paths.dir, &format!("Renew {}", renewed.join(", "))));
     follow(env, &ctx.config);
     Ok(0)
 }

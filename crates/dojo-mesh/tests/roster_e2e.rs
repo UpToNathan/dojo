@@ -1030,6 +1030,7 @@ fn a_machine_joins_through_an_invite_with_nothing_carried_by_hand() {
     let (code, out) = finish(refused);
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("turned the request down: not this one"), "{out}");
+    assert!(std::fs::read_dir(&carrier).map(|mut entries| entries.next().is_none()).unwrap_or(true), "a denied invite is cleaned up too");
 
     // An invite that is withdrawn is gone for good.
     let (_, out) = lab.run(&["invite", "--json"]);
@@ -1037,4 +1038,111 @@ fn a_machine_joins_through_an_invite_with_nothing_carried_by_hand() {
     assert_eq!(lab.run(&["invite", "--cancel", &id]).0, 0);
     let (code, out) = finish(join("1"));
     assert_eq!(code, 1, "{out}");
+}
+
+#[test]
+fn keys_are_listed_by_what_they_are_and_changed_without_editing_a_file() {
+    use std::os::unix::fs::PermissionsExt;
+    let lab = Lab::new();
+    lab.key("second");
+    lab.key("opkey");
+    let operator = lab.root.join("keys/operator");
+    let second = lab.root.join("keys/second");
+    lab.config(&format!("signing-keys = [\"{}\"]\n", operator.display()));
+    let rows = |lab: &Lab, path: &str| -> Vec<serde_json::Value> {
+        let (code, out) = lab.run_with_path(&["keys", "--json"], path);
+        assert_eq!(code, 0, "{out}");
+        serde_json::from_str(out.lines().last().unwrap()).unwrap()
+    };
+    let path = std::env::var("PATH").unwrap_or_default();
+
+    // The one key: a key file, first, and trusted (the lab trusts the operator).
+    let listed = rows(&lab, &path);
+    assert_eq!(listed.len(), 1);
+    assert_eq!((listed[0]["kind"].as_str(), listed[0]["order"].as_u64(), listed[0]["trusted"].as_bool()), (Some("file"), Some(1), Some(true)));
+    let (_, text) = lab.run(&["keys"]);
+    assert!(text.contains("1. Key file  (primary)"), "{text}");
+    assert!(!text.contains("SHA256"), "no fingerprint is shown: {text}");
+
+    // Adding a key file makes it the last signing key and trusts it; the primary stays primary.
+    let (code, out) = lab.run(&["keys", "add", "file", second.to_str().unwrap()]);
+    assert_eq!(code, 0, "{out}");
+    let listed = rows(&lab, &path);
+    assert_eq!(listed.iter().map(|row| row["order"].as_u64()).collect::<Vec<_>>(), [Some(1), Some(2)]);
+    assert!(listed.iter().all(|row| row["trusted"] == true));
+    assert!(lab.run(&["keys", "add", "file", second.to_str().unwrap()]).1.contains("already"), "twice is refused");
+    assert_eq!(lab.run(&["keys", "add", "file", "relative/key"]).0, 2);
+
+    // Moving it up makes it the primary, and the rest of the configuration is untouched.
+    let before = std::fs::read_to_string(lab.root.join("mesh.toml")).unwrap();
+    let (code, out) = lab.run(&["keys", "move", second.to_str().unwrap(), "up"]);
+    assert_eq!(code, 0, "{out}");
+    let after = std::fs::read_to_string(lab.root.join("mesh.toml")).unwrap();
+    assert!(after.find("keys/second").unwrap() < after.find("keys/operator").unwrap(), "{after}");
+    assert_eq!(before.lines().count(), after.lines().count(), "nothing else changed");
+    assert_eq!(lab.run(&["keys", "move", second.to_str().unwrap(), "up"]).0, 1, "already first");
+
+    // Stopping signing with it keeps it trusted; stopping trusting it removes it everywhere.
+    assert_eq!(lab.run(&["keys", "unsign", second.to_str().unwrap()]).0, 0);
+    let listed = rows(&lab, &path);
+    assert_eq!(listed.len(), 2);
+    let kept = listed.iter().find(|row| row["order"].is_null()).unwrap();
+    assert_eq!(kept["trusted"], true);
+    let fingerprint = kept["fingerprint"].as_str().unwrap().to_string();
+    assert_eq!(lab.run(&["keys", "distrust", &fingerprint]).0, 0);
+    assert_eq!(rows(&lab, &path).len(), 1);
+    assert_eq!(lab.run(&["keys", "distrust", "SHA256:nothing"]).0, 1);
+
+    // A key made in 1Password is added, trusted and recognised as one.
+    let bin = lab.root.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let item = serde_json::json!({"id": "i", "fields": [{"id": "public_key", "label": "public key", "value": lab.public("opkey")}]}).to_string();
+    std::fs::write(bin.join("op"), format!("#!/bin/sh\necho '{item}'\n")).unwrap();
+    std::fs::set_permissions(bin.join("op"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let with_op = format!("{}:{path}", bin.display());
+    let (code, out) = lab.run_with_path(&["keys", "add", "1password"], &with_op);
+    assert_eq!(code, 0, "{out}");
+    let listed = rows(&lab, &with_op);
+    assert_eq!(listed.iter().find(|row| row["order"] == 2).unwrap()["kind"], "one-password");
+}
+
+#[test]
+fn memberships_due_renew_unattended_and_never_wait_on_a_security_key() {
+    let mut lab = Lab::new();
+    let open = lab.port(true);
+    let (a, b, c) = (lab.key("alpha"), lab.key("beta"), lab.key("gamma"));
+    let write = |lab: &Lab, name: &str, key: &str, days: i64| {
+        let path = lab.write(&format!("devices/{name}.json"), &lab.device_between(name, key, open, Utc::now() - Duration::days(30), Utc::now() + Duration::days(days)));
+        lab.sign(&path, "operator");
+    };
+    write(&lab, "alpha", &a, 80);
+    write(&lab, "beta", &b, 10);
+    write(&lab, "gamma", &c, 60);
+    let expiry = |lab: &Lab, name: &str| -> i64 {
+        let text = std::fs::read_to_string(lab.root.join(format!("roster/devices/{name}.json"))).unwrap();
+        let expires: chrono::DateTime<Utc> = serde_json::from_str::<serde_json::Value>(&text).unwrap()["expires"].as_str().unwrap().parse().unwrap();
+        (expires - Utc::now()).num_days()
+    };
+
+    // With only a security key to sign with, something due is a step for a person, and nothing is waited on or changed.
+    std::fs::write(lab.root.join("keys/fakesk.pub"), "sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA fake\n").unwrap();
+    lab.config(&format!("signing-keys = [\"{}\"]\n", lab.root.join("keys/fakesk.pub").display()));
+    let (code, out) = lab.run(&["renew", "--due"]);
+    assert_eq!(code, 3, "{out}");
+    assert!(out.contains("without a touch") && out.contains("1 membership"), "{out}");
+    assert_eq!(expiry(&lab, "beta"), 9, "unchanged");
+
+    // With a key that needs no touch after it, only what is due is renewed.
+    lab.config(&format!("signing-keys = [\"{}\", \"{}\"]\n", lab.root.join("keys/fakesk.pub").display(), lab.root.join("keys/operator").display()));
+    let (code, out) = lab.run(&["renew", "--due"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.lines().any(|line| line == "renewed beta"), "only beta was due: {out}");
+    assert!((89..=90).contains(&expiry(&lab, "beta")), "{}", expiry(&lab, "beta"));
+    assert_eq!((expiry(&lab, "alpha"), expiry(&lab, "gamma")), (79, 59), "the others are left alone");
+    assert_eq!(lab.run(&["roster", "check"]).0, 0);
+
+    // Nothing due: no output, success, and no signing.
+    let (code, out) = lab.run(&["renew", "--due"]);
+    assert_eq!((code, out.trim()), (0, ""));
+    assert_eq!(lab.run(&["renew", "--due", "beta"]).0, 2, "--due takes no name");
 }

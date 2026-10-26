@@ -3,6 +3,7 @@ mod bluetooth;
 mod bluetooth_ui;
 mod clock;
 mod displays_ui;
+mod mesh_renew;
 mod mesh_ui;
 mod edge_reservation;
 mod file_events;

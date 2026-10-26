@@ -51,6 +51,9 @@ for name in "${helpers[@]}"; do
         mkdir -p "$HOME/.local/bin"
         ln -sfn "$install_dir/$name" "$HOME/.local/bin/$name"
         printf 'Linked %s\n' "$HOME/.local/bin/$name"
+        # The mesh panel asks for a security key's PIN through this, beside dojo-mesh.
+        install -m 0755 "$repo_root/scripts/dojo-askpass" "$install_dir/dojo-askpass"
+        printf 'Installed %s\n' "$install_dir/dojo-askpass"
     fi
 done
 

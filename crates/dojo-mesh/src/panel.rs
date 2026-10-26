@@ -4,9 +4,8 @@
 //! the `dojo-mesh` command that does it, so the terminal and the panel cannot disagree.
 
 use crate::cli::{self, Env};
-use crate::config::{MeshConfig, MethodChoice, RosterPaths, roster_paths};
+use crate::config::{MeshConfig, MethodChoice, roster_paths};
 use crate::doctor::{Finding, Severity, diagnose};
-use crate::enroll;
 use crate::roster::Roster;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -36,12 +35,6 @@ pub struct Card {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct Signer {
-    pub fingerprint: String,
-    pub hardware: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Panel {
     pub kind: Kind,
     pub this: String,
@@ -51,7 +44,8 @@ pub struct Panel {
     pub blocked: Option<String>,
     /// Whether this node has a signing key to sign with.
     pub can_sign: bool,
-    pub signers: Vec<Signer>,
+    /// The keys this node signs with and trusts, by purpose.
+    pub keys: Vec<crate::keys::KeyRow>,
 }
 
 /// A card per member, this machine first.
@@ -80,13 +74,6 @@ pub fn cards(roster: &Roster, now: DateTime<Utc>) -> Vec<Card> {
         .collect()
 }
 
-fn signers(paths: &RosterPaths) -> Vec<Signer> {
-    enroll::signers(&std::fs::read_to_string(&paths.signers).unwrap_or_default())
-        .into_iter()
-        .filter_map(|key| Some(Signer { fingerprint: enroll::fingerprint(&key).ok()?, hardware: key.starts_with("sk-") }))
-        .collect()
-}
-
 /// The panel's state for this node now.
 pub fn read() -> Panel {
     match Env::from_process(None) {
@@ -94,7 +81,7 @@ pub fn read() -> Panel {
             let config = cli::load_config(&env).unwrap_or_default();
             read_with(&env, &config)
         }
-        Err(_) => Panel { kind: Kind::Tailscale, this: String::new(), cards: Vec::new(), findings: Vec::new(), blocked: None, can_sign: false, signers: Vec::new() },
+        Err(_) => Panel { kind: Kind::Tailscale, this: String::new(), cards: Vec::new(), findings: Vec::new(), blocked: None, can_sign: false, keys: Vec::new() },
     }
 }
 
@@ -112,8 +99,8 @@ pub fn read_with(env: &Env, config: &MeshConfig) -> Panel {
     if let Some(step) = &blocked {
         findings.push(Finding { severity: Severity::Warning, device: None, message: format!("Peers cannot be reached from here yet: {step}.") });
     }
-    let signers = match (&paths, roster_method) {
-        (Some(paths), true) => signers(paths),
+    let keys = match (&paths, roster_method) {
+        (Some(paths), true) => crate::keys::list(config, &paths.signers),
         _ => Vec::new(),
     };
     Panel {
@@ -123,7 +110,7 @@ pub fn read_with(env: &Env, config: &MeshConfig) -> Panel {
         findings,
         blocked,
         can_sign: roster_method && !config.signing_keys.is_empty(),
-        signers,
+        keys,
     }
 }
 

@@ -8,7 +8,8 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use dojo_mesh::doctor::Severity;
-use dojo_mesh::panel::{Exchange, Kind, Panel, Signer};
+use dojo_mesh::keys::{Kind as KeyKind, KeyRow};
+use dojo_mesh::panel::{Exchange, Kind, Panel};
 use gpui::{
     App, AppContext, Bounds, Context, DisplayId, FocusHandle, IntoElement, KeyDownEvent,
     MouseButton, Render, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle,
@@ -32,6 +33,9 @@ mod glyph {
     pub const INBOX: &str = "\u{f0689}";
     pub const LAPTOP: &str = "\u{f0322}";
     pub const USB: &str = "\u{f0553}";
+    pub const UP: &str = "\u{f0143}";
+    pub const DOWN: &str = "\u{f0140}";
+    pub const STAR: &str = "\u{f04ce}";
 }
 
 const WIDTH: f32 = 360.;
@@ -93,12 +97,22 @@ struct Mesh {
 }
 
 /// Where the installed `dojo-mesh` is; the panel runs the same binary the terminal does.
-fn mesh_binary() -> PathBuf {
+pub(crate) fn mesh_binary() -> PathBuf {
     let data = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")));
     data.map(|data| data.join("dojo/bin/dojo-mesh")).filter(|path| path.exists()).unwrap_or_else(|| PathBuf::from("dojo-mesh"))
+}
+
+/// What makes `ssh-keygen` ask for a PIN in a window: the askpass installed beside `dojo-mesh`.
+fn askpass_environment() -> Vec<(String, String)> {
+    let askpass = mesh_binary().with_file_name("dojo-askpass");
+    if askpass.exists() {
+        vec![("SSH_ASKPASS".into(), askpass.display().to_string()), ("SSH_ASKPASS_REQUIRE".into(), "force".into())]
+    } else {
+        Vec::new()
+    }
 }
 
 pub fn toggle(display_id: DisplayId, tab: crate::control::MeshTab, cx: &mut App) -> anyhow::Result<()> {
@@ -222,6 +236,11 @@ impl Mesh {
 
     /// Runs `dojo-mesh ARGS` off the UI thread; the panel shows the key glyph while it signs.
     fn run(&mut self, args: Vec<String>, signs: bool, cx: &mut Context<Self>) {
+        self.run_with(args, signs, Vec::new(), cx);
+    }
+
+    /// The same with extra environment for the command: the PIN dialog for a security key, say.
+    fn run_with(&mut self, args: Vec<String>, signs: bool, env: Vec<(String, String)>, cx: &mut Context<Self>) {
         if self.job.is_some() {
             return;
         }
@@ -232,7 +251,7 @@ impl Mesh {
         cx.spawn(async move |this, cx| {
             let outcome = cx
                 .background_executor()
-                .spawn(async move { Command::new(binary).args(&args).stdin(std::process::Stdio::null()).output() })
+                .spawn(async move { Command::new(binary).args(&args).envs(env).stdin(std::process::Stdio::null()).output() })
                 .await;
             let notice = match outcome {
                 Ok(output) if output.status.success() => None,
@@ -347,13 +366,19 @@ impl Mesh {
             .into_any_element()
     }
 
-    fn signer_row(&self, signer: &Signer, cx: &mut Context<Self>) -> gpui::AnyElement {
+    /// A key by what it is, with where it signs (first is the primary) and what can be done to it.
+    fn key_row(&self, key: &KeyRow, last: Option<usize>, cx: &mut Context<Self>) -> gpui::AnyElement {
         let colors = *cx.global::<ThemeColors>();
         let idle = self.job.is_none();
-        let confirming = self.confirm == Some(Confirm::Untrust(signer.fingerprint.clone()));
-        let fingerprint = signer.fingerprint.clone();
+        let confirming = self.confirm == Some(Confirm::Untrust(key.fingerprint.clone()));
+        let tone = if key.order.is_some() { colors.primary.rgb() } else { colors.foreground_muted.rgb() };
+        let sub = match key.order {
+            Some(1) => "signs first".to_string(),
+            Some(_) => "signs if the first can't".to_string(),
+            None => "trusted, doesn't sign here".to_string(),
+        };
         let mut row = div()
-            .id(format!("mesh-signer-{}", signer.fingerprint))
+            .id(format!("mesh-key-{}", key.fingerprint))
             .h(px(KEY_ROW))
             .px(px(12.))
             .flex()
@@ -361,26 +386,87 @@ impl Mesh {
             .gap(px(10.))
             .rounded(px(14.))
             .bg(colors.surface_raised.rgb())
-            .child(div().text_size(px(15.)).text_color(colors.primary.rgb()).child(if signer.hardware { glyph::USB } else { glyph::KEY }))
-            .child(div().flex_1().min_w_0().text_size(px(13.)).truncate().child(if confirming { "Stop trusting this key?".to_string() } else if signer.hardware { "Security key".to_string() } else { "Software key".to_string() }));
+            .child(div().text_size(px(16.)).text_color(tone).child(match key.kind {
+                KeyKind::SecurityKey => glyph::USB,
+                KeyKind::OnePassword | KeyKind::File => glyph::KEY,
+            }))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .child(div().text_size(px(13.)).truncate().child(if confirming { "Stop trusting this key?".to_string() } else { key.kind.label().to_string() }))
+                    .child(div().text_size(px(10.)).text_color(colors.foreground_muted.rgb()).child(sub)),
+            );
         if confirming {
-            let target = fingerprint.clone();
-            row = row
-                .child(self.icon_button(format!("mesh-untrust-{fingerprint}"), glyph::CHECK, "Stop trusting", idle, Some(gpui::rgb(dojo::design::PROBLEM)), cx, move |mesh, _, cx| {
-                    mesh.run(vec!["trust".into(), "remove".into(), target.clone()], false, cx);
+            let target = key.fingerprint.clone();
+            return row
+                .child(self.icon_button(format!("mesh-untrust-{}", key.fingerprint), glyph::CHECK, "Stop trusting", idle, Some(gpui::rgb(dojo::design::PROBLEM)), cx, move |mesh, _, cx| {
+                    mesh.run(vec!["keys".into(), "distrust".into(), target.clone()], false, cx);
                 }))
-                .child(self.icon_button(format!("mesh-untrust-cancel-{fingerprint}"), glyph::CLOSE, "Cancel", true, None, cx, |mesh, _, cx| {
+                .child(self.icon_button(format!("mesh-untrust-cancel-{}", key.fingerprint), glyph::CLOSE, "Cancel", true, None, cx, |mesh, _, cx| {
                     mesh.confirm = None;
                     cx.notify();
-                }));
-        } else {
-            let target = fingerprint.clone();
-            row = row.child(self.icon_button(format!("mesh-untrust-ask-{fingerprint}"), glyph::DELETE, "Stop trusting…", idle, None, cx, move |mesh, _, cx| {
-                mesh.confirm = Some(Confirm::Untrust(target.clone()));
-                cx.notify();
-            }));
+                }))
+                .into_any_element();
         }
-        row.into_any_element()
+        if let (Some(path), Some(order)) = (&key.path, key.order) {
+            let (up, down) = (path.display().to_string(), path.display().to_string());
+            row = row
+                .child(self.icon_button(format!("mesh-key-up-{}", key.fingerprint), glyph::UP, "Sign with this first", idle && order > 1, None, cx, move |mesh, _, cx| {
+                    mesh.run(vec!["keys".into(), "move".into(), up.clone(), "up".into()], false, cx);
+                }))
+                .child(self.icon_button(format!("mesh-key-down-{}", key.fingerprint), glyph::DOWN, "Sign with this later", idle && last.is_some_and(|last| order < last), None, cx, move |mesh, _, cx| {
+                    mesh.run(vec!["keys".into(), "move".into(), down.clone(), "down".into()], false, cx);
+                }));
+        }
+        let target = key.fingerprint.clone();
+        row.child(self.icon_button(format!("mesh-untrust-ask-{}", key.fingerprint), glyph::DELETE, "Stop trusting", idle, None, cx, move |mesh, _, cx| {
+            mesh.confirm = Some(Confirm::Untrust(target.clone()));
+            cx.notify();
+        }))
+        .into_any_element()
+    }
+
+    /// Buttons that add a key: made in 1Password, or on a security key.
+    fn add_key_row(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let colors = *cx.global::<ThemeColors>();
+        let idle = self.job.is_none();
+        let button = |id: &'static str, glyph: &'static str, label: &'static str, args: Vec<String>, security: bool, cx: &mut Context<Self>| {
+            div()
+                .id(id)
+                .h(px(34.))
+                .px(px(12.))
+                .flex()
+                .flex_1()
+                .items_center()
+                .justify_center()
+                .gap(px(8.))
+                .rounded(px(dojo::design::PILL_RADIUS))
+                .bg(colors.surface_raised.rgb())
+                .text_size(px(12.))
+                .text_color(if idle { colors.foreground.rgb() } else { colors.foreground_muted.rgb() })
+                .when(idle, |el| {
+                    el.cursor_pointer().hover(|el| el.bg(colors.background_highlight.rgb())).on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |mesh, _, _, cx| {
+                            // A security key asks for its PIN (in a window, not a terminal) and then a touch.
+                            let env = if security { askpass_environment() } else { Vec::new() };
+                            mesh.run_with(args.clone(), security, env, cx);
+                            cx.stop_propagation();
+                        }),
+                    )
+                })
+                .child(div().text_size(px(14.)).child(glyph))
+                .child(label)
+        };
+        div()
+            .flex()
+            .gap(px(8.))
+            .child(button("mesh-add-1password", glyph::PLUS, "1Password key", vec!["keys".into(), "add".into(), "1password".into()], false, cx))
+            .child(button("mesh-add-security", glyph::PLUS, "Security key", vec!["keys".into(), "add".into(), "security-key".into()], true, cx))
+            .into_any_element()
     }
 
     /// The Add machine view, one step at a time: make an invite, wait, then answer a machine that asked.
@@ -675,12 +761,14 @@ impl Render for Mesh {
                 }
             }
             (Some(data), View::Keys) => {
-                if data.signers.is_empty() {
-                    body.push(div().h(px(CARD)).flex().items_center().px(px(12.)).text_size(px(12.)).text_color(colors.foreground_muted.rgb()).child("No signing keys are trusted"), CARD);
+                let last = data.keys.iter().filter_map(|key| key.order).max();
+                if data.keys.is_empty() {
+                    body.push(div().h(px(CARD)).flex().items_center().px(px(12.)).text_size(px(12.)).text_color(colors.foreground_muted.rgb()).child("No keys yet"), CARD);
                 }
-                for signer in &data.signers {
-                    body.push(self.signer_row(signer, cx), KEY_ROW);
+                for key in &data.keys {
+                    body.push(self.key_row(key, last, cx), KEY_ROW);
                 }
+                body.push(self.add_key_row(cx), 34.);
             }
         }
         if let Some(notice) = &self.notice {

@@ -1,6 +1,6 @@
 # Rendezvous: 1Password carries the invite
 
-Status: open
+Status: resolved
 
 Replaces the join-request file, the mesh inbox and Downloads. A small `Rendezvous` interface (create, list, get, update, delete an item of text fields) with two carriers: 1Password (`op item …`, a vault from `rendezvous-vault`) and a directory (for tests and for people without 1Password). The protocol on top: an invite item (operator, trusted signers, expiry, status), a request field the new machine posts (the signed join request), a response field the operator posts (the roster and the signers), a status that moves open, requested, approved or denied, and deletion at the end.
 

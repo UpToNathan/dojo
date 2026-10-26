@@ -68,7 +68,7 @@ fn recover_yubikey(dir: &Path, target: &Path) -> bool {
 }
 
 /// The signing key on the YubiKey: found from an earlier run, taken back from the key itself, or made.
-fn yubikey_key(dir: &Path, name: &str) -> Result<PathBuf, Failure> {
+pub(crate) fn yubikey_key(dir: &Path, name: &str) -> Result<PathBuf, Failure> {
     let path = dir.join(YUBIKEY_FILE);
     if path.exists() && PathBuf::from(format!("{}.pub", path.display())).exists() {
         return Ok(path);

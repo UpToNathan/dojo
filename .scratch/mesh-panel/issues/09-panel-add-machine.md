@@ -1,6 +1,6 @@
 # Mesh panel: Add machine
 
-Status: open
+Status: resolved
 
 Blocked by: 08
 

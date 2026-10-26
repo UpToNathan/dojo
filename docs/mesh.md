@@ -21,6 +21,9 @@ dojo-mesh audit [--last N] [--json]    # what this node has sent to peers
 dojo-mesh roster [check | sync | authorize | export | receive]   # signed-roster method: what counts and what is ignored; take it from git or from members; let the members in; carry it as a bundle
 dojo-mesh onboard [--sign yubikey|1password|KEY]... [--route HOST[:PORT]]...   # signed-roster method: set this node up in one go (see Onboarding a machine)
 dojo-mesh init | join | approve | renew | rm | leave | trust   # signed-roster method: enrolment and trust (see below)
+dojo-mesh invite [--minutes N] | requests | deny ID | approve --invite ID   # let a machine in without files (see Joining with an invite)
+dojo-mesh keys [list | move PATH up|down | unsign PATH | distrust FP | add 1password|security-key|file PATH]   # the keys this node signs with and trusts
+dojo-mesh renew --due                  # renew memberships that are close to ending, unattended (the shell runs it every few hours)
 dojo-mesh enroll [--tag TAG] [--expires SECS]            # operator only
 dojo-mesh policy show | validate FILE | apply FILE       # apply is operator only
 dojo-mesh --config PATH <command>      # use another config file
@@ -92,6 +95,8 @@ node-name = "orchard"                                        # this node's name 
 node-key-file = "/home/me/.config/dojo/mesh/node_key.pub"    # public half of this node's key; the default if omitted
 input-key-file = "/home/me/.config/dojo/mesh/input_key.pub"  # public half of the remote-input key; the default if omitted
 agent-socket = "/home/me/.1password/agent.sock"              # the SSH agent holding both; 1Password's by default
+rendezvous = "1password"                                      # where invites travel: "1password" (default) or "directory"
+rendezvous-vault = "Private"                                   # the 1Password vault for invites; the default vault if omitted
 ```
 
 The roster directory holds `devices/NAME.json` and `revocations/NAME.json`, each with its signature beside it as `NAME.json.sig`. A device entry:
@@ -127,7 +132,20 @@ Setting up a machine with Dojo ends with joining the mesh: `scripts/bootstrap-ho
 
 `--sign` names the signing keys in the order to try them, so `--sign yubikey --sign 1password` makes the YubiKey the primary and 1Password the alternate. The YubiKey key is a resident `ed25519-sk` credential named `ssh:dojo-mesh`: on a second machine, onboarding takes it back from the key (`ssh-keygen -K`) instead of making another, so one YubiKey is one signing identity. The 1Password one is an SSH key item there, used through the agent. A machine given no `--sign` signs nothing: it writes `NAME.join.json` for a machine that does, and the output lists the steps that follow (approve there, trust and sync here). A route is an address the others can reach and the port from step 2; if the machine's firewall drops that network, the port needs opening there (a tailnet address needs nothing where `tailscale0` is trusted).
 
-### Enrolling a node and holding the keys
+### Joining with an invite
+
+The easy way to bring a machine in, and the only way the mesh panel offers. Both machines have 1Password, and it carries the exchange: an item in a vault both can read, which is also what holds the nodes' keys, so it is the trust anchor and nothing is compared by eye. The carrier is a setting (`rendezvous = "1password"` by default; `rendezvous-vault` picks the vault; `rendezvous = "directory"` with `rendezvous-dir` uses a shared folder instead, for people without 1Password).
+
+1. On a machine that signs, *Invite a machine* in the panel (or `dojo-mesh invite`). The invite holds this machine's name and the signing keys it trusts, and lasts 15 minutes.
+2. On the new machine, run setup's join (`scripts/bootstrap-host onboard --join`, or `dojo-mesh onboard --invite`, or after `init`, `dojo-mesh join --invite`). It finds the open invite, leaves its request in the item (signed by its own node key, so nothing in it can be changed) and waits.
+3. The panel shows the machine asking. *Let it in* (or `dojo-mesh approve --invite ID`) signs the entry, publishes it and leaves the roster in the item. The new machine installs the roster, trusts the signing keys that were in the invite, lets the mesh in and deletes the item. *Turn it down* (`dojo-mesh deny ID`) tells it why.
+
+An invite that nobody answers expires and is swept. `dojo-mesh requests` lists who is asking.
+
+### Enrolling a node by hand and holding the keys
+
+For a machine with no 1Password, or to understand what the invite does. The steps below are the file form:
+
 
 A signing key can be held anywhere an SSH agent or a key file can sign with it: a YubiKey (`ssh-keygen -t ed25519-sk -O resident`, which needs a touch), a key in 1Password's agent, another agent, or a file. A node lists the ones it signs with, in the order to try them, as `signing-keys` (absolute paths, none required): a private key file, or a *public* key file whose private half the agent holds. The first that signs wins; if none can, the command exits 3 and says why for each. Which keys a node *believes* is separate and its own: `dojo-mesh trust list` shows them with fingerprints and whether each is a hardware key or software; `trust add KEY --fingerprint SHA256:…` adds one only when the fingerprint matches the one the person compared on the other device, which is also how a replacement for a lost signing key is accepted; `trust remove SHA256:…` drops one. `doctor` warns when every trusted key is held in software, since a software key whose approval the agent remembers can sign while the computer is unlocked.
 
@@ -165,14 +183,12 @@ Every call is appended to `$XDG_STATE_HOME/dojo/mesh/audit.jsonl` before it star
 
 ## The mesh panel
 
-The top-bar mesh button (or `dojo-desktop --mesh [machines|requests|keys|health]`) opens a panel at the top right, built like the monitor panel. It shows what `dojo-mesh status`, `doctor`, `trust` and the pending join requests show, and every change it makes is the `dojo-mesh` command that does it, so the terminal and the panel cannot disagree.
+The top-bar mesh button (or `dojo-desktop --mesh [machines|add|keys|health]`) opens a panel at the top right, built like the monitor panel. It shows what `dojo-mesh status`, `doctor` and `keys` show, and every change it makes is the `dojo-mesh` command that does it, so the terminal and the panel cannot disagree. Every icon has a tooltip.
 
-- **Machines.** A card each: a dot (online, offline, or amber when its roster entry expires within two weeks), the name and one muted word or number (the days until its entry expires). The icons act on the machine: the keyboard takes the cursor and keyboard there, the arrow opens the switch panel with it chosen, the circular arrow renews its entry and the bin removes it (asking once). Renew and remove sign with the node's signing keys, so a hardware key may need a touch; the header shows a pulsing key while one is running.
+- **Machines.** A card each: a dot (online, offline, amber when its membership is nearly over), the name, and a short word. A membership is renewed automatically, so a card says nothing about it until it is within two weeks of ending, then says so. The icons act on the machine: the keyboard takes the cursor and keyboard there, the arrow opens the switch panel with it chosen, the circular arrow renews its membership and the bin removes it (asking once). Renew and remove sign with the node's signing keys, so a security key may need a touch; the header shows a pulsing key while one is running.
 - **Health.** The shield at the top right is `dojo-mesh doctor` as a glyph, an alert when something needs attention; it lists the findings. A lock appears when 1Password is locked, since peers cannot be reached then.
-- **Requests.** Machines that asked to join, found as `*.join.json` files in the mesh inbox (`$XDG_DATA_HOME/dojo/mesh/inbox`) or `~/Downloads`. Only requests whose signature verifies are listed. Each shows the new machine's node key fingerprint in two lines: compare it with what that machine printed, press the check, and press it again to approve (90 days). A request that would replace a machine already in the roster says so.
-- **Keys.** The signing keys this node trusts, as hardware or software, with Remove (asking once). Public keys left in the inbox (`*.pub`) appear as offers, shown in full to compare with the machine that holds them, with a plus to trust them.
-
-Nothing in the inbox is acted on by being there.
+- **Add machine** (the plus). *Invite a machine* makes an invite and the panel waits for it ("Waiting for a machine", with the time left). On the new machine, setup's *Join* (or `dojo-mesh join --invite`) finds the invite itself and asks; the panel then shows "studio wants to join" with *Let it in* and *Turn it down*. No file is moved and no fingerprint is compared: see [Joining with an invite](#joining-with-an-invite).
+- **Keys.** The keys by what they are (*Security key*, *1Password key*, *Key file*), with the order this machine signs in (the first signs; the others only if it cannot), up and down to change it, a bin to stop trusting a key, and buttons to add a 1Password key or a security key (its PIN is asked in a window, not a terminal). Nothing is edited by hand: `dojo-mesh keys` does each of these.
 
 ## Sending a window
 

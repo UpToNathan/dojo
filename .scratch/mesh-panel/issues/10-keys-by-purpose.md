@@ -1,6 +1,6 @@
 # Keys by purpose, managed from the panel
 
-Status: open
+Status: resolved
 
 `dojo-mesh keys` lists the keys this node signs with (in order, with a kind) and the keys it trusts, and moves, removes and adds them, writing `signing-keys` and the trusted keys itself. The panel's Keys view uses it: order with up and down, remove, add (1Password key, security key, key file). Kinds, not fingerprints.
 
