@@ -435,6 +435,17 @@ fn limit_luminance(colour: Colour, ceiling: f64) -> Colour {
     }
 }
 
+/// `colour` scaled to exactly `target` luminance, keeping its hue and saturation. Mixing a colour
+/// with the dark background to make it dim drains its chroma and leaves grey; scaling does not.
+fn at_luminance(colour: Colour, target: f64) -> Colour {
+    let current = luminance(colour);
+    if current <= 1e-6 {
+        colour
+    } else {
+        scale(colour, target / current)
+    }
+}
+
 fn srgb(colour: Colour) -> Rgb {
     Rgb(colour.map(|channel| (encode(channel) * 255.).round() as u8))
 }
@@ -675,17 +686,23 @@ impl Scene {
                 lift(mix(self.accents[1], self.accents[2], 0.5)),
             )
         } else {
-            // A dark sky stays the theme's dark ground, with only a faint glow at the horizon.
+            // A dark sky is the theme's dark ground at the top, deep primary through the middle
+            // and a haze of the secondary at the horizon: dim, but still those colours.
             (
                 self.background,
-                mix(
-                    self.background,
-                    scale(mix(self.accents[1], self.accents[2], 0.55), 0.2),
-                    0.5,
-                ),
+                at_luminance(mix(self.accents[1], self.accents[2], 0.7), 0.045),
             )
         };
-        let mut colour = mix(top, horizon, smoothstep(0.0, 0.64, y).powf(1.5));
+        let mut colour = if self.light {
+            mix(top, horizon, smoothstep(0.0, 0.62, y).powf(1.5))
+        } else {
+            let middle = at_luminance(self.accents[1], 0.018);
+            if y < 0.4 {
+                mix(top, middle, smoothstep(0.0, 0.4, y))
+            } else {
+                mix(middle, horizon, smoothstep(0.4, 0.66, y))
+            }
+        };
 
         let (sun_x, sun_y) = (self.aspect * (0.2 + 0.6 * self.offsets[0]), 0.4);
         let (dx, dy) = (x - sun_x, y - sun_y);
@@ -747,18 +764,32 @@ impl Scene {
             let facet = into.floor() as i64;
             let jitter = self.hash(layer as i64 + 31, k, facet) - 0.5;
 
-            // Dark shapes: the far ridges are barely lighter than the sky's glow and the near
-            // ones darker than the ground. The theme's colours show on the faces that catch the
-            // light, not as the body of the mountains.
-            let fog = mix(horizon, self.background, 0.3 + 0.4 * depth);
-            let body = mix(fog, scale(self.background, 0.85), depth.powf(0.8));
-            let tint = mix(self.accents[1], self.accents[2], 0.35 + 0.35 * (1. - depth));
-            let lit = if self.light {
-                mix(body, tint, 0.34 * (1. - 0.5 * depth))
+            let (body, lit, dark) = if self.light {
+                let fog = mix(horizon, self.background, 0.3 + 0.4 * depth);
+                let body = mix(fog, scale(self.background, 0.85), depth.powf(0.8));
+                let tint = mix(self.accents[1], self.accents[2], 0.35 + 0.35 * (1. - depth));
+                (
+                    body,
+                    mix(body, tint, 0.34 * (1. - 0.5 * depth)),
+                    scale(body, 0.6),
+                )
             } else {
-                mix(body, scale(tint, 0.5), 0.3 * (1. - 0.45 * depth))
+                // Far ridges are the secondary, the middle ones the primary, and the nearest
+                // fall back to the theme's dark ground; each is the theme's own hue scaled to a
+                // dark value, so it stays saturated rather than turning grey. The faces that
+                // catch the light are the same hue brighter.
+                let hue = mix(self.accents[2], self.accents[1], (depth * 1.6).min(1.));
+                let near = smoothstep(0.55, 1., depth);
+                let value = 0.05 * (1. - near) + 0.011 * near;
+                let ground = smoothstep(0.7, 1., depth);
+                let body = mix(at_luminance(hue, value), self.background, ground);
+                let lit = mix(
+                    at_luminance(hue, value * 1.8),
+                    scale(self.background, 1.5),
+                    ground,
+                );
+                (body, lit, scale(body, 0.55))
             };
-            let dark = scale(body, if self.light { 0.6 } else { 0.55 });
             let shade = (0.5 + 0.5 * facing + 0.22 * jitter - 0.025 * facet as f64).clamp(0., 1.);
             colour = mix(colour, mix(dark, lit, shade), coverage);
         }
