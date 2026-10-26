@@ -108,12 +108,7 @@ struct Panel {
 
 /// The machines a window can go to: online members of the mesh other than this one.
 fn online_peers() -> Vec<String> {
-    let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
-    let config = dojo_mesh::config::default_path(var("XDG_CONFIG_HOME"), var("HOME"))
-        .and_then(|path| dojo_mesh::config::MeshConfig::load(&path).ok())
-        .unwrap_or_default();
-    let hostname = std::fs::read_to_string("/proc/sys/kernel/hostname").map(|name| name.trim().to_owned()).unwrap_or_default();
-    let roster = dojo_mesh::tailscale::roster(dojo_mesh::tailscale::read_status(), &config, &hostname);
+    let roster = dojo_mesh::cli::roster_now();
     roster.peers().filter(|member| member.device.online).map(|member| member.device.name.clone()).collect()
 }
 

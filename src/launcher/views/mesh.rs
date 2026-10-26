@@ -1,10 +1,7 @@
-//! The Mesh command: this machine and the peers it admits, read from the local Tailscale client.
+//! The Mesh command: this machine and the peers it admits, by the method the node's mesh configuration names (Tailscale's client, or the signed roster).
 //! Read-only; reaching a peer is `dojo-mesh exec` and the agent's mesh tools.
 
-use std::path::PathBuf;
-
 use dojo::launcher_core::rows::{Row, RowAction, RowIcon};
-use dojo_mesh::config::{MeshConfig, default_path};
 use dojo_mesh::device::Device;
 use dojo_mesh::roster::{Admission, Roster, Source};
 
@@ -16,6 +13,8 @@ type Load = fn() -> Roster;
 /// What a row stands for, by the position its `Item` carries.
 struct Shown {
     host: String,
+    /// What Enter copies to reach the peer.
+    command: String,
     this_node: bool,
 }
 
@@ -39,25 +38,10 @@ impl MeshView {
     }
 }
 
-/// The mesh as this node sees it now. A configuration that cannot be read leaves the mesh empty
+/// The mesh as this node sees it now. A configuration that cannot be read leaves the default method
 /// rather than failing the view, so the view still shows this machine.
 fn read_roster() -> Roster {
-    let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
-    let config = default_path(var("XDG_CONFIG_HOME"), var("HOME"))
-        .and_then(|path| MeshConfig::load(&path).ok())
-        .unwrap_or_default();
-    let hostname = std::fs::read_to_string("/proc/sys/kernel/hostname")
-        .map(|name| name.trim().to_owned())
-        .unwrap_or_default();
-    dojo_mesh::tailscale::roster(
-        dojo_mesh::tailscale::read_status(),
-        &config,
-        if hostname.is_empty() {
-            "this-node"
-        } else {
-            &hostname
-        },
-    )
+    dojo_mesh::cli::roster_now()
 }
 
 fn host(device: &Device) -> String {
@@ -114,9 +98,16 @@ impl View for MeshView {
                     Admission::This => format!("This machine · {state}"),
                     Admission::Allowed => format!("{state} · allowed by name"),
                     Admission::Tag => state.to_owned(),
+                    Admission::Signed => format!("{state} · in the signed roster"),
+                };
+                // The way in depends on the method: Tailscale's own SSH, or the mesh's channel.
+                let command = match &roster.source {
+                    Source::Method(_) => format!("dojo-mesh exec {} -- ", member.device.name),
+                    _ => format!("tailscale ssh {}", host(&member.device)),
                 };
                 shown.push(Shown {
                     host: host(&member.device),
+                    command,
                     this_node,
                 });
                 rows.push(Row {
@@ -137,12 +128,18 @@ impl View for MeshView {
                 });
             }
             if query.trim().is_empty() && roster.peers().next().is_none() {
-                rows.push(Row::header(match &roster.source {
-                    Source::Unavailable(_) => "Tailscale is not available, so there are no peers",
-                    Source::Tailscale => {
-                        "No peers: set membership-tag or allow in ~/.config/dojo/mesh.toml"
+                let guidance = match &roster.source {
+                    Source::Unavailable(reason) => {
+                        format!("The mesh is not available ({reason}), so there are no peers")
                     }
-                }));
+                    Source::Tailscale => {
+                        "No peers: set membership-tag or allow in ~/.config/dojo/mesh.toml".into()
+                    }
+                    Source::Method(_) => {
+                        "No peers: enrol one with dojo-mesh join and approve (see docs/mesh.md)".into()
+                    }
+                };
+                rows.push(Row::header(&guidance));
             }
             rows
         })
@@ -153,7 +150,7 @@ impl View for MeshView {
         match row.action {
             RowAction::Item(index) => match self.shown.get(index) {
                 Some(shown) if shown.this_node => Outcome::Notice("That is this machine".into()),
-                Some(shown) => Outcome::Copy(format!("tailscale ssh {}", shown.host)),
+                Some(shown) => Outcome::Copy(shown.command.clone()),
                 None => Outcome::Stay,
             },
             _ => Outcome::Stay,
@@ -207,6 +204,8 @@ mod tests {
             online,
             key_expiry: None,
             key_expired: false,
+            routes: Vec::new(),
+            keys: None,
         }
     }
 
@@ -293,9 +292,39 @@ mod tests {
         });
         let rows = view.rows("");
         assert_eq!(rows[0].title, "solo");
-        assert_eq!(rows[1].title, "Tailscale is not available, so there are no peers");
+        assert_eq!(rows[1].title, "The mesh is not available (tailscale is not installed), so there are no peers");
         assert!(!rows[1].is_selectable());
         assert_eq!(view.rows("so").len(), 1, "no guidance while searching");
+    }
+
+    fn signed_mesh() -> Roster {
+        let mut roster = mesh();
+        roster.source = Source::Method("roster".into());
+        for member in roster.members.iter_mut().skip(1) {
+            member.admitted_by = Admission::Signed;
+        }
+        roster
+    }
+
+    #[test]
+    fn under_the_signed_roster_peers_say_so_and_enter_copies_the_mesh_command() {
+        let mut view = view(signed_mesh);
+        let rows = view.rows("");
+        assert_eq!(rows[1].subtitle, "online · in the signed roster");
+        let host = Host::default();
+        assert_eq!(view.activate(&rows[1], "", &host), Outcome::Copy("dojo-mesh exec beta -- ".into()));
+        assert_eq!(view.activate(&rows[0], "", &host), Outcome::Notice("That is this machine".into()));
+    }
+
+    #[test]
+    fn a_roster_with_no_peers_says_how_to_enrol_one() {
+        let mut view = view(|| {
+            let mut roster = Roster::alone(device("solo", &[], true), &MeshConfig::default(), String::new());
+            roster.source = Source::Method("roster".into());
+            roster
+        });
+        let rows = view.rows("");
+        assert!(rows[1].title.contains("dojo-mesh join"), "{}", rows[1].title);
     }
 
     #[test]

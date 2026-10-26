@@ -203,6 +203,19 @@ pub(crate) fn load_config(env: &Env) -> Result<MeshConfig, Failure> {
     }
 }
 
+/// The mesh as this node sees it now, by the method its configuration names. For callers that are not
+/// the command line (the launcher's Mesh view). A configuration that cannot be read leaves the default
+/// method, as it does for the commands.
+pub fn roster_now() -> Roster {
+    match Env::from_process(None) {
+        Ok(env) => {
+            let config = load_config(&env).unwrap_or_default();
+            load_roster(&env, &config)
+        }
+        Err(_) => crate::tailscale::roster(crate::tailscale::read_status(), &MeshConfig::default(), "this-node"),
+    }
+}
+
 pub(crate) fn load_roster(env: &Env, config: &MeshConfig) -> Roster {
     env.method.membership.roster(config, &env.hostname)
 }
