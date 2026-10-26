@@ -19,6 +19,12 @@ use crate::theme::wallpaper_layout::Region;
 
 pub mod desktop;
 
+/// The brightest the wallpaper's ground may be, as linear luminance. Every dark theme's own
+/// background is below it (Tokyo Night Storm's is about 0.022, Nord's 0.03), so the ground is the
+/// shell's colour exactly; it only darkens a background that is not dark, such as a light theme's
+/// pale one, or a pasted colour that is bright.
+const GROUND_CEILING: f64 = 0.05;
+
 /// The recipe format this build reads and writes.
 pub const VERSION: u32 = 1;
 
@@ -193,7 +199,7 @@ impl Palette {
         let mut accents = accents.to_vec();
         accents.sort_by(|a, b| luminance(linear(*a)).total_cmp(&luminance(linear(*b))));
         accents.dedup();
-        let ground = limit_luminance(linear(background), 0.012);
+        let ground = limit_luminance(linear(background), GROUND_CEILING);
         let colours: Vec<Colour> = accents.iter().map(|accent| linear(*accent)).collect();
         let three: [Colour; 3] = match colours.len() {
             1 => [
@@ -210,7 +216,7 @@ impl Palette {
     /// `accents` as given, with the background darkened to a deep tone and the dimmest accent held
     /// back, so a bright palette still gives a picture that sits behind windows.
     fn finish(background: Rgb, mut accents: [Colour; 3]) -> Self {
-        let ground = limit_luminance(linear(background), 0.012);
+        let ground = limit_luminance(linear(background), GROUND_CEILING);
         accents[0] = limit_luminance(accents[0], 0.1);
         Self {
             background: srgb(ground),
@@ -1119,6 +1125,37 @@ mod tests {
     }
 
     #[test]
+    fn a_dark_themes_own_background_is_kept_exactly() -> anyhow::Result<()> {
+        use crate::extraction::{Palette as Swatches, Rgb as Swatch};
+        use crate::theme::{Appearance, SemanticPalette};
+        // Tokyo Night Storm and Tokyo Night differ only in their backgrounds, so a wallpaper that
+        // flattened the background toward one deep tone would look the same in both.
+        let theme = |background: Swatch| {
+            let mut colors = [Swatch(192, 202, 245); 16];
+            colors[0] = background;
+            colors[4] = Swatch(122, 162, 247);
+            colors[5] = Swatch(187, 154, 247);
+            SemanticPalette::derive(&Swatches { colors }, Appearance::Dark)
+        };
+        let night = Palette::from_theme(&theme(Swatch(26, 27, 38)))?;
+        let storm = Palette::from_theme(&theme(Swatch(36, 40, 59)))?;
+        let near =
+            |have: Rgb, want: [u8; 3]| have.0.iter().zip(want).all(|(a, b)| a.abs_diff(b) <= 2);
+        assert!(near(night.background, [26, 27, 38]), "{}", night.background);
+        assert!(near(storm.background, [36, 40, 59]), "{}", storm.background);
+        assert_eq!(night.accents, storm.accents);
+        let view = View::whole(1.9);
+        for style in Style::ALL {
+            assert_ne!(
+                Recipe::with_palette(style, 5, night.clone()).render(view, 96, 50),
+                Recipe::with_palette(style, 5, storm.clone()).render(view, 96, 50),
+                "{style:?}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn colours_are_found_in_any_pasted_text() {
         let found =
             parse_colors("bg: #0B0B14;  accent #5b6ee1, #fa0 and #12345 or #zzzzzz, #abcdef0");
@@ -1139,7 +1176,7 @@ mod tests {
             Rgb([200, 60, 60]),
             Rgb([60, 60, 200]),
         ])?;
-        assert!(luminance(linear(palette.background)) <= 0.0125);
+        assert!(luminance(linear(palette.background)) <= GROUND_CEILING + 0.0005);
         assert!(
             palette.background.0[2] > palette.background.0[0],
             "keeps its blue cast"
@@ -1196,7 +1233,7 @@ mod tests {
             let palette = Palette::from_theme(&theme)?;
             // Dark either way: a light theme contributes its accents, not its pale background.
             assert!(
-                luminance(linear(palette.background)) <= 0.0125,
+                luminance(linear(palette.background)) <= GROUND_CEILING + 0.0005,
                 "{appearance:?}"
             );
             // The accents are the theme's primary and secondary, by role. Its cyan "info" colour,
