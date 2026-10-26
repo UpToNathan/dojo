@@ -778,7 +778,7 @@ mod tests {
              "mode": {"width": 1920, "height": 1080, "refresh_rate": 60000}, "transform": "270"},
             {"name": "DP-3", "enabled": true, "position": [1080, 0], "scale": 1.0,
              "mode": {"width": 1920, "height": 1080, "refresh_rate": 60000}, "transform": "Normal"}
-        ]})
+        ], "main": "DP-3"})
         .to_string()
         .into_bytes()
     }
@@ -984,6 +984,10 @@ mod tests {
         assert!(kdl.contains("transform \"270\""), "{kdl}");
         assert!(kdl.contains("position x=0 y=355"), "{kdl}");
         assert!(kdl.contains("mode \"1920x1080@60.000\""), "{kdl}");
+        // The main monitor is the one Niri starts on, and only one is.
+        assert_eq!(kdl.matches("focus-at-startup").count(), 1, "{kdl}");
+        let main_block = &kdl[kdl.find("output \"DP-3\"").unwrap()..];
+        assert!(main_block.contains("focus-at-startup"), "{kdl}");
         // The snapshot holds the checked layout, and reading it back gives the same.
         assert_eq!(Displays::parse(displays.as_bytes().to_vec()).unwrap(), displays);
     }
@@ -998,6 +1002,7 @@ mod tests {
             br#"{"outputs": [{"name": "DP-1", "enabled": true, "position": [99999999,0], "scale": 1.0, "mode": null, "transform": "Normal"}]}"#,
             br#"{"outputs": [{"name": "DP-1", "enabled": true, "position": [0,0], "scale": 1.0, "mode": null, "transform": "Sideways"}]}"#,
         ];
+        assert!(Displays::parse(br#"{"outputs": [], "main": "a\"b"}"#.to_vec()).is_err(), "a main name Niri would not have");
         for bytes in bad {
             assert!(Displays::parse(bytes.to_vec()).is_err(), "{}", String::from_utf8_lossy(bytes));
         }

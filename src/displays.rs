@@ -37,6 +37,8 @@ pub struct Display {
 #[derive(Clone, Debug)]
 pub struct Snapshot {
     pub displays: Vec<Display>,
+    /// The monitor the user chose as their main one: where the session and the login screen start.
+    pub main: Option<String>,
     pub preview_remaining: Option<u64>,
     pub busy: bool,
     pub error: Option<String>,
@@ -46,6 +48,7 @@ impl Default for Snapshot {
     fn default() -> Self {
         Self {
             displays: Vec::new(),
+            main: None,
             preview_remaining: None,
             busy: false,
             error: None,
@@ -164,6 +167,12 @@ impl Controller {
         self.send(Command::Preview(settings))
     }
 
+    /// Chooses the main monitor, or none. It is saved at once: it does not change the live layout, so
+    /// there is nothing to preview. It is refused while a layout is being previewed.
+    pub fn set_main(&self, name: Option<String>) -> Result<(), String> {
+        self.send(Command::SetMain(name))
+    }
+
     pub fn keep(&self) -> Result<(), String> {
         self.send(Command::Keep)
     }
@@ -189,6 +198,7 @@ enum Command {
     Refresh,
     Preview(Vec<OutputSettings>),
     Keep,
+    SetMain(Option<String>),
     Revert,
     RevertExpired(u64),
     Tick,
@@ -254,6 +264,7 @@ impl Worker {
                 Command::Refresh => self.refresh_snapshot(),
                 Command::Preview(settings) => self.start_preview(settings),
                 Command::Keep => self.keep_preview(),
+                Command::SetMain(name) => self.set_main(name),
                 Command::Revert => self.rollback_preview(),
                 Command::RevertExpired(id) => {
                     if self
@@ -330,6 +341,23 @@ impl Worker {
         Ok(())
     }
 
+    fn set_main(&mut self, name: Option<String>) -> Result<(), String> {
+        if self.preview.is_some() {
+            return Err("keep or revert the layout preview first".into());
+        }
+        let current = self.query_outputs()?;
+        if let Some(name) = &name {
+            if !current.iter().any(|output| &output.name == name) {
+                return Err(format!("{name} is not connected"));
+            }
+        }
+        // The main monitor is saved with the layout, so the layout in effect is saved with it.
+        let live = current.iter().map(output_settings).collect::<Vec<_>>();
+        let saved = merge_saved_settings(read_saved_settings().map_err(|error| error.to_string())?, &live);
+        persist_settings(&saved, name.as_deref()).map_err(|error| format!("saving the main monitor failed: {error}"))?;
+        self.refresh_snapshot()
+    }
+
     fn keep_preview(&mut self) -> Result<(), String> {
         let Some(preview) = self.preview.clone() else {
             return Err("there is no display preview to keep".into());
@@ -361,7 +389,7 @@ impl Worker {
             Err(error) => return self.abort_keep(error.to_string()),
         };
         let saved = merge_saved_settings(saved_settings, &live_settings);
-        let keep_result = persist_settings(&saved)
+        let keep_result = persist_settings(&saved, read_saved_main().as_deref())
             .map_err(|error| format!("saving display settings failed: {error}"))
             .and_then(|()| self.reload_config(preview.deadline))
             .and_then(|()| self.wait_for_settings(&live_settings, preview.deadline));
@@ -529,10 +557,11 @@ impl Worker {
                 Display { output, settings }
             })
             .collect();
-        self.snapshot
-            .lock()
-            .map_err(|_| "display snapshot lock poisoned".to_owned())?
-            .displays = displays;
+        let main = read_saved_main();
+        let mut snapshot = self.snapshot.lock().map_err(|_| "display snapshot lock poisoned".to_owned())?;
+        snapshot.displays = displays;
+        snapshot.main = main;
+        drop(snapshot);
         self.set_error(None);
         Ok(())
     }
@@ -960,6 +989,9 @@ pub fn snapped_position(
 #[serde(deny_unknown_fields)]
 struct SavedSettings {
     outputs: Vec<SavedOutput>,
+    /// The connector the user chose as their main monitor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    main: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1034,7 +1066,15 @@ fn merge_saved_settings(
     merged
 }
 
+/// Where tests keep the saved files instead of the real state directory.
+#[cfg(test)]
+static STATE_OVERRIDE: Mutex<Option<PathBuf>> = Mutex::new(None);
+
 fn settings_path() -> anyhow::Result<PathBuf> {
+    #[cfg(test)]
+    if let Some(state) = STATE_OVERRIDE.lock().expect("state override").clone() {
+        return Ok(state.join("dojo/displays/niri.kdl"));
+    }
     let state_home = std::env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")))
@@ -1057,6 +1097,12 @@ fn read_saved_settings() -> anyhow::Result<Vec<OutputSettings>> {
     }
 }
 
+fn read_saved_main() -> Option<String> {
+    let json_path = settings_path().ok()?.with_extension("json");
+    let saved: SavedSettings = serde_json::from_slice(&fs::read(json_path).ok()?).ok()?;
+    saved.main
+}
+
 fn read_optional_bytes(path: &Path) -> anyhow::Result<Option<Vec<u8>>> {
     match fs::read(&path) {
         Ok(bytes) => Ok(Some(bytes)),
@@ -1076,37 +1122,46 @@ fn restore_file(path: &Path, bytes: Option<&[u8]>) -> anyhow::Result<()> {
     }
 }
 
-fn persist_settings(settings: &[OutputSettings]) -> anyhow::Result<()> {
+fn persist_settings(settings: &[OutputSettings], main: Option<&str>) -> anyhow::Result<()> {
     let path = settings_path()?;
     let json_path = path.with_extension("json");
     let saved = SavedSettings {
         outputs: settings.iter().map(SavedOutput::from).collect(),
+        main: main.map(str::to_owned),
     };
     let json = serde_json::to_vec_pretty(&saved).context("serializing saved display settings")?;
     write_atomic(&json_path, &json)?;
-    let kdl = serialize_kdl(settings);
+    let kdl = serialize_kdl(settings, main);
     write_atomic(&path, kdl.as_bytes())
 }
 
 /// Most outputs a saved layout may name. Saved settings keep disconnected monitors too.
 const MAX_SAVED_OUTPUTS: usize = 32;
 
+/// A saved layout: every monitor's settings, and which one is the main monitor.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SavedLayout {
+    pub outputs: Vec<OutputSettings>,
+    pub main: Option<String>,
+}
+
+fn plain_name(name: &str) -> bool {
+    let plain = |c: char| (' '..='~').contains(&c) && c != '"' && c != '\\';
+    !name.is_empty() && name.len() <= 64 && name.chars().all(plain)
+}
+
 /// A saved layout (`niri.json`) read from bytes that something else vouches for no more than a
 /// size: the login screen's snapshot takes it from a user's home directory. Only the shape and the
 /// ranges are checked. Overlaps and "at least one enabled" are not, since the file also holds
 /// monitors that are not plugged in.
-pub fn parse_saved(bytes: &[u8]) -> anyhow::Result<Vec<OutputSettings>> {
+pub fn parse_saved(bytes: &[u8]) -> anyhow::Result<SavedLayout> {
     let saved: SavedSettings = serde_json::from_slice(bytes).context("not a saved display layout")?;
     anyhow::ensure!(
         saved.outputs.len() <= MAX_SAVED_OUTPUTS,
         "more than {MAX_SAVED_OUTPUTS} outputs"
     );
     for output in &saved.outputs {
-        let plain = |c: char| (' '..='~').contains(&c) && c != '"' && c != '\\';
-        anyhow::ensure!(
-            !output.name.is_empty() && output.name.len() <= 64 && output.name.chars().all(plain),
-            "an output name that Niri would not have"
-        );
+        anyhow::ensure!(plain_name(&output.name), "an output name that Niri would not have");
         anyhow::ensure!(
             output.scale.is_finite() && (0.1..=10.0).contains(&output.scale),
             "output {} has a scale outside 0.1 to 10",
@@ -1125,25 +1180,36 @@ pub fn parse_saved(bytes: &[u8]) -> anyhow::Result<Vec<OutputSettings>> {
             );
         }
     }
-    Ok(saved_to_settings(saved.outputs))
+    if let Some(main) = &saved.main {
+        anyhow::ensure!(plain_name(main), "a main monitor name that Niri would not have");
+    }
+    Ok(SavedLayout { main: saved.main, outputs: saved_to_settings(saved.outputs) })
 }
 
 /// The same layout as `niri.json` writes it, so that what a snapshot holds is what was checked.
-pub fn saved_json(settings: &[OutputSettings]) -> Vec<u8> {
-    let saved = SavedSettings { outputs: settings.iter().map(SavedOutput::from).collect() };
+pub fn saved_json(layout: &SavedLayout) -> Vec<u8> {
+    let saved = SavedSettings {
+        outputs: layout.outputs.iter().map(SavedOutput::from).collect(),
+        main: layout.main.clone(),
+    };
     serde_json::to_vec_pretty(&saved).unwrap_or_default()
 }
 
 /// The Niri configuration for a saved layout: what the user's own Niri includes, written for another
 /// Niri that has no home directory to read it from (the login screen's).
-pub fn niri_fragment(settings: &[OutputSettings]) -> String {
-    serialize_kdl(settings)
+pub fn niri_fragment(layout: &SavedLayout) -> String {
+    serialize_kdl(&layout.outputs, layout.main.as_deref())
 }
 
-fn serialize_kdl(settings: &[OutputSettings]) -> String {
+fn serialize_kdl(settings: &[OutputSettings], main: Option<&str>) -> String {
     let mut out = String::from("// Generated by Dojo display settings.\n");
     for setting in settings {
         out.push_str(&format!("\noutput {} {{\n", kdl_string(&setting.name)));
+        // Niri puts the focus and the cursor here when it starts, and a screen that has to pick one
+        // monitor (the login screen's prompt) picks this one.
+        if setting.enabled && main == Some(setting.name.as_str()) {
+            out.push_str("    focus-at-startup\n");
+        }
         if !setting.enabled {
             out.push_str("    off\n");
         } else if let Some(mode) = setting.mode {
@@ -1376,6 +1442,31 @@ mod tests {
     }
 
     #[test]
+    fn the_main_monitor_is_marked_for_niri_only_when_it_is_enabled_and_exists() {
+        let first = setting("DP-2", (0, 0), niri_ipc::Transform::_270);
+        let mut second = setting("DP-3", (1080, 0), niri_ipc::Transform::Normal);
+        let both = [first.clone(), second.clone()];
+        let kdl = serialize_kdl(&both, Some("DP-3"));
+        assert_eq!(kdl.matches("focus-at-startup").count(), 1, "{kdl}");
+        assert!(kdl[kdl.find("output \"DP-3\"").unwrap()..].contains("focus-at-startup"), "{kdl}");
+        assert!(!serialize_kdl(&both, None).contains("focus-at-startup"));
+        assert!(!serialize_kdl(&both, Some("HDMI-A-1")).contains("focus-at-startup"), "a monitor that is not saved marks nothing");
+        second.enabled = false;
+        assert!(!serialize_kdl(&[first, second], Some("DP-3")).contains("focus-at-startup"), "a disabled monitor cannot be the start");
+    }
+
+    #[test]
+    fn a_saved_layout_keeps_its_main_monitor_and_older_files_without_one_still_read() {
+        let layout = SavedLayout { outputs: vec![setting("DP-2", (0, 0), niri_ipc::Transform::Normal)], main: Some("DP-2".into()) };
+        let again = parse_saved(&saved_json(&layout)).unwrap();
+        assert_eq!(again.main.as_deref(), Some("DP-2"));
+        assert_eq!(again.outputs.len(), 1);
+        let older = br#"{"outputs": [{"name": "DP-2", "enabled": true, "position": [0,0], "scale": 1.0, "mode": null, "transform": "Normal"}]}"#;
+        assert_eq!(parse_saved(older).unwrap().main, None);
+        assert!(!String::from_utf8(saved_json(&SavedLayout { main: None, ..layout })).unwrap().contains("main"), "no main is not written");
+    }
+
+    #[test]
     fn kdl_serialization_escapes_connector_and_keeps_refresh_scale_transform() {
         let mut output = setting(
             "DP \"one\"\\two",
@@ -1383,7 +1474,7 @@ mod tests {
             niri_ipc::Transform::Flipped90,
         );
         output.scale = 1.25;
-        let kdl = serialize_kdl(&[output]);
+        let kdl = serialize_kdl(&[output], None);
         assert!(kdl.contains("output \"DP \\\"one\\\"\\\\two\""));
         assert!(kdl.contains("mode \"1920x1080@60.000\""));
         assert!(kdl.contains("scale 1.25"));
@@ -1611,6 +1702,59 @@ mod tests {
             thread::sleep(Duration::from_millis(5));
         }
         panic!("confirmation controls never became available");
+    }
+
+    #[test]
+    fn choosing_the_main_monitor_saves_it_with_the_layout_and_choosing_none_clears_it() {
+        let state = std::env::temp_dir().join(format!("dojo-main-monitor-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&state);
+        *STATE_OVERRIDE.lock().unwrap() = Some(state.clone());
+        let socket = fake_socket(move |stream| {
+            let mut reader = std::io::BufReader::new(stream);
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap() == 0 {
+                    break;
+                }
+                assert!(matches!(serde_json::from_str::<Request>(&line).unwrap(), Request::Outputs));
+                let reply = serde_json::to_vec(&Result::<Response, String>::Ok(Response::Outputs(HashMap::from([("DP-1".into(), test_output())])))).unwrap();
+                reader.get_mut().write_all(&reply).unwrap();
+                reader.get_mut().write_all(b"\n").unwrap();
+            }
+        });
+        let (controller, _updates) = Controller::start_with_socket(socket, PREVIEW_TIMEOUT).unwrap();
+        let json = state.join("dojo/displays/niri.json");
+        let kdl = state.join("dojo/displays/niri.kdl");
+
+        // Commands are queued and their outcome shows in the snapshot, as the panel reads it.
+        let settle = |done: &dyn Fn(&Snapshot) -> bool| {
+            for _ in 0..400 {
+                let snapshot = controller.snapshot();
+                if !snapshot.busy && done(&snapshot) {
+                    return;
+                }
+                thread::sleep(Duration::from_millis(5));
+            }
+            panic!("the controller never settled: {:?}", controller.snapshot().error);
+        };
+        controller.set_main(Some("DP-1".into())).unwrap();
+        settle(&|snapshot| snapshot.main.as_deref() == Some("DP-1"));
+        let saved = parse_saved(&fs::read(&json).unwrap()).unwrap();
+        assert_eq!(saved.main.as_deref(), Some("DP-1"));
+        assert_eq!(saved.outputs.len(), 1, "the layout in effect is saved with it");
+        assert!(fs::read_to_string(&kdl).unwrap().contains("focus-at-startup"));
+
+        // A monitor that is not connected cannot be chosen, and the choice stands.
+        controller.set_main(Some("DP-9".into())).unwrap();
+        settle(&|snapshot| snapshot.error.as_deref().is_some_and(|error| error.contains("not connected")));
+        assert_eq!(parse_saved(&fs::read(&json).unwrap()).unwrap().main.as_deref(), Some("DP-1"));
+
+        controller.set_main(None).unwrap();
+        settle(&|snapshot| snapshot.main.is_none() && snapshot.error.is_none());
+        assert_eq!(parse_saved(&fs::read(&json).unwrap()).unwrap().main, None);
+        assert!(!fs::read_to_string(&kdl).unwrap().contains("focus-at-startup"));
+        *STATE_OVERRIDE.lock().unwrap() = None;
+        let _ = fs::remove_dir_all(&state);
     }
 
     #[test]

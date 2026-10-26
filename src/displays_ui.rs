@@ -399,6 +399,7 @@ enum Edit {
     Scale(f64),
     Rotate(bool),
     Enabled,
+    Main,
     Apply,
     Keep,
     Revert,
@@ -450,6 +451,14 @@ impl Editor {
                     .map(|d| d.settings.clone())
                     .collect();
                 self.dirty = false;
+            }
+            Edit::Main if snapshot.busy || snapshot.preview_remaining.is_some() => (),
+            Edit::Main => {
+                // Not part of the layout being edited: it is saved at once, for the monitor selected.
+                if let Some(name) = self.draft.get(self.selected).map(|output| output.name.clone()) {
+                    let already = snapshot.main.as_deref() == Some(name.as_str());
+                    self.error = self.controller.set_main(if already { None } else { Some(name) }).err();
+                }
             }
             _ if snapshot.busy || snapshot.preview_remaining.is_some() => (),
             _ => {
@@ -742,8 +751,9 @@ impl Render for Editor {
                 .child(self.button("display-rotate-ccw","↺".into(),Edit::Rotate(false),editing && output.enabled,cx))
                 .child(div().py(px(8.)).text_size(px(12.)).child(rotation_label(output.transform)))
                 .child(self.button("display-rotate-cw","↻".into(),Edit::Rotate(true),editing && output.enabled,cx))
-                .child(self.button("display-enabled",if output.enabled { "Enabled" } else { "Disabled" }.into(),Edit::Enabled,editing,cx)))
-                .child(div().text_size(px(10.)).text_color(colors.foreground_muted.rgb()).child(format!("Position {}, {} · Arrow keys move the selected monitor. Shift moves one pixel.",output.position.0,output.position.1)));
+                .child(self.button("display-enabled",if output.enabled { "Enabled" } else { "Disabled" }.into(),Edit::Enabled,editing,cx))
+                .child(self.button("display-main",if snapshot.main.as_deref() == Some(output.name.as_str()) { "Main monitor ✓" } else { "Make main" }.into(),Edit::Main,editing && output.enabled && !self.dirty,cx)))
+                .child(div().text_size(px(10.)).text_color(colors.foreground_muted.rgb()).child(format!("Position {}, {} · Arrow keys move the selected monitor. Shift moves one pixel. The main monitor is where Niri starts with focus and where the login screen appears.",output.position.0,output.position.1)));
         } else {
             content = content.child(div().child("No connected monitors."));
         }
