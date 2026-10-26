@@ -568,3 +568,31 @@ pub fn bottom_center_shell_extension(
 /// these two stay fixed: a warm amber for "look soon" and a red for "broken".
 pub const ATTENTION: u32 = 0xe5a550;
 pub const PROBLEM: u32 = 0xe06c75;
+
+/// A small label that appears when an icon button is hovered, in the shell's own colours.
+pub struct Tip(pub gpui::SharedString);
+
+impl gpui::Render for Tip {
+    fn render(&mut self, _: &mut gpui::Window, cx: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
+        use gpui::{div, prelude::*, px};
+        let colors = *cx.global::<crate::config::ThemeColors>();
+        div()
+            .px(px(10.))
+            .py(px(5.))
+            .rounded(px(8.))
+            .bg(colors.surface_raised.rgb())
+            .border_1()
+            .border_color(colors.border.rgb())
+            .text_color(colors.foreground.rgb())
+            .text_size(px(11.))
+            .font_family(crate::power::FONT_FAMILY)
+            .child(self.0.clone())
+    }
+}
+
+/// The tooltip builder for `.tooltip(...)` on an element with an id: shows `label`.
+pub fn tip(label: impl Into<gpui::SharedString>) -> impl Fn(&mut gpui::Window, &mut gpui::App) -> gpui::AnyView + 'static {
+    use gpui::AppContext;
+    let label = label.into();
+    move |_, cx| cx.new(|_| Tip(label.clone())).into()
+}

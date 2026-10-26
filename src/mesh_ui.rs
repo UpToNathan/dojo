@@ -285,6 +285,7 @@ impl Mesh {
         &self,
         id: String,
         glyph: &'static str,
+        label: &str,
         enabled: bool,
         tone: Option<gpui::Rgba>,
         cx: &mut Context<Self>,
@@ -305,6 +306,7 @@ impl Mesh {
             } else {
                 tone.unwrap_or(colors.foreground.rgb())
             })
+            .tooltip(dojo::design::tip(label.to_string()))
             .when(enabled, |el| {
                 el.cursor_pointer().hover(|el| el.bg(colors.background_highlight.rgb())).on_mouse_down(
                     MouseButton::Left,
@@ -323,6 +325,7 @@ impl Mesh {
         &self,
         id: &'static str,
         glyph: &'static str,
+        label: &str,
         badge: bool,
         active: bool,
         cx: &mut Context<Self>,
@@ -341,6 +344,7 @@ impl Mesh {
             .text_size(px(15.))
             .when(active, |el| el.bg(colors.background_highlight.rgb()))
             .cursor_pointer()
+            .tooltip(dojo::design::tip(label.to_string()))
             .hover(|el| el.bg(colors.background_highlight.rgb()))
             .on_mouse_down(
                 MouseButton::Left,
@@ -378,10 +382,10 @@ impl Mesh {
         let mut actions = div().flex().items_center().gap(px(2.)).flex_none();
         if confirming {
             actions = actions
-                .child(self.icon_button(format!("mesh-approve-{}", file.display()), glyph::CHECK, idle, Some(colors.primary.rgb()), cx, move |mesh, _, cx| {
+                .child(self.icon_button(format!("mesh-approve-{}", file.display()), glyph::CHECK, "Approve", idle, Some(colors.primary.rgb()), cx, move |mesh, _, cx| {
                     mesh.run(args.clone(), true, cx);
                 }))
-                .child(self.icon_button(format!("mesh-approve-cancel-{}", request.file.display()), glyph::CLOSE, true, None, cx, |mesh, _, cx| {
+                .child(self.icon_button(format!("mesh-approve-cancel-{}", request.file.display()), glyph::CLOSE, "Cancel", true, None, cx, |mesh, _, cx| {
                     mesh.confirm = None;
                     cx.notify();
                 }));
@@ -389,11 +393,11 @@ impl Mesh {
             let ask = request.file.clone();
             let away = request.file.clone();
             actions = actions
-                .child(self.icon_button(format!("mesh-ask-{}", file.display()), glyph::CHECK, idle, None, cx, move |mesh, _, cx| {
+                .child(self.icon_button(format!("mesh-ask-{}", file.display()), glyph::CHECK, "Approve…", idle, None, cx, move |mesh, _, cx| {
                     mesh.confirm = Some(Confirm::Approve(ask.clone()));
                     cx.notify();
                 }))
-                .child(self.icon_button(format!("mesh-away-{}", request.file.display()), glyph::CLOSE, true, None, cx, move |mesh, _, cx| {
+                .child(self.icon_button(format!("mesh-away-{}", request.file.display()), glyph::CLOSE, "Dismiss", true, None, cx, move |mesh, _, cx| {
                     mesh.dismissed.insert(away.clone());
                     cx.notify();
                 }));
@@ -439,16 +443,16 @@ impl Mesh {
         if confirming {
             let target = fingerprint.clone();
             row = row
-                .child(self.icon_button(format!("mesh-untrust-{fingerprint}"), glyph::CHECK, idle, Some(gpui::rgb(dojo::design::PROBLEM)), cx, move |mesh, _, cx| {
+                .child(self.icon_button(format!("mesh-untrust-{fingerprint}"), glyph::CHECK, "Stop trusting", idle, Some(gpui::rgb(dojo::design::PROBLEM)), cx, move |mesh, _, cx| {
                     mesh.run(vec!["trust".into(), "remove".into(), target.clone()], false, cx);
                 }))
-                .child(self.icon_button(format!("mesh-untrust-cancel-{fingerprint}"), glyph::CLOSE, true, None, cx, |mesh, _, cx| {
+                .child(self.icon_button(format!("mesh-untrust-cancel-{fingerprint}"), glyph::CLOSE, "Cancel", true, None, cx, |mesh, _, cx| {
                     mesh.confirm = None;
                     cx.notify();
                 }));
         } else {
             let target = fingerprint.clone();
-            row = row.child(self.icon_button(format!("mesh-untrust-ask-{fingerprint}"), glyph::DELETE, idle, None, cx, move |mesh, _, cx| {
+            row = row.child(self.icon_button(format!("mesh-untrust-ask-{fingerprint}"), glyph::DELETE, "Stop trusting…", idle, None, cx, move |mesh, _, cx| {
                 mesh.confirm = Some(Confirm::Untrust(target.clone()));
                 cx.notify();
             }));
@@ -466,17 +470,17 @@ impl Mesh {
         let mut actions = div().flex().items_center().gap(px(2.)).flex_none();
         if confirming {
             actions = actions
-                .child(self.icon_button(format!("mesh-trust-{fingerprint}"), glyph::CHECK, idle, Some(colors.primary.rgb()), cx, {
+                .child(self.icon_button(format!("mesh-trust-{fingerprint}"), glyph::CHECK, "Trust this key", idle, Some(colors.primary.rgb()), cx, {
                     let (file, fingerprint) = (file.clone(), fingerprint.clone());
                     move |mesh, _, cx| mesh.run(vec!["trust".into(), "add".into(), file.clone(), "--fingerprint".into(), fingerprint.clone()], false, cx)
                 }))
-                .child(self.icon_button(format!("mesh-trust-cancel-{fingerprint}"), glyph::CLOSE, true, None, cx, |mesh, _, cx| {
+                .child(self.icon_button(format!("mesh-trust-cancel-{fingerprint}"), glyph::CLOSE, "Cancel", true, None, cx, |mesh, _, cx| {
                     mesh.confirm = None;
                     cx.notify();
                 }));
         } else {
             let target = fingerprint.clone();
-            actions = actions.child(self.icon_button(format!("mesh-trust-ask-{fingerprint}"), glyph::PLUS, idle, None, cx, move |mesh, _, cx| {
+            actions = actions.child(self.icon_button(format!("mesh-trust-ask-{fingerprint}"), glyph::PLUS, "Trust this key…", idle, None, cx, move |mesh, _, cx| {
                 mesh.confirm = Some(Confirm::Trust(target.clone()));
                 cx.notify();
             }));
@@ -549,21 +553,21 @@ impl Mesh {
         if confirming {
             let target = name.clone();
             row = row
-                .child(self.icon_button(format!("mesh-confirm-{}", card.name), glyph::CHECK, idle, Some(gpui::rgb(dojo::design::PROBLEM)), cx, move |mesh, _, cx| {
+                .child(self.icon_button(format!("mesh-confirm-{}", card.name), glyph::CHECK, "Remove", idle, Some(gpui::rgb(dojo::design::PROBLEM)), cx, move |mesh, _, cx| {
                     mesh.run(vec!["rm".into(), target.clone()], true, cx);
                 }))
-                .child(self.icon_button(format!("mesh-cancel-{}", card.name), glyph::CLOSE, true, None, cx, |mesh, _, cx| {
+                .child(self.icon_button(format!("mesh-cancel-{}", card.name), glyph::CLOSE, "Cancel", true, None, cx, |mesh, _, cx| {
                     mesh.confirm = None;
                     cx.notify();
                 }));
             return row.into_any_element();
         }
         let peer = name.clone();
-        row = row.child(self.icon_button(format!("mesh-control-{}", card.name), glyph::KEYBOARD, reachable && idle, None, cx, move |mesh, window, cx| {
+        row = row.child(self.icon_button(format!("mesh-control-{}", card.name), glyph::KEYBOARD, "Take control", reachable && idle, None, cx, move |mesh, window, cx| {
             mesh.take_control(peer.clone(), window, cx);
         }));
         let peer = name.clone();
-        row = row.child(self.icon_button(format!("mesh-send-{}", card.name), glyph::SEND, reachable && idle, None, cx, move |mesh, window, cx| {
+        row = row.child(self.icon_button(format!("mesh-send-{}", card.name), glyph::SEND, "Send a window", reachable && idle, None, cx, move |mesh, window, cx| {
             let display = mesh.display;
             window.remove_window();
             // The switch panel opens with this machine already chosen.
@@ -573,11 +577,11 @@ impl Mesh {
         }));
         if roster && data.can_sign {
             let peer = name.clone();
-            row = row.child(self.icon_button(format!("mesh-renew-{}", card.name), glyph::RENEW, idle, if card.expiring { Some(gpui::rgb(dojo::design::ATTENTION)) } else { None }, cx, move |mesh, _, cx| {
+            row = row.child(self.icon_button(format!("mesh-renew-{}", card.name), glyph::RENEW, "Renew", idle, if card.expiring { Some(gpui::rgb(dojo::design::ATTENTION)) } else { None }, cx, move |mesh, _, cx| {
                 mesh.run(vec!["renew".into(), peer.clone()], true, cx);
             }));
             let peer = name;
-            row = row.child(self.icon_button(format!("mesh-remove-{}", card.name), glyph::DELETE, idle, None, cx, move |mesh, _, cx| {
+            row = row.child(self.icon_button(format!("mesh-remove-{}", card.name), glyph::DELETE, "Remove", idle, None, cx, move |mesh, _, cx| {
                 mesh.confirm = Some(Confirm::Remove(peer.clone()));
                 cx.notify();
             }));
@@ -711,14 +715,14 @@ impl Render for Mesh {
                 let waiting = data.requests.iter().filter(|r| !self.dismissed.contains(&r.file)).count();
                 let in_requests = self.view == View::Requests;
                 if data.can_sign || waiting > 0 {
-                    tools = tools.child(self.badge_button("mesh-requests", glyph::INBOX, waiting > 0, in_requests, cx, move |mesh, _, cx| {
+                    tools = tools.child(self.badge_button("mesh-requests", glyph::INBOX, "Join requests", waiting > 0, in_requests, cx, move |mesh, _, cx| {
                         mesh.view = if in_requests { View::Machines } else { View::Requests };
                         mesh.confirm = None;
                         cx.notify();
                     }));
                 }
                 let in_keys = self.view == View::Keys;
-                tools = tools.child(self.badge_button("mesh-keys", glyph::KEY, !data.offers.is_empty(), in_keys, cx, move |mesh, _, cx| {
+                tools = tools.child(self.badge_button("mesh-keys", glyph::KEY, "Trusted keys", !data.offers.is_empty(), in_keys, cx, move |mesh, _, cx| {
                     mesh.view = if in_keys { View::Machines } else { View::Keys };
                     mesh.confirm = None;
                     cx.notify();
@@ -729,6 +733,7 @@ impl Render for Mesh {
         tools = tools.child(self.icon_button(
             "mesh-health".into(),
             if problems == 0 { glyph::HEALTHY } else { glyph::ALERT },
+            if findings_open { "Back to machines" } else { "Health" },
             true,
             Some(health_tone),
             cx,

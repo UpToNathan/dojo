@@ -395,7 +395,7 @@ impl Panel {
         }
     }
 
-    fn glyph_button(&self, id: &'static str, glyph: &'static str, lit: bool, accent: gpui::Rgba, cx: &mut Context<Self>, action: impl Fn(&mut Panel, &mut Window, &mut Context<Panel>) + 'static) -> gpui::AnyElement {
+    fn glyph_button(&self, id: &'static str, glyph: &'static str, label: &str, lit: bool, accent: gpui::Rgba, cx: &mut Context<Self>, action: impl Fn(&mut Panel, &mut Window, &mut Context<Panel>) + 'static) -> gpui::AnyElement {
         let colors = *cx.global::<ThemeColors>();
         div()
             .id(id)
@@ -409,6 +409,7 @@ impl Panel {
             .when(lit, |el| el.bg(accent).text_color(colors.primary_foreground.rgb()))
             .when(!lit, |el| el.text_color(colors.foreground_muted.rgb()).hover(|el| el.bg(colors.background_highlight.rgb())))
             .cursor_pointer()
+            .tooltip(dojo::design::tip(label.to_string()))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |panel, _, window, cx| {
@@ -481,11 +482,11 @@ impl Render for Panel {
             .p(px(2.))
             .rounded(px(dojo::design::PILL_RADIUS))
             .bg(colors.surface_raised.rgb())
-            .child(self.glyph_button("send-mode-window", glyph::WINDOW, !self.model.input_only, accent, cx, |panel, _, cx| {
+            .child(self.glyph_button("send-mode-window", glyph::WINDOW, "Send a window", !self.model.input_only, accent, cx, |panel, _, cx| {
                 panel.model.set_control_only(false);
                 cx.notify();
             }))
-            .child(self.glyph_button("send-mode-control", glyph::KEYBOARD, self.model.input_only, accent, cx, |panel, _, cx| {
+            .child(self.glyph_button("send-mode-control", glyph::KEYBOARD, "Only take control", self.model.input_only, accent, cx, |panel, _, cx| {
                 panel.model.set_control_only(true);
                 cx.notify();
             }));
@@ -594,7 +595,7 @@ impl Render for Panel {
                     cx.stop_propagation();
                 }),
             );
-        let bring = self.glyph_button("send-take-input", glyph::KEYBOARD, self.model.take_input, accent, cx, |panel, _, cx| {
+        let bring = self.glyph_button("send-take-input", glyph::KEYBOARD, "Bring cursor and keyboard along", self.model.take_input, accent, cx, |panel, _, cx| {
             panel.model.take_input = !panel.model.take_input;
             cx.notify();
         });
@@ -608,7 +609,7 @@ impl Render for Panel {
                     .flex()
                     .items_center()
                     .gap(px(6.))
-                    .child(self.glyph_button("send-keys", "?", self.show_keys, accent, cx, |panel, _, cx| {
+                    .child(self.glyph_button("send-keys", "?", "Show the keys", self.show_keys, accent, cx, |panel, _, cx| {
                         panel.show_keys = !panel.show_keys;
                         cx.notify();
                     }))
