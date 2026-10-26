@@ -4,7 +4,7 @@ Status: option A chosen and built; see docs/adr/0008-remote-input-takes-the-real
 
 ## Problem
 
-While Venus controls Jupiter (`dojo-mesh remote`), the keys reach Jupiter through an agent input seat. Seat keys never reach Niri's key bindings, so Super+Shift+Space and every other `binds` entry in Jupiter's config do nothing there. Since the capture helper inhibits Venus's own shortcuts, those keys now do nothing at all. The person expects the machine they are controlling to react as if they sat at it.
+While Venus controls Jupiter (`dojo-mesh remote`), the keys reach Jupiter through an agent input seat. Seat keys never reach Niri's key bindings, so Super+Space and every other `binds` entry in Jupiter's config do nothing there. Since the capture helper inhibits Venus's own shortcuts, those keys now do nothing at all. The person expects the machine they are controlling to react as if they sat at it.
 
 ## Options
 

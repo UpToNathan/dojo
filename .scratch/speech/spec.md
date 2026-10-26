@@ -11,7 +11,7 @@ agent subscriptions.
   modifiers. Niri matches the base symbol, so bind Mod+Shift+F23. Verified
   against `/tmp/dojo-copilot-recheck-keymap` and a successful live press.
 - Super+Shift+P is the fallback for the Kinesis keyboard.
-- Super+Shift+Space opens the existing Dojo command palette.
+- Super+Space opens the existing Dojo command palette.
 
 The Copilot and fallback shortcuts hold on-demand native capture and local
 Hex transcription. Transcripts are admitted durably to Dojo's local Pi runtime,

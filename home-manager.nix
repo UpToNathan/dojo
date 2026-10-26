@@ -746,7 +746,7 @@ in
 	  _props.hotkey-overlay-title = "Open Helium";
 	  spawn = [ "uwsm" "app" "-t" "service" "-d" "Helium" "--" "helium" ];
 	};
-	settings.binds."Mod+Shift+Space" = {
+	settings.binds."Mod+Space" = {
 	  _props.hotkey-overlay-title = "Toggle Dojo launcher";
 	  spawn = [ "${root}/scripts/dojo-desktop" "--launcher" ];
 	};
