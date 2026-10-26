@@ -339,6 +339,9 @@ impl Recipe {
     }
 }
 
+/// Where the horizon is in a scene's frame, in the scene's unit down from the frame's top.
+pub const HORIZON: f64 = 0.5;
+
 /// The part of a canvas a scene is composed for: where its moon and mountains are framed, in the
 /// scene's unit. A desktop of monitors of several heights has one such frame, on its shortest
 /// monitors, where the scene is exactly what a desktop of one monitor draws; the rest of the canvas
@@ -504,7 +507,7 @@ impl Scene {
             }
             // Crisp at the foot of each ray, fading to nothing at its tip, and a thin dark gap between rays.
             let foot = ((edge - y) / pixel + 0.5).clamp(0., 1.);
-            let inside = (x / width).fract();
+            let inside = x / width - ray as f64;
             let gap = smoothstep(0.0, 0.16, inside) * smoothstep(1.0, 0.84, inside);
             let strength = foot * gap * (1. - height).powf(1.5) * (0.45 + 0.55 * tone);
             // Each ribbon has its own colours: it stands in one accent and fades to another, and the pairs
@@ -1704,6 +1707,20 @@ mod tests {
     fn a_recipe_saved_as_dunes_still_draws_as_a_sunset() {
         let saved = String::from_utf8(Recipe::new(Style::Sunset, 3).to_json()).unwrap().replace("\"sunset\"", "\"dunes\"");
         assert_eq!(Recipe::from_json(saved.as_bytes()).unwrap(), Recipe::new(Style::Sunset, 3));
+    }
+
+    #[test]
+    fn the_aurora_carries_on_to_the_left_of_its_frame_as_it_does_to_the_right() {
+        // The frame is the right half of a canvas two units wide: the left half is beyond the frame's
+        // origin, where the ribbons must not stop.
+        let recipe = Recipe::with_palette(Style::Aurora, 3, Palette::from_seed(3));
+        let view = View { frame: Some(Frame { left: 1., top: 0., width: 1. }), ..View::whole(2.) };
+        let image = recipe.render(view, 200, 100);
+        let energy = |from: u32, to: u32| -> f64 {
+            (30..90).flat_map(|y| (from..to).map(move |x| (x, y))).map(|(x, y)| f64::from(image.get_pixel(x, y)[1])).sum::<f64>()
+        };
+        let (left, right) = (energy(0, 100), energy(100, 200));
+        assert!(left > 0.5 * right, "left {left}, right {right}");
     }
 
     #[test]

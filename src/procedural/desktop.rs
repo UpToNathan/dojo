@@ -73,27 +73,27 @@ pub fn canvas_height(monitors: &[Monitor]) -> Option<f64> {
     (shortest > 0. && bottom > top).then(|| (bottom - top) / shortest)
 }
 
-/// Where a scene is composed on a canvas across `monitors`: the topmost row of the shortest monitors,
-/// where the moon and the mountains are exactly as on a desktop of one monitor. The scenery then
-/// carries on from there across the rest of the canvas, one picture over every monitor.
+/// Where a scene is composed on a canvas across `monitors`. Across, it spans the shortest monitors. Down,
+/// its horizon sits halfway down the tallest monitor, so a portrait monitor shows sky over its upper half
+/// and land below, and a landscape one beside it shows the part of the same picture at its place. The scene
+/// is exactly the size it is on one monitor; the sky continues above it and the land below.
 fn frame_of(monitors: &[Monitor]) -> Option<Frame> {
     let unit = shortest_height(monitors);
-    let close = |a: f64, b: f64| (a - b).abs() <= 0.005 * unit;
-    let top = monitors
-        .iter()
-        .filter(|m| close(m.height, unit))
-        .map(|m| m.y)
-        .fold(f64::INFINITY, f64::min);
-    let row: Vec<&Monitor> = monitors.iter().filter(|m| close(m.height, unit) && close(m.y, top)).collect();
-    let left = row.iter().map(|m| m.x).fold(f64::INFINITY, f64::min);
-    let right = row.iter().map(|m| m.x + m.width).fold(f64::NEG_INFINITY, f64::max);
-    let (canvas_left, canvas_top) = (
-        monitors.iter().map(|m| m.x).fold(f64::INFINITY, f64::min),
-        monitors.iter().map(|m| m.y).fold(f64::INFINITY, f64::min),
-    );
+    let tolerance = 0.005 * unit;
+    let shortest: Vec<&Monitor> = monitors.iter().filter(|m| (m.height - unit).abs() <= tolerance).collect();
+    let left = shortest.iter().map(|m| m.x).fold(f64::INFINITY, f64::min);
+    let right = shortest.iter().map(|m| m.x + m.width).fold(f64::NEG_INFINITY, f64::max);
+    let canvas_left = monitors.iter().map(|m| m.x).fold(f64::INFINITY, f64::min);
+    let canvas_top = monitors.iter().map(|m| m.y).fold(f64::INFINITY, f64::min);
+    // The tallest monitor, the topmost when several are as tall.
+    let tallest = monitors.iter().fold(None::<&Monitor>, |best, m| match best {
+        Some(b) if b.height > m.height + tolerance || ((b.height - m.height).abs() <= tolerance && b.y <= m.y) => Some(b),
+        _ => Some(m),
+    })?;
+    let horizon = tallest.y + 0.5 * tallest.height;
     (unit > 0. && right > left).then(|| Frame {
         left: (left - canvas_left) / unit,
-        top: (top - canvas_top) / unit,
+        top: (horizon - canvas_top) / unit - crate::procedural::HORIZON,
         width: (right - left) / unit,
     })
 }
@@ -414,21 +414,28 @@ mod tests {
         // Every monitor shares the one frame: the upper landscape monitor, which is the canvas's top.
         let frame = placed[0].frame.unwrap();
         assert!(placed.iter().all(|placement| placement.frame == Some(frame)));
-        assert!(close(frame.top, 0.) && close(frame.left, 1080. / 1080.) && close(frame.width, 1920. / 1080.));
+        // Across it is the landscape monitors; down, its horizon is halfway down the portrait ones, which
+        // run from 748 to 2668 of the canvas's 2668 (in units of 1080): the middle is at 1708.
+        let horizon = (291. + 960. + 457.) / 1080.;
+        assert!(close(frame.left, 1.) && close(frame.width, 1920. / 1080.));
+        assert!(close(frame.top, horizon - crate::procedural::HORIZON), "{}", frame.top);
         // A fill has no frame: each monitor's picture is composed for itself.
         let (_, filled) = placements(&monitors, WallpaperLayout::Fill).unwrap();
         assert!(filled.iter().all(|placement| placement.frame.is_none()));
     }
 
     #[test]
-    fn a_row_of_alike_monitors_is_all_frame_and_a_lower_row_leaves_the_frame_at_the_top() {
+    fn alike_monitors_frame_the_scene_as_one_monitor_does_and_a_taller_one_lowers_it() {
         let row = [monitor(0., 0., 1920., 1080.), monitor(1920., 0., 1920., 1080.)];
         let frame = frame_of(&row).unwrap();
         assert!(close(frame.left, 0.) && close(frame.top, 0.) && close(frame.width, 3840. / 1080.));
-        // A tall monitor beside a short one that sits lower: the frame is the short one.
-        let mixed = [monitor(0., 0., 1080., 1920.), monitor(1080., 840., 1920., 1080.)];
+        // A tall monitor beside a short one: the horizon is halfway down the tall one, and the sky above
+        // the scene is more of the same picture, not a larger one.
+        let mixed = [monitor(0., 0., 1080., 1920.), monitor(1080., 0., 1920., 1080.)];
         let frame = frame_of(&mixed).unwrap();
-        assert!(close(frame.left, 1.) && close(frame.top, 840. / 1080.) && close(frame.width, 1920. / 1080.));
+        assert!(close(frame.left, 1.) && close(frame.width, 1920. / 1080.));
+        assert!(close(frame.top, 960. / 1080. - crate::procedural::HORIZON));
+        assert!(frame.top > 0.);
     }
 
     #[test]
