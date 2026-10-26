@@ -149,7 +149,7 @@ mod tests {
         assert_eq!(roster.peers().count(), 0);
         assert!(matches!(&roster.source, Source::Unavailable(reason) if reason.contains("no mesh method")));
         assert!(method.identity.who(&Connection { address: "100.64.0.9".into(), named: None }).is_err());
-        let call = Call { peer: Default::default(), key: Default::default(), route: Route::Host { name: "beta".into(), port: None }, remote: "true".into(), input: Input::Null, output: Output::Capture, timeout: None };
+        let call = Call { peer: Default::default(), key: Default::default(), route: Route::Host { name: "beta".into(), port: None }, remote: "true".into(), tty: false, input: Input::Null, output: Output::Capture, timeout: None };
         assert!(method.channel.run(call).unwrap_err().contains("no mesh method"));
     }
 
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn the_tailscale_channel_refuses_routes_it_cannot_carry() {
-        let call = |route| Call { peer: Default::default(), key: Default::default(), route, remote: "true".into(), input: Input::Null, output: Output::Capture, timeout: None };
+        let call = |route| Call { peer: Default::default(), key: Default::default(), route, remote: "true".into(), tty: false, input: Input::Null, output: Output::Capture, timeout: None };
         let tailscale = Method::tailscale();
         assert!(tailscale.channel.run(call(Route::Command(vec!["nc".into()]))).unwrap_err().contains("command route"));
         assert!(tailscale.channel.run(call(Route::Host { name: "beta".into(), port: Some(2222) })).unwrap_err().contains("port"));

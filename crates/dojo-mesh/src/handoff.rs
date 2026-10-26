@@ -12,13 +12,21 @@ use std::path::{Path, PathBuf};
 pub enum Handoff {
     /// A web page, opened in the receiver's browser.
     Page { url: String },
-    /// A terminal in a directory, optionally running one known program.
+    /// A terminal in a directory on the receiver, optionally running one known program. What an
+    /// older sender sends; terminals are now `RemoteTerminal`.
     Terminal { directory: String, program: Option<Program> },
+    /// A terminal on the receiver connected back over ssh to the sender, in a directory there,
+    /// optionally running one known program there. The receiver learns who the sender is from the
+    /// connection, never from this message.
+    RemoteTerminal { directory: String, program: Option<Program> },
     /// All the tabs of a browser window, opened together in a new window of the receiver's own
     /// browser (a Chromium-family one, found by its desktop entry).
     BrowserWindow { desktop_entry: String, urls: Vec<String> },
     /// The same application, started fresh from the receiver's own desktop entry.
     Relaunch { desktop_entry: String },
+    /// A T3 Code thread, opened in the receiver's own T3 Code. The thread is not moved: T3 Connect
+    /// keeps it in step between the machines, and T3 opens it from its own `t3code://` link.
+    T3Thread { environment: String, thread: String },
 }
 
 /// How much of a browser window is sent.
@@ -78,8 +86,12 @@ pub fn summary(handoff: &Handoff, closes: &Closes) -> String {
         Handoff::Terminal { directory, program: None } => format!("a terminal in {directory}"),
         Handoff::Terminal { program: Some(Program::Editor { file, line, .. }), .. } => format!("nvim on {file} at line {line}"),
         Handoff::Terminal { directory, program: Some(Program::Files { directory: shown }) } => format!("yazi in {shown} (terminal in {directory})"),
+        Handoff::RemoteTerminal { directory, program: None } => format!("a terminal connected back here, in {directory}"),
+        Handoff::RemoteTerminal { program: Some(Program::Editor { file, line, .. }), .. } => format!("nvim on {file} at line {line}, connected back here"),
+        Handoff::RemoteTerminal { directory, program: Some(Program::Files { directory: shown }) } => format!("yazi in {shown}, connected back here (terminal in {directory})"),
         Handoff::BrowserWindow { urls, .. } => format!("a browser window with {} tab{}", urls.len(), if urls.len() == 1 { "" } else { "s" }),
         Handoff::Relaunch { desktop_entry } => format!("a fresh {desktop_entry}"),
+        Handoff::T3Thread { thread, .. } => format!("the T3 Code thread {thread}"),
     };
     match closes {
         Closes::Window => format!("{what}; the window closes here"),
@@ -130,6 +142,19 @@ pub fn plan_with(
             }
             vec!["xdg-open".into(), url.clone()]
         }
+        Handoff::T3Thread { environment, thread } => {
+            let safe = |id: &str| !id.is_empty() && id.len() <= 200 && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'));
+            if !safe(environment) || !safe(thread) {
+                return Err(refuse("that is not a T3 Code environment and thread id".into()));
+            }
+            if !has_entry("com.t3tools.T3Code") && !has_entry("t3code") {
+                return Err(refuse("this machine has no T3 Code".into()));
+            }
+            notes.push("T3 Code opens the thread from its link; it must know that environment (T3 Connect) to show it".into());
+            // Processes started by T3 carry ELECTRON_RUN_AS_NODE, which would turn its own launcher into plain Node.
+            vec!["env".into(), "-u".into(), "ELECTRON_RUN_AS_NODE".into(), "xdg-open".into(), format!("t3code://threads/{environment}/{thread}")]
+        }
+        Handoff::RemoteTerminal { .. } => return Err(refuse("a terminal connected back to the sender can only be opened with the sender's name".into())),
         Handoff::Terminal { directory, program } => {
             let missing: Vec<String> = required_files(handoff).into_iter().filter(|file| !absolute(file).is_some_and(|path| exists(&path))).collect();
             if !missing.is_empty() {
@@ -183,6 +208,37 @@ pub fn plan_with(
         }
     };
     Ok((command, notes))
+}
+
+/// The command that opens a `RemoteTerminal` here: a new kitty running `dojo-mesh shell` back to
+/// `origin`, the node that sent it. `origin` comes from the connection, and `mesh` is this
+/// installation's own `dojo-mesh`.
+pub fn plan_remote_terminal(directory: &str, program: &Option<Program>, origin: &str, mesh: &Path) -> Result<(Vec<String>, Vec<String>), Reply> {
+    let refuse = |reason: String| Reply::Refused { reason };
+    if absolute(directory).is_none() {
+        return Err(refuse(format!("{directory:?} is not an absolute path")));
+    }
+    let mut command = vec!["kitty".to_string(), "--title".to_string(), format!("{origin}: {directory}"), mesh.to_string_lossy().into_owned(), "shell".to_string(), origin.to_string(), "--directory".to_string(), directory.to_string()];
+    if let Some(program) = program {
+        let file_ok = match program {
+            Program::Editor { file, .. } => absolute(file).is_some(),
+            Program::Files { directory } => absolute(directory).is_some(),
+        };
+        if !file_ok {
+            return Err(refuse("the program's path is not absolute".into()));
+        }
+        command.push("--program".into());
+        command.push(serde_json::to_string(program).map_err(|error| refuse(error.to_string()))?);
+    }
+    Ok((command, vec![format!("connected back to {origin} over ssh; the session lives there")]))
+}
+
+/// What the sender runs on itself for a program: the argument list `dojo-mesh shell` starts there.
+pub fn program_argv(program: &Program) -> Vec<String> {
+    match program {
+        Program::Editor { file, line, column } => vec!["nvim".into(), format!("+call cursor({}, {})", line.max(&1), column.max(&1)), "--".into(), file.clone()],
+        Program::Files { directory } => vec!["yazi".into(), directory.clone()],
+    }
 }
 
 /// An http or https address with no control characters or spaces.
@@ -318,6 +374,60 @@ mod tests {
         for url in ["file:///etc/passwd", "javascript:alert(1)", "example.com", "https://a\nb"] {
             assert!(matches!(plan(&Handoff::Page { url: url.into() }, world(&[]), no_entries), Err(Reply::Refused { .. })), "{url}");
         }
+    }
+
+    #[test]
+    fn a_t3_thread_opens_through_its_link_with_the_inherited_node_mode_cleared() {
+        let handoff = Handoff::T3Thread { environment: "env-1".into(), thread: "thread:provider:codex:1".into() };
+        let (command, notes) = plan(&handoff, |_| false, |entry| entry == "com.t3tools.T3Code").unwrap();
+        assert_eq!(command, ["env", "-u", "ELECTRON_RUN_AS_NODE", "xdg-open", "t3code://threads/env-1/thread:provider:codex:1"]);
+        assert!(!notes.is_empty());
+    }
+
+    #[test]
+    fn a_t3_thread_is_refused_without_t3_or_with_an_id_that_could_change_the_link() {
+        let ok = Handoff::T3Thread { environment: "env-1".into(), thread: "t-1".into() };
+        assert!(matches!(plan(&ok, |_| false, |_| false), Err(Reply::Refused { reason }) if reason.contains("no T3 Code")));
+        for (environment, thread) in [("env/../x", "t-1"), ("env-1", "t 1"), ("env-1", "t?a=b"), ("", "t-1"), ("env-1", "a/b")] {
+            let bad = Handoff::T3Thread { environment: environment.into(), thread: thread.into() };
+            assert!(matches!(plan(&bad, |_| false, |_| true), Err(Reply::Refused { .. })), "{environment} {thread}");
+        }
+    }
+
+    #[test]
+    fn a_remote_terminal_runs_the_sessions_command_back_to_the_sender() {
+        let mesh = Path::new("/opt/dojo/dojo-mesh");
+        let (command, notes) = plan_remote_terminal("/home/a/project", &None, "orchard", mesh).unwrap();
+        assert_eq!(command, ["kitty", "--title", "orchard: /home/a/project", "/opt/dojo/dojo-mesh", "shell", "orchard", "--directory", "/home/a/project"]);
+        assert!(notes[0].contains("orchard"));
+        let program = Some(Program::Editor { file: "/home/a/project/main.rs".into(), line: 3, column: 7 });
+        let (command, _) = plan_remote_terminal("/home/a/project", &program, "orchard", mesh).unwrap();
+        assert_eq!(command[8], "--program");
+        assert_eq!(serde_json::from_str::<Program>(&command[9]).unwrap(), program.unwrap());
+    }
+
+    #[test]
+    fn a_remote_terminal_refuses_paths_that_are_not_absolute() {
+        let mesh = Path::new("/opt/dojo/dojo-mesh");
+        assert!(matches!(plan_remote_terminal("project", &None, "orchard", mesh), Err(Reply::Refused { .. })));
+        let relative = Some(Program::Files { directory: "pics".into() });
+        assert!(matches!(plan_remote_terminal("/home/a", &relative, "orchard", mesh), Err(Reply::Refused { .. })));
+        // Without the sender's name there is nothing to connect back to.
+        let handoff = Handoff::RemoteTerminal { directory: "/home/a".into(), program: None };
+        assert!(matches!(plan(&handoff, |_| true, |_| true), Err(Reply::Refused { .. })));
+    }
+
+    #[test]
+    fn a_program_is_run_by_its_words_on_the_machine_it_is_sent_from() {
+        assert_eq!(program_argv(&Program::Editor { file: "/w/a b.rs".into(), line: 0, column: 2 }), ["nvim", "+call cursor(1, 2)", "--", "/w/a b.rs"]);
+        assert_eq!(program_argv(&Program::Files { directory: "/w".into() }), ["yazi", "/w"]);
+    }
+
+    #[test]
+    fn a_remote_terminal_summary_says_it_is_connected_back() {
+        let said = summary(&Handoff::RemoteTerminal { directory: "/w".into(), program: None }, &Closes::Nothing { why: "it keeps running".into() });
+        assert!(said.contains("connected back here"), "{said}");
+        assert!(said.contains("the original stays"), "{said}");
     }
 
     #[test]

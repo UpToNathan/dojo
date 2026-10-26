@@ -47,6 +47,7 @@ pub fn send(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     let mut peer: Option<String> = None;
     let (mut copy_missing, mut json, mut dry_run, mut keep_source) = (false, false, false, false);
     let mut scope = Scope::Tab;
+    let mut thread: Option<String> = None;
     let mut args = rest.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -62,8 +63,9 @@ pub fn send(env: &Env, rest: &[String]) -> Result<u8, Failure> {
                 let text = args.next().ok_or_else(|| fail(USAGE_ERROR, "--scope needs tab or window"))?;
                 scope = Scope::parse(text).ok_or_else(|| fail(USAGE_ERROR, format!("--scope needs tab or window, not {text:?}")))?;
             }
+            "--thread" => thread = Some(args.next().ok_or_else(|| fail(USAGE_ERROR, "--thread needs a thread id"))?.clone()),
             "--keep-source" => keep_source = true,
-            other => return Err(fail(USAGE_ERROR, format!("unknown option {other}; usage: dojo-mesh send [--window ID] (--to PEER | --dry-run) [--scope tab|window] [--copy-missing] [--keep-source] [--json]"))),
+            other => return Err(fail(USAGE_ERROR, format!("unknown option {other}; usage: dojo-mesh send [--window ID] (--to PEER | --dry-run) [--scope tab|window] [--thread ID] [--copy-missing] [--keep-source] [--json]"))),
         }
     }
     if peer.is_none() && !dry_run {
@@ -83,17 +85,22 @@ pub fn send(env: &Env, rest: &[String]) -> Result<u8, Failure> {
         entries: &entries,
         runtime_dir: var("XDG_RUNTIME_DIR"),
         config_dir: var("XDG_CONFIG_HOME").or_else(|| var("HOME").map(|home| home.join(".config"))),
+        t3_home: var("T3CODE_HOME").or_else(|| var("HOME").map(|home| home.join(".t3"))),
+        thread,
     };
     let captured = adapter::capture(window, &context, scope).map_err(|message| fail(FAILED, message))?;
     if dry_run {
         let sent = handoff::summary(&captured.handoff, &captured.closes);
-        let preview = serde_json::json!({ "window": window.id, "handoff": captured.handoff, "closes": captured.closes, "sent": sent, "scopes": captured.scopes, "tab_count": captured.tab_count, "notes": captured.notes });
+        let preview = serde_json::json!({ "window": window.id, "handoff": captured.handoff, "closes": captured.closes, "sent": sent, "scopes": captured.scopes, "tab_count": captured.tab_count, "threads": captured.threads, "notes": captured.notes });
         if json {
             println!("{preview}");
         } else {
             println!("{sent}");
             if captured.scopes.contains(&Scope::Window) {
                 println!("  (this window can also be sent whole: --scope window)");
+            }
+            if let Some(thread) = captured.threads.first().filter(|_| context.thread.is_none()) {
+                println!("  thread: {}{} (--thread ID picks another of the {} recent)", thread.title, thread.project.as_deref().map(|project| format!(" in {project}")).unwrap_or_default(), captured.threads.len());
             }
             for note in &captured.notes {
                 println!("  {note}");
@@ -194,7 +201,7 @@ fn open(socket: &std::path::Path, handoff: &Handoff, command: &[String], notes: 
     if let Err(message) = niri::spawn(socket, command) {
         return Reply::Refused { reason: message };
     }
-    if matches!(handoff, Handoff::Page { .. }) {
+    if matches!(handoff, Handoff::Page { .. } | Handoff::T3Thread { .. }) {
         return Reply::Opened { notes };
     }
     // Tests shorten the wait; nothing else sets it.
@@ -245,7 +252,7 @@ pub fn close_source(env: &Env, rest: &[String]) -> Result<u8, Failure> {
 }
 
 /// The peer's side: read one handoff from stdin, open it in the operator's session, and answer.
-pub fn receive(rest: &[String]) -> Result<u8, Failure> {
+pub fn receive(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     if !rest.is_empty() {
         return Err(fail(USAGE_ERROR, "usage: dojo-mesh receive (a handoff as JSON on standard input)"));
     }
@@ -255,7 +262,16 @@ pub fn receive(rest: &[String]) -> Result<u8, Failure> {
         Err(error) => Reply::Refused { reason: format!("not a handoff: {error}") },
         Ok(handoff) => {
             let dirs = desktop::from_process();
-            match handoff::plan_with(&handoff, |path| path.exists(), |entry| desktop::has(entry, &dirs), |entry| desktop::exec_of(entry, &dirs)) {
+            let planned = match &handoff {
+                // Who sent it is what the connection says, never what the message says.
+                Handoff::RemoteTerminal { directory, program } => match (crate::remote_cli::sender(env, None), std::env::current_exe()) {
+                    (Ok(origin), Ok(mesh)) => handoff::plan_remote_terminal(directory, program, &origin, &mesh),
+                    (Err(reason), _) => Err(Reply::Refused { reason: format!("cannot tell who sent this: {reason}") }),
+                    (_, Err(error)) => Err(Reply::Refused { reason: format!("cannot find this installation of dojo-mesh: {error}") }),
+                },
+                other => handoff::plan_with(other, |path| path.exists(), |entry| desktop::has(entry, &dirs), |entry| desktop::exec_of(entry, &dirs)),
+            };
+            match planned {
                 Err(reply) => reply,
                 Ok((command, notes)) => match niri::socket() {
                     None => Reply::Refused { reason: "there is no desktop session on this machine".into() },

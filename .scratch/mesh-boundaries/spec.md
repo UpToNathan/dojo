@@ -18,8 +18,8 @@ Let the operator send a window to another node of the mesh with a key: the peer 
 - What is sent is decided per application by a handoff adapter. The first adapters are the browser (the tab's page), kitty (its directory, and the foreground program when it has an adapter), nvim (file, line and column), yazi (directory) and the Dojo agent's chat.
 - A window with no adapter is relaunched on the peer from its desktop entry, and the panel says it was relaunched, not moved.
 - The peer opens the window in its own session, on its focused output. Once the peer reports that it opened, the local window closes. If the peer fails, the local window stays and the panel says why.
-- A running process never moves. A terminal's shell starts fresh on the peer; what ran in the old one ends with the window. The panel says what did not carry over.
-- A file the peer does not have stops the send, leaves the window, and offers to copy the file across first. Copying is the operator's choice each time; afterwards the two copies are independent. A terminal whose directory the peer lacks opens in the nearest directory that does exist.
+- A running process never moves. A terminal is sent as a window on the peer connected back to the machine it came from ([ADR-0010](../../docs/adr/0010-a-sent-terminal-is-a-session-connected-back-to-its-source.md)), in the same directory, and the original keeps running. The panel says what did not carry over.
+- A file the peer does not have stops the send, leaves the window, and offers to copy the file across first (a page or a desktop entry, not a terminal: a terminal reads its files where they are).
 - The receiving side only opens the kinds of thing adapters describe (a page, a directory, a file at a line, a chat, a desktop entry it has itself). It never runs a command it is sent.
 - Every send is in the mesh audit log.
 

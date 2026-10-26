@@ -158,6 +158,23 @@ fn run_preview(window: u64, all_tabs: bool) -> Result<Preview, String> {
         notes: value["notes"].as_array().map(|notes| notes.iter().filter_map(|note| note.as_str().map(String::from)).collect()).unwrap_or_default(),
         can_send_window: value["scopes"].as_array().is_some_and(|scopes| scopes.iter().any(|scope| scope == "window")),
         tab_count: value["tab_count"].as_u64().map(|count| count as usize),
+        threads: value["threads"]
+            .as_array()
+            .map(|threads| {
+                threads
+                    .iter()
+                    .filter_map(|thread| {
+                        let id = thread["id"].as_str()?.to_owned();
+                        let title = thread["title"].as_str().unwrap_or("untitled");
+                        let label = match thread["project"].as_str() {
+                            Some(project) => format!("{title} · {project}"),
+                            None => title.to_owned(),
+                        };
+                        Some((id, label))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
     })
 }
 
@@ -174,12 +191,15 @@ fn run_close_source(window: u64, closes: &str) -> Result<(), String> {
     Err(stderr.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("it could not be closed").trim_start_matches("dojo-mesh: ").to_owned())
 }
 
-fn run_send(window: u64, peer: &str, copy_missing: bool, all_tabs: bool) -> Outcome {
+fn run_send(window: u64, peer: &str, copy_missing: bool, all_tabs: bool, thread: Option<&str>) -> Outcome {
     let mut command = Command::new(mesh_binary());
     // The original stays until the panel has shown what was sent and let go of the keyboard.
     command.args(["send", "--window", &window.to_string(), "--to", peer, "--scope", if all_tabs { "window" } else { "tab" }, "--keep-source", "--json"]);
     if copy_missing {
         command.arg("--copy-missing");
+    }
+    if let Some(thread) = thread {
+        command.args(["--thread", thread]);
     }
     let output = match command.output() {
         Ok(output) => output,
@@ -269,7 +289,7 @@ impl Panel {
         match request {
             Request::Nothing => {}
             Request::Close => self.close(window, cx),
-            Request::Send { window: id, peer, take_input, copy_missing, all_tabs } => {
+            Request::Send { window: id, peer, take_input, copy_missing, all_tabs, thread } => {
                 self.memory = self.model.memory();
                 if let Some(path) = memory_path() {
                     let _ = self.memory.save(&path);
@@ -280,7 +300,7 @@ impl Panel {
                 Self::lend_input(window, true);
                 self.task = Some(cx.spawn_in(window, async move |this, cx| {
                     let target = peer.clone();
-                    let outcome = cx.background_executor().spawn(async move { run_send(id, &target, copy_missing, all_tabs) }).await;
+                    let outcome = cx.background_executor().spawn(async move { run_send(id, &target, copy_missing, all_tabs, thread.as_deref()) }).await;
                     let _ = this.update_in(cx, |_, window: &mut Window, _| Self::lend_input(window, false));
                     let sent = matches!(outcome, Outcome::Sent { .. });
                     let _ = this.update(cx, |panel: &mut Panel, cx| {
@@ -397,6 +417,10 @@ impl Panel {
                     return None;
                 }
                 match self.model.preview() {
+                    Some(Ok(preview)) if !preview.threads.is_empty() => {
+                        let (_, label) = &preview.threads[self.model.thread.min(preview.threads.len() - 1)];
+                        Some(if preview.threads.len() > 1 { format!("Opens the T3 Code thread “{label}” there · T for another") } else { format!("Opens the T3 Code thread “{label}” there") })
+                    }
                     Some(Ok(preview)) => Some(format!("Sends {}", preview.sent)),
                     Some(Err(message)) if message.starts_with("Reading") => Some(message.clone()),
                     Some(Err(message)) => Some(format!("This window cannot be sent: {message}")),
@@ -459,7 +483,7 @@ impl Render for Panel {
         let blocked = self.model.blocked().is_some();
 
         let status = if self.show_keys {
-            Some("Tab list · ←→ machine · ↑↓ window · I control only · W all tabs · Space bring control · Enter go · Esc close".to_string())
+            Some("Tab list · ←→ machine · ↑↓ window · I control only · W all tabs · T another T3 thread · Space bring control · Enter go · Esc close".to_string())
         } else {
             self.status_line()
         };

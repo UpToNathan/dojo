@@ -5,7 +5,7 @@ Sending a T3 Code window to a peer opens the chosen thread in the peer's own T3 
 ## What T3 Code already gives
 
 - `t3code://threads/<environmentId>/<threadId>` is a deep link: the running desktop app navigates to that thread (`promptLinkAppPath` in T3's `packages/shared`, handled by `DesktopWebLinkCoordinator`). The app registers itself as the `t3code://` handler.
-- `t3 thread list --project <id|path> --json` lists a machine's threads (id, title, status, `updatedAt`, settled).
+- `t3 thread list --project <id|path> --json` lists one project's threads; the CLI cannot list projects, so the adapter reads the same data from `statev2.sqlite`.
 - `~/.t3/userdata/environment-id` and `t3 thread`/`t3 app` need the T3 CLI wrapper Home Manager installs.
 - Nothing tells an outside process which thread a window is showing: the window title is fixed and the backend only records a read watermark.
 

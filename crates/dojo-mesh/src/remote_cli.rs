@@ -71,7 +71,7 @@ fn refuse(reason: &str) -> Failure {
 }
 
 /// Who is on the other end of this SSH session, according to the mesh method.
-fn sender(env: &Env, named: Option<String>) -> Result<String, String> {
+pub(crate) fn sender(env: &Env, named: Option<String>) -> Result<String, String> {
     let address = remote::caller_address(std::env::var("SSH_CONNECTION").ok().as_deref()).ok_or("this was not started over a peer's connection")?;
     env.method.identity.who(&Connection { address, named })
 }

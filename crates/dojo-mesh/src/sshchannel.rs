@@ -55,7 +55,8 @@ impl OpenSsh {
     /// hosts, proxies, agent forwarding, control sockets) out of a mesh connection.
     pub fn arguments(&self, call: &Call, known_hosts: &Path) -> Result<Vec<String>, String> {
         let s = &self.settings;
-        let mut args: Vec<String> = ["-F", "/dev/null", "-o", "BatchMode=yes", "-o", "RequestTTY=no"].map(String::from).to_vec();
+        let mut args: Vec<String> = ["-F", "/dev/null", "-o", "BatchMode=yes", "-o"].map(String::from).to_vec();
+        args.push(if call.tty { "RequestTTY=force" } else { "RequestTTY=no" }.into());
         let mut option = |text: String| {
             args.push("-o".into());
             args.push(text);
@@ -188,7 +189,7 @@ mod tests {
     }
 
     fn call(route: Route) -> Call {
-        Call { peer: Peer { name: "orchard".into(), host_key: Some("ssh-ed25519 AAAAhost".into()) }, key: Key::Node, route, remote: "echo hi".into(), input: Input::Null, output: Output::Capture, timeout: None }
+        Call { peer: Peer { name: "orchard".into(), host_key: Some("ssh-ed25519 AAAAhost".into()) }, key: Key::Node, route, remote: "echo hi".into(), tty: false, input: Input::Null, output: Output::Capture, timeout: None }
     }
 
     /// A directory that is removed again when the test ends.
