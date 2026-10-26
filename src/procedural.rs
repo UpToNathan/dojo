@@ -350,6 +350,12 @@ pub struct View {
     pub aspect: f64,
     pub height: f64,
     pub region: Region,
+    /// Where the scene's own frame starts: added to the canvas's y, in the scene's unit. A monitor
+    /// whose picture should start at its own top has the negative of its top edge here.
+    pub top: f64,
+    /// Added to the canvas's x, in the scene's unit, so monitors stacked over one another show
+    /// different scenery rather than the same picture twice.
+    pub left: f64,
 }
 
 impl View {
@@ -363,6 +369,8 @@ impl View {
         Self {
             aspect,
             height,
+            top: 0.,
+            left: 0.,
             region: Region {
                 left: 0.,
                 top: 0.,
@@ -380,7 +388,7 @@ fn draw_row(scene: &Scene, view: View, width: usize, height: usize, y: usize, ro
     let pixel = region.height * view.height / height as f64;
     for (x, out) in row.chunks_exact_mut(4).enumerate() {
         let fx = region.left + (x as f64 + 0.5) / width as f64 * region.width;
-        let colour = scene.colour(fx * view.aspect * view.height, fy * view.height, pixel);
+        let colour = scene.colour(fx * view.aspect * view.height + view.left, fy * view.height + view.top, pixel);
         let noise = dither(fx, fy);
         for channel in 0..3 {
             let encoded = encode(colour[channel]) * 255. + noise;
@@ -494,7 +502,10 @@ impl Scene {
             let inside = (x / width).fract();
             let gap = smoothstep(0.0, 0.16, inside) * smoothstep(1.0, 0.84, inside);
             let strength = foot * gap * (1. - height).powf(1.5) * (0.45 + 0.55 * tone);
-            let hue = ground.ramp(0.45 + 0.55 * (0.5 * index / 4. + 0.5 * height));
+            // Each ribbon has its own colours: it stands in one accent and fades to another, and the pairs
+            // alternate, so the sky carries the primary and the secondary, not a single blue.
+            let (foot_accent, tip_accent) = [(1, 2), (2, 1), (1, 2), (2, 0), (1, 2)][ribbon];
+            let hue = encoded_mix(ground.accents[foot_accent], ground.accents[tip_accent], smoothstep(0.05, 0.85, height));
             colour = encoded_add(colour, hue, strength * 0.62);
             // A bright core along each ray's foot.
             let core = (1. - smoothstep(0., 0.05, height)) * foot * gap;
@@ -632,26 +643,33 @@ impl Scene {
         to_linear(encoded_mix(colour, encoded_mix(ground.background, [0.01, 0.012, 0.018], 0.85), lead))
     }
 
-    /// Thirteen layers of dunes in flat, faceted colour: crests with a gentle windward face and a
-    /// steep, shaded lee, ripples across the lit faces, haze in the distance, a moon and stars. The
-    /// nearest dunes are the strongest accent.
+    /// Dunes in flat, faceted colour: crests with a gentle windward face and a steep, shaded lee, ripples
+    /// across the lit faces, haze in the distance, a moon and stars. Thirteen layers make up one
+    /// monitor's height; on a taller one the layers keep coming, each nearer and bigger, so there is
+    /// always more dune in front and never a flat fill. The nearest are the strongest accent.
     fn dunes(&self, x: f64, y: f64, pixel: f64) -> Colour {
         const LAYERS: usize = 13;
+        const MOST: usize = 44;
         let (ground, noise, o) = (&self.ground, &self.noise, &self.offsets);
         let sun = (self.aspect * (0.15 + 0.7 * o[1]), 0.12 + 0.12 * o[2]);
+        // Where layer `layer`'s crests sit on average: spread over one unit for the first thirteen, then a
+        // layer every 0.045 beyond them.
+        let base_of = |layer: usize| {
+            let depth = layer as f64 / (LAYERS - 1) as f64;
+            0.34 + 0.62 * depth.min(1.).powf(0.85) + 0.045 * layer.saturating_sub(LAYERS - 1) as f64
+        };
         let crest = |layer: usize, along: f64| {
             let depth = layer as f64 / (LAYERS - 1) as f64;
             let phase = layer as f64 * 7.3 + o[0] * 60.;
-            let base = 0.34 + 0.62 * depth.powf(0.85);
-            let amplitude = 0.035 + 0.075 * depth;
-            let frequency = 2.1 + 1.3 * (1. - depth);
+            let amplitude = (0.035 + 0.075 * depth).min(0.22);
+            let frequency = (2.1 + 1.3 * (1. - depth)).max(0.9);
             // A smooth, asymmetric wave: a long gentle rise to a crest, then a shorter, steeper fall.
             // The spacing is warped by noise and every crest has its own height, so none repeats.
             let u = along * frequency + phase + 0.9 * noise.fbm(along * 0.8 + phase, 5. + phase * 0.1, 2);
             let (index, cycle) = (u.floor(), u - u.floor());
             let wave = smoothstep(0., 0.62, cycle) * (1. - smoothstep(0.62, 0.90, cycle));
             let height = 0.45 + 1.0 * self.hash(80 + layer as i64, index as i64, 0);
-            base - amplitude * (0.62 * height * wave + 0.5 * noise.fbm(along * 1.4 + phase, phase * 0.3, 3))
+            base_of(layer) - amplitude * (0.62 * height * wave + 0.5 * noise.fbm(along * 1.4 + phase, phase * 0.3, 3))
         };
         let haze = |depth: f64| (1. - depth).powf(1.4);
         let mut colour = encoded_mix(ground.background, ground.accents[0], 0.20 * smoothstep(0.1, 0.7, y));
@@ -665,12 +683,17 @@ impl Scene {
             colour = encoded_mix(colour, [0.92, 0.95, 1.], edge.clamp(0., 1.) * 0.6);
         }
         // The layers are opaque, so the nearest one whose crest is above the pixel is all there is to see.
-        for layer in (0..LAYERS).rev() {
+        for layer in (0..MOST).rev() {
+            // A layer whose crests are all below the pixel by more than its tallest cannot cover it.
+            if base_of(layer) - 0.30 > y {
+                continue;
+            }
             let top = crest(layer, x);
             if y < top {
                 continue;
             }
-            let depth = layer as f64 / (LAYERS - 1) as f64;
+            let nearness = layer as f64 / (LAYERS - 1) as f64;
+            let depth = nearness.min(1.);
             let slope = (crest(layer, x + 0.003) - crest(layer, x - 0.003)) / 0.006;
             // Lit on the windward face, which rises to the crest; the shorter lee falls away in shade.
             let facing = (-slope * 1.8).clamp(-1., 1.);
@@ -679,7 +702,7 @@ impl Scene {
             let jitter = self.hash(layer as i64 + 71, band, 0) - 0.5;
             let hue = ground.ramp(0.30 + 0.70 * depth.powf(0.8));
             let far = encoded_mix(ground.background, ground.accents[0], 0.55);
-            let body = encoded_mix(encoded_mix(far, hue, 1. - haze(depth)), ground.background, 0.18 * (1. - depth));
+            let body = encoded_mix(encoded_mix(far, hue, 1. - haze(depth)), ground.background, 0.18 * (1. - depth) + 0.30 * (nearness - 1.).clamp(0., 1.));
             let lit = encoded_mix(body, ground.accents[2], 0.18 * (1. - 0.4 * depth));
             let shade = encoded_mix(body, ground.background, 0.52);
             // The face is flat bands of tone, a little brighter where it rises to the sun, with variation
@@ -1322,6 +1345,8 @@ mod tests {
             let half = |left: f64| View {
                 aspect,
                 height: 1.,
+                top: 0.,
+                left: 0.,
                 region: Region {
                     left,
                     top: 0.,
@@ -1584,6 +1609,8 @@ mod tests {
         let slice = View {
             aspect: 1.89,
             height: 1.,
+            top: 0.,
+            left: 0.,
             region: Region {
                 left: 0.,
                 top: 0.,
