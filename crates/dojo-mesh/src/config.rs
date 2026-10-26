@@ -36,6 +36,8 @@ pub struct MeshConfig {
     /// The keys this node signs roster entries with, tried in this order: a private key file, or a
     /// public key file whose private half the agent holds. Absolute; none is required.
     pub signing_keys: Vec<PathBuf>,
+    /// Where invites travel; `None` means 1Password's default vault.
+    pub rendezvous: Option<RendezvousChoice>,
     /// The SSH agent's socket, when it is not the one the environment names. Absolute.
     pub agent_socket: Option<PathBuf>,
 }
@@ -80,6 +82,16 @@ impl SecretRef {
         }
         Err("not a secret reference; use env:NAME, file:/absolute/path or op://vault/item/field (the secret itself never goes in this file)".into())
     }
+}
+
+/// Where two machines leave messages for each other while one joins the other's mesh.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RendezvousChoice {
+    /// Items in a 1Password vault, through its `op` command line.
+    OnePassword { vault: Option<String> },
+    /// Files in a directory both machines can read (a shared folder, or a test).
+    Directory(PathBuf),
 }
 
 /// How the operator-only commands sign in to the Tailscale API.
@@ -136,6 +148,9 @@ struct Raw {
     agent_socket: Option<PathBuf>,
     #[serde(default)]
     signing_keys: Vec<PathBuf>,
+    rendezvous: Option<String>,
+    rendezvous_vault: Option<String>,
+    rendezvous_dir: Option<PathBuf>,
 }
 
 #[derive(serde::Deserialize)]
@@ -192,7 +207,17 @@ impl MeshConfig {
                 Some(name)
             }
         };
-        Ok(Self { membership_tag, allow, deny, capabilities, accept_input, control_plane, method, roster_dir: raw.roster_dir, signers_file: raw.signers_file, node_name, node_key_file: raw.node_key_file, input_key_file: raw.input_key_file, agent_socket: raw.agent_socket, signing_keys: raw.signing_keys })
+        let rendezvous = match (raw.rendezvous.as_deref().map(str::trim), raw.rendezvous_dir, raw.rendezvous_vault) {
+            (None, None, None) => None,
+            (None | Some("1password"), None, vault) => Some(RendezvousChoice::OnePassword { vault: vault.map(|vault| vault.trim().to_string()).filter(|vault| !vault.is_empty()) }),
+            (Some("directory"), Some(dir), _) if dir.is_absolute() => Some(RendezvousChoice::Directory(dir)),
+            (Some("directory"), Some(_), _) => return Err(ConfigError::Invalid("rendezvous-dir must be an absolute path".into())),
+            (Some("directory"), None, _) => return Err(ConfigError::Invalid("rendezvous = \"directory\" needs rendezvous-dir".into())),
+            (None, Some(_), _) => return Err(ConfigError::Invalid("rendezvous-dir needs rendezvous = \"directory\"".into())),
+            (Some("1password"), Some(_), _) => return Err(ConfigError::Invalid("rendezvous-dir is for rendezvous = \"directory\"".into())),
+            (Some(other), _, _) => return Err(ConfigError::Invalid(format!("rendezvous {other:?} is not known; use \"1password\" or \"directory\""))),
+        };
+        Ok(Self { membership_tag, allow, deny, capabilities, accept_input, control_plane, method, roster_dir: raw.roster_dir, signers_file: raw.signers_file, node_name, node_key_file: raw.node_key_file, input_key_file: raw.input_key_file, agent_socket: raw.agent_socket, signing_keys: raw.signing_keys, rendezvous })
     }
 
     /// Loads the file at `path`. A missing file is the empty configuration, a mesh of one.

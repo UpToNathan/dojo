@@ -48,8 +48,13 @@ usage: dojo-mesh [--config PATH] <command>
                                    set this node up for the roster mesh in one go (config, keys, signing keys, trust, enrolment)
   init [--custody 1password|existing] [--vault NAME] [--node-key PUB --input-key PUB]
                                    give this node its keys (roster method)
-  join [--route HOST[:PORT]]... [--host-key-file PATH] [--out FILE]
-                                   write this node's request to be enrolled, with the fingerprints to compare
+  join [--invite [--invite-id ID] [--wait SECS]] [--route HOST[:PORT]]... [--host-key-file PATH] [--out FILE]
+                                   ask to be enrolled: through an invite, or as a file with the fingerprints to compare
+  invite [--minutes N] [--cancel ID]  invite a machine to join (the machine runs `join --invite`)
+  requests                         the machines waiting to be let in
+  deny INVITE_ID [--reason TEXT]   turn a waiting machine down
+  approve --invite ID [--days N] [--replace]
+                                   let a waiting machine in, and send it the roster
   approve REQUEST.json [--fingerprint SHA256:…] [--days N] [--replace]
                                    sign a node into the roster once its fingerprint has been compared
   renew NAME [--days N]            sign a node's entry again for a fresh period
@@ -314,6 +319,9 @@ pub fn run(env: &Env, args: &[String]) -> Result<u8, Failure> {
         "init" => crate::enroll_cli::init(env, rest),
         "join" => crate::enroll_cli::join(env, rest),
         "approve" => crate::enroll_cli::approve(env, rest),
+        "invite" => crate::invite_cli::invite(env, rest),
+        "requests" => crate::invite_cli::requests(env, rest),
+        "deny" => crate::invite_cli::deny(env, rest),
         "renew" => crate::enroll_cli::renew(env, rest),
         "rm" => crate::enroll_cli::rm(env, rest),
         "leave" => crate::enroll_cli::leave(env, rest),

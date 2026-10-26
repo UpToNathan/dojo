@@ -76,7 +76,7 @@ fn print_fingerprints(request_name: &str, node: &str, input: Option<&str>, host:
 
 /// Makes the roster's `git` remote aware of a change, when the roster is a repository. Failing to
 /// publish is reported and never undoes the signed change.
-fn publish(dir: &Path, message: &str) -> String {
+pub(crate) fn publish(dir: &Path, message: &str) -> String {
     let git = |args: &[&str]| Command::new("git").arg("-C").arg(dir).args(args).stdin(Stdio::null()).output();
     if !git(&["rev-parse", "--is-inside-work-tree"]).is_ok_and(|out| out.status.success()) {
         return "the roster is not a git repository: members that are online are sent it directly, and the others take it with `dojo-mesh roster sync`".into();
@@ -99,7 +99,7 @@ fn publish(dir: &Path, message: &str) -> String {
 
 /// Lets this node's own `authorized_keys` follow the roster after it changed. A failure here is a
 /// warning: the signed change stands.
-fn follow(env: &Env, config: &MeshConfig) {
+pub(crate) fn follow(env: &Env, config: &MeshConfig) {
     if let Err(failure) = cli::authorize(env, config) {
         eprintln!("dojo-mesh: could not update authorized_keys: {}", failure.message);
     }
@@ -190,9 +190,9 @@ fn public_key_of(json: &str) -> Result<String, String> {
 /// `dojo-mesh join`: writes this node's request to be enrolled and shows the fingerprints to compare.
 pub fn join(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     let ctx = context(env)?;
-    let (words, values) = split(rest, &[], &["--route", "--host-key-file", "--out"])?;
+    let (words, values) = split(rest, &["--invite"], &["--route", "--host-key-file", "--out", "--invite-id", "--wait", "--poll"])?;
     if !words.positional.is_empty() {
-        return Err(fail(USAGE_ERROR, "usage: dojo-mesh join [--route HOST[:PORT]]... [--host-key-file PATH] [--out FILE]"));
+        return Err(fail(USAGE_ERROR, "usage: dojo-mesh join [--invite [--invite-id ID] [--wait SECONDS]] [--route HOST[:PORT]]... [--host-key-file PATH] [--out FILE]"));
     }
     let name = node_name(env, &ctx.config);
     let node = read_key(&ctx.paths.node_key).map_err(|message| fail(USAGE_ERROR, format!("{message}; run dojo-mesh init first")))?;
@@ -206,12 +206,15 @@ pub fn join(env: &Env, rest: &[String]) -> Result<u8, Failure> {
         }
     }
     let mut request = JoinRequest { v: 2, name: name.clone(), node_key: node.clone(), input_key: input.clone(), host_key: host.clone(), routes, signature: String::new() };
-    // The node key vouches for the whole request, so the operator can trust every field in it by
-    // comparing that key's fingerprint alone. The key is in the agent (1Password), which may ask.
+    // The node key vouches for the whole request, so whoever approves it can trust every field in it.
+    // The key is in the agent (1Password), which may ask.
     request.signature = enroll::sign_bytes(&request.body(), &ctx.paths.node_key, enroll::JOIN_NAMESPACE, ctx.paths.agent.as_deref())
         .map_err(|message| fail(NEEDS_HUMAN, format!("the request could not be signed with this node's key ({message}); unlock 1Password and turn on its SSH agent, then try again")))?;
     let text = serde_json::to_string_pretty(&request).map_err(|error| fail(FAILED, error.to_string()))? + "\n";
     JoinRequest::parse(&text).and_then(|parsed| parsed.verify().map(|()| parsed)).map_err(|message| fail(FAILED, message))?;
+    if has(&words, "--invite") {
+        return crate::invite_cli::join_through_invite(env, &ctx, &request, &values);
+    }
     let out = value(&values, "--out").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(format!("{name}.join.json")));
     write_private(&out, &text, 0o644)?;
     print_fingerprints(&format!("{name} asks to join; compare these with what the operator sees"), &node, input.as_deref(), Some(&host))?;
@@ -224,7 +227,7 @@ pub(crate) fn device_file(ctx: &Ctx, name: &str) -> PathBuf {
 }
 
 /// The statement in a device file, as written (not verified: it is only read to decide what to do next).
-fn read_device(path: &Path) -> Result<signed::DeviceEntry, String> {
+pub(crate) fn read_device(path: &Path) -> Result<signed::DeviceEntry, String> {
     let text = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
     match serde_json::from_slice::<Statement>(&text) {
         Ok(Statement::Device(entry)) => Ok(entry),
@@ -233,7 +236,7 @@ fn read_device(path: &Path) -> Result<signed::DeviceEntry, String> {
     }
 }
 
-fn days(values: &[(String, String)]) -> Result<i64, Failure> {
+pub(crate) fn days(values: &[(String, String)]) -> Result<i64, Failure> {
     match value(values, "--days") {
         None => Ok(DEFAULT_DAYS),
         Some(text) => match text.parse::<i64>() {
@@ -243,7 +246,7 @@ fn days(values: &[(String, String)]) -> Result<i64, Failure> {
     }
 }
 
-fn revoked_keys(dir: &Path) -> Vec<String> {
+pub(crate) fn revoked_keys(dir: &Path) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(dir.join("revocations")) else { return Vec::new() };
     entries
         .flatten()
@@ -259,7 +262,13 @@ fn revoked_keys(dir: &Path) -> Vec<String> {
 /// has compared its node key's fingerprint with the one the new node shows.
 pub fn approve(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     let ctx = context(env)?;
-    let (words, values) = split(rest, &["--replace"], &["--fingerprint", "--days"])?;
+    let (words, values) = split(rest, &["--replace"], &["--fingerprint", "--days", "--invite"])?;
+    if let Some(id) = value(&values, "--invite") {
+        if !words.positional.is_empty() {
+            return Err(fail(USAGE_ERROR, "approve takes a request file or --invite ID, not both"));
+        }
+        return crate::invite_cli::approve_invite(env, &ctx, &id, days(&values)?, has(&words, "--replace"));
+    }
     let [file] = words.positional.as_slice() else { return Err(fail(USAGE_ERROR, "usage: dojo-mesh approve REQUEST.json [--fingerprint SHA256:…] [--days N] [--replace]")) };
     let text = std::fs::read_to_string(file).map_err(|error| fail(USAGE_ERROR, format!("{file}: {error}")))?;
     let request = JoinRequest::parse(&text).map_err(|message| fail(USAGE_ERROR, format!("{file}: {message}")))?;
@@ -275,10 +284,18 @@ pub fn approve(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     if given.trim() != node_fp {
         return Err(fail(FAILED, format!("the fingerprint does not match: the request's node key is {node_fp}, not {given}. Do not approve it")));
     }
-    let path = device_file(&ctx, &request.name);
+    approve_core(env, &ctx, &request, days, has(&words, "--replace"))?;
+    Ok(0)
+}
+
+/// Signs a device entry for a request whose signature has been checked and whose sender the operator
+/// has accepted (by comparing its fingerprint, or because it came through an invite), publishes it and
+/// lets the new member in.
+pub(crate) fn approve_core(env: &Env, ctx: &Ctx, request: &JoinRequest, days: i64, replace: bool) -> Result<(), Failure> {
+    let path = device_file(ctx, &request.name);
     if path.exists() {
         let known = read_device(&path).map(|entry| entry.node_key);
-        if known.as_deref().ok() != Some(request.node_key.as_str()) && !has(&words, "--replace") {
+        if known.as_deref().ok() != Some(request.node_key.as_str()) && !replace {
             return Err(fail(FAILED, format!("{} is already in the roster with a different key; pass --replace if this really is the same machine re-enrolling", request.name)));
         }
     }
@@ -290,11 +307,11 @@ pub fn approve(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     println!("approved {} until {}", request.name, entry.expires.format("%Y-%m-%d"));
     println!("{}", publish(&ctx.paths.dir, &format!("Enroll {}", request.name)));
     follow(env, &ctx.config);
-    Ok(0)
+    Ok(())
 }
 
 /// A signing failure that a person can fix (a key to touch or unlock) is exit 3.
-fn code_for(message: &str) -> u8 {
+pub(crate) fn code_for(message: &str) -> u8 {
     if message.contains("no signing key is set") { USAGE_ERROR } else { NEEDS_HUMAN }
 }
 
@@ -359,6 +376,22 @@ pub fn leave(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     Ok(0)
 }
 
+/// Adds `key` to the signing keys this node believes, if it is not there. The caller has decided to
+/// trust it: by a fingerprint the person compared, or because it came in an invite.
+pub(crate) fn trust_key(ctx: &Ctx, key: &str) -> Result<bool, Failure> {
+    let mut text = std::fs::read_to_string(&ctx.paths.signers).unwrap_or_default();
+    if enroll::signers(&text).iter().any(|known| known == key) {
+        return Ok(false);
+    }
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(&enroll::signer_line(key));
+    text.push('\n');
+    write_private(&ctx.paths.signers, &text, 0o600)?;
+    Ok(true)
+}
+
 /// `dojo-mesh trust list | add KEY --fingerprint FP | remove FP`: the signing keys this node believes,
 /// in its own file. Adding one takes the fingerprint the person compared, so a key is never trusted
 /// on the strength of where it came from.
@@ -388,13 +421,7 @@ pub fn trust(env: &Env, rest: &[String]) -> Result<u8, Failure> {
                 println!("{fp} is already trusted");
                 return Ok(0);
             }
-            let mut text = signers_text;
-            if !text.is_empty() && !text.ends_with('\n') {
-                text.push('\n');
-            }
-            text.push_str(&enroll::signer_line(&key));
-            text.push('\n');
-            write_private(&ctx.paths.signers, &text, 0o600)?;
+            trust_key(&ctx, &key)?;
             println!("now trusting {fp} ({})", enroll::held_as(&key));
             Ok(0)
         }

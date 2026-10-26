@@ -930,3 +930,111 @@ fn the_roster_travels_between_members_and_only_what_verifies_is_kept() {
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("0 added, 0 updated"), "the old bundle changes nothing: {out}");
 }
+
+#[test]
+fn a_machine_joins_through_an_invite_with_nothing_carried_by_hand() {
+    use std::process::Stdio;
+    let mut lab = Lab::new();
+    let open = lab.port(true);
+    lab.key("alpha");
+    lab.key("beta");
+    let a = lab.public("alpha");
+    lab.member("alpha", &a, open, "operator");
+    let carrier = lab.root.join("carrier");
+    lab.config(&format!("signing-keys = [\"{}\"]\nrendezvous = \"directory\"\nrendezvous-dir = \"{}\"\n", lab.root.join("keys/operator").display(), carrier.display()));
+    let path = std::env::var("PATH").unwrap_or_default();
+
+    // The new machine: its own roster directory and no trusted signing key at all.
+    let beta_config = lab.root.join("beta.toml");
+    std::fs::write(
+        &beta_config,
+        format!(
+            "method = \"roster\"\nnode-name = \"beta\"\nnode-key-file = \"{}\"\nsigners-file = \"{}\"\nroster-dir = \"{}\"\nrendezvous = \"directory\"\nrendezvous-dir = \"{}\"\n",
+            lab.root.join("keys/beta.pub").display(),
+            lab.root.join("beta-signers").display(),
+            lab.root.join("beta-roster").display(),
+            carrier.display()
+        ),
+    )
+    .unwrap();
+    let host_key = lab.root.join("keys/operator.pub");
+    let join = |wait: &str| {
+        Command::new(env!("CARGO_BIN_EXE_dojo-mesh"))
+            .arg("--config")
+            .arg(&beta_config)
+            .args(["join", "--invite", "--route", &format!("127.0.0.1:{open}"), "--host-key-file", host_key.to_str().unwrap(), "--poll", "100", "--wait", wait])
+            .env_clear()
+            .env("PATH", &path)
+            .env("HOME", &lab.root)
+            .env("USER", "pat")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+    };
+    let finish = |child: std::process::Child| {
+        let output = child.wait_with_output().unwrap();
+        (output.status.code().unwrap(), format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)))
+    };
+
+    // With no invite the new machine says so and gives up.
+    let (code, out) = finish(join("1"));
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("no invite was waiting"), "{out}");
+
+    // The operator invites; the new machine finds it by itself and asks.
+    let (code, out) = lab.run(&["invite", "--json"]);
+    assert_eq!(code, 0, "{out}");
+    let id = serde_json::from_str::<serde_json::Value>(out.lines().last().unwrap()).unwrap()["id"].as_str().unwrap().to_string();
+    let joining = join("30");
+    let mut waiting = String::new();
+    for _ in 0..100 {
+        let (_, listed) = lab.run(&["requests", "--json"]);
+        waiting = listed.lines().last().unwrap_or_default().to_string();
+        if waiting.contains("beta") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    assert!(waiting.contains("\"name\":\"beta\"") && waiting.contains(&id), "{waiting}");
+    let (_, text) = lab.run(&["requests"]);
+    assert!(text.contains("beta") && text.contains("wants to join"), "{text}");
+
+    // Approval signs the entry and sends the roster; the new machine installs it and trusts the signer.
+    let (code, out) = lab.run(&["approve", "--invite", &id]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("approved beta") && out.contains("beta can finish joining"), "{out}");
+    let (code, out) = finish(joining);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("beta joined alpha's mesh"), "{out}");
+    let signers = std::fs::read_to_string(lab.root.join("beta-signers")).unwrap();
+    assert!(signers.contains(&lab.public("operator")), "the operator's key came with the invite: {signers}");
+    assert!(lab.root.join("beta-roster/devices/beta.json").exists() && lab.root.join("beta-roster/devices/alpha.json").exists());
+    let (code, out) = lab.run_as(&beta_config, &lab.root, &["roster", "check"], &path);
+    assert_eq!(code, 0, "the new machine believes the roster it was given: {out}");
+    assert!(std::fs::read_dir(&carrier).map(|mut entries| entries.next().is_none()).unwrap_or(true), "the invite is cleaned up");
+
+    // An invite can be turned down, and the new machine hears why.
+    let (_, out) = lab.run(&["invite", "--json"]);
+    let id = serde_json::from_str::<serde_json::Value>(out.lines().last().unwrap()).unwrap()["id"].as_str().unwrap().to_string();
+    std::fs::remove_file(lab.root.join("beta-roster/devices/beta.json")).unwrap();
+    let refused = join("30");
+    for _ in 0..100 {
+        if lab.run(&["requests", "--json"]).1.contains("beta") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let (code, out) = lab.run(&["deny", &id, "--reason", "not this one"]);
+    assert_eq!(code, 0, "{out}");
+    let (code, out) = finish(refused);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("turned the request down: not this one"), "{out}");
+
+    // An invite that is withdrawn is gone for good.
+    let (_, out) = lab.run(&["invite", "--json"]);
+    let id = serde_json::from_str::<serde_json::Value>(out.lines().last().unwrap()).unwrap()["id"].as_str().unwrap().to_string();
+    assert_eq!(lab.run(&["invite", "--cancel", &id]).0, 0);
+    let (code, out) = finish(join("1"));
+    assert_eq!(code, 1, "{out}");
+}
