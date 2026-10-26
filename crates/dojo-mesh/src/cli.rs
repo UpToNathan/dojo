@@ -42,8 +42,8 @@ usage: dojo-mesh [--config PATH] <command>
   remote PEER                      drive a peer with this cursor and keyboard (Super+F11 returns)
   pause | resume                   switch the agent's peer access off or on
   audit [--last N] [--json]        what this node has sent to peers
-  roster [check | sync | authorize]
-                                   the signed roster: what counts and what is ignored; pull it from its remote; let its members in
+  roster [check | sync | authorize | export | receive]
+                                   the signed roster: what counts and what is ignored; take it from its git remote or from members that are online; let its members in; carry it as a bundle by hand
   onboard [--node-name NAME] [--route HOST[:PORT]]... [--sign yubikey|1password|KEY]... [--vault NAME]
                                    set this node up for the roster mesh in one go (config, keys, signing keys, trust, enrolment)
   init [--custody 1password|existing] [--vault NAME] [--node-key PUB --input-key PUB]
@@ -218,6 +218,12 @@ fn roster_command(env: &Env, rest: &[String]) -> Result<u8, Failure> {
         return Err(fail(USAGE_ERROR, "there is nowhere to keep the roster (HOME is not set); set roster-dir"));
     };
     match rest.first().map(String::as_str) {
+        Some("sync") if !crate::openssh::has_remote(&paths.dir) => pull_from_members(env, &config, &paths),
+        Some("export") => {
+            println!("{}", crate::rostersync::export(&paths.dir).map_err(|message| fail(FAILED, message))?);
+            Ok(0)
+        }
+        Some("receive") => receive(env, &config, &paths),
         Some("sync") => {
             // What was wrong with the roster before the pull is not the pull's doing.
             let tampered = |roster: &Roster| -> Vec<String> { roster.rejected.iter().filter(|r| crate::openssh::suspicious(&r.reason)).map(|r| r.label.clone()).collect() };
@@ -452,6 +458,90 @@ pub(crate) fn outcome(peer: &str, ended: &Ended) -> Result<u8, Failure> {
         Ended::TimedOut => Err(fail(UNAVAILABLE, format!("the call to {peer} timed out"))),
         Ended::NeedsHuman(url) if url.starts_with("https://") => Err(fail(NEEDS_HUMAN, format!("{peer} needs a person to approve this connection: open {url}, then run the command again"))),
         Ended::NeedsHuman(step) => Err(fail(NEEDS_HUMAN, format!("{peer} cannot be reached yet: {step}"))),
+    }
+}
+
+/// Where a peer keeps `dojo-mesh`, as a shell command that runs it with `args`.
+fn remote_mesh(args: &str) -> Vec<String> {
+    vec!["sh".to_string(), "-c".to_string(), format!("exec \"${{XDG_DATA_HOME:-$HOME/.local/share}}/dojo/bin/dojo-mesh\" {args}")]
+}
+
+fn describe_merge(merged: &crate::rostersync::Merged) -> String {
+    format!("{} added, {} updated, {} unchanged, {} not taken", merged.added.len(), merged.updated.len(), merged.unchanged, merged.refused.len())
+}
+
+/// `roster sync` for a roster that is not in git: asks each member that is online for its files and
+/// keeps the ones that verify here and are newer. A member can only withhold files, never add one.
+fn pull_from_members(env: &Env, config: &MeshConfig, paths: &crate::config::RosterPaths) -> Result<u8, Failure> {
+    let roster = load_roster(env, config);
+    if let Source::Unavailable(reason) = &roster.source {
+        return Err(fail(UNAVAILABLE, format!("{reason}; a node that trusts no signing key yet believes no roster")));
+    }
+    let peers: Vec<String> = roster.peers().filter(|member| member.device.online).map(|member| member.device.name.clone()).collect();
+    if peers.is_empty() {
+        return Err(fail(UNAVAILABLE, "no member is online to take the roster from. The first copy to a new node is made by hand: `dojo-mesh roster export` where the roster is, `dojo-mesh roster receive` on the new node"));
+    }
+    let verifier = crate::openssh::SshKeygen { signers: paths.signers.clone() };
+    let (mut reached, mut forged, mut problems) = (0, Vec::new(), Vec::new());
+    for name in peers {
+        let done = call_peer(env, &roster, &name, "roster-sync", "", &remote_mesh("roster export"), Input::Null, Output::Capture, Some(Duration::from_secs(30)));
+        match done {
+            Ok(done) if done.ended == Ended::Exited(0) => match crate::rostersync::merge(&paths.dir, &String::from_utf8_lossy(&done.stdout), &verifier) {
+                Ok(merged) => {
+                    reached += 1;
+                    println!("{name}: {}", describe_merge(&merged));
+                    forged.extend(merged.suspicious().into_iter().map(|path| format!("{name}:{path}")));
+                }
+                Err(message) => problems.push(format!("{name}: {message}")),
+            },
+            Ok(done) => problems.push(format!("{name}: its roster could not be read ({:?})", done.ended)),
+            Err(failure) => problems.push(failure.message),
+        }
+    }
+    for problem in &problems {
+        eprintln!("dojo-mesh: {problem}");
+    }
+    if reached == 0 {
+        return Err(fail(UNAVAILABLE, "no member gave a roster"));
+    }
+    authorize(env, config)?;
+    if forged.is_empty() {
+        Ok(0)
+    } else {
+        Err(fail(FAILED, format!("these files were not signed by a trusted signing key and were not taken: {}. A member is sending files it did not get from a signer", forged.join(", "))))
+    }
+}
+
+/// `roster receive`: takes a bundle on standard input, as `roster export` or a member's push makes it.
+fn receive(env: &Env, config: &MeshConfig, paths: &crate::config::RosterPaths) -> Result<u8, Failure> {
+    use std::io::Read;
+    let mut text = String::new();
+    std::io::stdin().take(crate::rostersync::MAX_BUNDLE as u64 + 1).read_to_string(&mut text).map_err(|error| fail(FAILED, format!("could not read the bundle: {error}")))?;
+    let verifier = crate::openssh::SshKeygen { signers: paths.signers.clone() };
+    let merged = crate::rostersync::merge(&paths.dir, &text, &verifier).map_err(|message| fail(USAGE_ERROR, message))?;
+    println!("{}", describe_merge(&merged));
+    for (path, reason) in &merged.refused {
+        eprintln!("dojo-mesh: {path}: not taken ({reason})");
+    }
+    if merged.changed() {
+        authorize(env, config)?;
+    }
+    if merged.suspicious().is_empty() { Ok(0) } else { Err(fail(FAILED, "some files were not signed by a trusted signing key and were not taken")) }
+}
+
+/// Gives the members that are online the roster as this node has it, after it changed. Best effort:
+/// a member that is offline takes it with `roster sync` when it is back.
+pub(crate) fn spread(env: &Env, config: &MeshConfig, dir: &Path) {
+    let Ok(bundle) = crate::rostersync::export(dir) else { return };
+    let roster = load_roster(env, config);
+    for member in roster.peers().filter(|member| member.device.online) {
+        let name = member.device.name.clone();
+        let sent = call_peer(env, &roster, &name, "roster-push", "", &remote_mesh("roster receive"), Input::Bytes(bundle.clone().into_bytes()), Output::Capture, Some(Duration::from_secs(30)));
+        match sent {
+            Ok(done) if done.ended == Ended::Exited(0) => println!("sent the roster to {name}"),
+            Ok(done) => eprintln!("dojo-mesh: {name} did not take the roster ({:?}); it can run `dojo-mesh roster sync`: {}", done.ended, String::from_utf8_lossy(&done.stdout).trim()),
+            Err(failure) => eprintln!("dojo-mesh: could not send the roster to {}", failure.message),
+        }
     }
 }
 

@@ -234,6 +234,12 @@ impl Membership for SignedMembership {
     }
 }
 
+/// Whether the roster directory is a git repository with a remote to pull from.
+pub fn has_remote(dir: &Path) -> bool {
+    dir.join(".git").exists()
+        && Command::new("git").arg("-C").arg(dir).arg("remote").stdin(Stdio::null()).output().is_ok_and(|output| output.status.success() && !output.stdout.iter().all(u8::is_ascii_whitespace))
+}
+
 /// Pulls the roster directory from its git remote. Fast-forward only: a remote that rewrote history
 /// is refused, not followed. Verification is separate and still applies to whatever arrives.
 pub fn sync(dir: &Path) -> Result<String, String> {

@@ -79,7 +79,7 @@ fn print_fingerprints(request_name: &str, node: &str, input: Option<&str>, host:
 fn publish(dir: &Path, message: &str) -> String {
     let git = |args: &[&str]| Command::new("git").arg("-C").arg(dir).args(args).stdin(Stdio::null()).output();
     if !git(&["rev-parse", "--is-inside-work-tree"]).is_ok_and(|out| out.status.success()) {
-        return "the roster is not a git repository, so copy it to the other nodes yourself".into();
+        return "the roster is not a git repository: members that are online are sent it directly, and the others take it with `dojo-mesh roster sync`".into();
     }
     let _ = git(&["add", "-A", "--", "."]);
     match git(&["commit", "-q", "-m", message, "--", "."]) {
@@ -102,6 +102,13 @@ fn publish(dir: &Path, message: &str) -> String {
 fn follow(env: &Env, config: &MeshConfig) {
     if let Err(failure) = cli::authorize(env, config) {
         eprintln!("dojo-mesh: could not update authorized_keys: {}", failure.message);
+    }
+    let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
+    if let Some(paths) = roster_paths(config, var("XDG_DATA_HOME"), var("XDG_CONFIG_HOME"), env.home.clone()) {
+        // A roster kept in git reaches the others through its remote (publish); otherwise hand it to the members.
+        if !crate::openssh::has_remote(&paths.dir) {
+            cli::spread(env, config, &paths.dir);
+        }
     }
 }
 
@@ -300,6 +307,7 @@ pub fn renew(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     enroll::write_signed(&path, &enroll::device_json(&entry), &ctx.signing()).map_err(|message| fail(code_for(&message), message))?;
     println!("renewed {name} until {}", entry.expires.format("%Y-%m-%d"));
     println!("{}", publish(&ctx.paths.dir, &format!("Renew {name}")));
+    follow(env, &ctx.config);
     Ok(0)
 }
 

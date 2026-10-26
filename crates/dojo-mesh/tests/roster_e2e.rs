@@ -778,3 +778,94 @@ fn onboarding_refuses_what_it_cannot_do_safely() {
     assert_eq!(code, 2);
     assert_eq!(std::fs::read_to_string(&config).unwrap(), "");
 }
+
+#[test]
+fn the_roster_travels_between_members_and_only_what_verifies_is_kept() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    let mut lab = Lab::new();
+    let open = lab.port(true);
+    let (a, b) = (lab.key("alpha"), lab.key("beta"));
+    lab.member("alpha", &a, open, "operator");
+    lab.member("beta", &b, open, "operator");
+    std::fs::write(lab.root.join("agent.sock"), "").unwrap();
+    lab.config(&format!(
+        "node-key-file = \"{}\"\nagent-socket = \"{}\"\nsigning-keys = [\"{}\"]\n",
+        lab.root.join("keys/alpha.pub").display(),
+        lab.root.join("agent.sock").display(),
+        lab.root.join("keys/operator").display()
+    ));
+    // Beta is a second node with its own, empty roster directory; the "ssh" to beta runs beta's dojo-mesh.
+    let beta_dir = lab.root.join("beta-roster");
+    let beta_config = lab.root.join("beta.toml");
+    std::fs::write(&beta_config, format!("method = \"roster\"\nnode-name = \"beta\"\nsigners-file = \"{}\"\nroster-dir = \"{}\"\n", lab.root.join("allowed_signers").display(), beta_dir.display())).unwrap();
+    let bin = lab.root.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let ssh = format!(
+        "#!/bin/sh\nfor last; do :; done\ncase \"$last\" in *'roster export'*) exec '{0}' --config '{1}' roster export;; *'roster receive'*) exec '{0}' --config '{1}' roster receive;; esac\nexit 9\n",
+        env!("CARGO_BIN_EXE_dojo-mesh"),
+        beta_config.display()
+    );
+    std::fs::write(bin.join("ssh"), ssh).unwrap();
+    std::fs::write(bin.join("ssh-add"), format!("#!/bin/sh\necho '{a} alpha'\n")).unwrap();
+    for name in ["ssh", "ssh-add"] {
+        std::fs::set_permissions(bin.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+    let on_beta = |args: &[&str], stdin: &str| -> (i32, String) {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_dojo-mesh"))
+            .arg("--config")
+            .arg(&beta_config)
+            .args(args)
+            .env_clear()
+            .env("PATH", &path)
+            .env("HOME", &lab.root)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+        let output = child.wait_with_output().unwrap();
+        (output.status.code().unwrap(), format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)))
+    };
+
+    // A first copy by hand: export here, receive there.
+    let (code, bundle) = lab.run_with_path(&["roster", "export"], &path);
+    assert_eq!(code, 0, "{bundle}");
+    let (code, out) = on_beta(&["roster", "receive"], &bundle);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("2 added"), "{out}");
+    assert!(beta_dir.join("devices/alpha.json.sig").exists() && beta_dir.join("devices/beta.json").exists());
+
+    // Beta has a member alpha does not, and a file signed by a stranger. Alpha takes the first only.
+    let sign_in_beta = |name: &str, signer: &str, body: String| {
+        let path = beta_dir.join(format!("devices/{name}.json"));
+        std::fs::write(&path, body).unwrap();
+        let _ = std::fs::remove_file(format!("{}.sig", path.display()));
+        tool("ssh-keygen", &["-Y", "sign", "-q", "-f", lab.root.join("keys").join(signer).to_str().unwrap(), "-n", "dojo-mesh-roster", path.to_str().unwrap()], &lab.root);
+    };
+    let gamma = lab.key("gamma");
+    sign_in_beta("gamma", "operator", lab.device_json("gamma", &gamma, open, 90));
+    sign_in_beta("evil", "stranger", lab.device_json("evil", &gamma, open, 90));
+    let (code, out) = lab.run_with_path(&["roster", "sync"], &path);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("beta: 1 added") && out.contains("devices/evil.json"), "{out}");
+    assert!(lab.root.join("roster/devices/gamma.json").exists());
+    assert!(!lab.root.join("roster/devices/evil.json").exists(), "a file no trusted key signed is never written");
+    let (_, status) = lab.run_with_path(&["status", "--all"], &path);
+    assert!(status.contains("gamma") && !status.contains("evil"), "{status}");
+
+    // A change here reaches beta by itself, and an older copy never replaces a newer one.
+    std::fs::remove_file(beta_dir.join("devices/evil.json")).unwrap();
+    std::fs::remove_file(beta_dir.join("devices/evil.json.sig")).unwrap();
+    let before = std::fs::read_to_string(beta_dir.join("devices/beta.json")).unwrap();
+    let (code, out) = lab.run_with_path(&["renew", "beta", "--days", "30"], &path);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("sent the roster to beta"), "{out}");
+    assert_ne!(std::fs::read_to_string(beta_dir.join("devices/beta.json")).unwrap(), before);
+    assert_eq!(std::fs::read_to_string(beta_dir.join("devices/beta.json")).unwrap(), std::fs::read_to_string(lab.root.join("roster/devices/beta.json")).unwrap());
+    let (code, out) = on_beta(&["roster", "receive"], &bundle);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("0 added, 0 updated"), "the old bundle changes nothing: {out}");
+}

@@ -28,6 +28,7 @@ pub mod niri;
 pub mod onboard;
 pub mod openssh;
 pub mod roster;
+pub mod rostersync;
 pub mod signed;
 pub mod send_cli;
 pub mod session;
