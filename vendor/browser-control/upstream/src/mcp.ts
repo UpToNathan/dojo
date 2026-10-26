@@ -57,6 +57,23 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
     currentSession.id = id
     currentSession.established = true
   }
+  /**
+   * Resumes a session for this client. When the session's id is held by someone this client cannot take
+   * it from (a session restored after a relay restart has no owner, or another client owns it), and the
+   * id was only this process's own default, a fresh id is used instead of failing for as long as this
+   * process lives. An id the caller chose is never replaced.
+   */
+  const resumeOwnSession = (sessionId: string, chosen: boolean) => {
+    const owner = currentSession.owner ?? ""
+    return relay.sessionResume({ sessionId, dojoOwner: owner }).pipe(
+      Effect.map((session) => ({ id: sessionId, session })),
+      Effect.catch((error) => {
+        if (chosen || !/not owned by this Browser Control client/.test(error.message)) return Effect.fail(error)
+        const fresh = `mcp-${crypto.randomUUID().slice(0, 8)}`
+        return relay.sessionResume({ sessionId: fresh, dojoOwner: owner }).pipe(Effect.map((session) => ({ id: fresh, session })))
+      }),
+    )
+  }
   const specs: readonly ToolSpec[] = [
     {
       name: "execute",
@@ -128,10 +145,11 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
           return yield* Effect.fail(new Error("This Browser Control client does not own the requested session"))
         }
         yield* RelayLifecycle.ensureExtensionConnected({ relay, waitForReconnect: true })
-        const session = yield* relay.sessionResume({ sessionId, dojoOwner: currentSession.owner })
-        currentSession.ownedSessions.add(sessionId)
-        currentSession.generations.set(sessionId, session.dojoGeneration ?? 1)
-        establishCurrentSession(sessionId)
+        const chosen = input !== undefined && optionalStringField(input, "session") !== undefined
+        const { id, session } = yield* resumeOwnSession(sessionId, chosen)
+        currentSession.ownedSessions.add(id)
+        currentSession.generations.set(id, session.dojoGeneration ?? 1)
+        establishCurrentSession(id)
         return { session, generation: session.dojoGeneration }
       }),
     },
@@ -164,9 +182,8 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
         if (dojoMode) {
           if (readOnly) return yield* Effect.fail(new Error("Dojo mode does not expose Browser Control read-only sessions"))
           if (!currentSession.owner) return yield* Effect.fail(new Error("DOJO_BROWSER_OWNER is required"))
-          const id = requestedId ?? currentSession.id
           yield* RelayLifecycle.ensureExtensionConnected({ relay, waitForReconnect: true })
-          const resumed = yield* relay.sessionResume({ sessionId: id, dojoOwner: currentSession.owner })
+          const { id, session: resumed } = yield* resumeOwnSession(requestedId ?? currentSession.id, requestedId !== undefined)
           currentSession.ownedSessions.add(id)
           currentSession.generations.set(id, resumed.dojoGeneration ?? 1)
           establishCurrentSession(id)

@@ -1724,7 +1724,7 @@ index 8130106..b140197 100644
        const { setupFailed: _setupFailed, ...wireResult } = result
        sendJson(options.response, { ...wireResult, session })
 diff --git a/src/mcp.ts b/src/mcp.ts
-index 440350f..153b1b0 100644
+index 440350f..d984cf5 100644
 --- a/src/mcp.ts
 +++ b/src/mcp.ts
 @@ -6,13 +6,20 @@ import path from "node:path"
@@ -1749,7 +1749,7 @@ index 440350f..153b1b0 100644
  
  type ToolSpec = {
    readonly name: string
-@@ -44,13 +51,13 @@ const sessionOnlyInputSchema = objectSchema({
+@@ -44,13 +51,30 @@ const sessionOnlyInputSchema = objectSchema({
    session: sessionSchemaProperty,
  })
  
@@ -1761,11 +1761,28 @@ index 440350f..153b1b0 100644
      currentSession.established = true
    }
 -  return [
++  /**
++   * Resumes a session for this client. When the session's id is held by someone this client cannot take
++   * it from (a session restored after a relay restart has no owner, or another client owns it), and the
++   * id was only this process's own default, a fresh id is used instead of failing for as long as this
++   * process lives. An id the caller chose is never replaced.
++   */
++  const resumeOwnSession = (sessionId: string, chosen: boolean) => {
++    const owner = currentSession.owner ?? ""
++    return relay.sessionResume({ sessionId, dojoOwner: owner }).pipe(
++      Effect.map((session) => ({ id: sessionId, session })),
++      Effect.catch((error) => {
++        if (chosen || !/not owned by this Browser Control client/.test(error.message)) return Effect.fail(error)
++        const fresh = `mcp-${crypto.randomUUID().slice(0, 8)}`
++        return relay.sessionResume({ sessionId: fresh, dojoOwner: owner }).pipe(Effect.map((session) => ({ id: fresh, session })))
++      }),
++    )
++  }
 +  const specs: readonly ToolSpec[] = [
      {
        name: "execute",
        description: "Execute trusted Playwright JavaScript against the Browser Control session. The result includes console logs, warnings, a bounded execution-context diagnostic when relevant, and an aftermath summary (URL movement, navigations, error counts, handoffs).",
-@@ -67,20 +74,67 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
+@@ -67,20 +91,68 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
          const args = yield* Effect.try(() => parseExecuteArguments(input))
          yield* RelayLifecycle.ensureExtensionConnected({ relay, waitForReconnect: true })
          const sessionId = args.session ?? currentSession.id
@@ -1823,26 +1840,26 @@ index 440350f..153b1b0 100644
 +          return yield* Effect.fail(new Error("This Browser Control client does not own the requested session"))
 +        }
 +        yield* RelayLifecycle.ensureExtensionConnected({ relay, waitForReconnect: true })
-+        const session = yield* relay.sessionResume({ sessionId, dojoOwner: currentSession.owner })
-+        currentSession.ownedSessions.add(sessionId)
-+        currentSession.generations.set(sessionId, session.dojoGeneration ?? 1)
-+        establishCurrentSession(sessionId)
++        const chosen = input !== undefined && optionalStringField(input, "session") !== undefined
++        const { id, session } = yield* resumeOwnSession(sessionId, chosen)
++        currentSession.ownedSessions.add(id)
++        currentSession.generations.set(id, session.dojoGeneration ?? 1)
++        establishCurrentSession(id)
 +        return { session, generation: session.dojoGeneration }
 +      }),
 +    },
      {
        name: "status",
        description: "Return relay, extension, target, and session status.",
-@@ -107,6 +161,17 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
+@@ -107,6 +179,16 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
        handle: (input) => Effect.gen(function* () {
          const requestedId = optionalStringField(input, "id")
          const readOnly = optionalBooleanField(input, "readOnly")
 +        if (dojoMode) {
 +          if (readOnly) return yield* Effect.fail(new Error("Dojo mode does not expose Browser Control read-only sessions"))
 +          if (!currentSession.owner) return yield* Effect.fail(new Error("DOJO_BROWSER_OWNER is required"))
-+          const id = requestedId ?? currentSession.id
 +          yield* RelayLifecycle.ensureExtensionConnected({ relay, waitForReconnect: true })
-+          const resumed = yield* relay.sessionResume({ sessionId: id, dojoOwner: currentSession.owner })
++          const { id, session: resumed } = yield* resumeOwnSession(requestedId ?? currentSession.id, requestedId !== undefined)
 +          currentSession.ownedSessions.add(id)
 +          currentSession.generations.set(id, resumed.dojoGeneration ?? 1)
 +          establishCurrentSession(id)
@@ -1851,7 +1868,7 @@ index 440350f..153b1b0 100644
          const session = yield* relay.sessionNew(requestedId, readOnly ? { readOnly: true } : {})
          establishCurrentSession(session.id)
          return { session }
-@@ -195,10 +260,15 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
+@@ -195,10 +277,15 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
        handle: (input) => Effect.gen(function* () {
          const args = yield* Effect.try(() => parseAdoptArguments(input))
          const sessionId = args.session ?? currentSession.id
@@ -1867,7 +1884,7 @@ index 440350f..153b1b0 100644
          })
          establishCurrentSession(sessionId)
          return { ...result, confirmation: `Adopted session '${result.session.id}' default page: ${result.adoptedUrl}` }
-@@ -492,17 +562,54 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
+@@ -492,17 +579,54 @@ function makeToolSpecs(relay: RelayClient.Interface, currentSession: CurrentSess
        }),
      },
    ]
@@ -1923,7 +1940,7 @@ index 440350f..153b1b0 100644
      return server.addTool({
        tool: new McpSchema.Tool({
          name: spec.name,
-@@ -686,6 +793,15 @@ export function toolResultForValue(value: unknown): McpSchema.CallToolResult {
+@@ -686,6 +810,15 @@ export function toolResultForValue(value: unknown): McpSchema.CallToolResult {
  }
  
  export function mcpErrorMessage(tool: string, message: string): string {
@@ -3161,10 +3178,70 @@ index 72c2259..848fe6d 100644
      const rpc = new ExtensionRpc({ commandTimeoutMs: 20, livenessProbeTimeoutMs: 1_000 })
      const socket = connect(rpc)
 diff --git a/test/mcp.test.ts b/test/mcp.test.ts
-index dd77072..5753c62 100644
+index dd77072..5253961 100644
 --- a/test/mcp.test.ts
 +++ b/test/mcp.test.ts
-@@ -399,6 +399,9 @@ describe("MCP tool results", () => {
+@@ -245,6 +245,59 @@ describe("MCP tool results", () => {
+     }).pipe(Effect.scoped))
+   })
+ 
++  it("takes a fresh session id when this process's own is held by someone it cannot take it from", async () => {
++    const previous = process.env.DOJO_BROWSER_CONTROL_MODE
++    process.env.DOJO_BROWSER_CONTROL_MODE = "1"
++    try {
++      const summary = (id: string) => ({ id, createdAt: "2026-07-01", updatedAt: "2026-07-01", connected: false, pageUrl: null, stateKeys: [], dojoGeneration: 1 })
++      const taken = new Set<string>()
++      const resume = vi.fn<RelayClient.Interface["sessionResume"]>((request) => {
++        if (taken.has(request.sessionId)) {
++          return Effect.fail(new RelayClient.RelayRejected({ message: `Existing session is not owned by this Browser Control client: ${request.sessionId}`, status: 400, path: "/cli/session/resume" }))
++        }
++        return Effect.succeed(summary(request.sessionId))
++      })
++      await Effect.runPromise(Effect.gen(function* () {
++        const server = yield* McpServer.McpServer.make
++        yield* Layer.build(mcpToolsLayer.pipe(
++          Layer.provide(Layer.succeed(McpServer.McpServer, server)),
++          Layer.provide(Layer.mock(RelayClient.Service, {
++            endpoint: "http://127.0.0.1:19989",
++            version: Effect.succeed({ version: "1.0.0", buildId: "2026-08-31T12:00:00.000Z" }),
++            extensionStatus: Effect.succeed({ connected: true, version: "9.4.2", activeTargets: 1 }),
++            sessionResume: resume,
++            // The scope's finalizer retires what this client resumed.
++            executeCancel: (request) => Effect.succeed({ session: summary(request.sessionId ?? ""), nativeRetired: true, extensionAcknowledged: true, unknownCommandIds: [] }),
++          })),
++        ))
++        const initializePayload = { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test-client", version: "1.0.0" } }
++        const client = McpSchema.McpServerClient.of({
++          clientId: 1, protocolVersion: "2025-06-18", clientCapabilities: {}, clientInfo: initializePayload.clientInfo,
++          initializePayload, getClient: Effect.die("unexpected client callback"),
++        })
++        yield* Effect.gen(function* () {
++          const current = () => server.callTool({ name: "session_current", arguments: {} })
++          const first = yield* current()
++          const ownId = (first.structuredContent as { currentSession: string }).currentSession
++          taken.add(ownId)
++          const resumed = yield* server.callTool({ name: "session_resume", arguments: {} })
++          expect(resumed.isError).toBe(false)
++          const next = ((yield* current()).structuredContent as { currentSession: string }).currentSession
++          expect(next).not.toBe(ownId)
++          expect(resume).toHaveBeenCalledTimes(2)
++          // An id the caller chose is never replaced.
++          taken.add("chosen")
++          const refused = yield* server.callTool({ name: "session_new", arguments: { id: "chosen" } })
++          expect(refused.isError).toBe(true)
++          expect(JSON.stringify(refused.content)).toContain("not owned by this Browser Control client")
++        }).pipe(Effect.provideService(McpSchema.McpServerClient, client))
++      }).pipe(Effect.scoped))
++    } finally {
++      if (previous === undefined) delete process.env.DOJO_BROWSER_CONTROL_MODE
++      else process.env.DOJO_BROWSER_CONTROL_MODE = previous
++    }
++  })
++
+   it("exposes ordinary and rolling recording lifecycle tools", async () => {
+     const recordingStart = vi.fn<RelayClient.Interface["recordingStart"]>(() => Effect.succeed({ success: true, tabId: 7, startedAt: 1, path: "/tmp/demo.mp4", mimeType: "video/mp4", mode: "cdp", artifactType: "mp4" }))
+     const recordingStatus = vi.fn<RelayClient.Interface["recordingStatus"]>(() => Effect.succeed({ isRecording: true, tabId: 7 }))
+@@ -399,6 +452,9 @@ describe("MCP tool results", () => {
    it("adds session recovery guidance at the MCP boundary", () => {
      expect(mcpErrorMessage("execute", "Session not found: stale")).toContain("omit the explicit session id")
      expect(mcpErrorMessage("session_use", "Session not found: stale")).toContain("Create it with session_new first")

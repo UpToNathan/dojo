@@ -30,7 +30,7 @@
   "version": "0.8.4",
   "pnpmVersion": "11.20.0",
   "extensionVersion": "0.0.25",
-  "patchSha256": "ab1bcd577649e751ea8cbae636799d627259826d1e70e1b4675bfacfad10ec3f",
+  "patchSha256": "de1fa9d85bdcb2d9e02a3ca3f201cccf996702a9777f616c0c9cd8b100b7b980",
   "lockSha256": "453160ba7b8c8979eb7c772467b130374973ecc02a229c74ff65012fca8387d9",
   "files": [
     {
@@ -767,7 +767,7 @@
     },
     {
       "path": "src/mcp.ts",
-      "sha256": "2d6c569927aba63ab9d489efc44c7aa98fcb65d956e870852e4372895a53838c",
+      "sha256": "9d1a737266d00e7ee65898d57706ed6101d63b189914c0f494ffbbc554809526",
       "upstreamSha256": "0ec719ffe9d7980ebd8f51d4b70550b4fb5c662e7842e2028c4182669238f539",
       "state": "modified"
     },
@@ -1175,7 +1175,7 @@
     },
     {
       "path": "test/mcp.test.ts",
-      "sha256": "2b3e6af3a16380d40a54c893a57ac31bf0c873e307e194d43a50510f73842cfc",
+      "sha256": "d245d573f4d1ace29a2f4f73aeeda0c34d4b9a12dd443826e70e87f055aebdcd",
       "upstreamSha256": "14f9aad3bc62c6174365f075423a5204af413c968dafb72b09bcc532880fe3d8",
       "state": "modified"
     },
@@ -1426,5 +1426,5 @@
       "sha256": "83e690edaa8c22ed20871a0b1e94262fa0d730ee6c45c313487553a502277a45"
     }
   ],
-  "sourceIdentity": "7fa76d692e955e80fad8e694896dcb9f17c7c771e0b1f3cbd9b38279c8c1df54"
+  "sourceIdentity": "38236a478fb8faad36768a07eaf80c5d9d2bc7475b2484576dea562d214a4391"
 }
