@@ -25,8 +25,9 @@ Mesh                                     ● ✓
 - One card per machine: a status dot (online, offline, expiring soon, problem), the name, and one muted word or number (days until its entry expires, "offline"). No sentences.
 - Icon buttons per peer, enabled only when they can work: take cursor and keyboard, send a window (opens the switch panel on that machine), renew, and a menu with remove. Remove asks once, inline, with the machine's name; renew and remove sign with the node's signing keys, so a hardware key may ask for a touch: the card shows the key glyph pulsing, not a message.
 - The health badge at the top right is `dojo-mesh doctor` as a glyph: a check when healthy, an alert with a count otherwise. Pressing it lists the findings, one line each, which is the only place sentences appear. A locked 1Password shows as a lock glyph on this machine's card.
-- **Adding a machine** is the full enrolment in the panel. Join requests (`*.join.json`) in the mesh inbox (`$XDG_DATA_HOME/dojo/mesh/inbox`, and `~/Downloads`) appear as a count. A request is signed by the new machine's own key, so the panel only lists requests whose signature verifies. Opening one shows the machine's name and its node key's fingerprint, which the new machine printed when it made the request. The person compares the fingerprints and presses Approve.
-- The trusted signing keys are a second view of the same panel (a key glyph): each as hardware or software, with Remove, and Add for a key file or a key shown on another machine, which asks for its fingerprint to be typed as it was read there.
+- **Adding a machine** needs no files and no typing. *Add machine* makes an **invite** and the new machine finds it by itself. The invite and everything that follows travel through the person's own 1Password (an item in a vault both machines can read): the operator's panel posts the invite (its name and the signing keys it trusts); the new machine, when it joins, finds the open invite and posts its signed request into the same item; the panel shows "studio wants to join" with Approve and Deny; approval signs the entry and posts the answer (the roster and the trusted signing keys), which the new machine installs. The item is deleted when the exchange ends or the invite expires (default 15 minutes). The vault is the trust anchor, as it already is for the nodes' keys, so no fingerprint is compared by eye and no `trust add` is typed on the new machine. A request is still signed by the new machine's own key, so its fields cannot be altered. The carrier is an interface (`Rendezvous`): 1Password first, a shared directory for tests and for people without 1Password, others later (Cloudflare).
+- **Keys** are shown by purpose, not by fingerprint: the keys this node *signs with*, in order (the first is the primary, the rest are fallbacks), each as *Security key*, *1Password key* or *Key file*; and the keys it *trusts*. Order, removal and adding are done in the panel and are written to the configuration by `dojo-mesh keys …`, never by editing a file. Adding a security key needs its PIN, asked by a small Dojo dialog.
+- **Membership** lasts 90 days and renews itself: a machine that can sign without a touch renews entries when they are within 30 days of expiring. The panel shows nothing until an entry is within 14 days of expiring, then an amber note and a highlighted Renew.
 - Nothing is computed in the panel that `dojo-mesh` does not already do. It reads a snapshot (`dojo_mesh::panel`) and runs the CLI for every change, so the terminal and the panel cannot disagree.
 
 ## Switch panel (Super+F11, bottom centre)
@@ -39,7 +40,7 @@ Mesh                                     ● ✓
 
 ## Out of scope
 
-- Moving a join request from the new machine to this one. The inbox is a folder; files arrive by whatever the person already uses (a stick, a file share, `tailscale file cp`).
+- A rendezvous other than 1Password and a shared directory (Cloudflare is the likely next one).
 - Editing `mesh.toml` (membership, accept-input, capabilities).
 - The Tailscale control plane (`enroll`, `policy`).
 
