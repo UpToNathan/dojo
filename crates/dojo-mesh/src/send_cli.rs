@@ -263,8 +263,11 @@ pub fn receive(env: &Env, rest: &[String]) -> Result<u8, Failure> {
         Ok(handoff) => {
             let dirs = desktop::from_process();
             let planned = match &handoff {
-                // Who sent it is what the connection says, never what the message says.
-                Handoff::RemoteTerminal { directory, program } => match (crate::remote_cli::sender(env, None), std::env::current_exe()) {
+                // Who sent it is what the mesh method says about the connection. Under the roster method a
+                // node key names nobody, so the sender's own statement (`DOJO_FROM`) is checked against the
+                // signed roster instead, as `inject --as` is; a member holds a full shell here already, so a
+                // false claim gains nothing but a window connected to another member.
+                Handoff::RemoteTerminal { directory, program } => match (crate::remote_cli::sender(env, std::env::var("DOJO_FROM").ok()), std::env::current_exe()) {
                     (Ok(origin), Ok(mesh)) => handoff::plan_remote_terminal(directory, program, &origin, &mesh),
                     (Err(reason), _) => Err(Reply::Refused { reason: format!("cannot tell who sent this: {reason}") }),
                     (_, Err(error)) => Err(Reply::Refused { reason: format!("cannot find this installation of dojo-mesh: {error}") }),
