@@ -67,6 +67,9 @@ phase_user() {
     devenv shell -- scripts/install-helpers.sh
     devenv shell -- scripts/install-dojo-dm.sh
 
+    echo '== T3 Code'
+    python3 scripts/install-t3code.py
+
     echo '== CUA driver'
     # build-cua-driver.sh verifies the vendored copy against a pinned upstream checkout in the cache.
     local cua_rev=afed1fcbba64acadcc154b8d5d377549ae62bc7e

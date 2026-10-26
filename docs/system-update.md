@@ -78,9 +78,11 @@ restart. The updater does not pull this checkout or replace the vendored Niri fo
   and selected binaries. It does not downgrade newer installed versions.
   Unsupported sources or incomplete install metadata require manual handling.
 - Mise tool updates use `--minimum-release-age` and retain previous installs.
-- Codex, Claude, and T3 Code run their native `update` commands without an age filter.
-  T3 may ask to restart its background service. Skip its group during a session
-  where that restart is inconvenient.
+- Codex and Claude run their native `update` commands without an age filter.
+- T3 Code runs `scripts/install-t3code.py`, which installs the app where it is
+  missing and otherwise follows its channel, without an age filter. A running T3
+  keeps its old files until restarted; skip the group during a session where
+  that is inconvenient.
 
 Git commit age measures the source snapshot, not every transitive dependency's
 release date. Fixed source hashes retain their declared versions. Inspect the

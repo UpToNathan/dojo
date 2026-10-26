@@ -33,7 +33,7 @@ confirms the running session can activate the file-picker and portal services. T
 setting a machine up is joining the Dojo mesh: `all` offers it at a terminal, and
 `scripts/bootstrap-host onboard` runs it on its own ([Onboarding a machine](docs/mesh.md#onboarding-a-machine)).
 
-Home Manager also installs T3's bundled CLI. The desktop app owns its local
+Home Manager also installs T3's bundled CLI, and `scripts/install-t3code.py` installs the app it runs. The desktop app owns its local
 backend; Dojo does not autostart a separate T3 server. See
 [T3 backend setup](docs/t3-server.md). [Rift workspaces](docs/rift.md) describes the pinned
 CLI and OpenCode workspace plugin installed through Home Manager and devenv.

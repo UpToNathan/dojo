@@ -35,7 +35,7 @@ class UpdateTests(unittest.TestCase):
             self.assertIn("--buffer-days 3", output)
             self.assertIn("codex update", output)
             self.assertIn("claude update", output)
-            self.assertIn("t3 update", output)
+            self.assertIn("install-t3code.py", output)
             self.assertIn("nvim: held", output)
             self.assertIn("nix-home: planned", output)
             self.assertEqual(list(Path(temporary).iterdir()), [])
@@ -108,12 +108,10 @@ class UpdateTests(unittest.TestCase):
             _, _, run = self.run_cli(["--only", "npm"])
             self.assertEqual(run.call_args.args[0][:3], ["env", f"NPM_CONFIG_PREFIX={home}/.local/npm", "npm"])
 
-    def test_t3code_is_skipped_where_the_app_is_not_installed(self):
-        with patch.object(updater.Path, "exists", return_value=False):
-            code, output, run = self.run_cli(["--only", "t3code"])
+    def test_t3code_is_installed_by_the_repository_script(self):
+        code, _, run = self.run_cli(["--only", "t3code"])
         self.assertEqual(code, 0)
-        self.assertIn("t3code: skipped", output)
-        run.assert_not_called()
+        self.assertTrue(run.call_args.args[0][1].endswith("scripts/install-t3code.py"))
 
     def test_concurrent_run_rejected(self):
         with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {"XDG_STATE_HOME": temporary}), \
