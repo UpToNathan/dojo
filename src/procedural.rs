@@ -677,10 +677,25 @@ impl Scene {
         } else {
             (
                 self.background,
-                mix(self.background, scale(self.accents[1], 0.6), 0.55),
+                mix(
+                    self.background,
+                    scale(mix(self.accents[1], self.accents[2], 0.55), 0.6),
+                    0.55,
+                ),
             )
         };
-        let mut colour = mix(top, horizon, smoothstep(0.0, 0.62, y).powf(1.5));
+        // The sky runs from the background through the primary to a glow of the secondary at the
+        // horizon; a light sky has just the two ends.
+        let mut colour = if self.light {
+            mix(top, horizon, smoothstep(0.0, 0.62, y).powf(1.5))
+        } else {
+            let middle = mix(self.background, scale(self.accents[1], 0.5), 0.55);
+            if y < 0.38 {
+                mix(top, middle, smoothstep(0.0, 0.38, y))
+            } else {
+                mix(middle, horizon, smoothstep(0.38, 0.64, y))
+            }
+        };
 
         let (sun_x, sun_y) = (self.aspect * (0.2 + 0.6 * self.offsets[0]), 0.4);
         let (dx, dy) = (x - sun_x, y - sun_y);
@@ -745,7 +760,8 @@ impl Scene {
             let fog = mix(horizon, self.background, 0.15 + 0.5 * depth);
             let body = mix(fog, scale(self.background, 1.1), depth.powf(0.8));
             let body = add(body, scale(self.accents[0], 0.05 * (1. - depth)));
-            let lit = mix(body, self.accents[1], 0.34 * (1. - 0.5 * depth));
+            let tint = mix(self.accents[1], self.accents[2], 0.35 + 0.35 * (1. - depth));
+            let lit = mix(body, tint, 0.34 * (1. - 0.5 * depth));
             let dark = scale(body, 0.6);
             let shade = (0.5 + 0.5 * facing + 0.22 * jitter - 0.025 * facet as f64).clamp(0., 1.);
             colour = mix(colour, mix(dark, lit, shade), coverage);
@@ -808,10 +824,14 @@ impl Scene {
         let half_width = (look.widths[tier] / pixel / 2.).max(0.45);
         let coverage = (half_width - distance + 0.5).clamp(0., 1.);
 
+        // Higher ground drifts from the primary toward the secondary, in the ground, the relief
+        // light and the lines, so both of the theme's colours are seen across the picture.
+        let tone = tone(here, x, y).clamp(0., 1.);
+        let high = smoothstep(0.35, 0.95, tone);
         let mut ground = mix(
             self.background,
-            scale(self.accents[0], 0.17),
-            tone(here, x, y).clamp(0., 1.) * look.tint,
+            scale(mix(self.accents[0], self.accents[2], high * 0.6), 0.17),
+            tone * look.tint,
         );
         if look.shade > 0. {
             // A light from the upper left: surfaces facing it brighten, those facing away dim.
@@ -819,15 +839,22 @@ impl Scene {
             let length = (nx * nx + ny * ny + 1.).sqrt();
             let lit = (nx * -0.45 + ny * -0.55 + 0.70) / length - 0.70;
             ground = if lit >= 0. {
-                add(ground, scale(self.accents[1], lit * look.shade))
+                add(
+                    ground,
+                    scale(
+                        mix(self.accents[1], self.accents[2], 0.5 + 0.4 * high),
+                        lit * look.shade,
+                    ),
+                )
             } else {
                 // Shadow darkens without shifting the hue, which subtracting a colour would.
                 scale(ground, (1. + lit * look.shade * 5.).max(0.45))
             };
         }
+        let line = mix(self.accents[1], self.accents[2], high * 0.9);
         let (ink, strength) = match tier {
-            0 => (mix(self.accents[1], self.background, 0.35), 0.5),
-            1 => (self.accents[1], 0.78),
+            0 => (mix(line, self.background, 0.35), 0.5),
+            1 => (line, 0.78),
             _ => (self.accents[2], 1.),
         };
         mix(ground, ink, coverage * strength)
