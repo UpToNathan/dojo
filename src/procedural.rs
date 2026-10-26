@@ -675,27 +675,17 @@ impl Scene {
                 lift(mix(self.accents[1], self.accents[2], 0.5)),
             )
         } else {
+            // A dark sky stays the theme's dark ground, with only a faint glow at the horizon.
             (
                 self.background,
                 mix(
                     self.background,
-                    scale(mix(self.accents[1], self.accents[2], 0.55), 0.6),
-                    0.55,
+                    scale(mix(self.accents[1], self.accents[2], 0.55), 0.3),
+                    0.5,
                 ),
             )
         };
-        // The sky runs from the background through the primary to a glow of the secondary at the
-        // horizon; a light sky has just the two ends.
-        let mut colour = if self.light {
-            mix(top, horizon, smoothstep(0.0, 0.62, y).powf(1.5))
-        } else {
-            let middle = mix(self.background, scale(self.accents[1], 0.5), 0.55);
-            if y < 0.38 {
-                mix(top, middle, smoothstep(0.0, 0.38, y))
-            } else {
-                mix(middle, horizon, smoothstep(0.38, 0.64, y))
-            }
-        };
+        let mut colour = mix(top, horizon, smoothstep(0.0, 0.64, y).powf(1.5));
 
         let (sun_x, sun_y) = (self.aspect * (0.2 + 0.6 * self.offsets[0]), 0.4);
         let (dx, dy) = (x - sun_x, y - sun_y);
@@ -757,12 +747,18 @@ impl Scene {
             let facet = into.floor() as i64;
             let jitter = self.hash(layer as i64 + 31, k, facet) - 0.5;
 
-            let fog = mix(horizon, self.background, 0.15 + 0.5 * depth);
-            let body = mix(fog, scale(self.background, 1.1), depth.powf(0.8));
-            let body = add(body, scale(self.accents[0], 0.05 * (1. - depth)));
+            // Dark shapes: the far ridges are barely lighter than the sky's glow and the near
+            // ones darker than the ground. The theme's colours show on the faces that catch the
+            // light, not as the body of the mountains.
+            let fog = mix(horizon, self.background, 0.3 + 0.4 * depth);
+            let body = mix(fog, scale(self.background, 0.85), depth.powf(0.8));
             let tint = mix(self.accents[1], self.accents[2], 0.35 + 0.35 * (1. - depth));
-            let lit = mix(body, tint, 0.34 * (1. - 0.5 * depth));
-            let dark = scale(body, 0.6);
+            let lit = if self.light {
+                mix(body, tint, 0.34 * (1. - 0.5 * depth))
+            } else {
+                mix(body, scale(tint, 0.5), 0.3 * (1. - 0.45 * depth))
+            };
+            let dark = scale(body, if self.light { 0.6 } else { 0.55 });
             let shade = (0.5 + 0.5 * facing + 0.22 * jitter - 0.025 * facet as f64).clamp(0., 1.);
             colour = mix(colour, mix(dark, lit, shade), coverage);
         }
