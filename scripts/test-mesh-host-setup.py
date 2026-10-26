@@ -289,6 +289,16 @@ class OnboardMesh(Host):
         self.assertNotIn("--sign", self.mesh_calls.read_text())
         self.assertIn("not a tailnet address", result.stdout)
 
+    def test_joining_a_mesh_that_exists_waits_for_its_invite_instead_of_writing_a_file(self):
+        result = self.onboard("--name", "guest", "--route", "192.0.2.7", "--join")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--invite", self.mesh_calls.read_text())
+        self.assertNotIn("--sign", self.mesh_calls.read_text())
+
+    def test_a_machine_that_signs_never_waits_for_an_invite(self):
+        self.onboard("--name", "orchard", "--sign", "yubikey", "--join")
+        self.assertNotIn("--invite", self.mesh_calls.read_text())
+
     def test_it_stops_before_changing_anything_when_1password_is_not_ready(self):
         script(self.bin / "ssh-add", "echo 'Error connecting to agent' >&2; exit 2")
         result = self.onboard("--name", "orchard", "--sign", "yubikey")

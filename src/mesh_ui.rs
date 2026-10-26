@@ -8,7 +8,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use dojo_mesh::doctor::Severity;
-use dojo_mesh::panel::{Kind, Offer, Panel, Request, Signer};
+use dojo_mesh::panel::{Exchange, Kind, Panel, Signer};
 use gpui::{
     App, AppContext, Bounds, Context, DisplayId, FocusHandle, IntoElement, KeyDownEvent,
     MouseButton, Render, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle,
@@ -40,9 +40,7 @@ const GAP: f32 = 8.;
 const HEADER: f32 = 32.;
 const CARD: f32 = 52.;
 const LINE: f32 = 26.;
-const REQUEST: f32 = 92.;
 const KEY_ROW: f32 = 44.;
-const OFFER: f32 = 76.;
 /// The most machines drawn; the panel never scrolls, so a longer mesh is cut here.
 const MAX_CARDS: usize = 9;
 const REFRESH: Duration = Duration::from_secs(3);
@@ -58,9 +56,9 @@ impl gpui::Global for MeshUi {}
 enum View {
     Machines,
     Findings,
-    /// Machines asking to join, waiting for approval.
-    Requests,
-    /// The signing keys this node trusts, and keys offered to it.
+    /// Inviting a machine, and letting it in.
+    Add,
+    /// The signing keys this node uses and trusts.
     Keys,
 }
 
@@ -68,8 +66,6 @@ enum View {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Confirm {
     Remove(String),
-    Approve(PathBuf),
-    Trust(String),
     Untrust(String),
 }
 
@@ -83,8 +79,10 @@ struct Mesh {
     data: Option<Panel>,
     view: View,
     confirm: Option<Confirm>,
-    /// Requests the person put away for now (the files are left where they are).
-    dismissed: std::collections::HashSet<PathBuf>,
+    /// The invite this panel made, and when it runs out.
+    invite: Option<(String, i64)>,
+    /// What the carrier last said; read only while the Add machine view is open.
+    exchange: Option<Exchange>,
     job: Option<Job>,
     /// The last thing that went wrong, short.
     notice: Option<String>,
@@ -137,10 +135,16 @@ pub fn toggle(display_id: DisplayId, tab: crate::control::MeshTab, cx: &mut App)
                 let polling = cx.spawn(async move |this, cx| {
                     loop {
                         // The snapshot probes peers and runs ssh-keygen, so it is read off the UI thread.
+                        let adding = this.update(cx, |mesh: &mut Mesh, _| mesh.view == View::Add).unwrap_or(false);
                         let data = cx.background_executor().spawn(async { dojo_mesh::panel::read() }).await;
+                        // The invite exchange asks 1Password, so it is read only while it is being looked at.
+                        let exchange = if adding { Some(cx.background_executor().spawn(async { dojo_mesh::panel::exchange() }).await) } else { None };
                         let alive = this
                             .update(cx, |mesh: &mut Mesh, cx| {
                                 mesh.data = Some(data);
+                                if exchange.is_some() {
+                                    mesh.exchange = exchange;
+                                }
                                 cx.notify();
                                 mesh.reveal.is_open()
                             })
@@ -148,19 +152,20 @@ pub fn toggle(display_id: DisplayId, tab: crate::control::MeshTab, cx: &mut App)
                         if !alive {
                             break;
                         }
-                        cx.background_executor().timer(REFRESH).await;
+                        cx.background_executor().timer(if adding { Duration::from_secs(2) } else { REFRESH }).await;
                     }
                 });
                 Mesh {
                     data: None,
                     view: match tab {
                         crate::control::MeshTab::Machines => View::Machines,
-                        crate::control::MeshTab::Requests => View::Requests,
+                        crate::control::MeshTab::Add => View::Add,
                         crate::control::MeshTab::Keys => View::Keys,
                         crate::control::MeshTab::Health => View::Findings,
                     },
                     confirm: None,
-                    dismissed: Default::default(),
+                    invite: None,
+                    exchange: None,
                     job: None,
                     notice: None,
                     display: display_id,
@@ -207,22 +212,6 @@ impl Body {
     fn finish(self) -> (gpui::Div, f32) {
         (self.el, self.height)
     }
-}
-
-/// A fingerprint split in two lines for comparing by eye: `SHA256:` dropped, the 43 characters halved.
-fn fingerprint_lines(fingerprint: &str) -> (String, String) {
-    let body = fingerprint.strip_prefix("SHA256:").unwrap_or(fingerprint);
-    let half = body.len().div_ceil(2);
-    (body[..half].to_string(), body[half..].to_string())
-}
-
-/// The start and end of a fingerprint, enough to tell keys apart in a list.
-fn short_fingerprint(fingerprint: &str) -> String {
-    let body = fingerprint.strip_prefix("SHA256:").unwrap_or(fingerprint);
-    if body.len() <= 20 {
-        return body.to_string();
-    }
-    format!("{}…{}", &body[..12], &body[body.len() - 6..])
 }
 
 impl Mesh {
@@ -358,72 +347,6 @@ impl Mesh {
             .into_any_element()
     }
 
-    /// A machine asking to join: its name and where it is, the fingerprint to compare, and the one
-    /// press (then a second) that approves it.
-    fn request_card(&self, request: &Request, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let colors = *cx.global::<ThemeColors>();
-        let idle = self.job.is_none();
-        let confirming = self.confirm == Some(Confirm::Approve(request.file.clone()));
-        let (first, second) = fingerprint_lines(&request.fingerprint);
-        let file = request.file.clone();
-        let args = {
-            let mut args = vec!["approve".to_string(), request.file.display().to_string(), "--fingerprint".into(), request.fingerprint.clone(), "--days".into(), "90".into()];
-            if request.replaces {
-                args.push("--replace".into());
-            }
-            args
-        };
-        let mut sub = div().text_size(px(11.)).truncate();
-        sub = if request.replaces {
-            sub.text_color(gpui::rgb(dojo::design::ATTENTION)).child(format!("{} {}", glyph::ALERT, format!("replaces the {} already here", request.name)))
-        } else {
-            sub.text_color(colors.foreground_muted.rgb()).child(request.routes.join(", "))
-        };
-        let mut actions = div().flex().items_center().gap(px(2.)).flex_none();
-        if confirming {
-            actions = actions
-                .child(self.icon_button(format!("mesh-approve-{}", file.display()), glyph::CHECK, "Approve", idle, Some(colors.primary.rgb()), cx, move |mesh, _, cx| {
-                    mesh.run(args.clone(), true, cx);
-                }))
-                .child(self.icon_button(format!("mesh-approve-cancel-{}", request.file.display()), glyph::CLOSE, "Cancel", true, None, cx, |mesh, _, cx| {
-                    mesh.confirm = None;
-                    cx.notify();
-                }));
-        } else {
-            let ask = request.file.clone();
-            let away = request.file.clone();
-            actions = actions
-                .child(self.icon_button(format!("mesh-ask-{}", file.display()), glyph::CHECK, "Approve…", idle, None, cx, move |mesh, _, cx| {
-                    mesh.confirm = Some(Confirm::Approve(ask.clone()));
-                    cx.notify();
-                }))
-                .child(self.icon_button(format!("mesh-away-{}", request.file.display()), glyph::CLOSE, "Dismiss", true, None, cx, move |mesh, _, cx| {
-                    mesh.dismissed.insert(away.clone());
-                    cx.notify();
-                }));
-        }
-        div()
-            .id(format!("mesh-request-{}", request.file.display()))
-            .h(px(REQUEST))
-            .px(px(12.))
-            .py(px(10.))
-            .flex()
-            .flex_col()
-            .gap(px(6.))
-            .rounded(px(14.))
-            .bg(colors.surface_raised.rgb())
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(14.)).truncate().child(if confirming { format!("Approve {}?", request.name) } else { request.name.clone() })).child(sub))
-                    .child(actions),
-            )
-            .child(div().text_size(px(11.)).text_color(colors.foreground.rgb()).child(format!("{first}\n{second}")))
-            .into_any_element()
-    }
-
     fn signer_row(&self, signer: &Signer, cx: &mut Context<Self>) -> gpui::AnyElement {
         let colors = *cx.global::<ThemeColors>();
         let idle = self.job.is_none();
@@ -439,7 +362,7 @@ impl Mesh {
             .rounded(px(14.))
             .bg(colors.surface_raised.rgb())
             .child(div().text_size(px(15.)).text_color(colors.primary.rgb()).child(if signer.hardware { glyph::USB } else { glyph::KEY }))
-            .child(div().flex_1().min_w_0().text_size(px(12.)).truncate().child(if confirming { "Stop trusting this key?".to_string() } else { short_fingerprint(&signer.fingerprint) }));
+            .child(div().flex_1().min_w_0().text_size(px(13.)).truncate().child(if confirming { "Stop trusting this key?".to_string() } else if signer.hardware { "Security key".to_string() } else { "Software key".to_string() }));
         if confirming {
             let target = fingerprint.clone();
             row = row
@@ -460,53 +383,153 @@ impl Mesh {
         row.into_any_element()
     }
 
-    /// A public key somebody left in the inbox: shown in full to compare with the machine that holds it.
-    fn offer_row(&self, offer: &Offer, cx: &mut Context<Self>) -> gpui::AnyElement {
+    /// The Add machine view, one step at a time: make an invite, wait, then answer a machine that asked.
+    fn add_view(&self, cx: &mut Context<Self>) -> Vec<(gpui::AnyElement, f32)> {
         let colors = *cx.global::<ThemeColors>();
         let idle = self.job.is_none();
-        let confirming = self.confirm == Some(Confirm::Trust(offer.fingerprint.clone()));
-        let (first, second) = fingerprint_lines(&offer.fingerprint);
-        let (file, fingerprint) = (offer.file.display().to_string(), offer.fingerprint.clone());
-        let mut actions = div().flex().items_center().gap(px(2.)).flex_none();
-        if confirming {
-            actions = actions
-                .child(self.icon_button(format!("mesh-trust-{fingerprint}"), glyph::CHECK, "Trust this key", idle, Some(colors.primary.rgb()), cx, {
-                    let (file, fingerprint) = (file.clone(), fingerprint.clone());
-                    move |mesh, _, cx| mesh.run(vec!["trust".into(), "add".into(), file.clone(), "--fingerprint".into(), fingerprint.clone()], false, cx)
-                }))
-                .child(self.icon_button(format!("mesh-trust-cancel-{fingerprint}"), glyph::CLOSE, "Cancel", true, None, cx, |mesh, _, cx| {
-                    mesh.confirm = None;
-                    cx.notify();
-                }));
-        } else {
-            let target = fingerprint.clone();
-            actions = actions.child(self.icon_button(format!("mesh-trust-ask-{fingerprint}"), glyph::PLUS, "Trust this key…", idle, None, cx, move |mesh, _, cx| {
-                mesh.confirm = Some(Confirm::Trust(target.clone()));
-                cx.notify();
-            }));
-        }
-        div()
-            .id(format!("mesh-offer-{}", offer.fingerprint))
-            .h(px(OFFER))
-            .px(px(12.))
-            .py(px(8.))
-            .flex()
-            .items_center()
-            .gap(px(10.))
-            .rounded(px(14.))
-            .bg(colors.surface_raised.rgb())
-            .child(div().text_size(px(15.)).text_color(colors.foreground_muted.rgb()).child(if offer.hardware { glyph::USB } else { glyph::KEY }))
-            .child(
+        let mut rows: Vec<(gpui::AnyElement, f32)> = Vec::new();
+        let exchange = self.exchange.clone().unwrap_or_default();
+        if let Some(error) = &exchange.error {
+            rows.push((
                 div()
-                    .flex_1()
-                    .min_w_0()
+                    .h(px(CARD))
+                    .px(px(12.))
                     .flex()
-                    .flex_col()
-                    .child(div().text_size(px(11.)).text_color(colors.foreground_muted.rgb()).child(if confirming { "Trust this key?" } else { "offered" }))
-                    .child(div().text_size(px(11.)).child(format!("{first}\n{second}"))),
-            )
-            .child(actions)
-            .into_any_element()
+                    .items_center()
+                    .gap(px(10.))
+                    .rounded(px(14.))
+                    .bg(colors.surface_raised.rgb())
+                    .child(div().text_size(px(16.)).text_color(gpui::rgb(dojo::design::ATTENTION)).child(glyph::LOCK))
+                    .child(div().flex_1().min_w_0().text_size(px(12.)).child(if error.contains("unlock") || error.contains("needs you") { "Unlock 1Password".to_string() } else { error.clone() }))
+                    .into_any_element(),
+                CARD,
+            ));
+        }
+        for asking in &exchange.asking {
+            let (approve, deny) = (vec!["approve".to_string(), "--invite".into(), asking.invite.clone()], vec!["deny".to_string(), asking.invite.clone()]);
+            rows.push((
+                div()
+                    .id(format!("mesh-asking-{}", asking.invite))
+                    .h(px(CARD))
+                    .px(px(12.))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .rounded(px(14.))
+                    .bg(colors.surface_raised.rgb())
+                    .child(div().text_size(px(20.)).text_color(colors.primary.rgb()).child(glyph::LAPTOP))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .child(div().text_size(px(14.)).truncate().child(asking.name.clone()))
+                            .child(div().text_size(px(11.)).text_color(colors.foreground_muted.rgb()).child("wants to join")),
+                    )
+                    .child(self.icon_button(format!("mesh-approve-{}", asking.invite), glyph::CHECK, "Let it in", idle, Some(colors.primary.rgb()), cx, move |mesh, _, cx| mesh.run(approve.clone(), true, cx)))
+                    .child(self.icon_button(format!("mesh-deny-{}", asking.invite), glyph::CLOSE, "Turn it down", idle, None, cx, move |mesh, _, cx| mesh.run(deny.clone(), false, cx)))
+                    .into_any_element(),
+                CARD,
+            ));
+        }
+        let waiting = exchange.open.first().map(|(id, expires)| (id.clone(), expires.timestamp())).or_else(|| self.invite.clone());
+        if exchange.asking.is_empty() {
+            match waiting {
+                Some((id, expires)) => {
+                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs() as i64);
+                    let seconds = (expires - now).max(0);
+                    let cancel = vec!["invite".to_string(), "--cancel".into(), id.clone()];
+                    rows.push((
+                        div()
+                            .id("mesh-waiting")
+                            .h(px(CARD))
+                            .px(px(12.))
+                            .flex()
+                            .items_center()
+                            .gap(px(10.))
+                            .rounded(px(14.))
+                            .bg(colors.surface_raised.rgb())
+                            .child(div().size(px(9.)).flex_none().rounded(px(dojo::design::PILL_RADIUS)).bg(colors.primary.rgb()).opacity(0.5 + 0.5 * (self.reveal_clock() * 3.0).sin().abs()))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .flex()
+                                    .flex_col()
+                                    .child(div().text_size(px(14.)).child("Waiting for a machine"))
+                                    .child(div().text_size(px(11.)).text_color(colors.foreground_muted.rgb()).child(format!("{}:{:02} left · on the new one, choose Join", seconds / 60, seconds % 60))),
+                            )
+                            .child(self.icon_button("mesh-invite-cancel".into(), glyph::CLOSE, "Cancel the invite", idle, None, cx, move |mesh, _, cx| {
+                                mesh.invite = None;
+                                mesh.run(cancel.clone(), false, cx);
+                            }))
+                            .into_any_element(),
+                        CARD,
+                    ));
+                }
+                None => {
+                    rows.push((
+                        div()
+                            .id("mesh-invite")
+                            .h(px(CARD))
+                            .px(px(12.))
+                            .flex()
+                            .items_center()
+                            .gap(px(10.))
+                            .rounded(px(14.))
+                            .bg(if idle { colors.surface_raised.rgb() } else { colors.surface.rgb() })
+                            .cursor_pointer()
+                            .hover(|el| el.bg(colors.background_highlight.rgb()))
+                            .child(div().text_size(px(18.)).text_color(colors.primary.rgb()).child(glyph::PLUS))
+                            .child(div().flex_1().text_size(px(14.)).child("Invite a machine"))
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|mesh, _, _, cx| {
+                                    mesh.start_invite(cx);
+                                    cx.stop_propagation();
+                                }),
+                            )
+                            .into_any_element(),
+                        CARD,
+                    ));
+                }
+            }
+        }
+        rows
+    }
+
+    /// Makes an invite and remembers when it runs out.
+    fn start_invite(&mut self, cx: &mut Context<Self>) {
+        if self.job.is_some() {
+            return;
+        }
+        self.job = Some(Job { signs: false });
+        self.notice = None;
+        let binary = mesh_binary();
+        cx.spawn(async move |this, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move { Command::new(binary).args(["invite", "--json"]).stdin(std::process::Stdio::null()).output() })
+                .await;
+            let (invite, notice) = match outcome {
+                Ok(output) if output.status.success() => {
+                    let parsed = String::from_utf8_lossy(&output.stdout).lines().last().and_then(|line| serde_json::from_str::<serde_json::Value>(line).ok());
+                    let invite = parsed.and_then(|value| Some((value["id"].as_str()?.to_string(), value["expires_unix"].as_i64()?)));
+                    (invite, None)
+                }
+                Ok(output) => (None, Some(String::from_utf8_lossy(&output.stderr).lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("it did not finish").trim().trim_start_matches("dojo-mesh: ").to_string())),
+                Err(error) => (None, Some(format!("dojo-mesh could not run: {error}"))),
+            };
+            let _ = this.update(cx, |mesh: &mut Mesh, cx| {
+                mesh.job = None;
+                mesh.invite = invite;
+                mesh.notice = notice;
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
     }
 
     fn card(&self, data: &Panel, card: &dojo_mesh::panel::Card, cx: &mut Context<Self>) -> gpui::AnyElement {
@@ -522,9 +545,10 @@ impl Mesh {
             "offline".to_string()
         } else {
             match card.days_left {
-                Some(days) if days < 0 => "expired".to_string(),
-                Some(days) => format!("{days} days"),
-                None => "online".to_string(),
+                Some(days) if days < 0 => "membership expired".to_string(),
+                Some(0) => "membership ends today".to_string(),
+                Some(days) if card.expiring => format!("membership ends in {days} day{}", if days == 1 { "" } else { "s" }),
+                _ => "online".to_string(),
             }
         };
         let sub_color = if card.expiring && roster { gpui::rgb(dojo::design::ATTENTION) } else { colors.foreground_muted.rgb() };
@@ -645,28 +669,9 @@ impl Render for Mesh {
                     );
                 }
             }
-            (Some(data), View::Requests) => {
-                let pending: Vec<&Request> = data.requests.iter().filter(|request| !self.dismissed.contains(&request.file)).collect();
-                if pending.is_empty() {
-                    body.push(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .items_center()
-                            .gap(px(6.))
-                            .py(px(10.))
-                            .text_color(colors.foreground_muted.rgb())
-                            .child(div().text_size(px(22.)).child(glyph::INBOX))
-                            .child(div().text_size(px(12.)).child("No requests"))
-                            .child(div().text_size(px(10.)).child("Put a machine's .join.json in the mesh inbox or Downloads")),
-                        96.,
-                    );
-                }
-                for request in pending {
-                    body.push(self.request_card(request, cx), REQUEST);
-                }
-                if data.skipped > 0 {
-                    body.push(div().px(px(12.)).text_size(px(10.)).text_color(colors.foreground_muted.rgb()).child(format!("{} file(s) in the inbox were not taken: altered, unsigned or unreadable", data.skipped)), LINE);
+            (Some(_), View::Add) => {
+                for (element, height) in self.add_view(cx) {
+                    body.push(element, height);
                 }
             }
             (Some(data), View::Keys) => {
@@ -675,9 +680,6 @@ impl Render for Mesh {
                 }
                 for signer in &data.signers {
                     body.push(self.signer_row(signer, cx), KEY_ROW);
-                }
-                for offer in &data.offers {
-                    body.push(self.offer_row(offer, cx), OFFER);
                 }
             }
         }
@@ -712,17 +714,16 @@ impl Render for Mesh {
         }
         if let Some(data) = &self.data {
             if data.kind == Kind::Roster {
-                let waiting = data.requests.iter().filter(|r| !self.dismissed.contains(&r.file)).count();
-                let in_requests = self.view == View::Requests;
-                if data.can_sign || waiting > 0 {
-                    tools = tools.child(self.badge_button("mesh-requests", glyph::INBOX, "Join requests", waiting > 0, in_requests, cx, move |mesh, _, cx| {
-                        mesh.view = if in_requests { View::Machines } else { View::Requests };
+                let in_add = self.view == View::Add;
+                if data.can_sign {
+                    tools = tools.child(self.badge_button("mesh-add", glyph::PLUS, "Add machine", self.invite.is_some(), in_add, cx, move |mesh, _, cx| {
+                        mesh.view = if in_add { View::Machines } else { View::Add };
                         mesh.confirm = None;
                         cx.notify();
                     }));
                 }
                 let in_keys = self.view == View::Keys;
-                tools = tools.child(self.badge_button("mesh-keys", glyph::KEY, "Trusted keys", !data.offers.is_empty(), in_keys, cx, move |mesh, _, cx| {
+                tools = tools.child(self.badge_button("mesh-keys", glyph::KEY, "Keys", false, in_keys, cx, move |mesh, _, cx| {
                     mesh.view = if in_keys { View::Machines } else { View::Keys };
                     mesh.confirm = None;
                     cx.notify();

@@ -19,11 +19,12 @@ ssh_dir=${DOJO_SSH_DIR:-/etc/ssh}
 usage() {
     cat >&2 <<'USAGE'
 Usage: onboard-mesh.sh [--name NAME] [--route ADDRESS]... [--port PORT] [--sign yubikey|1password|KEY]...
-                       [--vault NAME] [--no-host] [--yes]
+                       [--join] [--vault NAME] [--no-host] [--yes]
   --name NAME      this machine's name in the mesh (default: its host name)
   --route ADDRESS  an address the other machines reach this one at (default: ask; the tailnet address if Tailscale is up)
   --port PORT      the port for the mesh's sshd (default 2222; not 22, which Tailscale SSH answers on a tailnet address)
   --sign KEY       a key this machine signs the roster with; repeat for more, primary first
+  --join           join a mesh that already exists: wait for its invite (Add machine in its mesh panel)
   --vault NAME     the 1Password vault for the new keys
   --no-host        leave sshd alone (it is set up already, or another way in is used)
   --yes            do not ask to confirm
@@ -36,6 +37,7 @@ routes=()
 signs=()
 vault=""
 host_setup=true
+join=false
 assume_yes=false
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -46,6 +48,7 @@ while [[ $# -gt 0 ]]; do
             port=$2; shift 2 ;;
         --sign) [[ $# -ge 2 ]] || { usage; exit 2; }; signs+=("$2"); shift 2 ;;
         --vault) [[ $# -ge 2 ]] || { usage; exit 2; }; vault=$2; shift 2 ;;
+        --join) join=true; shift ;;
         --no-host) host_setup=false; shift ;;
         --yes) assume_yes=true; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -88,6 +91,10 @@ if [[ ${#signs[@]} -eq 0 ]] && $interactive; then
     [[ ${signs[0]:-none} != none ]] || signs=()
 fi
 
+if [[ ${#signs[@]} -eq 0 ]] && ! $join && $interactive; then
+    [[ $(ask 'Is there a mesh to join already? (On a machine in it: mesh panel > Add machine)' 'Y') =~ ^[Yy] ]] && join=true
+fi
+
 if [[ ${#routes[@]} -eq 0 ]]; then
     guess=$(tailscale ip -4 2>/dev/null | head -n1 || true)
     [[ -n $guess ]] || guess=$(ip -4 -o addr show scope global 2>/dev/null | awk '{sub("/.*", "", $4); print $4; exit}')
@@ -125,6 +132,7 @@ echo '== mesh'
 args=(onboard --node-name "$name")
 for route in "${routes[@]}"; do args+=(--route "$route"); done
 for sign in "${signs[@]}"; do args+=(--sign "$sign"); done
+if $join && [[ ${#signs[@]} -eq 0 ]]; then args+=(--invite); fi
 [[ -z $vault ]] || args+=(--vault "$vault")
 [[ -z ${DOJO_HOST_KEY:-} ]] || args+=(--host-key-file "$DOJO_HOST_KEY")
 "$dojo_mesh" "${args[@]}"

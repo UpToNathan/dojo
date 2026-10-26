@@ -67,7 +67,7 @@ fn run() -> anyhow::Result<()> {
         Some("--mesh") => {
             let tab = match arguments.next().as_deref() {
                 None => control::MeshTab::Machines,
-                Some(word) => control::MeshTab::from_word(word).ok_or_else(|| anyhow::anyhow!("--mesh takes machines, requests, keys or health"))?,
+                Some(word) => control::MeshTab::from_word(word).ok_or_else(|| anyhow::anyhow!("--mesh takes machines, add, keys or health"))?,
             };
             ControlCommand::Mesh(tab)
         }
@@ -133,7 +133,7 @@ fn run() -> anyhow::Result<()> {
         }
         Some("--help") | Some("-h") => {
             println!(
-                "Usage: dojo [--toggle|--enable|--disable|--quit|--launcher|--launcher-up|--launcher-down|--launcher-activate|--launcher-dismiss|--theme|--displays|--mesh [machines|requests|keys|health]|--wifi|--system-menu|--models|--terminal|--send-window|--leave OCCASION|--farewell OCCASION|--launcher-benchmark|--speech-state STATE|--speech-response TEXT|--speech-transcript TEXT]"
+                "Usage: dojo [--toggle|--enable|--disable|--quit|--launcher|--launcher-up|--launcher-down|--launcher-activate|--launcher-dismiss|--theme|--displays|--mesh [machines|add|keys|health]|--wifi|--system-menu|--models|--terminal|--send-window|--leave OCCASION|--farewell OCCASION|--launcher-benchmark|--speech-state STATE|--speech-response TEXT|--speech-transcript TEXT]"
             );
             return Ok(());
         }

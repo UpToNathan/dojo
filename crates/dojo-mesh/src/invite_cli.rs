@@ -49,7 +49,7 @@ pub fn invite(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     let signers = enroll::signers(&std::fs::read_to_string(&ctx.paths.signers).unwrap_or_default());
     let invite = rendezvous::post_invite(carrier.as_ref(), &enroll_cli::node_name(env, &ctx.config), &signers, now, minutes).map_err(carrier_error)?;
     if has(&words, "--json") {
-        println!("{}", serde_json::json!({ "id": invite.id, "expires": invite.expires.to_rfc3339() }));
+        println!("{}", serde_json::json!({ "id": invite.id, "expires": invite.expires.to_rfc3339(), "expires_unix": invite.expires.timestamp() }));
     } else {
         println!("Invite ready until {}. On the new machine, run: dojo-mesh join --invite", invite.expires.with_timezone(&chrono::Local).format("%H:%M"));
     }

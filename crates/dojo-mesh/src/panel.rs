@@ -6,19 +6,14 @@
 use crate::cli::{self, Env};
 use crate::config::{MeshConfig, MethodChoice, RosterPaths, roster_paths};
 use crate::doctor::{Finding, Severity, diagnose};
-use crate::enroll::{self, JoinRequest};
+use crate::enroll;
 use crate::roster::Roster;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// An entry this close to expiring is shown as needing attention.
 const EXPIRING_DAYS: i64 = 14;
-/// A join request is a few hundred bytes; this is the most one may be.
-const MAX_REQUEST_FILE: u64 = 16 * 1024;
-/// The most files looked at in one folder, so a folder full of other things costs nothing.
-const MAX_SCANNED: usize = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -46,28 +41,6 @@ pub struct Signer {
     pub hardware: bool,
 }
 
-/// A join request that was found, whose signature verifies against its own node key.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct Request {
-    pub name: String,
-    /// What the new machine printed for its node key, for the person to compare.
-    pub fingerprint: String,
-    pub routes: Vec<String>,
-    pub file: PathBuf,
-    /// The roster already holds a different machine under this name: approving it needs `--replace`
-    /// and the person should know.
-    pub replaces: bool,
-}
-
-/// A public key found in the inbox that could be trusted as a signing key, once the person has
-/// compared its fingerprint with the machine that holds it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct Offer {
-    pub fingerprint: String,
-    pub hardware: bool,
-    pub file: PathBuf,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Panel {
     pub kind: Kind,
@@ -79,12 +52,6 @@ pub struct Panel {
     /// Whether this node has a signing key to sign with.
     pub can_sign: bool,
     pub signers: Vec<Signer>,
-    pub requests: Vec<Request>,
-    /// Public keys waiting in the inbox that are not trusted yet.
-    pub offers: Vec<Offer>,
-    /// Files in the inbox folders that look like requests but were not taken (unreadable, altered or
-    /// not signed by their own key).
-    pub skipped: usize,
 }
 
 /// A card per member, this machine first.
@@ -113,105 +80,6 @@ pub fn cards(roster: &Roster, now: DateTime<Utc>) -> Vec<Card> {
         .collect()
 }
 
-/// The join requests in `folders` that can be taken: regular files named `*.join.json`, small, that
-/// parse, whose signature verifies against their own node key, and that are not already members
-/// under the same key. `members` maps a name to the node key the roster holds for it.
-pub fn scan_requests(folders: &[PathBuf], members: &BTreeMap<String, String>) -> (Vec<Request>, usize) {
-    let mut found: Vec<Request> = Vec::new();
-    let mut skipped = 0;
-    for folder in folders {
-        let Ok(entries) = std::fs::read_dir(folder) else { continue };
-        for entry in entries.flatten().take(MAX_SCANNED) {
-            let path = entry.path();
-            if !path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.ends_with(".join.json")) {
-                continue;
-            }
-            // A link could point anywhere, and a big file is not a request.
-            let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
-            if !meta.is_file() || meta.len() > MAX_REQUEST_FILE {
-                skipped += 1;
-                continue;
-            }
-            let Ok(text) = std::fs::read_to_string(&path) else {
-                skipped += 1;
-                continue;
-            };
-            let Ok(request) = JoinRequest::parse(&text) else {
-                skipped += 1;
-                continue;
-            };
-            if request.verify().is_err() {
-                skipped += 1;
-                continue;
-            }
-            let known = members.get(&request.name);
-            if known == Some(&request.node_key) {
-                continue; // already a member under this very key
-            }
-            let Ok(fingerprint) = enroll::fingerprint(&request.node_key) else {
-                skipped += 1;
-                continue;
-            };
-            if found.iter().any(|other| other.name == request.name && other.fingerprint == fingerprint) {
-                continue;
-            }
-            found.push(Request {
-                name: request.name.clone(),
-                fingerprint,
-                routes: request.routes.iter().map(|route| match route.port { Some(port) => format!("{}:{port}", route.host), None => route.host.clone() }).collect(),
-                file: path,
-                replaces: known.is_some(),
-            });
-        }
-    }
-    found.sort_by(|a, b| a.name.cmp(&b.name));
-    (found, skipped)
-}
-
-/// The public keys in `folders` (`*.pub`, small, plain files) that are not in `trusted`.
-pub fn scan_offers(folders: &[PathBuf], trusted: &[String]) -> Vec<Offer> {
-    let mut found: Vec<Offer> = Vec::new();
-    for folder in folders {
-        let Ok(entries) = std::fs::read_dir(folder) else { continue };
-        for entry in entries.flatten().take(MAX_SCANNED) {
-            let path = entry.path();
-            if path.extension().and_then(|ext| ext.to_str()) != Some("pub") {
-                continue;
-            }
-            let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
-            if !meta.is_file() || meta.len() > 4096 {
-                continue;
-            }
-            let Ok(text) = std::fs::read_to_string(&path) else { continue };
-            let Some(line) = text.lines().map(str::trim).find(|line| !line.is_empty() && !line.starts_with('#')) else { continue };
-            let Ok(key) = crate::signed::normalize_key(line) else { continue };
-            if trusted.contains(&key) {
-                continue;
-            }
-            let Ok(fingerprint) = enroll::fingerprint(&key) else { continue };
-            if found.iter().any(|other| other.fingerprint == fingerprint) {
-                continue;
-            }
-            found.push(Offer { fingerprint, hardware: key.starts_with("sk-"), file: path });
-        }
-    }
-    found.sort_by(|a, b| a.fingerprint.cmp(&b.fingerprint));
-    found
-}
-
-/// Where requests wait: the mesh's own inbox, and the user's downloads (where a file handed over by
-/// a browser or a file share usually lands).
-pub fn inbox_folders(paths: &RosterPaths, home: Option<&Path>) -> Vec<PathBuf> {
-    let mut folders = Vec::new();
-    if let Some(base) = paths.known_hosts.parent() {
-        folders.push(base.join("inbox"));
-    }
-    if let Some(home) = home {
-        folders.push(home.join("Downloads"));
-    }
-    folders
-}
-
 fn signers(paths: &RosterPaths) -> Vec<Signer> {
     enroll::signers(&std::fs::read_to_string(&paths.signers).unwrap_or_default())
         .into_iter()
@@ -226,7 +94,7 @@ pub fn read() -> Panel {
             let config = cli::load_config(&env).unwrap_or_default();
             read_with(&env, &config)
         }
-        Err(_) => Panel { kind: Kind::Tailscale, this: String::new(), cards: Vec::new(), findings: Vec::new(), blocked: None, can_sign: false, signers: Vec::new(), requests: Vec::new(), offers: Vec::new(), skipped: 0 },
+        Err(_) => Panel { kind: Kind::Tailscale, this: String::new(), cards: Vec::new(), findings: Vec::new(), blocked: None, can_sign: false, signers: Vec::new() },
     }
 }
 
@@ -244,15 +112,9 @@ pub fn read_with(env: &Env, config: &MeshConfig) -> Panel {
     if let Some(step) = &blocked {
         findings.push(Finding { severity: Severity::Warning, device: None, message: format!("Peers cannot be reached from here yet: {step}.") });
     }
-    let (signers, requests, offers, skipped) = match (&paths, roster_method) {
-        (Some(paths), true) => {
-            let members: BTreeMap<String, String> = roster.members.iter().filter_map(|m| m.device.keys.as_ref().map(|keys| (m.device.name.clone(), keys.node_key.clone()))).collect();
-            let folders = inbox_folders(paths, env.home.as_deref());
-            let (requests, skipped) = scan_requests(&folders, &members);
-            let trusted = enroll::signers(&std::fs::read_to_string(&paths.signers).unwrap_or_default());
-            (signers(paths), requests, scan_offers(&folders, &trusted), skipped)
-        }
-        _ => (Vec::new(), Vec::new(), Vec::new(), 0),
+    let signers = match (&paths, roster_method) {
+        (Some(paths), true) => signers(paths),
+        _ => Vec::new(),
     };
     Panel {
         kind: if roster_method { Kind::Roster } else { Kind::Tailscale },
@@ -262,19 +124,58 @@ pub fn read_with(env: &Env, config: &MeshConfig) -> Panel {
         blocked,
         can_sign: roster_method && !config.signing_keys.is_empty(),
         signers,
-        requests,
-        offers,
-        skipped,
     }
+}
+
+/// A machine that asked to join through an invite and waits for an answer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Asking {
+    pub invite: String,
+    pub name: String,
+}
+
+/// The state of the invites this node made: whether one is open (and until when) and who is asking.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Exchange {
+    /// The open invites made by this node: id and when each expires.
+    pub open: Vec<(String, DateTime<Utc>)>,
+    pub asking: Vec<Asking>,
+    /// Why the carrier could not be read (1Password locked, say).
+    pub error: Option<String>,
+}
+
+/// What the invite exchange looks like now. It asks the carrier, which for 1Password runs `op`, so it is
+/// read only while the panel is showing the Add machine view.
+pub fn exchange() -> Exchange {
+    let Ok(env) = Env::from_process(None) else { return Exchange::default() };
+    let config = cli::load_config(&env).unwrap_or_default();
+    exchange_with(&crate::enroll_cli::node_name(&env, &config), &*crate::rendezvous::open(&config.rendezvous), Utc::now())
+}
+
+pub fn exchange_with(this: &str, carrier: &dyn crate::rendezvous::Rendezvous, now: DateTime<Utc>) -> Exchange {
+    let mut found = Exchange::default();
+    match crate::rendezvous::invites(carrier, now) {
+        Ok(invites) => {
+            found.open = invites.iter().filter(|i| i.operator == this && i.status == crate::rendezvous::Status::Open).map(|i| (i.id.clone(), i.expires)).collect();
+        }
+        Err(error) => {
+            found.error = Some(error);
+            return found;
+        }
+    }
+    match crate::rendezvous::pending(carrier, now) {
+        Ok((pending, _)) => found.asking = pending.into_iter().filter(|p| p.invite.operator == this).map(|p| Asking { invite: p.invite.id, name: p.request.name }).collect(),
+        Err(error) => found.error = Some(error),
+    }
+    found
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::device::{Device, Keys};
+    use std::collections::BTreeMap;
+    use crate::device::Device;
     use crate::roster::{Admission, Member};
-    use crate::signed::RouteSpec;
-    use std::process::Command;
 
     fn device(name: &str, online: bool, expires_in_days: Option<i64>) -> Device {
         Device {
@@ -313,105 +214,41 @@ mod tests {
         assert!(cards.iter().all(|c| c.days_left.is_none() && !c.expiring));
     }
 
-    fn dir(name: &str) -> PathBuf {
+    use crate::rendezvous::{self, Directory};
+
+    fn folder(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("dojo-panel-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
 
-    /// A request signed by a fresh key pair, written as `file` in `folder`; returns it and the key.
-    fn request_in(folder: &Path, name: &str, file: &str) -> (JoinRequest, String) {
-        let private = folder.join(format!("{name}-{file}-key"));
-        let status = Command::new("ssh-keygen").args(["-q", "-t", "ed25519", "-N", "", "-f"]).arg(&private).status().unwrap();
-        assert!(status.success());
-        let public = std::fs::read_to_string(format!("{}.pub", private.display())).unwrap().split_whitespace().take(2).collect::<Vec<_>>().join(" ");
-        let host = public.clone();
-        let mut request = JoinRequest { v: 2, name: name.into(), node_key: public.clone(), input_key: None, host_key: host, routes: vec![RouteSpec { host: "192.0.2.9".into(), port: Some(2222) }], signature: String::new() };
-        request.signature = enroll::sign_bytes(&request.body(), Path::new(&format!("{}.pub", private.display())), enroll::JOIN_NAMESPACE, None).unwrap();
-        std::fs::write(folder.join(file), serde_json::to_string_pretty(&request).unwrap()).unwrap();
-        (request, public)
+    #[test]
+    fn the_exchange_shows_this_nodes_open_invite_and_who_is_asking_and_nobody_elses() {
+        let dir = folder("exchange");
+        let carrier = Directory { dir: dir.join("carrier") };
+        const KEY: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        assert_eq!(exchange_with("orchard", &carrier, Utc::now()), Exchange::default());
+        let mine = rendezvous::post_invite(&carrier, "orchard", &[KEY.into()], Utc::now(), 15).unwrap();
+        let theirs = rendezvous::post_invite(&carrier, "harbor", &[KEY.into()], Utc::now(), 15).unwrap();
+        let shown = exchange_with("orchard", &carrier, Utc::now());
+        assert_eq!(shown.open.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>(), [mine.id.clone()], "another operator's invite is not ours");
+        assert!(shown.asking.is_empty() && shown.error.is_none());
+        let _ = theirs;
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn only_requests_whose_signature_verifies_are_listed_with_what_to_compare() {
-        let folder = dir("scan");
-        let (good, _) = request_in(&folder, "orchard", "orchard.join.json");
-        // Altered after signing: the host key swapped.
-        let (mut altered, _) = request_in(&folder, "mallory", "mallory.join.json");
-        altered.routes[0].host = "198.51.100.1".into();
-        std::fs::write(folder.join("mallory.join.json"), serde_json::to_string(&altered).unwrap()).unwrap();
-        // Not requests at all.
-        std::fs::write(folder.join("notes.txt"), "hello").unwrap();
-        std::fs::write(folder.join("broken.join.json"), "{").unwrap();
-        std::fs::write(folder.join("big.join.json"), vec![b' '; (MAX_REQUEST_FILE + 1) as usize]).unwrap();
-        std::os::unix::fs::symlink("/etc/passwd", folder.join("link.join.json")).unwrap();
-
-        let (found, skipped) = scan_requests(&[folder.clone(), folder.join("absent")], &BTreeMap::new());
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert_eq!(found[0].name, "orchard");
-        assert_eq!(found[0].fingerprint, enroll::fingerprint(&good.node_key).unwrap());
-        assert_eq!(found[0].routes, ["192.0.2.9:2222"]);
-        assert!(!found[0].replaces);
-        assert_eq!(skipped, 4, "altered, broken, oversized and a link");
-        let _ = std::fs::remove_dir_all(folder);
-    }
-
-    #[test]
-    fn a_request_from_a_machine_that_is_already_a_member_is_not_pending_and_a_clash_is_flagged() {
-        let folder = dir("known");
-        let (member, _) = request_in(&folder, "orchard", "orchard.join.json");
-        let (_, _) = request_in(&folder, "beta", "beta.join.json");
-        let mut members = BTreeMap::new();
-        members.insert("orchard".to_string(), member.node_key.clone());
-        members.insert("beta".to_string(), "ssh-ed25519 AAAAsomeoneelse".to_string());
-        let (found, _) = scan_requests(&[folder.clone()], &members);
-        assert_eq!(found.iter().map(|r| (r.name.as_str(), r.replaces)).collect::<Vec<_>>(), [("beta", true)], "orchard is a member already; beta's name is held by another key");
-        let _ = std::fs::remove_dir_all(folder);
-    }
-
-    #[test]
-    fn the_same_request_in_two_folders_is_listed_once() {
-        let (one, two) = (dir("two-a"), dir("two-b"));
-        let (request, _) = request_in(&one, "orchard", "orchard.join.json");
-        std::fs::write(two.join("orchard.join.json"), serde_json::to_string_pretty(&request).unwrap()).unwrap();
-        let (found, _) = scan_requests(&[one.clone(), two.clone()], &BTreeMap::new());
-        assert_eq!(found.len(), 1);
-        let _ = (std::fs::remove_dir_all(one), std::fs::remove_dir_all(two));
-    }
-
-    #[test]
-    fn public_keys_in_the_inbox_are_offered_unless_already_trusted_and_only_if_they_are_keys() {
-        let folder = dir("offers");
-        let make = |name: &str| -> String {
-            let private = folder.join(name);
-            assert!(Command::new("ssh-keygen").args(["-q", "-t", "ed25519", "-N", "", "-f"]).arg(&private).status().unwrap().success());
-            std::fs::read_to_string(format!("{}.pub", private.display())).unwrap().split_whitespace().take(2).collect::<Vec<_>>().join(" ")
-        };
-        let (new, known) = (make("new"), make("known"));
-        // Not keys: an option-laden line and a block of text.
-        std::fs::write(folder.join("evil.pub"), "command=\"rm -rf ~\" ssh-ed25519 AAAAC3Nza").unwrap();
-        std::fs::write(folder.join("notes.pub"), "just words\n").unwrap();
-        std::fs::remove_file(folder.join("new")).unwrap();
-        std::fs::remove_file(folder.join("known")).unwrap();
-        let offers = scan_offers(&[folder.clone()], &[known]);
-        assert_eq!(offers.len(), 1, "{offers:?}");
-        assert_eq!(offers[0].fingerprint, enroll::fingerprint(&new).unwrap());
-        assert!(!offers[0].hardware);
-        let _ = std::fs::remove_dir_all(folder);
-    }
-
-    #[test]
-    fn requests_wait_in_the_mesh_inbox_and_downloads() {
-        let paths = RosterPaths {
-            dir: "/d/roster".into(),
-            signers: "/c/allowed_signers".into(),
-            node_key: "/c/node.pub".into(),
-            input_key: "/c/input.pub".into(),
-            known_hosts: "/data/dojo/mesh/known_hosts".into(),
-            agent: None,
-        };
-        assert_eq!(inbox_folders(&paths, Some(Path::new("/home/pat"))), [PathBuf::from("/data/dojo/mesh/inbox"), PathBuf::from("/home/pat/Downloads")]);
-        let _ = Keys { node_key: String::new(), input_key: None, host_key: String::new() };
+    fn an_unreadable_carrier_is_reported_not_hidden() {
+        struct Broken;
+        impl rendezvous::Rendezvous for Broken {
+            fn create(&self, _: &BTreeMap<String, String>) -> Result<rendezvous::Item, String> { Err("1Password needs you first: unlock it".into()) }
+            fn list(&self) -> Result<Vec<rendezvous::Item>, String> { Err("1Password needs you first: unlock it".into()) }
+            fn get(&self, _: &str) -> Result<rendezvous::Item, String> { Err("x".into()) }
+            fn update(&self, _: &str, _: &BTreeMap<String, String>) -> Result<(), String> { Err("x".into()) }
+            fn delete(&self, _: &str) -> Result<(), String> { Err("x".into()) }
+        }
+        let shown = exchange_with("orchard", &Broken, Utc::now());
+        assert!(shown.error.as_deref().is_some_and(|error| error.contains("unlock")));
     }
 }

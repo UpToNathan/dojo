@@ -31,7 +31,7 @@ pub enum LauncherNavigation {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MeshTab {
     Machines,
-    Requests,
+    Add,
     Keys,
     Health,
 }
@@ -40,7 +40,7 @@ impl MeshTab {
     pub fn word(self) -> &'static str {
         match self {
             Self::Machines => "machines",
-            Self::Requests => "requests",
+            Self::Add => "add",
             Self::Keys => "keys",
             Self::Health => "health",
         }
@@ -49,7 +49,7 @@ impl MeshTab {
     pub fn from_word(word: &str) -> Option<Self> {
         match word {
             "machines" => Some(Self::Machines),
-            "requests" => Some(Self::Requests),
+            "add" => Some(Self::Add),
             "keys" => Some(Self::Keys),
             "health" => Some(Self::Health),
             _ => None,
@@ -365,7 +365,7 @@ mod tests {
             ("models", ControlCommand::Models),
             ("send-window", ControlCommand::SendWindow),
             ("mesh", ControlCommand::Mesh(MeshTab::Machines)),
-            ("mesh requests", ControlCommand::Mesh(MeshTab::Requests)),
+            ("mesh add", ControlCommand::Mesh(MeshTab::Add)),
         ] {
             assert_eq!(ControlCommand::parse(token), Some(expected.clone()));
             let (sender, receiver) = async_channel::bounded(1);

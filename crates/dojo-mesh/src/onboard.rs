@@ -127,7 +127,7 @@ fn describe(path: &Path) -> String {
 }
 
 pub fn onboard(env: &Env, rest: &[String]) -> Result<u8, Failure> {
-    let (words, values) = split(rest, &[], &["--node-name", "--route", "--sign", "--vault", "--host-key-file", "--out"])?;
+    let (words, values) = split(rest, &["--invite"], &["--node-name", "--route", "--sign", "--vault", "--host-key-file", "--out", "--wait"])?;
     if !words.positional.is_empty() {
         return Err(fail(USAGE_ERROR, "usage: dojo-mesh onboard [--node-name NAME] [--route HOST[:PORT]]... [--sign yubikey|1password|KEY]... [--vault NAME]"));
     }
@@ -193,6 +193,16 @@ pub fn onboard(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     if let Some(file) = enroll_cli::value(&values, "--host-key-file") {
         join.extend(["--host-key-file".to_string(), file]);
     }
+    if ctx.config.signing_keys.is_empty() && crate::cli::has(&words, "--invite") {
+        // Through an invite: nothing to carry. The machine already in the mesh presses Add machine (or runs
+        // `dojo-mesh invite`), and this one finds it, asks, and installs the answer.
+        join.push("--invite".to_string());
+        if let Some(wait) = enroll_cli::value(&values, "--wait") {
+            join.extend(["--wait".to_string(), wait]);
+        }
+        println!("Looking for an invite from a machine in the mesh (Add machine in its mesh panel, or dojo-mesh invite)…");
+        return enroll_cli::join(&env, &join);
+    }
     if ctx.config.signing_keys.is_empty() {
         let out = enroll_cli::value(&values, "--out").map(PathBuf::from).unwrap_or_else(|| dir.join(format!("{name}.join.json")));
         join.extend(["--out".to_string(), out.display().to_string()]);
@@ -201,6 +211,7 @@ pub fn onboard(env: &Env, rest: &[String]) -> Result<u8, Failure> {
         println!("  1. give {} to a node that signs, and compare the fingerprints above", out.display());
         println!("  2. there: dojo-mesh approve {} --fingerprint SHA256:… ", out.file_name().and_then(|n| n.to_str()).unwrap_or("REQUEST"));
         println!("  3. here: dojo-mesh trust add THE_SIGNING_KEY.pub --fingerprint SHA256:…  (once per signing key), then copy or `dojo-mesh roster sync` the roster");
+        println!("  (or, with no files: `dojo-mesh invite` there, and `dojo-mesh join --invite` here)");
         return Ok(0);
     }
     enroll_self(&env, &ctx, &name, join)?;
