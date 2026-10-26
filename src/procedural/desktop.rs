@@ -51,7 +51,19 @@ pub fn spanned(monitors: &[Monitor]) -> Option<(f64, Vec<Region>)> {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Placement {
     pub aspect: f64,
+    /// How tall that canvas is in the scene's unit (see [`crate::procedural::View`]).
+    pub height: f64,
     pub region: Region,
+}
+
+/// How tall a canvas across `monitors` is in the scene's unit, which is the height of the shortest
+/// monitor: on that monitor the scene is exactly the size it is on a desktop of one monitor, and
+/// monitors of other heights show more of it, not a bigger one. One unit when the monitors are alike.
+pub fn canvas_height(monitors: &[Monitor]) -> Option<f64> {
+    let top = monitors.iter().map(|m| m.y).fold(f64::INFINITY, f64::min);
+    let bottom = monitors.iter().map(|m| m.y + m.height).fold(f64::NEG_INFINITY, f64::max);
+    let shortest = monitors.iter().map(|m| m.height).fold(f64::INFINITY, f64::min);
+    (shortest > 0. && bottom > top).then(|| (bottom - top) / shortest)
 }
 
 /// What each monitor draws under `layout`, in the order given, with the whole desktop's aspect.
@@ -60,16 +72,19 @@ pub struct Placement {
 /// and nothing is cropped away or stretched to fit.
 pub fn placements(monitors: &[Monitor], layout: WallpaperLayout) -> Option<(f64, Vec<Placement>)> {
     let (aspect, regions) = spanned(monitors)?;
+    let height = canvas_height(monitors)?;
     let placements = monitors
         .iter()
         .zip(regions)
         .map(|(monitor, spanned)| match layout {
             WallpaperLayout::Span => Placement {
                 aspect,
+                height,
                 region: spanned,
             },
             WallpaperLayout::Fill => Placement {
                 aspect: monitor.width / monitor.height,
+                height: 1.,
                 region: whole(),
             },
         })
@@ -149,24 +164,33 @@ pub fn current_aspect() -> f64 {
 /// derivation, and the longest.
 const RETAINED_EDGES: (u32, u32) = (1920, 3840);
 
-/// The shape and long edge of the picture retained for a generated wallpaper under `layout`. Spanned
-/// it is the whole canvas; for each monitor it is the first monitor's own shape. Either way its long
-/// edge covers the largest monitor's own pixels, so the lock screen is not made from a small picture
-/// stretched up.
-pub fn retained(outputs: &[Output], layout: WallpaperLayout) -> (f64, u32) {
+/// The shape, scene height and long edge of the picture retained for a generated wallpaper.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Retained {
+    pub aspect: f64,
+    pub height: f64,
+    pub edge: u32,
+}
+
+/// The picture retained for a generated wallpaper under `layout`. Spanned it is the whole canvas;
+/// for each monitor it is the first monitor's own picture. Either way its long edge covers the
+/// largest monitor's own pixels, so the lock screen is not made from a small picture stretched up.
+pub fn retained(outputs: &[Output], layout: WallpaperLayout) -> Retained {
     let monitors: Vec<Monitor> = outputs.iter().map(|output| output.monitor).collect();
-    let Some((aspect, placements)) = placements(&monitors, layout) else {
-        return (16. / 9., RETAINED_EDGES.0);
-    };
-    let shape = match layout {
-        WallpaperLayout::Span => aspect,
-        WallpaperLayout::Fill => placements[0].aspect,
+    let Some((_, placements)) = placements(&monitors, layout) else {
+        return Retained { aspect: 16. / 9., height: 1., edge: RETAINED_EDGES.0 };
     };
     let widest = outputs
         .iter()
         .map(|output| output.monitor.width.max(output.monitor.height) * output.scale)
         .fold(0., f64::max);
-    (shape, (widest.round() as u32).clamp(RETAINED_EDGES.0, RETAINED_EDGES.1))
+    let shown = placements[0];
+    // Spanned, the retained picture is the whole canvas, not one monitor's part of it.
+    let aspect = match layout {
+        WallpaperLayout::Span => spanned(&monitors).map_or(shown.aspect, |(aspect, _)| aspect),
+        WallpaperLayout::Fill => shown.aspect,
+    };
+    Retained { aspect, height: shown.height, edge: (widest.round() as u32).clamp(RETAINED_EDGES.0, RETAINED_EDGES.1) }
 }
 
 /// A miniature of the desktop as `layout` will draw it: every monitor's own picture at its place,
@@ -199,6 +223,7 @@ pub fn preview_image(
         let tile = recipe.render(
             crate::procedural::View {
                 aspect: placement.aspect,
+                height: placement.height,
                 region: placement.region,
             },
             width,
@@ -310,15 +335,38 @@ mod tests {
             output("A", monitor(0., 0., 1920., 1080.), 2.),
             output("B", monitor(1920., 0., 1080., 1920.), 1.),
         ];
-        let (spanned_shape, spanned_edge) = retained(&outputs, WallpaperLayout::Span);
-        assert!(close(spanned_shape, 3000. / 1920.));
-        assert_eq!(spanned_edge, 3840, "the 4K monitor's own pixels, capped");
-        let (filled_shape, _) = retained(&outputs, WallpaperLayout::Fill);
-        assert!(close(filled_shape, 1920. / 1080.), "the first monitor's own shape");
+        let spanned = retained(&outputs, WallpaperLayout::Span);
+        assert!(close(spanned.aspect, 3000. / 1920.));
+        assert_eq!(spanned.edge, 3840, "the 4K monitor's own pixels, capped");
+        let filled = retained(&outputs, WallpaperLayout::Fill);
+        assert!(close(filled.aspect, 1920. / 1080.), "the first monitor's own shape");
+        assert!(close(filled.height, 1.));
         // One ordinary monitor: no larger than it needs to be, never smaller than the floor.
-        let (_, small) = retained(&[output("A", monitor(0., 0., 1366., 768.), 1.)], WallpaperLayout::Span);
-        assert_eq!(small, 1920);
-        assert_eq!(retained(&[], WallpaperLayout::Span), (16. / 9., 1920));
+        let small = retained(&[output("A", monitor(0., 0., 1366., 768.), 1.)], WallpaperLayout::Span);
+        assert_eq!(small.edge, 1920);
+        assert_eq!(retained(&[], WallpaperLayout::Span), Retained { aspect: 16. / 9., height: 1., edge: 1920 });
+    }
+
+    #[test]
+    fn a_span_over_monitors_of_several_heights_is_taller_than_one_unit_and_never_scales_the_scene() {
+        // A landscape monitor beside a portrait one: the canvas is as tall as the portrait monitor, which
+        // is 1920/1080 of the shortest, so the scene is not enlarged to fit it.
+        let monitors = two_monitors();
+        assert!(close(canvas_height(&monitors).unwrap(), 1920. / 1080.));
+        let (_, spanned_placements) = placements(&monitors, WallpaperLayout::Span).unwrap();
+        for placement in &spanned_placements {
+            assert!(close(placement.height, 1920. / 1080.));
+        }
+        // Alike monitors need no extra room, and each monitor of a fill is one unit tall.
+        let alike = [monitor(0., 0., 1920., 1080.), monitor(1920., 0., 1920., 1080.)];
+        assert!(close(canvas_height(&alike).unwrap(), 1.));
+        let (_, filled) = placements(&monitors, WallpaperLayout::Fill).unwrap();
+        assert!(filled.iter().all(|placement| close(placement.height, 1.)));
+        // The shortest monitor shows the scene at one monitor's own scale: its region is one unit of the
+        // canvas tall, which is its height over the canvas's.
+        assert!(close(spanned_placements[1].region.height * spanned_placements[1].height, 1920. / 1080.));
+        assert!(close(spanned_placements[0].region.height * spanned_placements[0].height, 1.));
+        assert!(canvas_height(&[]).is_none());
     }
 
     #[test]

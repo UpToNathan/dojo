@@ -296,7 +296,7 @@ impl Recipe {
     /// The pixels `view` of the canvas has when drawn `width` by `height`. Channels are RGBA.
     pub fn render(&self, view: View, width: u32, height: u32) -> image::RgbaImage {
         let (width, height) = (width.max(1) as usize, height.max(1) as usize);
-        let scene = Scene::new(self, view.aspect);
+        let scene = Scene::new(self, view.aspect * view.height, view.height);
         let mut pixels = vec![0u8; width * height * 4];
         let threads = std::thread::available_parallelism()
             .map_or(1, usize::from)
@@ -320,13 +320,18 @@ impl Recipe {
     /// The whole canvas as PNG, `edge` pixels along its longer side: what theme derivation, the
     /// lock screen and the login screen read in place of a photograph.
     pub fn reference_png(&self, aspect: f64, edge: u32) -> anyhow::Result<Vec<u8>> {
+        self.reference_png_of(aspect, 1., edge)
+    }
+
+    /// [`reference_png`](Self::reference_png) for a canvas `units` tall.
+    pub fn reference_png_of(&self, aspect: f64, units: f64, edge: u32) -> anyhow::Result<Vec<u8>> {
         let aspect = aspect.clamp(0.4, 4.);
         let (width, height) = if aspect >= 1. {
             (edge, (f64::from(edge) / aspect).round() as u32)
         } else {
             ((f64::from(edge) * aspect).round() as u32, edge)
         };
-        let image = self.render(View::whole(aspect), width, height);
+        let image = self.render(View::whole_of(aspect, units), width, height);
         let mut bytes = Vec::new();
         image::DynamicImage::ImageRgba8(image).write_to(
             &mut std::io::Cursor::new(&mut bytes),
@@ -336,17 +341,28 @@ impl Recipe {
     }
 }
 
-/// Which part of the canvas to draw, and how wide the whole canvas is relative to its height.
+/// Which part of the canvas to draw, how wide the whole canvas is relative to its height, and how
+/// tall it is in the scene's own unit. The unit is what a scene's sizes are measured in (a moon
+/// 0.075 across, ridges 0.5 down): one is the height of a single monitor, so a canvas across
+/// monitors of several heights is taller than one unit and shows more scenery, not a larger scene.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct View {
     pub aspect: f64,
+    pub height: f64,
     pub region: Region,
 }
 
 impl View {
+    /// The whole canvas, one unit tall.
     pub fn whole(aspect: f64) -> Self {
+        Self::whole_of(aspect, 1.)
+    }
+
+    /// The whole canvas, `height` units tall.
+    pub fn whole_of(aspect: f64, height: f64) -> Self {
         Self {
             aspect,
+            height,
             region: Region {
                 left: 0.,
                 top: 0.,
@@ -361,10 +377,10 @@ fn draw_row(scene: &Scene, view: View, width: usize, height: usize, y: usize, ro
     let region = view.region;
     let fy = region.top + (y as f64 + 0.5) / height as f64 * region.height;
     // One pixel's extent in canvas units, which is what keeps drawn lines a fixed thickness.
-    let pixel = region.height / height as f64;
+    let pixel = region.height * view.height / height as f64;
     for (x, out) in row.chunks_exact_mut(4).enumerate() {
         let fx = region.left + (x as f64 + 0.5) / width as f64 * region.width;
-        let colour = scene.colour(fx * view.aspect, fy, pixel);
+        let colour = scene.colour(fx * view.aspect * view.height, fy * view.height, pixel);
         let noise = dither(fx, fy);
         for channel in 0..3 {
             let encoded = encode(colour[channel]) * 255. + noise;
@@ -530,7 +546,7 @@ impl Scene {
         let place = |fraction_x: f64, fraction_y: f64, jitter: usize, other: usize| {
             (
                 self.aspect * (fraction_x + (o[jitter] - 0.5) * 0.2),
-                fraction_y + (o[other] - 0.5) * 0.24,
+                (fraction_y + (o[other] - 0.5) * 0.24) * self.height.max(1.),
             )
         };
         let blooms = [
@@ -871,7 +887,10 @@ impl Noise {
 struct Scene {
     style: Style,
     noise: Noise,
+    /// How wide the canvas is, in the scene's unit.
     aspect: f64,
+    /// How tall it is: one unit for a single monitor, more across monitors of several heights.
+    height: f64,
     background: Colour,
     accents: [Colour; 3],
     /// The same colours as encoded values, for the scenes that blend the way an illustrator does.
@@ -882,7 +901,7 @@ struct Scene {
 }
 
 impl Scene {
-    fn new(recipe: &Recipe, aspect: f64) -> Self {
+    fn new(recipe: &Recipe, aspect: f64, height: f64) -> Self {
         let mut random = Random::new(recipe.seed);
         Self {
             style: recipe.style,
@@ -890,6 +909,7 @@ impl Scene {
                 seed: mix64(recipe.seed ^ 0x6e6f_6973_65),
             },
             aspect,
+            height,
             background: linear(recipe.palette.background),
             accents: recipe.palette.accents.map(linear),
             ground: Ground {
@@ -1301,6 +1321,7 @@ mod tests {
             let whole = recipe.render(View::whole(aspect), 120, 40);
             let half = |left: f64| View {
                 aspect,
+                height: 1.,
                 region: Region {
                     left,
                     top: 0.,
@@ -1562,6 +1583,7 @@ mod tests {
         .unwrap();
         let slice = View {
             aspect: 1.89,
+            height: 1.,
             region: Region {
                 left: 0.,
                 top: 0.,
