@@ -1212,7 +1212,7 @@ impl Render for FrameView {
                     .justify_center()
                     .text_size(px(14.))
                     .cursor_pointer()
-                    .child(top_bar_icon("\u{f1049}", 0.75))
+                    .child(top_bar_icon("\u{f0318}", 0.545))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _, window, cx| {
