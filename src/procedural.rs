@@ -1083,6 +1083,42 @@ mod tests {
     }
 
     #[test]
+    fn a_dark_sunset_shows_the_primary_and_the_secondary_not_grey() {
+        // Dimming a colour by mixing it with the near-grey background leaves grey. The ridges
+        // are the theme's blue and purple at a dark value, so a good part of the picture must
+        // lean blue and a good part purple, well beyond the background's own faint blue.
+        let palette = Palette::from_colors(&[
+            Rgb([0x1a, 0x1b, 0x26]),
+            Rgb([0x7a, 0xa2, 0xf7]),
+            Rgb([0xbb, 0x9a, 0xf7]),
+        ])
+        .unwrap();
+        let image =
+            Recipe::with_palette(Style::Sunset, 21, palette).render(View::whole(1.9), 380, 200);
+        let total = (image.width() * image.height()) as f64;
+        let share = |test: &dyn Fn(i32, i32, i32) -> bool| {
+            image
+                .pixels()
+                .filter(|p| test(i32::from(p[0]), i32::from(p[1]), i32::from(p[2])))
+                .count() as f64
+                / total
+        };
+        // The background itself is (26, 27, 38): blue exceeds green by 11.
+        let blue = share(&|r, g, b| b - g >= 22 && r <= g);
+        let purple = share(&|r, g, b| r - g >= 8 && b - r >= 10);
+        assert!(
+            blue > 0.12,
+            "only {:.0}% of the picture leans blue",
+            blue * 100.
+        );
+        assert!(
+            purple > 0.06,
+            "only {:.0}% of the picture leans purple",
+            purple * 100.
+        );
+    }
+
+    #[test]
     fn colours_are_found_in_any_pasted_text() {
         let found =
             parse_colors("bg: #0B0B14;  accent #5b6ee1, #fa0 and #12345 or #zzzzzz, #abcdef0");
