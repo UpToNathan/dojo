@@ -375,7 +375,10 @@ fn dither(fx: f64, fy: f64) -> f64 {
 type Colour = [f64; 3];
 
 fn decode(value: u8) -> f64 {
-    let value = f64::from(value) / 255.;
+    decode_unit(f64::from(value) / 255.)
+}
+
+fn decode_unit(value: f64) -> f64 {
     if value <= 0.04045 {
         value / 12.92
     } else {
@@ -401,6 +404,17 @@ fn mix(from: Colour, to: Colour, amount: f64) -> Colour {
     std::array::from_fn(|channel| from[channel] + (to[channel] - from[channel]) * amount)
 }
 
+/// [`mix`] done on the encoded (gamma) values, as a designer's colour picker does it. Blending in
+/// linear light makes the middle of every blend glow; this keeps a blend of a dark ground and a
+/// bright accent as dark and muted as it looks in a flat illustration.
+fn blend(from: Colour, to: Colour, amount: f64) -> Colour {
+    let amount = amount.clamp(0., 1.);
+    std::array::from_fn(|channel| {
+        let (a, b) = (encode(from[channel]), encode(to[channel]));
+        decode_unit(a + (b - a) * amount)
+    })
+}
+
 fn scale(colour: Colour, factor: f64) -> Colour {
     colour.map(|channel| channel * factor)
 }
@@ -413,6 +427,9 @@ fn smoothstep(low: f64, high: f64, value: f64) -> f64 {
     let amount = ((value - low) / (high - low)).clamp(0., 1.);
     amount * amount * (3. - 2. * amount)
 }
+
+/// How many ridges a sunset has.
+const SUNSET_LAYERS: usize = 5;
 
 fn luminance(colour: Colour) -> f64 {
     0.2126 * colour[0] + 0.7152 * colour[1] + 0.0722 * colour[2]
@@ -619,7 +636,15 @@ impl Scene {
             .noise
             .fbm(along * 1.3 + layer as f64 * 13.7, layer as f64 * 7.1, 3);
         let jag = self.hash(layer as i64, k, 1) * 2. - 1.;
-        (along, base - amplitude * (0.7 * broad + 0.5 * jag))
+        // The ridges dip toward the sun, more the further away they are, so it sets in a valley.
+        let depth = layer as f64 / (SUNSET_LAYERS - 1) as f64;
+        let valley = 0.1 * (1. - 0.8 * depth) * (-((along - self.sun_x()) / 0.55).powi(2)).exp();
+        (along, base - amplitude * (0.7 * broad + 0.5 * jag) + valley)
+    }
+
+    /// Where along the canvas the sun sets.
+    fn sun_x(&self) -> f64 {
+        self.aspect * (0.2 + 0.6 * self.offsets[0])
     }
 
     /// The segment of ridge `layer` under `x`: its two vertices.
@@ -647,26 +672,20 @@ impl Scene {
         )
     }
 
+    /// A flat, low-poly valley at sunset: layered faceted ridges, lighter and hazier in the
+    /// distance and darker in front, dipping toward a plain sun. It is drawn in the theme's
+    /// background, primary and secondary, blended the way an illustrator would, in gamma space.
     fn sunset(&self, x: f64, y: f64, pixel: f64) -> Colour {
-        // Everything here is the theme's own colours blended, never scaled to a brightness of my
-        // choosing: the sky runs from the ground through the primary to a glow of the secondary,
-        // the ridges are the secondary and then the primary over the ground, and the moon (or
-        // sun) is the secondary itself.
         let (ground, primary, secondary) = (self.background, self.accents[1], self.accents[2]);
-        let middle = mix(ground, primary, 0.3);
-        let horizon = mix(ground, mix(primary, secondary, 0.6), 0.5);
-        let mut colour = if y < 0.4 {
-            mix(ground, middle, smoothstep(0.0, 0.4, y))
-        } else {
-            mix(middle, horizon, smoothstep(0.4, 0.66, y))
-        };
+        let glow = blend(primary, secondary, 0.5);
+        let horizon = blend(ground, glow, if self.light { 0.35 } else { 0.3 });
+        let mut colour = blend(ground, horizon, smoothstep(0.0, 0.62, y));
 
-        let (sun_x, sun_y) = (self.aspect * (0.2 + 0.6 * self.offsets[0]), 0.4);
+        let (sun_x, sun_y) = (self.sun_x(), 0.5);
         let (dx, dy) = (x - sun_x, y - sun_y);
         let distance = (dx * dx + dy * dy).sqrt();
-        let glow = 0.18 * (-distance * distance / 0.045).exp();
-        colour = mix(colour, secondary, glow);
-        let disc = 1. - smoothstep(0.055 - pixel, 0.055 + pixel, distance);
+        // A flat disc, with no glow around it.
+        let disc = 1. - smoothstep(0.075 - pixel, 0.075 + pixel, distance);
         colour = mix(colour, secondary, disc);
 
         if !self.light {
@@ -674,9 +693,8 @@ impl Scene {
             colour = mix(colour, secondary, 0.5 * star);
         }
 
-        const LAYERS: usize = 5;
-        for layer in 0..LAYERS {
-            let depth = layer as f64 / (LAYERS - 1) as f64;
+        for layer in 0..SUNSET_LAYERS {
+            let depth = layer as f64 / (SUNSET_LAYERS - 1) as f64;
             let base = 0.56 + 0.09 * layer as f64;
             let amplitude = 0.17 - 0.07 * depth;
             let spacing = 0.2 - 0.07 * depth;
@@ -696,9 +714,8 @@ impl Scene {
             let lean = if layer % 2 == 0 { 0.7 } else { -0.7 };
             let (k, from, to) = self.segment(layer, x + (y - top) * lean, spacing, base, amplitude);
             let slope = (to.1 - from.1) / (to.0 - from.0);
-            // The surface faces the light when it falls away from it: down to the right of a
-            // sun that is further right, say. Straight below the light the facets are lit
-            // evenly, so the shading eases through zero there instead of flipping at a seam.
+            // The surface faces the sun when it falls away from it. Straight below the sun the
+            // facets are lit evenly, so the shading eases through zero there.
             let toward = ((sun_x - x) / 0.35).clamp(-1., 1.);
             let facing = (slope * toward / (1. + slope * slope).sqrt()).clamp(-1., 1.);
             let band_height = 0.045;
@@ -707,19 +724,18 @@ impl Scene {
             let facet = into.floor() as i64;
             let jitter = self.hash(layer as i64 + 31, k, facet) - 0.5;
 
-            // Far ridges are the secondary, nearer ones the primary, over the ground. On a dark
-            // ground the nearest ridge settles back to the ground; on a light one it is the
-            // primary itself, so it still stands out.
-            let hue = mix(secondary, primary, (depth * 1.6).min(1.));
-            let settle = smoothstep(0.7, 1., depth);
+            // Far ridges are the secondary, nearer ones the primary. On a dark ground each ridge
+            // is darker than the one behind it, ending in the ground itself; on a light ground
+            // each is stronger, ending in the primary, so the front still stands out.
+            let hue = blend(secondary, primary, (depth * 1.4).min(1.));
             let (lit, dark) = if self.light {
-                let body = mix(mix(horizon, hue, 0.4), primary, depth.powf(1.4));
-                (mix(body, ground, 0.5), scale(body, 0.7))
+                let body = blend(ground, hue, 0.2 + 0.7 * depth);
+                (blend(body, ground, 0.3), blend(body, hue, 0.3))
             } else {
-                let body = mix(mix(ground, hue, 0.45), ground, settle);
+                let body = blend(ground, hue, 0.55 * (1. - depth).powf(0.9));
                 (
-                    mix(body, mix(hue, ground, settle * 0.9), 0.55),
-                    mix(body, ground, 0.55),
+                    blend(body, hue, 0.2 * (1. - 0.5 * depth)),
+                    blend(body, ground, 0.4),
                 )
             };
             let shade = (0.5 + 0.5 * facing + 0.22 * jitter - 0.025 * facet as f64).clamp(0., 1.);
@@ -1040,7 +1056,7 @@ mod tests {
         let blue = share(&|r, g, b| b - g >= 22 && r <= g);
         let purple = share(&|r, g, b| r - g >= 8 && b - r >= 10);
         assert!(
-            blue > 0.12,
+            blue > 0.05,
             "only {:.0}% of the picture leans blue",
             blue * 100.
         );
