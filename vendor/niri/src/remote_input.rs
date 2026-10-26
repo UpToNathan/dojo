@@ -59,6 +59,10 @@ pub trait ProcessView {
     fn is_local_address(&self, address: &str) -> bool;
     /// The remote address of the established TCP connection this process holds open, if any.
     fn peer_address(&self, pid: u32) -> Option<String>;
+    /// The remote host `systemd-logind` recorded for the SSH login session this process belongs to.
+    /// OpenSSH keeps its connection handle where its own user cannot read it (the worker is not
+    /// dumpable), but its PAM session registers the peer with logind, which root owns.
+    fn logged_remote_host(&self, pid: u32) -> Option<String>;
 }
 
 pub struct Proc;
@@ -97,6 +101,18 @@ impl ProcessView for Proc {
         address.parse::<std::net::IpAddr>().is_ok_and(|ip| UdpSocket::bind((ip, 0)).is_ok())
     }
 
+    fn logged_remote_host(&self, pid: u32) -> Option<String> {
+        let id = login_session_of(&String::from_utf8(Self::read(pid, "cgroup")?).ok()?)?;
+        let output = ["/usr/bin/loginctl", "/bin/loginctl"]
+            .iter()
+            .find(|path| std::path::Path::new(path).exists())
+            .and_then(|path| std::process::Command::new(path).args(["show-session", &id, "-p", "Remote", "-p", "RemoteHost", "-p", "Service"]).stdin(std::process::Stdio::null()).output().ok())?;
+        if !output.status.success() {
+            return None;
+        }
+        remote_host_of(&String::from_utf8_lossy(&output.stdout))
+    }
+
     fn peer_address(&self, pid: u32) -> Option<String> {
         let inodes: HashSet<u64> = std::fs::read_dir(format!("/proc/{pid}/fd"))
             .ok()?
@@ -109,6 +125,23 @@ impl ProcessView for Proc {
             established_peer(&text, &inodes, table.ends_with('6'))
         })
     }
+}
+
+/// The login session a process belongs to, from its `/proc/PID/cgroup`: the `session-ID.scope` that
+/// `pam_systemd` put it in. Only root can place a process there.
+fn login_session_of(cgroup: &str) -> Option<String> {
+    cgroup.lines().find_map(|line| {
+        let scope = line.rsplit('/').next()?;
+        let id = scope.strip_prefix("session-")?.strip_suffix(".scope")?;
+        (!id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric())).then(|| id.to_owned())
+    })
+}
+
+/// The peer logind recorded, from `loginctl show-session -p Remote -p RemoteHost -p Service`: only for
+/// a remote session `sshd` opened.
+fn remote_host_of(show: &str) -> Option<String> {
+    let value = |key: &str| show.lines().find_map(|line| line.strip_prefix(key)?.strip_prefix('=')).map(str::trim);
+    (value("Remote")? == "yes" && value("Service")? == "sshd").then(|| value("RemoteHost").filter(|host| !host.is_empty()).map(str::to_owned)).flatten()
 }
 
 /// The remote address of an established connection among `inodes`, from the text of
@@ -204,7 +237,8 @@ pub fn sshd_origin(view: &impl ProcessView, pid: u32, own_uid: u32) -> Result<Or
             if !is_sshd(view.comm(child)) {
                 return Err("not inside an OpenSSH session".into());
             }
-            let Some(ip) = view.peer_address(child) else {
+            // The connection's own socket when it can be read, else what logind recorded for the session.
+            let Some(ip) = view.peer_address(child).or_else(|| view.logged_remote_host(pid)) else {
                 return Err("the SSH session does not say who connected".into());
             };
             if view.is_local_address(&ip) {
@@ -571,6 +605,8 @@ mod tests {
         local: Vec<&'static str>,
         // pid -> the remote address of the connection it holds
         peers: HashMap<u32, &'static str>,
+        // pid -> the remote host logind recorded for its login session
+        logged: HashMap<u32, &'static str>,
     }
 
     impl ProcessView for Table {
@@ -591,6 +627,9 @@ mod tests {
         }
         fn peer_address(&self, pid: u32) -> Option<String> {
             self.peers.get(&pid).map(|address| address.to_string())
+        }
+        fn logged_remote_host(&self, pid: u32) -> Option<String> {
+            self.logged.get(&pid).map(|address| address.to_string())
         }
     }
 
@@ -686,6 +725,30 @@ mod tests {
         assert_eq!(sshd_origin(&table, 40, 1000).unwrap().user, "an OpenSSH session");
         // The combined gate finds it too.
         assert_eq!(session_origin(&sshd_session(), 40, 1000).unwrap().ip, "203.0.113.5");
+    }
+
+    #[test]
+    fn an_openssh_session_whose_socket_cannot_be_read_is_attributed_by_what_logind_recorded() {
+        let mut table = sshd_session();
+        table.peers.clear();
+        table.logged.insert(40, "203.0.113.5");
+        assert_eq!(sshd_origin(&table, 40, 1000).unwrap(), Origin { user: "venus".into(), ip: "203.0.113.5".into() });
+        table.local.push("203.0.113.5");
+        assert!(sshd_origin(&table, 40, 1000).unwrap_err().contains("from this machine itself"));
+    }
+
+    #[test]
+    fn the_login_session_and_its_remote_host_are_read_only_from_what_root_recorded() {
+        assert_eq!(login_session_of("0::/user.slice/user-1000.slice/session-20.scope\n").as_deref(), Some("20"));
+        assert_eq!(login_session_of("0::/user.slice/user-1000.slice/user@1000.service/app.slice/x.service\n"), None);
+        assert_eq!(login_session_of("0::/user.slice/session-.scope"), None);
+        assert_eq!(login_session_of("0::/user.slice/session-2;rm.scope"), None);
+        let show = "Remote=yes\nRemoteHost=100.71.60.101\nService=sshd\n";
+        assert_eq!(remote_host_of(show).as_deref(), Some("100.71.60.101"));
+        // A local graphical session, a remote one that is not sshd's, or one with no host says nothing.
+        assert_eq!(remote_host_of("Remote=no\nRemoteHost=\nService=dojo-login\n"), None);
+        assert_eq!(remote_host_of("Remote=yes\nRemoteHost=198.51.100.1\nService=cockpit\n"), None);
+        assert_eq!(remote_host_of("Remote=yes\nRemoteHost=\nService=sshd\n"), None);
     }
 
     #[test]

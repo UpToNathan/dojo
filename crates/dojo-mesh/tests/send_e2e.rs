@@ -447,7 +447,14 @@ fn run_remote(site: &Site, capture: &Path, extra_env: &[(&str, &str)]) -> Output
 }
 
 fn beta_requests(site: &Site) -> Vec<serde_json::Value> {
-    Site::requests(&site.beta).iter().map(|line| serde_json::from_str(line).unwrap()).collect()
+    let mut requests: Vec<serde_json::Value> = Site::requests(&site.beta).iter().map(|line| serde_json::from_str(line).unwrap()).collect();
+    // `remote` asks the peer once, before the keyboard is taken (`inject --check`), and that asks Niri
+    // the same first question as the real run.
+    let ask = serde_json::json!({"RemoteInput": []});
+    if requests.len() > 1 && requests[0] == ask && requests[1] == ask {
+        requests.remove(0);
+    }
+    requests
 }
 
 #[test]

@@ -13,6 +13,9 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 const REMOTE_INJECT: &str = "exec \"${XDG_DATA_HOME:-$HOME/.local/share}/dojo/bin/dojo-mesh\" inject";
+/// The same, asking only whether the peer would take input. A forced command ignores the client's
+/// arguments but sees the client's command in `SSH_ORIGINAL_COMMAND`, which is how `--check` gets through.
+const REMOTE_CHECK: &str = "exec \"${XDG_DATA_HOME:-$HOME/.local/share}/dojo/bin/dojo-mesh\" inject --check";
 
 /// How long the receiver gathers a burst of events into one cursor movement.
 const FRAME: Duration = Duration::from_millis(8);
@@ -40,6 +43,13 @@ pub fn remote(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     if let Err(why) = crate::transport::resolve(&roster, peer) {
         return Err(cli::refuse(env, &roster.this().name, peer, "remote", "cursor and keyboard", &why));
     }
+    // Connect once before the keyboard is taken. A key approval (1Password asks the first time, and again
+    // after it locks) and every refusal on the other side need the person's own keyboard and eyes, and
+    // the helper has the keyboard exclusively. The peer's gate runs on this call as it does on the real
+    // one, and it ends at once without taking the seat.
+    let check: Vec<String> = ["sh", "-c", REMOTE_CHECK].iter().map(|part| part.to_string()).collect();
+    let checked = cli::call_peer(env, &roster, peer, "remote", "check before taking the cursor and keyboard", &check, Input::Null, Output::Inherit, Some(std::time::Duration::from_secs(60)))?;
+    cli::outcome(peer, &checked.ended)?;
     let mut helper = Command::new(&capture)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -72,11 +82,13 @@ fn sender(env: &Env, named: Option<String>) -> Result<String, String> {
 pub fn inject(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     // `--as NAME` is how a peer's input key says who it is (its forced command in authorized_keys);
     // the method checks it against the roster, so it is only a claim until then.
-    let named = match rest {
-        [] => None,
-        [flag, name] if flag == "--as" => Some(name.clone()),
-        _ => return Err(fail(USAGE_ERROR, "usage: dojo-mesh inject [--as NAME] (events as JSON lines on standard input)")),
-    };
+    let (words, values) = cli::split(rest, &["--check"], &["--as"])?;
+    if !words.positional.is_empty() {
+        return Err(fail(USAGE_ERROR, "usage: dojo-mesh inject [--as NAME] [--check] (events as JSON lines on standard input)"));
+    }
+    let named = values.iter().find(|(flag, _)| flag == "--as").map(|(_, name)| name.clone());
+    // `--check` asks whether input would be taken, runs every test the real thing does, and stops.
+    let check = cli::has(&words, "--check") || std::env::var("SSH_ORIGINAL_COMMAND").is_ok_and(|command| command.contains(" inject --check"));
     if std::env::var("DOJO_ORIGIN").as_deref() == Ok("agent") {
         return Err(refuse("input from the agent is never accepted"));
     }
@@ -94,6 +106,10 @@ pub fn inject(env: &Env, rest: &[String]) -> Result<u8, Failure> {
     // every monitor works the way the hardware's would. An older Niri only has the seat below.
     let mut connection = niri::AgentSeat::connect(&socket).map_err(|message| fail(UNAVAILABLE, message))?;
     match connection.remote_input(Vec::new()) {
+        Ok(()) if check => {
+            eprintln!("dojo-mesh: input from {from} would be taken here");
+            return Ok(0);
+        }
         Ok(()) => return inject_as_hardware(connection, &from),
         Err(message) if message.contains("error parsing request") || message.contains("unknown variant") => {
             eprintln!("dojo-mesh: this Niri cannot take input as the real keyboard, so the peer's shortcuts will not work and there will be a second cursor until Niri is updated");
@@ -101,6 +117,9 @@ pub fn inject(env: &Env, rest: &[String]) -> Result<u8, Failure> {
         Err(message) => return Err(fail(FAILED, message)),
     }
     drop(connection);
+    if check {
+        return Ok(0);
+    }
 
     inject_through_seat(&socket, &from)
 }
