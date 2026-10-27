@@ -655,16 +655,24 @@ impl Scene {
                 border = border.min(along - (u * nx + v * ny) / length);
             }
         }
-        // Each pane is one of the palette's colours, every one of them (the accents and the extras), at
-        // its own depth of tint; the glass nearer the light shines more. Without extras the panes keep to
-        // the accents' ramp.
+        // Each pane is one of the palette's colours, the primary most often, the secondary next and each
+        // extra now and then, at its own depth of tint; the glass nearer the light shines more. Without
+        // extras the panes keep to the accents' ramp.
         let tone = self.hash(23, pane.0, pane.1);
         let base = if ground.extras.is_empty() {
             let family = (tone * 5.).floor() / 5. + 0.1 * self.hash(26, pane.0, pane.1);
             ground.ramp(0.26 + 0.72 * family.clamp(0., 1.))
         } else {
-            let colours = ground.accents[1..].iter().chain(&ground.extras).collect::<Vec<_>>();
-            let colour = colours[((tone * colours.len() as f64) as usize).min(colours.len() - 1)];
+            // The primary leads, the secondary follows, and the rest are splashes among them.
+            let (primary, secondary, splash) = (0.50, 0.22, 0.28 / ground.extras.len() as f64);
+            let colour = if tone < primary {
+                &ground.accents[1]
+            } else if tone < primary + secondary {
+                &ground.accents[2]
+            } else {
+                let index = ((tone - primary - secondary) / splash) as usize;
+                &ground.extras[index.min(ground.extras.len() - 1)]
+            };
             encoded_mix(ground.background, *colour, 0.62 + 0.38 * self.hash(26, pane.0, pane.1))
         };
         let (light_x, light_y) = (self.frame.width * (0.35 + 0.3 * o[3]), 0.10 + 0.25 * o[4]);
@@ -1781,6 +1789,16 @@ mod tests {
             seen.extend(hue_of(pixel));
         }
         assert!(seen.len() >= 6, "the panes span a range of hues: {seen:?}");
+        // But the primary leads: more of the glass is its hue than any other's.
+        let mut counts = std::collections::HashMap::new();
+        for pixel in image.pixels() {
+            if let Some(hue) = hue_of(pixel) {
+                *counts.entry(hue).or_insert(0usize) += 1;
+            }
+        }
+        let primary = hue_of(&image::Rgba([palette.accents[1].0[0], palette.accents[1].0[1], palette.accents[1].0[2], 255])).unwrap();
+        let most = counts.iter().max_by_key(|(_, count)| **count).map(|(hue, _)| *hue).unwrap();
+        assert_eq!(most, primary, "{counts:?}");
         // A palette with no extras draws exactly as before.
         let mut plain = palette;
         plain.extras.clear();
