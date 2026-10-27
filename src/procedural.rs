@@ -124,6 +124,11 @@ pub struct Palette {
     /// tells a scene that has a sun or a moon which to draw.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub light: bool,
+    /// The palette's other colours: a theme's error, success, warning and info, or the colours of a
+    /// pasted palette that the three accents left out. Only the scenes that want the whole range of
+    /// a theme, such as stained glass, use them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extras: Vec<Rgb>,
 }
 
 impl Palette {
@@ -150,10 +155,15 @@ impl Palette {
                 lightness[index],
             )
         });
+        // The rest of the colour wheel, at the accents' own saturation and middle lightness.
+        let extras = [90., 180., 270.]
+            .map(|turn| hsl(hue + turn, saturation, 0.5))
+            .to_vec();
         Self {
             background,
             accents,
             light: false,
+            extras,
         }
     }
 }
@@ -163,7 +173,8 @@ impl Palette {
     /// used as the theme states them: the ground is its `background`, the shell's own colour.
     /// The accents are chosen by role, not by brightness, so the picture wears the theme's own
     /// identity: a shade between the ground and its primary, the primary itself, and its
-    /// secondary. A theme's other colours (a cyan "info", a green "success") are left out.
+    /// secondary. A theme's other colours (a cyan "info", a green "success") are kept as extras for the
+    /// scenes that use every colour the theme has.
     pub fn from_theme(theme: &crate::theme::SemanticPalette) -> anyhow::Result<Self> {
         let colour = |role: &str| -> anyhow::Result<Rgb> {
             theme
@@ -177,10 +188,18 @@ impl Palette {
             colour("secondary")?,
         );
         let deep = srgb(mix(linear(ground), linear(primary), 0.45));
+        let mut extras = Vec::new();
+        for role in ["error", "success", "warning", "info"] {
+            let extra = colour(role)?;
+            if ![primary, secondary].contains(&extra) && !extras.contains(&extra) {
+                extras.push(extra);
+            }
+        }
         Ok(Self {
             background: ground,
             accents: [deep, primary, secondary],
             light: theme.appearance == crate::theme::Appearance::Light,
+            extras,
         })
     }
 
@@ -219,10 +238,12 @@ impl Palette {
             ],
             count => [accents[0], accents[count / 2], accents[count - 1]],
         };
+        let extras = accents.iter().copied().filter(|colour| !three.contains(colour)).collect();
         Ok(Self {
             background,
             accents: three,
             light: false,
+            extras,
         })
     }
 }
@@ -447,6 +468,8 @@ fn to_linear(colour: Encoded) -> Colour {
 struct Ground {
     background: Encoded,
     accents: [Encoded; 3],
+    /// The palette's other colours (see [`Palette::extras`]).
+    extras: Vec<Encoded>,
 }
 
 impl Ground {
@@ -632,11 +655,18 @@ impl Scene {
                 border = border.min(along - (u * nx + v * ny) / length);
             }
         }
-        // Each pane's colour is one of the accents' tones, with its own lightness; the glass nearer the
-        // light shines more.
+        // Each pane is one of the palette's colours, every one of them (the accents and the extras), at
+        // its own depth of tint; the glass nearer the light shines more. Without extras the panes keep to
+        // the accents' ramp.
         let tone = self.hash(23, pane.0, pane.1);
-        let family = (tone * 5.).floor() / 5. + 0.1 * self.hash(26, pane.0, pane.1);
-        let base = ground.ramp(0.26 + 0.72 * family.clamp(0., 1.));
+        let base = if ground.extras.is_empty() {
+            let family = (tone * 5.).floor() / 5. + 0.1 * self.hash(26, pane.0, pane.1);
+            ground.ramp(0.26 + 0.72 * family.clamp(0., 1.))
+        } else {
+            let colours = ground.accents[1..].iter().chain(&ground.extras).collect::<Vec<_>>();
+            let colour = colours[((tone * colours.len() as f64) as usize).min(colours.len() - 1)];
+            encoded_mix(ground.background, *colour, 0.62 + 0.38 * self.hash(26, pane.0, pane.1))
+        };
         let (light_x, light_y) = (self.frame.width * (0.35 + 0.3 * o[3]), 0.10 + 0.25 * o[4]);
         let (to_x, to_y) = (x - light_x, y - light_y);
         let glow = (-(to_x * to_x + to_y * to_y) * 0.9).exp();
@@ -876,6 +906,7 @@ impl Scene {
             ground: Ground {
                 background: recipe.palette.background.0.map(|channel| f64::from(channel) / 255.),
                 accents: recipe.palette.accents.map(|accent| accent.0.map(|channel| f64::from(channel) / 255.)),
+                extras: recipe.palette.extras.iter().map(|extra| extra.0.map(|channel| f64::from(channel) / 255.)).collect(),
             },
             light: recipe.palette.light,
             offsets: std::array::from_fn(|_| random.unit()),
@@ -1718,6 +1749,43 @@ mod tests {
         };
         let (left, right) = (energy(0, 100), energy(100, 200));
         assert!(left > 0.5 * right, "left {left}, right {right}");
+    }
+
+    #[test]
+    fn stained_glass_uses_every_colour_a_theme_has_and_the_other_styles_keep_to_its_accents() -> anyhow::Result<()> {
+        use crate::extraction::{Palette as Swatches, Rgb as Swatch};
+        use crate::theme::{Appearance, SemanticPalette};
+        let swatch = |r, g, b| Swatch(r, g, b);
+        let swatches = Swatches {
+            colors: [
+                swatch(26, 27, 38), swatch(247, 118, 142), swatch(158, 206, 106), swatch(224, 175, 104),
+                swatch(122, 162, 247), swatch(187, 154, 247), swatch(42, 195, 222), swatch(192, 202, 245),
+                swatch(65, 72, 104), swatch(247, 118, 142), swatch(158, 206, 106), swatch(224, 175, 104),
+                swatch(122, 162, 247), swatch(187, 154, 247), swatch(42, 195, 222), swatch(192, 202, 245),
+            ],
+        };
+        let palette = Palette::from_theme(&SemanticPalette::derive(&swatches, Appearance::Dark))?;
+        assert_eq!(palette.extras.len(), 4, "error, success, warning and info");
+        // The glass shows a red, a green and a yellow pane as well as the blue and purple accents.
+        let image = Recipe::with_palette(Style::StainedGlass, 4, palette.clone()).render(View::whole(1.8), 320, 180);
+        let hue_of = |pixel: &image::Rgba<u8>| {
+            let [r, g, b] = [f64::from(pixel[0]), f64::from(pixel[1]), f64::from(pixel[2])];
+            let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+            (max - min > 40.).then(|| {
+                let hue = if max == r { (g - b) / (max - min) } else if max == g { 2. + (b - r) / (max - min) } else { 4. + (r - g) / (max - min) };
+                ((hue * 60. + 360.) % 360. / 30.) as usize
+            })
+        };
+        let mut seen = std::collections::HashSet::new();
+        for pixel in image.pixels() {
+            seen.extend(hue_of(pixel));
+        }
+        assert!(seen.len() >= 6, "the panes span a range of hues: {seen:?}");
+        // A palette with no extras draws exactly as before.
+        let mut plain = palette;
+        plain.extras.clear();
+        assert_ne!(Recipe::with_palette(Style::StainedGlass, 4, plain).render(View::whole(1.8), 320, 180), image);
+        Ok(())
     }
 
     #[test]
