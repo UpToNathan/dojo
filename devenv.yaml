@@ -9,6 +9,10 @@ inputs:
     inputs:
       nixpkgs:
         follows: nixpkgs
+  # Rex's package server is private: evaluating this input needs the token in a netrc file,
+  # which scripts/install-rex-token.sh writes from 1Password.
+  rex:
+    url: https://pkgs.superlogical.com/rex/nix/preview.tar.gz
   bend:
     url: github:bendlang/bend/042e797ebd1cfc060603e2682879909fe86fa8c2
     inputs:

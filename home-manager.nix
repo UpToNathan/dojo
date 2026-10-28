@@ -71,6 +71,8 @@ in
 {
       imports = [
         inputs.stasis.homeModules.default
+        inputs.rex.homeManagerModules.default
+        ./rex-home-manager.nix
         ./paths-home-manager.nix
         ./theme-home-manager.nix
         ./t3-home-manager.nix

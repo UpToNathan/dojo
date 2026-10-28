@@ -88,6 +88,12 @@ phase_user() {
     echo '== speech runtime packages'
     devenv shell -- bash -c 'cd tools/speech && npm ci --no-audit --no-fund'
 
+    echo '== rex'
+    # Evaluating the rex input needs the package token; it comes from 1Password. The personal Rex
+    # server then keeps running while logged out.
+    [[ -f ${XDG_CONFIG_HOME:-$HOME/.config}/nix/rex-netrc ]] || scripts/install-rex-token.sh
+    loginctl enable-linger "$target_user"
+
     echo '== home-manager'
     # The installers above link repo scripts into ~/.local/bin. Home Manager owns
     # some of those paths; move each conflicting file aside and try again.
