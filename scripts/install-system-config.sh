@@ -33,6 +33,7 @@ config_copies=(
     'pam.d/polkit-1|/etc/pam.d/polkit-1|0644'
     'polkit-1/actions/com.1password.1Password.policy|/usr/share/polkit-1/actions/com.1password.1Password.policy|0644'
     'systemd/system/update-nix-gl.service|/etc/systemd/system/update-nix-gl.service|0644'
+    'systemd/system/dojo-fprintd-resume.service|/etc/systemd/system/dojo-fprintd-resume.service|0644'
     'tmpfiles.d/nix-pam-unix-chkpwd.conf|/etc/tmpfiles.d/nix-pam-unix-chkpwd.conf|0644'
     'tmpfiles.d/opengl-driver.conf|/etc/tmpfiles.d/opengl-driver.conf|0644'
     'udev/rules.d/90-wluma-backlight.rules|/etc/udev/rules.d/90-wluma-backlight.rules|0644'
@@ -119,6 +120,7 @@ if ! $theme_only; then
     as_root systemd-sysusers /etc/sysusers.d/dojo-greeter.conf
     as_root systemd-tmpfiles --create /etc/tmpfiles.d/dojo-dm.conf
     as_root systemctl daemon-reload
+    as_root systemctl enable dojo-fprintd-resume.service
     as_root udevadm control --reload-rules
     if $laptop; then
         as_root sysctl --system >/dev/null

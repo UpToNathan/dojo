@@ -1,0 +1,11 @@
+[Unit]
+Description=Restart fprintd after resume so a reset fingerprint sensor is not left claimed
+After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+
+[Service]
+Type=oneshot
+# try-restart does nothing when fprintd is not running, so a machine with no reader is untouched.
+ExecStart=/usr/bin/systemctl try-restart fprintd.service
+
+[Install]
+WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
