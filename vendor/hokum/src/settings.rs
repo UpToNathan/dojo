@@ -108,6 +108,13 @@ impl Ui {
                 apps.push(app);
             }
         }
+        // The installed applications follow, by name, so a rule can be set before an app has
+        // sent anything.
+        for installed in crate::apps::installed() {
+            if !apps.iter().any(|a| a.eq_ignore_ascii_case(&installed.name)) {
+                apps.push(installed.name.clone());
+            }
+        }
         self.apps = apps;
         self.decode_icons();
     }
@@ -115,7 +122,10 @@ impl Ui {
     fn decode_icons(&mut self) {
         let Some(cache) = &self.cache else { return };
         for app in &self.apps {
-            self.icons.entry(app.clone()).or_insert_with(|| crate::icons::for_app("", None, app).map(|p| cache.file(p, 64.0, 2.0)));
+            self.icons.entry(app.clone()).or_insert_with(|| {
+                let named = crate::apps::installed().iter().find(|i| i.name.eq_ignore_ascii_case(app)).and_then(|i| i.icon.as_deref());
+                crate::icons::for_app(named.unwrap_or(""), None, app).map(|p| cache.file(p, 64.0, 2.0))
+            });
         }
     }
 
@@ -614,7 +624,7 @@ fn apps(s: &Ui, k: &Kit) -> El {
         })
         .collect();
     if rows.is_empty() {
-        rows.push(text("Apps show up here once they've sent a notification.").key("empty").font(k.ty.small).color(c.text_muted).px(12.0).py(12.0));
+        rows.push(text("Installed apps and any that send a notification show up here.").key("empty").font(k.ty.small).color(c.text_muted).px(12.0).py(12.0));
     }
     if custom > 0 {
         rows.push(rules_note(k, if custom == 1 { "1 more rule in config.kdl matches by text or urgency".into() } else { format!("{custom} more rules in config.kdl match by text or urgency") }));

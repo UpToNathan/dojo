@@ -26,6 +26,9 @@ pub struct Note {
     /// update lands in place instead of one card leaving and another arriving.
     pub slot: u32,
     pub app: String,
+    /// The proper name of the application's desktop entry, when it has one: what the app
+    /// list shows, and a second name its rules match.
+    pub name: Option<String>,
     /// Where in the app it came from (a Slack channel), shown after the app's name.
     pub context: Option<String>,
     pub summary: String,
@@ -66,6 +69,7 @@ impl Note {
             id,
             slot: id,
             app: app.into(),
+            name: None,
             context: None,
             summary: summary.into(),
             body: body.into(),

@@ -35,6 +35,12 @@ so it works under Niri. Dojo does not implement the interface itself (its Status
 - **Hokum:** a `glass #true` token puts `system_material` on the card, and a build in
   `/nix/store` is treated like a cargo build and never offers updates. `src/theme.rs`,
   `src/card.rs`, `src/update.rs`.
+- **Hokum, applications:** the settings window's Applications list is prefilled from the
+  installed desktop entries (by `Name=`, with their `Icon=`), after the apps that have sent
+  something. A notification is resolved to its entry by its `desktop-entry` hint or its app name,
+  and rules match that proper name as well as the name the app sent, so `rule app="Signal"` hides
+  `signal-desktop` too and rules written for the sent name keep working. `src/apps.rs`,
+  `src/theme.rs`, `src/template.rs`, `src/settings.rs`.
 - **Niri:** a `layer-rule` for the `hokum` namespace turns xray off so the blur shows the windows
   under a card and not only the wallpaper (`home-manager.nix`).
 

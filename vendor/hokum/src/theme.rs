@@ -447,7 +447,7 @@ pub struct Rule {
 
 impl Rule {
     pub fn matches(&self, n: &Note) -> bool {
-        self.app.as_ref().is_none_or(|g| glob(g, &n.app))
+        self.app.as_ref().is_none_or(|g| glob(g, &n.app) || n.name.as_deref().is_some_and(|name| glob(g, name)))
             && self.summary.as_ref().is_none_or(|g| glob(g, &n.summary))
             && self.body.as_ref().is_none_or(|g| glob(g, &n.body))
             && self.urgency.is_none_or(|u| u == n.urgency)
@@ -1361,6 +1361,17 @@ rule app="Spotify" { hide }
         let none = parse("tokens {\n  radius 3\n}\n", "x").unwrap().look(&Note::new(1, "App", "hi", ""), true);
         assert_eq!((none.tokens.shadow_scale, none.tokens.shadow_color), (1.0, None));
         assert!(parse("tokens {\n  shadow-scale \"big\"\n}\n", "x").is_err());
+    }
+
+    #[test]
+    fn a_rule_for_an_apps_proper_name_matches_whatever_name_it_sends() {
+        let t = parse("rule app=\"Signal\" { hide }\n", "x").unwrap();
+        let mut n = Note::new(1, "signal-desktop", "hi", "");
+        assert!(!t.routing(&n).hide, "without a desktop entry only the sent name counts");
+        n.name = Some("Signal".into());
+        assert!(t.routing(&n).hide, "the entry's name matches too");
+        let by_sent = parse("rule app=\"signal-desktop\" { hide }\n", "x").unwrap();
+        assert!(by_sent.routing(&n).hide, "rules written for the sent name keep matching");
     }
 
     #[test]

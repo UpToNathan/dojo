@@ -183,6 +183,7 @@ impl Server {
         n.resident = hint::<bool>(&hints, "resident").unwrap_or(false);
         let desktop = hint::<String>(&hints, "desktop-entry");
         n.icon_src = crate::icons::for_app(&app_icon, desktop.as_deref(), &n.app).map(Source::File);
+        n.name = crate::apps::name_for(&n.app, desktop.as_deref());
         n.desktop = desktop;
         n.image_src = ["image-data", "image_data", "icon_data"]
             .iter()

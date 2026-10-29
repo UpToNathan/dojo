@@ -61,7 +61,7 @@ impl Ctx<'_> {
                 field => !crate::theme::field(self.n, field).is_empty(),
             },
             Cond::Urgency(u) => self.n.urgency == *u,
-            Cond::App(g) => crate::theme::glob(g, &self.n.app),
+            Cond::App(g) => crate::theme::glob(g, &self.n.app) || self.n.name.as_deref().is_some_and(|name| crate::theme::glob(g, name)),
             Cond::Not(c) => !self.has(c),
         }
     }
