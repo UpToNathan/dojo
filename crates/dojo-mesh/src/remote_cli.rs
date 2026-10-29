@@ -20,6 +20,50 @@ const REMOTE_CHECK: &str = "exec \"${XDG_DATA_HOME:-$HOME/.local/share}/dojo/bin
 /// How long the receiver gathers a burst of events into one cursor movement.
 const FRAME: Duration = Duration::from_millis(8);
 
+/// The notice kind for every remote-input notice.
+const NOTICE_KIND: &str = "remote-input";
+
+/// What the operator is told when input starts, and when it stops.
+fn operator_started(peer: &str) -> String {
+    format!("Controlling {peer}")
+}
+fn operator_stopped(peer: &str) -> String {
+    format!("Stopped controlling {peer}")
+}
+/// What the peer is told when input starts, and when it stops.
+fn peer_started(operator: &str) -> String {
+    format!("{operator} is controlling this machine")
+}
+fn peer_stopped(operator: &str) -> String {
+    format!("No longer controlled by {operator}")
+}
+
+/// `dojo-notify`, from `PATH` or `~/.local/bin`.
+fn notify_binary(path: Option<&std::ffi::OsStr>, home: Option<&std::path::Path>) -> Option<PathBuf> {
+    let on_path = path.into_iter().flat_map(std::env::split_paths).map(|dir| dir.join("dojo-notify")).find(|candidate| candidate.is_file());
+    on_path.or_else(|| home.map(|home| home.join(".local/bin/dojo-notify")).filter(|candidate| candidate.is_file()))
+}
+
+/// Starts `binary send --kind KIND --urgency low [--body BODY] SUMMARY` and does not wait for it. It
+/// runs in its own process group so the end of an ssh session does not take it along.
+fn spawn_notify(binary: &std::path::Path, kind: &str, summary: &str, body: &str) -> std::io::Result<std::process::Child> {
+    use std::os::unix::process::CommandExt;
+    let mut command = Command::new(binary);
+    command.args(["send", "--kind", kind, "--urgency", "low"]);
+    if !body.is_empty() {
+        command.args(["--body", body]);
+    }
+    command.arg(summary).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).process_group(0).spawn()
+}
+
+/// Tells the person on this machine, through `dojo-notify`. Dojo-mesh has no notification service of
+/// its own; a missing command or a failure to start it is ignored.
+fn notify(kind: &str, summary: &str, body: &str) {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let Some(binary) = notify_binary(std::env::var_os("PATH").as_deref(), home.as_deref()) else { return };
+    let _ = spawn_notify(&binary, kind, summary, body);
+}
+
 fn capture_binary(env: &Env) -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("DOJO_INPUT_CAPTURE").map(PathBuf::from) {
         return Some(path);
@@ -57,11 +101,13 @@ pub fn remote(env: &Env, rest: &[String]) -> Result<u8, Failure> {
         .spawn()
         .map_err(|error| fail(UNAVAILABLE, format!("could not start {}: {error}", capture.display())))?;
     let events = helper.stdout.take().expect("stdout was piped");
+    notify(NOTICE_KIND, &operator_started(peer), "");
     let argv: Vec<String> = ["sh", "-c", REMOTE_INJECT].iter().map(|part| part.to_string()).collect();
     let result = cli::call_peer(env, &roster, peer, "remote", "cursor and keyboard", &argv, Input::Stdio(Stdio::from(events)), Output::Inherit, None);
     // However the session ended, local input comes back the moment the helper is gone.
     let _ = helper.kill();
     let _ = helper.wait();
+    notify(NOTICE_KIND, &operator_stopped(peer), "");
     cli::outcome(peer, &result?.ended)
 }
 
@@ -128,6 +174,7 @@ pub fn inject(env: &Env, rest: &[String]) -> Result<u8, Failure> {
 /// pressed, and lets go of it all when this connection closes.
 fn inject_as_hardware(mut connection: niri::AgentSeat, from: &str) -> Result<u8, Failure> {
     eprintln!("dojo-mesh: taking input from {from}");
+    notify(NOTICE_KIND, &peer_started(from), "");
     let (lines, incoming) = mpsc::channel::<String>();
     std::thread::spawn(move || {
         for line in std::io::stdin().lock().lines() {
@@ -168,6 +215,7 @@ fn inject_as_hardware(mut connection: niri::AgentSeat, from: &str) -> Result<u8,
         }
     }
     drop(connection);
+    notify(NOTICE_KIND, &peer_stopped(from), "");
     match ended {
         Ok(()) => Ok(0),
         Err(message) => {
@@ -205,6 +253,7 @@ fn inject_through_seat(socket: &std::path::Path, from: &str) -> Result<u8, Failu
         seat.focus(window.id).map_err(|message| fail(FAILED, message))?;
     }
     eprintln!("dojo-mesh: taking input from {from}");
+    notify(NOTICE_KIND, &peer_started(from), "");
 
     let (lines, incoming) = mpsc::channel::<String>();
     std::thread::spawn(move || {
@@ -250,6 +299,7 @@ fn inject_through_seat(socket: &std::path::Path, from: &str) -> Result<u8, Failu
     // Held keys and buttons are let go, and the seat goes with the connection.
     let _ = seat.input(serde_json::json!("Reset"));
     let _ = seat.input(serde_json::json!("Destroy"));
+    notify(NOTICE_KIND, &peer_stopped(from), "");
     match ended {
         Ok(()) => Ok(0),
         Err(message) => {
@@ -331,4 +381,53 @@ fn apply(seat: &mut niri::AgentSeat, pointer: &mut Pointer, action: &Action) -> 
         Action::Key { code, pressed } => serde_json::json!({"Key": {"evdev": code, "state": state(pressed)}}),
     };
     seat.input(command)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn the_notices_name_the_other_machine() {
+        assert_eq!(operator_started("laptop"), "Controlling laptop");
+        assert_eq!(operator_stopped("laptop"), "Stopped controlling laptop");
+        assert_eq!(peer_started("desk"), "desk is controlling this machine");
+        assert_eq!(peer_stopped("desk"), "No longer controlled by desk");
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("dojo-mesh-remote-cli-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn dojo_notify_is_found_on_path_then_in_local_bin_and_may_be_absent() {
+        let bin = scratch("find");
+        let home = scratch("find-home");
+        assert_eq!(notify_binary(Some(bin.as_os_str()), Some(&home)), None);
+        std::fs::create_dir_all(home.join(".local/bin")).unwrap();
+        std::fs::write(home.join(".local/bin/dojo-notify"), "").unwrap();
+        assert_eq!(notify_binary(Some(bin.as_os_str()), Some(&home)), Some(home.join(".local/bin/dojo-notify")));
+        std::fs::write(bin.join("dojo-notify"), "").unwrap();
+        assert_eq!(notify_binary(Some(bin.as_os_str()), Some(&home)), Some(bin.join("dojo-notify")));
+        let _ = std::fs::remove_dir_all(&bin);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn the_command_is_run_with_the_kind_urgency_and_summary_and_a_missing_one_is_an_error_not_a_panic() {
+        let dir = scratch("spawn");
+        let record = dir.join("args");
+        let fake = dir.join("dojo-notify");
+        std::fs::write(&fake, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n", record.display())).unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        spawn_notify(&fake, NOTICE_KIND, "Controlling laptop", "").unwrap().wait().unwrap();
+        let args: Vec<String> = std::fs::read_to_string(&record).unwrap().lines().map(str::to_string).collect();
+        assert_eq!(args, ["send", "--kind", "remote-input", "--urgency", "low", "Controlling laptop"]);
+        assert!(spawn_notify(&dir.join("absent"), NOTICE_KIND, "x", "").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
