@@ -53,7 +53,11 @@ fn main() {
                 on_key: Some(term::on_key),
                 ..AppSpec::new(title, term::WINDOW_SIZE, term::init, ui::view)
             };
-            App::new(spec).args(rune_args).run();
+            // No client-side title bar: Niri frames windows itself, as it does kitty.
+            App::new(spec)
+                .window_options(rune::WindowOptions { borderless: true, ..Default::default() })
+                .args(rune_args)
+                .run();
         }
     }
 }
