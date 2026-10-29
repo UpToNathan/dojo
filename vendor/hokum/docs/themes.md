@@ -101,6 +101,8 @@ Anything unset keeps the value from below, ultimately the default.
 | `border` | width and colour, or `"none"` | `1 "border"` | Card border; `border 0` is also none |
 | `accent` | colour | `"app"` | The card's accent: badge fill, dot, stripe, glow, `color="accent"` |
 | `shadow` | `"flat"`, `"soft"`, `"deep"`, `"glow"` | `"soft"` | `glow` is a halo in the accent colour |
+| `shadow-color` | colour | the shadow's own | Recolours the shadow's layers, each keeping its opacity |
+| `shadow-scale` | number | `1` | Multiplies the shadow's offset, blur and spread |
 | `mark` | `"icon"`, `"letter"`, `"dot"`, `"stripe"`, `"none"` | `"icon"` | What `badge` draws (below) |
 | `enter` | `"slide"`, `"fade"`, `"scale"`, `"drop"` | `"slide"` | How cards arrive and leave |
 | `motion` | seconds and bounce (0 to 1) | `0.38 0.12` | The spring cards move on |

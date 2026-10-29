@@ -159,6 +159,10 @@ pub struct Tokens {
     pub border: Option<(f32, Paint)>,
     pub accent: Paint,
     pub shadow: Lift,
+    /// Replaces the colour of the shadow's layers, keeping each one's own opacity.
+    pub shadow_color: Option<Paint>,
+    /// Multiplies the shadow's offset, blur and spread.
+    pub shadow_scale: f32,
     pub mark: Mark,
     pub enter: Enter,
     pub motion: (f32, f32),
@@ -187,6 +191,8 @@ impl Default for Tokens {
             border: Some((1.0, Paint::named("border"))),
             accent: Paint::named("app"),
             shadow: Lift::Soft,
+            shadow_color: None,
+            shadow_scale: 1.0,
             mark: Mark::Icon,
             enter: Enter::Slide,
             motion: (0.38, 0.12),
@@ -226,6 +232,8 @@ pub struct Overrides {
     border: Option<Option<(f32, Paint)>>,
     accent: Option<Paint>,
     shadow: Option<Lift>,
+    shadow_color: Option<Option<Paint>>,
+    shadow_scale: Option<f32>,
     mark: Option<Mark>,
     enter: Option<Enter>,
     motion: Option<(f32, f32)>,
@@ -237,7 +245,7 @@ impl Overrides {
         macro_rules! set {
             ($($f:ident),*) => { $(if let Some(v) = &self.$f { t.$f = v.clone(); })* };
         }
-        set!(width, radius, padding, gap, spacing, badge_radius, icon_size, font_size, title_weight, font, fill, text, muted, faint, border, accent, shadow, mark, enter, motion, glass);
+        set!(width, radius, padding, gap, spacing, badge_radius, icon_size, font_size, title_weight, font, fill, text, muted, faint, border, accent, shadow, shadow_color, shadow_scale, mark, enter, motion, glass);
     }
 
     /// `top`'s values over these.
@@ -245,7 +253,7 @@ impl Overrides {
         macro_rules! set {
             ($($f:ident),*) => { $(if top.$f.is_some() { self.$f = top.$f.clone(); })* };
         }
-        set!(width, radius, padding, gap, spacing, badge_radius, icon_size, font_size, title_weight, font, fill, text, muted, faint, border, accent, shadow, mark, enter, motion, glass);
+        set!(width, radius, padding, gap, spacing, badge_radius, icon_size, font_size, title_weight, font, fill, text, muted, faint, border, accent, shadow, shadow_color, shadow_scale, mark, enter, motion, glass);
     }
 }
 
@@ -835,6 +843,8 @@ impl Parser<'_> {
                         &[("letter", Mark::Letter), ("icon", Mark::Icon), ("dot", Mark::Dot), ("stripe", Mark::Stripe), ("none", Mark::None)],
                     )
                 }
+                "shadow-color" => o.shadow_color = self.paint(node, v).map(Some),
+                "shadow-scale" => o.shadow_scale = self.num(node, v),
                 "glass" => match v.as_bool() {
                     Some(on) => o.glass = Some(on),
                     None => self.problem(node, "`glass` takes #true or #false"),
@@ -1338,6 +1348,19 @@ rule app="Spotify" { hide }
         assert!(e[0].message.contains("glass"), "{e:?}");
         let plain = parse("tokens {\n  radius 3\n}\n", "x").unwrap();
         assert!(!plain.look(&Note::new(1, "App", "hi", ""), true).tokens.glass);
+    }
+
+    #[test]
+    fn the_shadow_takes_a_colour_and_a_scale() {
+        let t = parse("tokens {\n  shadow \"soft\"\n  shadow-color \"#24283b\"\n  shadow-scale 0.5\n}\n", "x").unwrap();
+        let look = t.look(&Note::new(1, "App", "hi", ""), true);
+        assert_eq!(look.tokens.shadow_scale, 0.5);
+        assert!(look.tokens.shadow_color.is_some());
+        let plain = t.look(&Note::new(1, "App", "hi", ""), true);
+        assert_eq!(plain.tokens.shadow, Lift::Soft);
+        let none = parse("tokens {\n  radius 3\n}\n", "x").unwrap().look(&Note::new(1, "App", "hi", ""), true);
+        assert_eq!((none.tokens.shadow_scale, none.tokens.shadow_color), (1.0, None));
+        assert!(parse("tokens {\n  shadow-scale \"big\"\n}\n", "x").is_err());
     }
 
     #[test]

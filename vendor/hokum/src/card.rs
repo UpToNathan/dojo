@@ -134,9 +134,10 @@ pub fn tint(app: &str) -> Color {
     oklch(0.64, 0.13, (h % 360) as f32)
 }
 
-/// The shadows a card casts for `lift`.
-pub fn shadows(lift: Lift, k: &Kit, accent: Color) -> Vec<Shadow> {
-    match lift {
+/// The shadows a card casts for `lift`, recoloured with `tint` (each layer keeps its own
+/// opacity) and with their offset, blur and spread multiplied by `scale`.
+pub fn shadows(lift: Lift, k: &Kit, accent: Color, tint: Option<Color>, scale: f32) -> Vec<Shadow> {
+    let layers = match lift {
         Lift::Flat => Vec::new(),
         Lift::Soft | Lift::Deep => {
             let mut v = k.elevation.overlay.clone();
@@ -150,7 +151,18 @@ pub fn shadows(lift: Lift, k: &Kit, accent: Color) -> Vec<Shadow> {
             Shadow { blur: 28.0, color: accent.alpha(0.45), ..Default::default() },
             Shadow { blur: 6.0, color: accent.alpha(0.35), ..Default::default() },
         ],
-    }
+    };
+    layers
+        .into_iter()
+        .map(|sh| Shadow {
+            x: sh.x * scale,
+            y: sh.y * scale,
+            blur: sh.blur * scale,
+            spread: sh.spread * scale,
+            color: tint.map_or(sh.color, |c| Color { a: sh.color.a * c.a, ..c }),
+            ..sh
+        })
+        .collect()
 }
 
 /// How far the shadows `theme` can give a card reach past its sides, in either appearance: the
@@ -160,7 +172,8 @@ pub fn shadow_reach(theme: &Theme) -> f32 {
         .into_iter()
         .flat_map(|dark| {
             let k = rune_theme_opencode::kit(dark);
-            theme.lifts(dark).into_iter().flat_map(move |l| shadows(l, k, Color::BLACK))
+            let scale = theme.base(dark).shadow_scale;
+            theme.lifts(dark).into_iter().flat_map(move |l| shadows(l, k, Color::BLACK, None, scale))
         })
         .filter(|sh| !sh.inset)
         .map(|sh| sh.x.abs() + sh.spread.max(0.0) + sh.blur * 1.5)
@@ -201,7 +214,8 @@ pub fn card<S: Cards>(n: &Note, theme: &Theme, k: &Kit, from_right: bool) -> El 
     if let Some((w, c)) = &t.border {
         root = root.border(*w, cx.paint(c));
     }
-    for sh in shadows(t.shadow, k, accent) {
+    let shadow_tint = t.shadow_color.as_ref().map(|c| cx.paint(c));
+    for sh in shadows(t.shadow, k, accent, shadow_tint, t.shadow_scale) {
         root = root.box_shadow(sh);
     }
     if t.glass {
