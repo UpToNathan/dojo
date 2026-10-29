@@ -34,6 +34,8 @@ fn main() {
     });
     let _ = draw::FONT.set(settings.font.style());
     let _ = backend::CURSOR.set(settings.cursor);
+    let theme = settings.theme.as_ref().and_then(|path| std::fs::read_to_string(path).ok());
+    let _ = draw::THEME_COLORS.set(theme.and_then(|source| draw::ThemeColors::from_payload(&settings::theme_payload(&source))));
     let _ = term::THEME.set(settings.theme);
     resolve_session(&mut args);
     let panel = args.panel.clone();

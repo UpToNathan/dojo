@@ -71,11 +71,47 @@ impl Palette {
         }
     }
 
+    /// The focused pane's colours, or the configured theme's while no pane is showing (the
+    /// picker before a session opens), so the window is themed either way.
     pub fn of(screen: Option<&Screen>) -> Self {
-        match screen {
-            Some(screen) => Self::new(screen.background, screen.foreground, screen.cursor.and_then(|c| c.color)),
-            None => Self::new(Rgb { r: 0x14, g: 0x14, b: 0x18 }, Rgb { r: 0xdd, g: 0xdd, b: 0xdd }, None),
+        let theme = THEME_COLORS.get().copied().flatten();
+        let mut palette = match (screen, theme) {
+            (Some(screen), _) => Self::new(screen.background, screen.foreground, screen.cursor.and_then(|c| c.color)),
+            (None, Some(theme)) => Self::new(theme.background, theme.foreground, theme.cursor),
+            (None, None) => Self::new(Rgb { r: 0x14, g: 0x14, b: 0x18 }, Rgb { r: 0xdd, g: 0xdd, b: 0xdd }, None),
+        };
+        if let Some(warning) = theme.and_then(|theme| theme.warning) {
+            palette.warning = color(warning);
         }
+        palette
+    }
+}
+
+/// Colours read from the theme file at start (`settings::theme_colors`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ThemeColors {
+    pub background: Rgb,
+    pub foreground: Rgb,
+    pub cursor: Option<Rgb>,
+    /// The palette's yellow, for status marks.
+    pub warning: Option<Rgb>,
+}
+
+pub static THEME_COLORS: OnceLock<Option<ThemeColors>> = OnceLock::new();
+
+impl ThemeColors {
+    /// From the `set_theme` payload `settings::theme_payload` builds.
+    pub fn from_payload(theme: &serde_json::Value) -> Option<Self> {
+        let rgb = |value: &serde_json::Value| value.as_str().and_then(Rgb::parse);
+        let palette = |index: &str| {
+            theme["palette"].as_array()?.iter().filter_map(|entry| entry.as_str()?.split_once('=')).find(|(i, _)| *i == index).and_then(|(_, c)| Rgb::parse(c))
+        };
+        Some(Self {
+            background: rgb(&theme["background"])?,
+            foreground: rgb(&theme["foreground"])?,
+            cursor: rgb(&theme["cursor"]),
+            warning: palette("3"),
+        })
     }
 }
 
@@ -155,6 +191,16 @@ fn cursor_elements(cursor: dojo_rex::Cursor, under: Option<&str>, screen: &Scree
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn theme_colours_come_from_the_payload() {
+        let theme = crate::settings::theme_payload("background = #24283b\nforeground = #c0caf5\ncursor-color = #7aa2f7\npalette = 3=#e0af68\n");
+        let colours = ThemeColors::from_payload(&theme).unwrap();
+        assert_eq!(colours.background, Rgb { r: 0x24, g: 0x28, b: 0x3b });
+        assert_eq!(colours.cursor, Some(Rgb { r: 0x7a, g: 0xa2, b: 0xf7 }));
+        assert_eq!(colours.warning, Some(Rgb { r: 0xe0, g: 0xaf, b: 0x68 }));
+        assert!(ThemeColors::from_payload(&serde_json::json!({})).is_none());
+    }
+
     use super::*;
 
     #[test]
