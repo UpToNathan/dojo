@@ -169,6 +169,34 @@ struct Theme {
 struct Config {
     theme: Theme,
     session: crate::session::settings::SessionSettings,
+    #[serde(rename = "quick-terminal")]
+    quick_terminal: QuickTerminalSettings,
+    /// Read and checked by `dojo-terminal` (crates/dojo-terminal/src/settings.rs).
+    #[allow(dead_code)]
+    terminal: toml::Table,
+}
+
+/// The `[quick-terminal]` table: which program shows the quick terminal.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct QuickTerminalSettings {
+    pub client: QuickTerminalClient,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum QuickTerminalClient {
+    /// Quick-access kitty, which owns its shell.
+    #[default]
+    Kitty,
+    /// `dojo-terminal`, a client of the `dojo-quick` Rex session.
+    Rex,
+}
+
+pub fn parse_quick_terminal_settings(source: &str) -> anyhow::Result<QuickTerminalSettings> {
+    Ok(toml::from_str::<Config>(source)
+        .context("invalid Dojo config")?
+        .quick_terminal)
 }
 
 /// Parses only the `[session]` switches. The rest of the file is validated with it.
@@ -227,6 +255,16 @@ impl ConfigStore {
     pub fn session_settings(&self) -> anyhow::Result<crate::session::settings::SessionSettings> {
         match fs::read_to_string(&self.path) {
             Ok(contents) => parse_session_settings(&contents)
+                .with_context(|| format!("reading {}", self.path.display())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Default::default()),
+            Err(error) => Err(error).with_context(|| format!("reading {}", self.path.display())),
+        }
+    }
+
+    /// The quick terminal's settings; a missing file means the defaults.
+    pub fn quick_terminal_settings(&self) -> anyhow::Result<QuickTerminalSettings> {
+        match fs::read_to_string(&self.path) {
+            Ok(contents) => parse_quick_terminal_settings(&contents)
                 .with_context(|| format!("reading {}", self.path.display())),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Default::default()),
             Err(error) => Err(error).with_context(|| format!("reading {}", self.path.display())),
@@ -464,5 +502,14 @@ mod tests {
         fs::remove_file(path)?;
         fs::remove_dir(directory)?;
         Ok(())
+    }
+
+    #[test]
+    fn the_quick_terminal_is_kitty_unless_rex_is_chosen() {
+        assert_eq!(parse_quick_terminal_settings("").unwrap().client, QuickTerminalClient::Kitty);
+        let rex = parse_quick_terminal_settings("[quick-terminal]\nclient = \"rex\"\n").unwrap();
+        assert_eq!(rex.client, QuickTerminalClient::Rex);
+        assert!(parse_quick_terminal_settings("[quick-terminal]\nclient = \"xterm\"\n").is_err());
+        assert!(parse_quick_terminal_settings("[terminal]\nfont-size = 13\n").is_ok());
     }
 }

@@ -19,6 +19,17 @@ One credential source that can carry agent model requests, such as a Claude subs
 **Model picker**:
 The shell menu that lists the models an available account can serve and sets the agent's global model selection.
 
+### Terminals
+
+**Rex session**:
+A group of terminals held by the personal Rex server. It keeps running whether or not any client shows it.
+
+**Terminal client**:
+`dojo-terminal`, the Dojo program that shows one terminal of a Rex session and types into it. Closing it leaves the session running. _Avoid_: terminal window (for a kitty window that owns its shell).
+
+**Quick terminal**:
+The terminal the shell drops down inside the desktop frame (Ctrl+F11), either quick-access kitty or a terminal client on session `dojo-quick`.
+
 ### Locking
 
 **Occasion**:

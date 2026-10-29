@@ -55,6 +55,8 @@ in
     pkgs.freetype.dev
     pkgs.wayland.dev
     pkgs.libxkbcommon.dev
+    # dojo-rex links libghostty-vt statically (crates/dojo-rex/build.rs).
+    inputs.ghostty.packages.${pkgs.stdenv.hostPlatform.system}.libghostty-vt-releasefast.dev
     pkgs.libxi.dev
     pkgs.libxtst
     pkgs.openssl.dev

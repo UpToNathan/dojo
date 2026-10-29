@@ -1,7 +1,7 @@
 use std::collections::HashMap;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, Instant};
@@ -13,7 +13,7 @@ use gpui::{
 };
 use serde::Deserialize;
 
-use crate::config::ThemeColors;
+use crate::config::{QuickTerminalClient, ThemeColors};
 
 #[derive(Default)]
 pub struct QuickTerminal {
@@ -91,7 +91,18 @@ impl Placement {
             gpui::size(px(self.width), px(self.height * progress)),
         )
     }
+    /// The terminal's own rectangle inside the outline: x and y from the corner Niri leaves
+    /// after its reserved edges, as layer surfaces anchored there are placed.
+    fn content(self) -> (f32, f32, f32, f32) {
+        (
+            self.left + 24. - crate::geometry::LEFT_PANEL_WIDTH as f32,
+            self.top + 24. - crate::geometry::TOP_BAR_HEIGHT as f32,
+            self.width - 48.,
+            self.height - 48.,
+        )
+    }
     fn kitty_args(self, output: &str) -> Vec<String> {
+        let (x, y, width, height) = self.content();
         let mut args = vec![
             "quick-access-terminal".into(),
             "--instance-group".into(),
@@ -101,16 +112,10 @@ impl Placement {
             "edge=none".into(),
             format!("output_name={output}"),
             "app_id=dojo-quick-terminal".into(),
-            format!("columns={}px", self.width - 48.),
-            format!("lines={}px", self.height - 48.),
-            format!(
-                "margin_left={}",
-                self.left + 24. - crate::geometry::LEFT_PANEL_WIDTH as f32
-            ),
-            format!(
-                "margin_top={}",
-                self.top + 24. - crate::geometry::TOP_BAR_HEIGHT as f32
-            ),
+            format!("columns={width}px"),
+            format!("lines={height}px"),
+            format!("margin_left={x}"),
+            format!("margin_top={y}"),
             "layer=overlay".into(),
             "background_opacity=1".into(),
             "kitty_override=window_padding_width=0".into(),
@@ -121,6 +126,106 @@ impl Placement {
             args.push(value);
         }
         args
+    }
+
+    /// `dojo-terminal --panel` on the `dojo-quick` Rex session, in the same rectangle as kitty.
+    fn rex_args(self, output: &str) -> Vec<String> {
+        let (x, y, width, height) = self.content();
+        let mut args: Vec<String> = vec!["--panel".into(), "--output".into(), output.into()];
+        for (name, value) in [("--x", x), ("--y", y), ("--width", width), ("--height", height)] {
+            args.push(name.into());
+            args.push(value.to_string());
+        }
+        args.extend(["--session".into(), QUICK_SESSION.into(), "--".into()]);
+        args.extend(session_command(|name| std::env::var(name).ok()));
+        args
+    }
+}
+
+const QUICK_SESSION: &str = "dojo-quick";
+
+/// The Rex server is a systemd user service that may predate this desktop session, so a new
+/// session gets the desktop's own variables through `env`.
+const SESSION_VARIABLES: [&str; 7] = [
+    "WAYLAND_DISPLAY",
+    "NIRI_SOCKET",
+    "DISPLAY",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "SSH_AUTH_SOCK",
+    "XDG_CURRENT_DESKTOP",
+    "XDG_SESSION_TYPE",
+];
+
+fn session_command(var: impl Fn(&str) -> Option<String>) -> Vec<String> {
+    let mut command = vec!["env".to_owned()];
+    command.extend(
+        SESSION_VARIABLES
+            .iter()
+            .filter_map(|name| var(name).map(|value| format!("{name}={value}"))),
+    );
+    command.push(terminal_session_script());
+    command
+}
+
+fn terminal_session_script() -> String {
+    format!("{}/scripts/dojo-terminal-session", env!("CARGO_MANIFEST_DIR"))
+}
+
+/// `dojo-terminal` is installed beside the shell.
+fn rex_client() -> std::path::PathBuf {
+    std::env::current_exe()
+        .ok()
+        .map(|exe| exe.with_file_name("dojo-terminal"))
+        .filter(|path| path.is_file())
+        .unwrap_or_else(|| "dojo-terminal".into())
+}
+
+/// How the terminal appears and goes: kitty toggles its own hidden instance; the Rex client is
+/// started on show and ended on hide, leaving its session running.
+enum Launcher {
+    Kitty(Vec<String>),
+    Rex { args: Vec<String>, child: Mutex<Option<Child>> },
+}
+
+impl Launcher {
+    fn new(client: QuickTerminalClient, placement: Placement, output: &str) -> Self {
+        match client {
+            QuickTerminalClient::Kitty => Self::Kitty(placement.kitty_args(output)),
+            QuickTerminalClient::Rex => Self::Rex { args: placement.rex_args(output), child: Mutex::new(None) },
+        }
+    }
+    fn show(&self) -> anyhow::Result<()> {
+        match self {
+            Self::Kitty(args) => {
+                let mut args = args.clone();
+                args.push(terminal_session_script());
+                launch(&args)
+            }
+            Self::Rex { args, child } => {
+                let spawned = Command::new(rex_client())
+                    .args(args)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .spawn()
+                    .context("starting dojo-terminal")?;
+                *child.lock().unwrap() = Some(spawned);
+                Ok(())
+            }
+        }
+    }
+    fn hide(&self) -> anyhow::Result<()> {
+        match self {
+            Self::Kitty(args) => launch(args),
+            Self::Rex { child, .. } => {
+                if let Some(mut child) = child.lock().unwrap().take() {
+                    let _ = child.kill();
+                    std::thread::Builder::new()
+                        .name("dojo-terminal-reaper".into())
+                        .spawn(move || drop(child.wait()))?;
+                }
+                Ok(())
+            }
+        }
     }
 }
 
@@ -157,9 +262,16 @@ impl QuickTerminal {
             .and_then(|id| cx.displays().into_iter().find(|d| d.id() == id))
             .context("focused output has no Dojo display")?;
         let placement = Placement::new(output.width as f32, output.height as f32);
-        let args = placement.kitty_args(&output_name);
+        let client = crate::config::ConfigStore::user_default()
+            .and_then(|store| store.quick_terminal_settings())
+            .map(|settings| settings.client)
+            .unwrap_or_else(|error| {
+                eprintln!("Quick terminal settings: {error:#}");
+                QuickTerminalClient::default()
+            });
+        let launcher = Arc::new(Launcher::new(client, placement, &output_name));
         let visible = Arc::new(AtomicBool::new(false));
-        let release_args = args.clone();
+        let release_launcher = launcher.clone();
         let release_visible = visible.clone();
         self.panel = Some(cx.open_window(
             WindowOptions {
@@ -187,7 +299,7 @@ impl QuickTerminal {
                     let observer = cx.observe_global::<ThemeColors>(|_, cx| cx.notify());
                     cx.on_release(move |_, _| {
                         if release_visible.swap(false, Ordering::Relaxed) {
-                            if let Err(error) = launch(&release_args) {
+                            if let Err(error) = release_launcher.hide() {
                                 eprintln!("Could not hide quick terminal: {error}");
                             }
                         }
@@ -195,7 +307,7 @@ impl QuickTerminal {
                     .detach();
                     TerminalSurface {
                         placement,
-                        args,
+                        launcher,
                         visible,
                         reveal: crate::design::MenuReveal::opening_for(
                             Instant::now(),
@@ -225,7 +337,7 @@ impl QuickTerminal {
 
 struct TerminalSurface {
     placement: Placement,
-    args: Vec<String>,
+    launcher: Arc<Launcher>,
     visible: Arc<AtomicBool>,
     reveal: crate::design::MenuReveal,
     _observer: gpui::Subscription,
@@ -233,7 +345,7 @@ struct TerminalSurface {
 impl TerminalSurface {
     fn dismiss(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.visible.swap(false, Ordering::Relaxed) {
-            if let Err(error) = launch(&self.args) {
+            if let Err(error) = self.launcher.hide() {
                 eprintln!("Could not hide quick terminal: {error}");
             }
         }
@@ -250,12 +362,7 @@ impl Render for TerminalSurface {
         if moving {
             window.request_animation_frame();
         } else if self.reveal.is_open() && !self.visible.load(Ordering::Relaxed) {
-            let mut args = self.args.clone();
-            args.push(format!(
-                "{}/scripts/dojo-terminal-session",
-                env!("CARGO_MANIFEST_DIR")
-            ));
-            match launch(&args) {
+            match self.launcher.show() {
                 Ok(()) => self.visible.store(true, Ordering::Relaxed),
                 Err(error) => {
                     eprintln!("Quick terminal failed: {error:#}");
@@ -292,6 +399,24 @@ mod tests {
             value("margin_top=") + crate::geometry::TOP_BAR_HEIGHT as f32,
         );
         assert_eq!(actual, (376., 48.));
+    }
+    #[test]
+    fn the_rex_client_takes_kittys_rectangle_and_the_quick_session() {
+        let args = Placement::new(1645., 1028.).rex_args("eDP-1");
+        let after = |flag: &str| args[args.iter().position(|arg| arg == flag).unwrap() + 1].clone();
+        assert_eq!(
+            [after("--output"), after("--x"), after("--y"), after("--width"), after("--height")],
+            ["eDP-1", "312", "24", "892", "472"]
+        );
+        assert_eq!(after("--session"), QUICK_SESSION);
+        assert_eq!(after("--"), "env");
+        assert!(args.last().unwrap().ends_with("scripts/dojo-terminal-session"));
+    }
+    #[test]
+    fn a_new_session_carries_only_the_desktop_variables_that_are_set() {
+        let command = session_command(|name| (name == "WAYLAND_DISPLAY").then(|| "wayland-1".into()));
+        assert_eq!(command[..2], ["env".to_owned(), "WAYLAND_DISPLAY=wayland-1".to_owned()]);
+        assert_eq!(command.len(), 3);
     }
     #[test]
     fn terminal_content_is_inset_inside_the_attached_shell_outline() {

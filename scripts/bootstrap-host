@@ -60,6 +60,7 @@ phase_user() {
     devenv shell -- cargo build --release --locked --manifest-path vendor/niri/Cargo.toml
     devenv shell -- cargo build --release --bin dojo --bin dojo-lock --bin dojo-lock-pam \
         --bin dojo-dm --bin dojo-dm-pam --bin dojo-greeter --bin dojo-agent --bin dojo-computer-recording --bin dojo-computer-verification
+    (cd crates/dojo-terminal && devenv shell -- cargo build --release --locked)
 
     echo '== install'
     install_niri
