@@ -20,12 +20,19 @@ pub fn start() {
             if let Some(message) = run_once() {
                 if reminded.is_none_or(|at| at.elapsed() >= REMIND) {
                     eprintln!("Dojo mesh: {message}");
+                    dojo::notify::post(expiry_notice(&message));
                     reminded = Some(std::time::Instant::now());
                 }
             }
             std::thread::sleep(EVERY);
         }
     });
+}
+
+/// The notice for what `dojo-mesh renew --due` could not renew; `message` names the entries and the
+/// days they have left.
+fn expiry_notice(message: &str) -> dojo::notify::Notice {
+    dojo::notify::Notice::new("mesh-expiry", "Mesh key expiring").body(message).urgency(dojo::notify::Urgency::Normal)
 }
 
 /// What to tell the person, if anything.
@@ -42,5 +49,19 @@ fn run_once() -> Option<String> {
         // Not a roster node: nothing to keep up.
         Some(2) => None,
         _ => Some(String::from_utf8_lossy(&output.stderr).lines().rev().find(|line| !line.trim().is_empty())?.trim().trim_start_matches("dojo-mesh: ").to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_notice_is_a_normal_mesh_expiry_naming_the_entries() {
+        let notice = expiry_notice("work expires in 12 days: renew by hand");
+        assert_eq!(notice.kind, "mesh-expiry");
+        assert_eq!(notice.summary, "Mesh key expiring");
+        assert_eq!(notice.body, "work expires in 12 days: renew by hand");
+        assert_eq!(notice.urgency, dojo::notify::Urgency::Normal);
     }
 }

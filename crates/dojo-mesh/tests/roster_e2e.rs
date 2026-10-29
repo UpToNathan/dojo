@@ -1129,7 +1129,7 @@ fn memberships_due_renew_unattended_and_never_wait_on_a_security_key() {
     lab.config(&format!("signing-keys = [\"{}\"]\n", lab.root.join("keys/fakesk.pub").display()));
     let (code, out) = lab.run(&["renew", "--due"]);
     assert_eq!(code, 3, "{out}");
-    assert!(out.contains("without a touch") && out.contains("1 membership"), "{out}");
+    assert!(out.contains("without a touch") && out.contains("beta expires in 9 days"), "{out}");
     assert_eq!(expiry(&lab, "beta"), 9, "unchanged");
 
     // With a key that needs no touch after it, only what is due is renewed.

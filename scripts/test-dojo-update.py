@@ -23,8 +23,10 @@ class UpdateTests(unittest.TestCase):
     def run_cli(self, args, result=0):
         output = io.StringIO()
         with contextlib.redirect_stdout(output), patch.object(updater.shutil, "which", return_value="/bin/tool"), \
+             patch.object(updater, "send_notice") as notice, \
              patch.object(updater.subprocess, "run", return_value=subprocess.CompletedProcess([], result)) as run:
             code = updater.main(args)
+        self.notice = notice
         return code, output.getvalue(), run
 
     def test_dry_run_has_no_side_effects_and_prints_age_policy(self):
@@ -119,6 +121,36 @@ class UpdateTests(unittest.TestCase):
             code, _, _ = self.run_cli(["--only", "codex"])
         self.assertEqual(code, 1)
         self.assertIn("another dojo-update is running", error.getvalue())
+
+    def test_notice_for_a_clean_run(self):
+        summary, body, urgency, icon = updater.update_notice([("codex", "ok", ""), ("nvim", "held", ""), ("npm", "ok", "")])
+        self.assertEqual((summary, urgency, icon), ("Software updated", "low", "software-update-available-symbolic"))
+        self.assertEqual(body, "2 steps finished")
+
+    def test_notice_names_failed_and_blocked_steps(self):
+        summary, body, urgency, _ = updater.update_notice([("nix-inputs", "failed", "x"), ("nix-lock", "blocked", ""), ("codex", "ok", "")])
+        self.assertEqual((summary, urgency), ("Software update finished with problems", "normal"))
+        self.assertEqual(body, "nix-inputs failed, nix-lock blocked")
+
+    def test_real_run_sends_one_notice_and_dry_run_none(self):
+        self.run_cli(["--only", "codex"])
+        self.notice.assert_called_once()
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {"XDG_STATE_HOME": temporary}):
+            self.run_cli(["--dry-run", "--only", "codex"])
+        self.notice.assert_not_called()
+
+    def test_missing_or_failing_dojo_notify_is_ignored(self):
+        with patch.object(updater, "notify_binary", return_value=None), patch.object(updater.subprocess, "run") as run:
+            updater.send_notice([("codex", "ok", "")])
+            run.assert_not_called()
+        with patch.object(updater, "notify_binary", return_value="/bin/dojo-notify"), \
+             patch.object(updater.subprocess, "run", side_effect=OSError("gone")):
+            updater.send_notice([("codex", "ok", "")])
+        with patch.object(updater, "notify_binary", return_value="/bin/dojo-notify"), patch.object(updater.subprocess, "run") as run:
+            updater.send_notice([("codex", "failed", "")])
+            argv = run.call_args.args[0]
+        self.assertEqual(argv[:6], ["/bin/dojo-notify", "send", "--kind", "update", "--urgency", "normal"])
+        self.assertEqual(argv[-1], "Software update finished with problems")
 
 
 if __name__ == "__main__":

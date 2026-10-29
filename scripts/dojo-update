@@ -28,6 +28,37 @@ def nonnegative(value):
     return number
 
 
+def update_notice(results):
+    """The notification for a finished run: (summary, body, urgency, icon)."""
+    problems = [f"{name} {status}" for name, status, _ in results if status in ("failed", "blocked")]
+    if problems:
+        return ("Software update finished with problems", ", ".join(problems), "normal", "software-update-urgent-symbolic")
+    done = sum(1 for _, status, _ in results if status == "ok")
+    body = f"{done} {'step' if done == 1 else 'steps'} finished"
+    return ("Software updated", body, "low", "software-update-available-symbolic")
+
+
+def notify_binary():
+    found = shutil.which("dojo-notify")
+    if found:
+        return found
+    local = Path.home() / ".local/bin/dojo-notify"
+    return str(local) if local.exists() else None
+
+
+def send_notice(results):
+    """Tells the person the run is over. A missing or failing dojo-notify is ignored."""
+    try:
+        binary = notify_binary()
+        if not binary:
+            return
+        summary, body, urgency, icon = update_notice(results)
+        subprocess.run([binary, "send", "--kind", "update", "--urgency", urgency, "--icon", icon, "--body", body, summary],
+                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=False)
+    except Exception:
+        pass
+
+
 class Runner:
     def __init__(self, repo, dry_run):
         self.repo = repo
@@ -188,6 +219,8 @@ def main(argv=None):
         print(f"  {name}: {status}" + (f" ({detail})" if detail else ""))
     print("Manual sources: Helium/Rift/custom source hashes, 1Password CLI, AUR, other standalone tools and vendored Niri.")
     print("Dojo desktop build/install is opt-in: dojo-update --only dojo.")
+    if not args.dry_run:
+        send_notice(runner.results)
     return int(any(status in ("failed", "blocked") for _, status, _ in runner.results))
 
 

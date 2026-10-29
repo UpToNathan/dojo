@@ -344,6 +344,21 @@ pub fn renew(env: &Env, rest: &[String]) -> Result<u8, Failure> {
 /// An entry this close to expiring (or past it) is renewed by `renew --due`.
 const DUE_DAYS: i64 = 30;
 
+/// "alice expires in 12 days, bob has expired": the entries `renew --due` found, with days left.
+fn describe_due(due: &[(&str, i64)]) -> String {
+    let mut parts: Vec<String> = due
+        .iter()
+        .map(|(name, days)| match days {
+            d if *d < 0 => format!("{name} has expired"),
+            0 => format!("{name} expires today"),
+            1 => format!("{name} expires in 1 day"),
+            d => format!("{name} expires in {d} days"),
+        })
+        .collect();
+    parts.sort();
+    parts.join(", ")
+}
+
 /// `dojo-mesh renew --due`: renews every entry within a month of expiring, with nobody present. It
 /// signs only with keys that need no touch, so it never waits on a security key; when it has none and
 /// something is due it says so (exit 3) and the person renews by hand. Saying nothing means nothing was due.
@@ -366,7 +381,8 @@ fn renew_due(env: &Env, ctx: &Ctx, days: i64) -> Result<u8, Failure> {
     }
     let keys = crate::keys::signing_without_touch(&ctx.config);
     if keys.is_empty() {
-        return Err(fail(NEEDS_HUMAN, format!("{} membership(s) are due and no signing key here can sign without a touch: renew them by hand", due.len())));
+        let left: Vec<(&str, i64)> = due.iter().map(|(name, _, device)| (name.as_str(), (device.expires - now).num_days())).collect();
+        return Err(fail(NEEDS_HUMAN, format!("{}: no signing key here can sign without a touch, so renew by hand", describe_due(&left))));
     }
     let signing = Signing { keys, agent: ctx.paths.agent.clone() };
     due.sort_by(|a, b| a.0.cmp(&b.0));
@@ -526,6 +542,12 @@ pub fn custody_findings(env: &Env, config: &MeshConfig) -> Vec<Finding> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn due_entries_are_named_with_their_days_left() {
+        assert_eq!(describe_due(&[("work", 12), ("home", -3)]), "home has expired, work expires in 12 days");
+        assert_eq!(describe_due(&[("a", 1), ("b", 0)]), "a expires in 1 day, b expires today");
+    }
 
     #[test]
     fn the_public_key_is_found_in_the_item_op_returns() {
