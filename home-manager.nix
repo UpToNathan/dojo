@@ -838,6 +838,15 @@ in
       extraConfig = lib.mkAfter ''
         include optional=true "${homeDirectory}/.local/state/dojo/displays/niri.kdl"
         include optional=true "${homeDirectory}/.local/state/dojo/themes/niri.kdl"
+        // Hokum's glass cards ask for a blur behind each card (ext-background-effect). Without
+        // this the blur would show only the wallpaper, not the windows under the card. The
+        // settings above hold one layer-rule, so this one is written out.
+        layer-rule {
+            match namespace="^hokum$"
+            background-effect {
+                xray false
+            }
+        }
       '';
       # Rounded corners on tiled windows
 	settings."window-rule" = {
@@ -846,18 +855,10 @@ in
 	  draw-border-with-background = false;
 	};
 	# Dojo surfaces use backdrop blur over the windows underneath.
-	settings."layer-rule" = [
-	  {
-	    match._props.namespace = "^dojo-frame-[0-9]+$";
-	    background-effect.xray = false;
-	  }
-	  # Hokum's glass cards ask for a blur behind each card (ext-background-effect). Without
-	  # this the blur would show only the wallpaper, not the windows under the card.
-	  {
-	    match._props.namespace = "^hokum$";
-	    background-effect.xray = false;
-	  }
-	];
+	settings."layer-rule" = {
+	  match._props.namespace = "^dojo-frame-[0-9]+$";
+	  background-effect.xray = false;
+	};
 	# Dojo restores its selected wallpaper after login.
       };
 }

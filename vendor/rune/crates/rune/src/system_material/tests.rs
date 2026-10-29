@@ -74,14 +74,18 @@ fn material_elements_report_physical_rects_and_clamped_radii() {
 }
 
 #[test]
-fn without_native_views_the_element_draws_its_fallback_and_a_full_shadow() {
+fn without_native_views_the_element_draws_its_fallback_and_the_shadow_leaves_its_interior_clear() {
     let rt = runtime(one_card, false);
     let fills = kind(&rt, KIND_RECT);
     let tint = fallback_fill(Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }, true).premul(1.0);
     assert!(fills.iter().any(|q| q.rect == [60.0, 40.0, 240.0, 120.0] && q.fill == tint), "{fills:?}");
     let shadows = kind(&rt, KIND_SHADOW);
     assert_eq!(shadows.len(), 1);
-    assert_eq!(shadows[0].uv, [0.0; 4]);
+    // The compositor's blur may sit behind the element, so the shadow does not darken it:
+    // the hole is the element's own rect, continuous like the glass corners.
+    let s = shadows[0];
+    assert_eq!([s.rect[0] + s.uv[0], s.rect[1] + s.uv[1], s.uv[2], s.uv[3]], [60.0, 40.0, 240.0, 120.0]);
+    assert_eq!(s.radii[3], -36.0);
 }
 
 #[test]
@@ -116,14 +120,14 @@ fn glass_rounds_continuously_and_popover_follows_the_flag() {
 #[test]
 fn a_dimmed_out_material_takes_no_native_view() {
     fn dimmed(_: &u8, _: &mut Cx<u8>) -> El {
-        let card = |k: usize| el().absolute(k as f32 * 30.0, 0.0).size(20.0, 20.0).system_material(SystemMaterial::Popover);
+        let card = |k: usize| el().absolute((k % 6) as f32 * 30.0, (k / 6) as f32 * 24.0).size(20.0, 20.0).system_material(SystemMaterial::Popover);
         el().size(200.0, 120.0)
             .children((0..MAX_NATIVE_MATERIALS).map(|k| card(k).dim(0.0)))
             .child(card(MAX_NATIVE_MATERIALS))
     }
     let rt = runtime(dimmed, true);
     assert_eq!(rt.materials.len(), 1, "only the visible element takes a view");
-    assert_eq!(rt.materials[0].rect[0], MAX_NATIVE_MATERIALS as f32 * 60.0);
+    assert_eq!(rt.materials[0].rect[0], (MAX_NATIVE_MATERIALS % 6) as f32 * 60.0);
 }
 
 #[test]
@@ -217,7 +221,7 @@ fn live_resize_end_notification_turns_off_transactions_unless_materials_or_move_
 fn materials_past_the_limit_draw_their_fallback() {
     fn many(_: &u8, _: &mut Cx<u8>) -> El {
         el().size(200.0, 120.0).children((0..MAX_NATIVE_MATERIALS + 1).map(|k| {
-            el().absolute(k as f32 * 30.0, 0.0).size(20.0, 20.0).fill(Color::WHITE).system_material(SystemMaterial::Popover)
+            el().absolute((k % 6) as f32 * 30.0, (k / 6) as f32 * 24.0).size(20.0, 20.0).fill(Color::WHITE).system_material(SystemMaterial::Popover)
         }))
     }
     let rt = runtime(many, true);

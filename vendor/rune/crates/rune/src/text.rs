@@ -115,6 +115,12 @@ fn fontconfig_monospace() -> Option<(String, std::path::PathBuf)> {
     }).clone()
 }
 
+/// The names in a `Family::Named` string: one family, or several separated by commas, the first
+/// installed one winning (`"VictorMono Nerd Font Mono, Victor Mono"`).
+fn named_list(list: &str) -> impl Iterator<Item = &str> {
+    list.split(',').map(str::trim).filter(|name| !name.is_empty())
+}
+
 /// The font files fontconfig has for an installed family, asked of `fc-list`.
 #[cfg(all(unix, not(target_vendor = "apple"), not(target_os = "android")))]
 fn fontconfig_family_files(family: &str) -> Vec<std::path::PathBuf> {
@@ -1678,7 +1684,7 @@ impl TextSystem {
         let names = match family {
             Family::Sans => named(&self.sans),
             Family::Mono => named(&self.mono),
-            Family::Named(name) => std::iter::once(name.to_owned()).chain(named(&self.sans)).collect(),
+            Family::Named(list) => named_list(list).map(str::to_owned).chain(named(&self.sans)).collect(),
             Family::SystemMono => system.iter().cloned().chain(named(&self.mono)).collect(),
         };
         let mut query = self.font_cx.collection.query(&mut self.font_cx.source_cache);
@@ -1695,10 +1701,12 @@ impl TextSystem {
     /// Loads the installed font files of a `Family::Named` family the app didn't register, once
     /// per name. The collection reads no system fonts of its own, so a family such as the
     /// desktop's UI font is found through fontconfig the first time text asks for it.
-    fn load_named(&mut self, name: &str) {
-        if self.font_cx.collection.family_id(name).is_some() || !self.named_looked_up.insert(name.to_owned()) { return; }
-        let files = fontconfig_family_files(name);
-        load_files(&mut self.font_cx.collection, &mut self.font_files, files.into_iter().take(24));
+    fn load_named(&mut self, list: &str) {
+        for name in named_list(list) {
+            if self.font_cx.collection.family_id(name).is_some() || !self.named_looked_up.insert(name.to_owned()) { continue; }
+            let files = fontconfig_family_files(name);
+            load_files(&mut self.font_cx.collection, &mut self.font_files, files.into_iter().take(24));
+        }
     }
 
     /// The installed `Family::SystemMono` families, loading them the first time.
@@ -1967,9 +1975,9 @@ impl TextSystem {
         let sans = match style.family {
             Family::Sans => with_symbols(self.sans.as_str()),
             Family::Mono => with_symbols(self.mono.as_str()),
-            Family::Named(name) => {
+            Family::Named(list) => {
                 let mut families = with_symbols(self.sans.as_str());
-                families.insert(0, FontFamilyName::named(name));
+                families.splice(0..0, named_list(list).map(FontFamilyName::named));
                 families
             }
             Family::SystemMono => {

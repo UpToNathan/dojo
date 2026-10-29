@@ -6391,7 +6391,13 @@ impl<S: 'static> Runtime<S> {
                     }
                     // Over a native material or backdrop blur, the shadow leaves the interior clear:
                     // `uv` holds the hole relative to the shadow's rect, `radii[3]` its radius.
-                    let (radii, uv) = match native_material.or(blur_hole) {
+                    // A material Rune can't back with a native view still has the compositor's blur
+                    // behind it (or nothing): its shadow leaves the interior clear all the same.
+                    let hole = native_material.or(blur_hole).or_else(|| n.material.map(|_| {
+                        let radius = crate::system_material::clamp_radius(radii, w, h);
+                        if n.vis.continuous_corners { -radius } else { radius }
+                    }));
+                    let (radii, uv) = match hole {
                         Some(hole) => ([sradii[0], sradii[1], sradii[2], hole], [r[0] - rect[0], r[1] - rect[1], w, h]),
                         None => (sradii, [0.0; 4]),
                     };
