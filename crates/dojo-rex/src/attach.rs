@@ -121,6 +121,14 @@ impl Attachment {
         self.write(&bytes)
     }
 
+    /// Replaces the terminal's default colours on the server, for every client of the session.
+    /// `theme` holds `foreground`, `background`, `cursor` and `palette` (`["1=f7768e", …]`).
+    pub fn set_theme(&self, theme: Value) -> Result<()> {
+        self.control
+            .block_call("com.superlogical.terminal.set_theme", &self.session, &self.block, theme)
+            .map(drop)
+    }
+
     pub fn resize(&self, cols: u16, rows: u16, cell_width_px: u32, cell_height_px: u32) -> Result<()> {
         let mut args = json!({"columns": cols.max(1), "rows": rows.max(1)});
         if cell_width_px > 0 && cell_height_px > 0 {

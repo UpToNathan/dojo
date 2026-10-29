@@ -27,6 +27,7 @@ fn main() {
     });
     let _ = draw::FONT.set(settings.font.style());
     let _ = backend::CURSOR.set(settings.cursor);
+    let _ = term::THEME.set(settings.theme);
     let panel = args.panel.clone();
     ARGS.set(args).expect("arguments set once");
     // Rune parses its own tooling flags from the command line; this app owns its arguments.

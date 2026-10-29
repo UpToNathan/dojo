@@ -11,5 +11,6 @@ description = "A Rune front end for Rex terminal sessions: a window, or a layer-
 dojo-rex = { path = "../dojo-rex" }
 rune = { path = "../../vendor/rune/crates/rune" }
 anyhow = "1"
+serde_json = "1"
 toml = "0.9"
 wayland-client = "0.31"

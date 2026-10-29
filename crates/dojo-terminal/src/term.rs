@@ -44,6 +44,19 @@ fn panel() -> bool {
     ARGS.get().is_some_and(|args| args.panel.is_some())
 }
 
+/// The configured colour file (`settings`), set once at start.
+pub static THEME: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+
+/// Gives the session the configured colours on every open, so a theme switched since the last
+/// open shows. A missing file leaves the session's colours as they are.
+fn apply_theme(attachment: &Attachment) {
+    let Some(Some(path)) = THEME.get() else { return };
+    let Ok(source) = std::fs::read_to_string(path) else { return };
+    if let Err(error) = attachment.set_theme(crate::settings::theme_payload(&source)) {
+        eprintln!("dojo-terminal: applying {}: {error:#}", path.display());
+    }
+}
+
 fn inset() -> f32 {
     if panel() { 0.0 } else { draw::WINDOW_INSET }
 }
@@ -70,6 +83,7 @@ pub fn setup(s: &mut Term, wake: Waker) {
             },
             move || wake(),
         )
+        .inspect(apply_theme)
         .map(Backend::Rex)
     };
     match backend {

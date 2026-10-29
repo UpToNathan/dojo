@@ -6,10 +6,12 @@
 //! font-size = 14
 //! font-feature = ["ss01", "-calt"]
 //! cursor-style = "bar"   # block, bar, underline or block_hollow; programs may choose another
+//! theme = "/path/to/colours.conf"   # Ghostty colour keys; "" keeps the session's own colours
 //! ```
 //!
 //! Left out, the font is Victor Mono with `ss01`, or the system monospace font when Victor Mono
-//! is not installed, and the cursor is a bar.
+//! is not installed, the cursor is a bar, and the colours are Dojo's current theme
+//! (`$XDG_STATE_HOME/dojo/themes/current/ghostty.conf`, written by the theme switcher).
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result, bail};
@@ -24,12 +26,62 @@ pub const DEFAULT_SIZE: f32 = 14.0;
 pub struct Settings {
     pub font: Font,
     pub cursor: CursorStyle,
+    /// A Ghostty colour file applied to the session on open; None leaves its colours alone.
+    pub theme: Option<PathBuf>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { font: Font::default(), cursor: CursorStyle::Bar }
+        Self { font: Font::default(), cursor: CursorStyle::Bar, theme: dojo_theme() }
     }
+}
+
+/// The Ghostty colours Dojo's theme switcher writes for the current theme.
+fn dojo_theme() -> Option<PathBuf> {
+    let state = match std::env::var_os("XDG_STATE_HOME") {
+        Some(path) if !path.is_empty() => PathBuf::from(path),
+        _ => PathBuf::from(std::env::var_os("HOME")?).join(".local/state"),
+    };
+    Some(state.join("dojo/themes/current/ghostty.conf"))
+}
+
+/// Ghostty's colour keys as the payload of Rex's `set_theme`. Other keys are ignored, so a
+/// whole Ghostty config works too.
+pub fn theme_payload(source: &str) -> serde_json::Value {
+    let mut theme = serde_json::Map::new();
+    let mut palette = Vec::new();
+    for line in source.lines() {
+        let Some((key, value)) = line.split_once('=') else { continue };
+        let (key, value) = (key.trim(), value.trim());
+        let hex = |value: &str| {
+            let hex = value.trim_start_matches('#');
+            (hex.len() == 6 && hex.chars().all(|c| c.is_ascii_hexdigit())).then(|| hex.to_lowercase())
+        };
+        match key {
+            "background" | "foreground" => {
+                if let Some(hex) = hex(value) {
+                    theme.insert(key.into(), hex.into());
+                }
+            }
+            "cursor-color" => {
+                if let Some(hex) = hex(value) {
+                    theme.insert("cursor".into(), hex.into());
+                }
+            }
+            "palette" => {
+                if let Some((index, color)) = value.split_once('=') {
+                    if let (Ok(index), Some(hex)) = (index.trim().parse::<u8>(), hex(color.trim())) {
+                        palette.push(format!("{index}={hex}"));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if !palette.is_empty() {
+        theme.insert("palette".into(), palette.into());
+    }
+    theme.into()
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -117,6 +169,10 @@ pub fn parse(source: &str) -> Result<Settings> {
                 };
                 font.features = css_features(&list)?;
             }
+            "theme" => {
+                let path = value.as_str().context("theme must be a string")?.trim();
+                settings.theme = (!path.is_empty()).then(|| PathBuf::from(path));
+            }
             "cursor-style" => {
                 settings.cursor = match value.as_str().context("cursor-style must be a string")? {
                     "block" => CursorStyle::Block,
@@ -197,6 +253,17 @@ mod tests {
         assert_eq!(parse("[terminal]\nfont-family = \"\"\n").unwrap().font.family, None);
         assert_eq!(parse("[terminal]\nfont-feature = \"ss02\"\n").unwrap().font.features, "'ss02' 1");
         assert_eq!(parse("[terminal]\ncursor-style = \"block\"\n").unwrap().cursor, CursorStyle::Block);
+    }
+
+    #[test]
+    fn ghostty_colour_keys_become_a_rex_theme() {
+        let theme = theme_payload("# Generated\nbackground = #24283B\nforeground = c0caf5\ncursor-color = #7aa2f7\npalette = 1=#f7768e\npalette = 15=#c0caf5\nfont-size = 12\nbackground = nope\n");
+        assert_eq!(
+            theme,
+            serde_json::json!({"background": "24283b", "foreground": "c0caf5", "cursor": "7aa2f7", "palette": ["1=f7768e", "15=c0caf5"]})
+        );
+        assert_eq!(parse("[terminal]\ntheme = \"\"\n").unwrap().theme, None);
+        assert!(parse("").unwrap().theme.unwrap().ends_with("dojo/themes/current/ghostty.conf"));
     }
 
     #[test]
