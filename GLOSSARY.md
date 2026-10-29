@@ -209,3 +209,18 @@ _Avoid_: Migration, transfer
 **Handoff adapter**:
 The part of Dojo that knows, for one application, what its window is showing and how to open the same on a peer.
 _Avoid_: Plugin, driver
+
+### Notices
+
+**Notice**:
+One notification Dojo itself sends, saying that something happened on this machine (a battery running low, a device connecting, a theme failing to apply). A notice has a summary, an urgency and a kind, and may carry a progress value. Dojo sends it; it does not draw it.
+_Avoid_: Alert, toast, popup, OSD
+
+**Notice kind**:
+The name of the thing a notice reports, such as `volume` or `battery`. A new notice replaces the earlier one of the same kind that is still showing, so a held volume key moves one bar instead of stacking cards.
+_Avoid_: Tag, channel
+
+**Notification service**:
+Whatever program owns `org.freedesktop.Notifications` on the session bus and draws what it is sent. Hokum is the one Dojo installs. Dojo's notices go to it and to no other surface of its own.
+_Avoid_: Notification daemon (Hokum is the only one Dojo names), notification centre
+
