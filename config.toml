@@ -5,3 +5,6 @@ foreground = "#cdd6f4"
 background_highlight = "#45475a"
 border = "#585b70"
 foreground_muted = "#6c7086"
+
+[quick-terminal]
+client = "rex"
