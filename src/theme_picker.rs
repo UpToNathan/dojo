@@ -893,6 +893,9 @@ impl PickerView {
                         dojo::theme::apply_preset(&store, &preset, picker_targets())
                     })
                     .await;
+                if let Ok(report) = &result {
+                    dojo::notify::post(dojo::theme::notice(report));
+                }
                 if let Err(error) = this.update_in(cx, |view, _, cx| {
                     view.applying = false;
                     view.message = match result {
@@ -958,6 +961,9 @@ impl PickerView {
                     )
                 })
                 .await;
+            if let Ok(report) = &result {
+                dojo::notify::post(dojo::theme::notice(report));
+            }
             if let Err(error) = this.update_in(cx, |view, _, cx| {
                 view.applying = false;
                 view.message = match result {
