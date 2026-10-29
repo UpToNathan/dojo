@@ -152,6 +152,10 @@ pub fn initialize_host_state(cx: &mut App) {
     let task = cx.spawn(async move |cx| {
         let mut power_events = None;
         let mut schedule = HostRefreshSchedule::new(Instant::now());
+        let mut battery_watch = power::BatteryWatch::default();
+        // The first reading sets the baseline, so the person is never told about a state that
+        // was already true when the shell started.
+        battery_watch.observe(&cx.update(|cx| cx.global::<HostState>().power.clone()));
         loop {
             if power_events.is_none() {
                 let subscribe =
@@ -204,6 +208,11 @@ pub fn initialize_host_state(cx: &mut App) {
                 })
                 .await;
             vigiland = returned_probe;
+            if let Some(power) = &power {
+                for notice in battery_watch.observe(power) {
+                    dojo::notify::post(notice);
+                }
+            }
             cx.update(|cx| {
                 let mut next = cx.global::<HostState>().clone();
                 if let Some(power) = power {
