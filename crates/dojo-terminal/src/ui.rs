@@ -44,8 +44,8 @@ pub fn view(s: &Term, cx: &mut Cx<Term>) -> El {
     }
     for (block, [x, y, w, h]) in &layout {
         let is_focused = focused.as_ref() == Some(block);
-        let body = match s.panes.get(block).and_then(|pane| pane.screen.as_ref()) {
-            Some(screen) => draw::screen(screen, metrics, block, is_focused),
+        let body = match s.panes.get(block).and_then(|pane| pane.screen.as_ref().map(|screen| (screen, &pane.pixels))) {
+            Some((screen, pixels)) => draw::screen(screen, metrics, block, is_focused, pixels),
             None => el().key(format!("{block}:empty")).w_full().h_full().fill(palette.bg),
         };
         let target = block.clone();
@@ -53,6 +53,8 @@ pub fn view(s: &Term, cx: &mut Cx<Term>) -> El {
             el().key(format!("pane:{block}"))
                 .absolute(*x, *y)
                 .size(*w, *h)
+                // Images reach past their pane's edge; the pane cuts them off.
+                .clip_rounded(0.0)
                 .focusable(false)
                 .on_press(move |s: &mut Term| s.focus_pane(&target))
                 .child(body),

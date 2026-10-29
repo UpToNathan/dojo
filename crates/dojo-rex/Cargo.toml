@@ -10,6 +10,7 @@ description = "A client for the Rex terminal server: its control and data connec
 [dependencies]
 anyhow = "1"
 base64 = "0.22"
+png = "0.18"
 serde_json = "1"
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 

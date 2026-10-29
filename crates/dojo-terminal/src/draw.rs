@@ -1,6 +1,8 @@
 //! A screen as Rune elements. Every run is placed at its own column, so text never drifts
 //! from the grid whatever the font's advance is.
-use dojo_rex::{CursorStyle, Rgb, Screen};
+use std::collections::HashMap;
+
+use dojo_rex::{CursorStyle, ImageLayer, Rgb, Screen};
 use std::sync::OnceLock;
 
 use rune::{Color, El, TextStyle, Transition, el, text};
@@ -17,6 +19,30 @@ fn cell(element: El) -> El {
     element.transition(Transition::identity())
 }
 
+/// A screen's image placements in `layers`, at their cells, sized from device pixels.
+fn images(screen: &Screen, m: Metrics, ns: &str, pixels: &HashMap<String, rune::Pixels>, layers: impl Fn(ImageLayer) -> bool) -> Vec<El> {
+    let logical = |device: u32| device as f32 / m.scale.max(0.1);
+    screen
+        .images
+        .iter()
+        .enumerate()
+        .filter(|(_, image)| layers(image.layer))
+        .filter_map(|(index, image)| {
+            let pixels = pixels.get(&image.key)?;
+            let x = m.inset + image.col as f32 * m.cell_width + logical(image.offset_x);
+            let y = m.inset + image.row as f32 * m.cell_height + logical(image.offset_y);
+            Some(
+                cell(el())
+                    .key(format!("{ns}:image:{index}:{}", image.key))
+                    .absolute(x, y)
+                    .size(logical(image.draw_width), logical(image.draw_height))
+                    .pixels(pixels)
+                    .inert(),
+            )
+        })
+        .collect()
+}
+
 pub fn font() -> TextStyle {
     *FONT.get_or_init(|| crate::settings::Font::default().style())
 }
@@ -27,6 +53,8 @@ pub struct Metrics {
     pub cell_width: f32,
     pub cell_height: f32,
     pub inset: f32,
+    /// Device pixels per logical pixel; image sizes and offsets come in device pixels.
+    pub scale: f32,
 }
 
 /// sRGB bytes as Rune's linear colour.
@@ -115,9 +143,11 @@ impl ThemeColors {
     }
 }
 
-pub fn screen(screen: &Screen, metrics: Metrics, ns: &str, show_cursor: bool) -> El {
+pub fn screen(screen: &Screen, metrics: Metrics, ns: &str, show_cursor: bool, pixels: &HashMap<String, rune::Pixels>) -> El {
     let background = color(screen.background);
     let mut root = cell(el().w_full().h_full().fill(background)).instant_changes();
+    // Kitty graphics below the text go first; the rest after it.
+    root = root.children(images(screen, metrics, ns, pixels, |layer| layer != ImageLayer::AboveText));
     for (row, cells) in screen.cells.iter().enumerate() {
         let runs = grid::runs(cells);
         if runs.is_empty() {
@@ -128,6 +158,7 @@ pub fn screen(screen: &Screen, metrics: Metrics, ns: &str, show_cursor: bool) ->
             root = run_elements(root, run, ns, row, y, metrics, background);
         }
     }
+    root = root.children(images(screen, metrics, ns, pixels, |layer| layer == ImageLayer::AboveText));
     if let Some(cursor) = screen.cursor.filter(|_| show_cursor) {
         let under = screen.cells.get(cursor.y as usize).and_then(|row| row.get(cursor.x as usize));
         root = root.children(cursor_elements(cursor, under.map(|c| c.text.as_str()), screen, metrics, ns));

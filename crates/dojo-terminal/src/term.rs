@@ -34,6 +34,8 @@ pub const GAP: f32 = 1.0;
 pub struct Pane {
     pub screen: Option<Screen>,
     grid: (u16, u16),
+    /// The pixels of the screen's images, by image key, kept while shown.
+    pub pixels: HashMap<String, rune::Pixels>,
 }
 
 pub struct Term {
@@ -143,7 +145,7 @@ pub fn setup(s: &mut Term, wake: Waker) {
 impl Term {
     pub fn metrics(&self) -> Metrics {
         let (cell_width, cell_height) = self.cell.unwrap_or_else(guess_cell);
-        Metrics { cell_width, cell_height, inset: 0.0 }
+        Metrics { cell_width, cell_height, inset: 0.0, scale: self.scale }
     }
 
     /// The window's logical size.
@@ -224,6 +226,14 @@ impl Term {
         for (block, _) in layout {
             let pane = self.panes.entry(block.clone()).or_default();
             if let Some(screen) = backend.screen(&block, false) {
+                pane.pixels.retain(|key, _| screen.images.iter().any(|image| &image.key == key));
+                for image in &screen.images {
+                    pane.pixels.entry(image.key.clone()).or_insert_with(|| {
+                        let pixels = rune::Pixels::new();
+                        pixels.set(image.width, image.height, image.rgba.to_vec());
+                        pixels
+                    });
+                }
                 pane.screen = Some(screen);
                 changed = true;
             }

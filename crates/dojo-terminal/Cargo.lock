@@ -586,6 +586,7 @@ dependencies = [
  "base64",
  "bindgen",
  "pkg-config",
+ "png 0.18.1",
  "serde_json",
  "tungstenite",
 ]

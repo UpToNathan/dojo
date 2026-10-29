@@ -8,6 +8,7 @@ pub mod attach;
 pub mod control;
 pub mod data;
 pub mod ffi;
+pub mod images;
 pub mod keys;
 pub mod layout;
 pub mod recent;
@@ -19,6 +20,7 @@ mod ws;
 
 pub use attach::Shared;
 pub use control::{Control, Event};
+pub use images::{Image, ImageLayer};
 pub use layout::{Layout, Rect, SessionView, WindowView};
 pub use session::{Session, SessionOptions, Target};
 pub use sessions::{SessionSummary, Status, list_sessions};

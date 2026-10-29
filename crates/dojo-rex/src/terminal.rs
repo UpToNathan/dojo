@@ -72,6 +72,8 @@ pub struct Screen {
     pub background: Rgb,
     pub cells: Vec<Vec<Cell>>,
     pub cursor: Option<Cursor>,
+    /// Kitty graphics placements, in drawing order.
+    pub images: Vec<crate::images::Image>,
 }
 
 impl Screen {
@@ -116,6 +118,10 @@ pub struct Terminal {
     /// terminal, which is a block.
     default_cursor: Option<CursorStyle>,
     cursor_requests: CursorRequests,
+    image_iterator: GhosttyRenderStateImageIterator,
+    pixels: crate::images::PixelCache,
+    /// The render state's placements generation at the last screen read.
+    placements: u64,
 }
 
 /// Watches the output for DECSCUSR (`CSI Ps SP q`): a program choosing a cursor shape wins over
@@ -250,13 +256,19 @@ impl Terminal {
             builtin_palette: None,
             default_cursor: None,
             cursor_requests: CursorRequests::default(),
+            image_iterator: ptr::null_mut(),
+            pixels: Default::default(),
+            placements: u64::MAX,
         };
+        crate::images::install_png_decoder();
+        crate::images::enable(raw);
         unsafe {
             check(ghostty_render_state_new(ptr::null(), &mut this.render), "creating render state")?;
             check(ghostty_render_state_row_iterator_new(ptr::null(), &mut this.rows), "creating a row iterator")?;
             check(ghostty_render_state_row_cells_new(ptr::null(), &mut this.row_cells), "creating row cells")?;
             check(ghostty_key_encoder_new(ptr::null(), &mut this.encoder), "creating a key encoder")?;
             check(ghostty_key_event_new(ptr::null(), &mut this.event), "creating a key event")?;
+            check(ghostty_render_state_image_iterator_new(ptr::null(), &mut this.image_iterator), "creating an image iterator")?;
         }
         Ok(this)
     }
@@ -344,9 +356,11 @@ impl Terminal {
     pub fn screen(&mut self, force: bool) -> Result<Option<Screen>> {
         check(unsafe { ghostty_render_state_update(self.render, self.raw) }, "updating render state")?;
         let dirty: GhosttyRenderStateDirty = self.render_get(GHOSTTY_RENDER_STATE_DATA_DIRTY).unwrap_or_default();
-        if !force && dirty == GHOSTTY_RENDER_STATE_DIRTY_FALSE {
+        let placements: u64 = self.render_get(GHOSTTY_RENDER_STATE_DATA_IMAGE_PLACEMENTS_GENERATION).unwrap_or(0);
+        if !force && dirty == GHOSTTY_RENDER_STATE_DIRTY_FALSE && placements == self.placements {
             return Ok(None);
         }
+        self.placements = placements;
         let foreground = Rgb::from_ghostty(self.render_get(GHOSTTY_RENDER_STATE_DATA_COLOR_FOREGROUND).unwrap_or_default());
         let background = Rgb::from_ghostty(self.render_get(GHOSTTY_RENDER_STATE_DATA_COLOR_BACKGROUND).unwrap_or_default());
         let mut screen = Screen {
@@ -356,6 +370,7 @@ impl Terminal {
             background,
             cells: Vec::new(),
             cursor: None,
+            images: unsafe { crate::images::collect(self.raw, self.render, &mut self.image_iterator, &mut self.pixels) },
         };
 
         let visible = self.render_get::<bool>(GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE).unwrap_or(false);
@@ -487,6 +502,7 @@ impl Terminal {
 impl Drop for Terminal {
     fn drop(&mut self) {
         unsafe {
+            ghostty_render_state_image_iterator_free(self.image_iterator);
             ghostty_key_event_free(self.event);
             ghostty_key_encoder_free(self.encoder);
             ghostty_render_state_row_cells_free(self.row_cells);
@@ -591,4 +607,3 @@ mod tests {
         assert_eq!(screen.cells[0][0].fg, Rgb { r: 0xff, g: 0, b: 0 });
     }
 }
-
