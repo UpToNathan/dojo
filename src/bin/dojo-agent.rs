@@ -189,10 +189,43 @@ fn shell_event(event: dojo::speech::SpeechEvent) -> Result<()> {
     Ok(())
 }
 
+/// Remembers whether the person has been told about the current pause, so a run of paused results
+/// during one pause is one notice. Any input that goes through, or a released seat, ends the pause.
+#[derive(Default)]
+struct PauseNotice {
+    told: bool,
+}
+
+impl PauseNotice {
+    /// True the first time it is called during a pause: the caller sends the notice.
+    fn paused(&mut self) -> bool {
+        !std::mem::replace(&mut self.told, true)
+    }
+
+    fn resumed(&mut self) {
+        self.told = false;
+    }
+
+    /// Tells the person once per pause. Posted, never waited for; tests send nothing.
+    fn announce(&mut self) {
+        if self.paused() {
+            #[cfg(not(test))]
+            dojo::notify::post(pause_notice());
+        }
+    }
+}
+
+fn pause_notice() -> dojo::notify::Notice {
+    dojo::notify::Notice::new("agent", "Agent paused")
+        .body("You took the keyboard and pointer, so the agent stopped. It carries on when you hand them back.")
+        .urgency(dojo::notify::Urgency::Normal)
+}
+
 struct DesktopSession {
     socket: Option<PathBuf>,
     name: String,
     controller: Option<AgentController>,
+    pause: PauseNotice,
 }
 
 impl DesktopSession {
@@ -213,14 +246,17 @@ impl DesktopSession {
             .context("agent seat is unavailable")?;
         if let Err(error) = action.apply(controller) {
             if let Some(paused) = error.downcast_ref::<dojo::agent_input::InputPaused>() {
+                self.pause.announce();
                 return Ok(
                     json!({"seat_name": controller.seat_name(), "handled": false, "paused": true,
                     "reason": paused.reason, "coordination": paused.coordination}),
                 );
             }
             self.controller = None;
+            self.pause.resumed();
             return Err(error.context("input failed; agent seat released, select a fresh target"));
         }
+        self.pause.resumed();
         Ok(json!({"seat_name": controller.seat_name(), "handled": true}))
     }
 }
@@ -948,6 +984,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn one_notice_per_pause() {
+        let mut pause = PauseNotice::default();
+        assert!(pause.paused());
+        assert!(!pause.paused());
+        assert!(!pause.paused());
+        pause.resumed();
+        assert!(pause.paused());
+        assert!(!pause.paused());
+    }
+
+    #[test]
+    fn the_pause_notice_is_a_normal_agent_notice() {
+        let notice = pause_notice();
+        assert_eq!((notice.kind.as_str(), notice.summary.as_str()), ("agent", "Agent paused"));
+        assert_eq!(notice.urgency, dojo::notify::Urgency::Normal);
+    }
+
+    #[test]
     fn action_arguments_are_strict() {
         let schema = schemars::schema_for!(DesktopAction);
         assert_eq!(schema.get("type"), Some(&json!("object")));
@@ -1000,6 +1054,7 @@ mod tests {
             socket: Some(path.clone()),
             name: "paused".into(),
             controller: None,
+            pause: PauseNotice::default(),
         };
         let paused = session
             .action(DesktopAction::Focus { window_id: 42 })

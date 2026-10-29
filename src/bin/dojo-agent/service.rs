@@ -391,6 +391,7 @@ impl Session {
     fn release_controller(&mut self) {
         self.driver = None;
         self.desktop.controller = None;
+        self.desktop.pause.resumed();
         self.native_retirement
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
@@ -561,7 +562,9 @@ impl Session {
             )
         })();
         self.last_action = Instant::now();
-        if result.is_ok() {}
+        if result.is_ok() {
+            self.desktop.pause.resumed();
+        }
         let seat = self
             .desktop
             .controller
@@ -574,6 +577,7 @@ impl Session {
             ),
             Err(error) => {
                 if let Some(paused) = error.downcast_ref::<dojo::agent_input::InputPaused>() {
+                    self.desktop.pause.announce();
                     Ok(
                         json!({"contract_version":dojo_computer::CONTRACT_VERSION,"capture_id":admitted.capture_id,"capture_consumed":true,
                         "effect":if handled_effects == 0 {"paused"} else {"partial"},"handled":false,"paused":true,"completed_prefix":completed_prefix,"handled_effects":handled_effects,"reason":paused.reason,
@@ -1426,6 +1430,7 @@ pub(super) fn run(socket: PathBuf) -> Result<()> {
                                         socket: Some(socket.clone()),
                                         name,
                                         controller: None,
+                                        pause: Default::default(),
                                     },
                                     captures: captures.session(format!("connection-{id}"))?,
                                     semantics: Default::default(),
@@ -1792,6 +1797,7 @@ mod tests {
                 socket: None,
                 name: "test".into(),
                 controller: None,
+                pause: Default::default(),
             },
             captures: Arc::new(CaptureAuthority::new().unwrap())
                 .session("lease".into())
@@ -1822,6 +1828,7 @@ mod tests {
                 socket: Some(PathBuf::from("/missing.sock")),
                 name: "test".into(),
                 controller: None,
+                pause: Default::default(),
             },
             captures: Arc::new(CaptureAuthority::new().unwrap())
                 .session("test".into())
