@@ -1,0 +1,20 @@
+[package]
+name = "rune-fx"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+description = "Rune's special-effects layers: glow, pulses, electricity, fire, motion blur, distortion."
+
+[dependencies]
+rune-motion = { path = "../rune-motion" }
+wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "metal", "wgsl"] }
+bytemuck = { version = "1.25", features = ["derive"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+wgpu = { version = "30", default-features = false, features = ["vulkan", "dx12"] }
+
+[dev-dependencies]
+rune = { path = "../rune" }
+rune-ref = { path = "../rune-ref" }
+ab_glyph = "0.2.32"
+png = "0.18"

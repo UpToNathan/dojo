@@ -1,0 +1,78 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/rune",
+    "crates/rune-ref",
+    "crates/rune-motion",
+    "crates/rune-kit",
+    "crates/rune-fx",
+    "crates/rune-light",
+    "crates/procwatch",
+    "crates/rune-knobs",
+    "crates/rune-mac",
+    "themes/opencode",
+    "examples/hello",
+    "examples/web-hello",
+    "examples/todo",
+    "examples/settings",
+    "examples/playground",
+    "examples/knobs",
+    "examples/kit-gallery",
+    "examples/background",
+    "examples/live-values",
+    "examples/shapes",
+    "examples/overlay",
+    "examples/overlay-lab",
+    "examples/lab",
+    "examples/video-player",
+    "examples/video-tiles",
+    "examples/cursed-settings",
+    "examples/drag-out",
+    "examples/sketch",
+    "examples/drop-files",
+    "examples/rich-clipboard",
+    "examples/matched",
+    "examples/launcher",
+    "examples/glass-card",
+    "examples/glass-panel",
+    "examples/frosted-bar",
+    "examples/odometer",
+]
+exclude = ["tools/rune-dev-guard"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.release]
+codegen-units = 16
+incremental = true
+
+# Benchmarks and perf numbers. Same codegen as release, without incremental, which can move
+# frame timings. The runtime bench scripts refuse binaries built with any other profile.
+[profile.perf]
+inherits = "release"
+opt-level = 3
+codegen-units = 16
+lto = false
+debug = false
+incremental = false
+
+# `cargo bench` inherits release; scripts/check-reference-instructions.sh compares its instruction
+# counts across revisions.
+[profile.bench]
+incremental = false
+
+[profile.rune-hot]
+inherits = "dev"
+debug = 0
+incremental = true
+
+[profile.rune-hot.package.png]
+opt-level = 3
+
+[profile.rune-hot.package.fdeflate]
+opt-level = 3
