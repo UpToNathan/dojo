@@ -11,6 +11,8 @@ pub mod geometry;
 pub mod launch_history;
 pub mod launcher_core;
 pub mod lock;
+/// Notices: Dojo's own notifications, handed to the notification service (ADR-0012).
+pub use dojo_notify as notify;
 pub mod power;
 pub mod procedural;
 pub mod send_panel;

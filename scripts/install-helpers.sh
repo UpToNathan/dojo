@@ -12,14 +12,14 @@ fi
 if (( $# > 0 )); then
     helpers=("$@")
 else
-    helpers=(dojo-speech dojo-computer-recording dojo-computer-verification dojo-voice-ctl dojo-mesh dojo-input-capture)
+    helpers=(dojo-speech dojo-computer-recording dojo-computer-verification dojo-voice-ctl dojo-mesh dojo-input-capture dojo-notify)
 fi
 install_dir="$data_home/dojo/bin"
 mkdir -p "$install_dir/roots"
 
 for name in "${helpers[@]}"; do
     source_file="$repo_root/target/release/$name"
-    if [[ $name == dojo-voice-ctl || $name == dojo-speech || $name == dojo-mesh || $name == dojo-input-capture ]]; then
+    if [[ $name == dojo-voice-ctl || $name == dojo-speech || $name == dojo-mesh || $name == dojo-input-capture || $name == dojo-notify ]]; then
         # Standalone crates, each with its own lockfile and target directory.
         manifest="$repo_root/crates/$name/Cargo.toml"
         cargo build --release --locked --manifest-path "$manifest"
@@ -46,6 +46,13 @@ for name in "${helpers[@]}"; do
         nix-store --add-root "$install_dir/roots/$(basename "$store_path")" --indirect --realise "$store_path" >/dev/null
     done
     printf 'Installed %s\n' "$install_dir/$name"
+    # dojo-notify is run by Niri binds, scripts and the mesh helpers, none of which know where
+    # Dojo's helpers are.
+    if [[ $name == dojo-notify ]]; then
+        mkdir -p "$HOME/.local/bin"
+        ln -sfn "$install_dir/$name" "$HOME/.local/bin/$name"
+        printf 'Linked %s\n' "$HOME/.local/bin/$name"
+    fi
     # dojo-mesh is typed at a terminal; the other helpers are started by services that know where they are.
     if [[ $name == dojo-mesh ]]; then
         mkdir -p "$HOME/.local/bin"

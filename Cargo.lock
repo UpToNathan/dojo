@@ -1653,6 +1653,7 @@ dependencies = [
  "dojo-icon-cache",
  "dojo-mesh",
  "dojo-native-seat",
+ "dojo-notify",
  "freedesktop-desktop-entry",
  "freedesktop-icons",
  "futures-lite",
@@ -1856,6 +1857,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "niri-ipc",
+]
+
+[[package]]
+name = "dojo-notify"
+version = "0.1.0"
+dependencies = [
+ "zbus",
 ]
 
 [[package]]
