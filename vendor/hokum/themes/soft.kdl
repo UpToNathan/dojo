@@ -1,0 +1,14 @@
+// Soft: rounded cards with the app's icon, a hairline border and a soft shadow.
+name "Soft"
+
+tokens {
+    width 360
+    radius 16
+    badge-radius 7
+    padding 12
+    gap 6
+    spacing 10
+    border 1 "border"
+    shadow "soft"
+    mark "icon"
+}

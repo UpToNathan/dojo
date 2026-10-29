@@ -1,0 +1,44 @@
+// Bubble: chat bubbles beside a big app icon, the notification's picture inline.
+name "Bubble"
+
+tokens {
+    width 390
+    radius 22
+    padding 4
+    gap 6
+    spacing 12
+    fill "transparent"
+    border "none"
+    shadow "flat"
+    mark "icon"
+    icon-size 38
+    title-weight 650
+    enter "drop"
+    motion 0.45 0.28
+}
+
+template "card" {
+    row gap=10 align="end" {
+        icon size=38 radius=19
+        col gap=4 grow=#true padding=12 radius=20 fill="layer" border="accent/35" {
+            row gap=8 align="center" {
+                text "{summary}" weight="title" lines=1 grow=#true
+                text "{time}" size=11 color="faint"
+            }
+            if "context" { text "{app} · {context}" size=11 color="accent" }
+            if "body" { text "{body}" lines=6 }
+            if "image" { image width=220 height=130 radius=14 }
+            if "value" { progress }
+            actions
+        }
+    }
+}
+
+rule app="Slack" {
+    tokens { accent "#d38be0" }
+}
+
+// The bubble carries the colour; the card around it stays invisible.
+rule urgency="critical" {
+    tokens { border "none" }
+}

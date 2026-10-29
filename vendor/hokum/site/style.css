@@ -1,0 +1,196 @@
+/* hokum.app. Black, spare and typographic, as opentunnel and the Anomaly blog are: Valkyrie for
+   words, Commit Mono for anything technical, and the cards (Hokum's own Capsule, in Inter) as the
+   only things with a fill. */
+@font-face { font-family: "Valkyrie"; src: url("/assets/valkyrie-regular.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Valkyrie"; src: url("/assets/valkyrie-italic.woff2") format("woff2"); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: "Valkyrie"; src: url("/assets/valkyrie-bold.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "Valkyrie Caps"; src: url("/assets/valkyrie-caps.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Commit Mono"; src: url("/assets/commit-mono.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("/assets/ibm-plex-mono-400.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("/assets/inter.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+
+:root {
+  color-scheme: dark;
+  --bg: #000;
+  --fg: #fafaf9;
+  --text: #e7e5e4;
+  --muted: #a8a29e;
+  --faint: #6f6a66;
+  --line: #1f1f1f;
+  --line-strong: #333;
+  --serif: "Valkyrie", Georgia, serif;
+  --caps: "Valkyrie Caps", Georgia, serif;
+  --mono: "Commit Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --sans: "Inter", system-ui, sans-serif;
+  /* The container everything lines up on: header, the two columns, the footer. */
+  --wrap: min(calc(100vw - 2 * clamp(20px, 4.5vw, 64px)), 1160px);
+}
+
+* { box-sizing: border-box; }
+/* Nothing (a shake, a card gliding out, a particle) may widen the page. `clip`, not `hidden`, so
+   no scroll container is made. */
+html, body { overflow-x: clip; }
+html { background: var(--bg); -webkit-text-size-adjust: 100%; text-size-adjust: 100%; scroll-padding-top: 24px; }
+body { margin: 0; color: var(--text); background: var(--bg); font: 19px/1.55 var(--serif); font-feature-settings: "kern", "liga", "calt"; font-variant-numeric: oldstyle-nums; -webkit-font-smoothing: antialiased; }
+::selection { background: #fafaf9; color: #000; }
+a { color: inherit; text-decoration: none; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+code, kbd { font-family: var(--mono); font-variant-numeric: lining-nums tabular-nums; }
+h1, h2, h3 { text-wrap: balance; font-weight: 400; }
+:focus-visible { outline: 1px solid var(--fg); outline-offset: 3px; }
+.sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+
+/* ---- The first screen: the words and the install on the left, the story's cards on the right ---- */
+.first {
+  /* The cards: Hokum's Capsule, dark */
+  --card: #262626;
+  --card-edge: rgb(255 255 255 / 0.07);
+  --text: #fafafa;
+  --muted: rgb(255 255 255 / 0.62);
+  --faint: rgb(255 255 255 / 0.40);
+  --danger: #ef6f6f;
+  position: relative; isolation: isolate;
+  color: var(--fg); background: #000;
+}
+.wall { position: absolute; inset: 0; pointer-events: none; }
+.stars { position: absolute; inset: 0; z-index: 1; opacity: 0; transition: opacity 8s ease 1s;
+  background-image:
+    radial-gradient(1px 1px at 12% 22%, #fff9, transparent), radial-gradient(1px 1px at 33% 68%, #fff7, transparent),
+    radial-gradient(1.4px 1.4px at 54% 14%, #fffa, transparent), radial-gradient(1px 1px at 71% 81%, #fff6, transparent),
+    radial-gradient(1px 1px at 88% 37%, #fff8, transparent), radial-gradient(1.2px 1.2px at 22% 88%, #fff7, transparent),
+    radial-gradient(1px 1px at 46% 46%, #fff5, transparent), radial-gradient(1px 1px at 64% 58%, #fff6, transparent),
+    radial-gradient(1.3px 1.3px at 6% 54%, #fff8, transparent), radial-gradient(1px 1px at 93% 9%, #fff6, transparent);
+  background-size: 420px 420px; }
+.first:has(.desk[data-scene="space"]) .stars { opacity: 1; }
+
+.top { position: relative; z-index: 10; display: flex; align-items: center; justify-content: space-between; width: var(--wrap); height: 76px; margin: 0 auto; }
+.wordmark { font: 19px/1 var(--serif); color: var(--fg); }
+.top-github { display: flex; align-items: center; gap: 8px; font: 400 13px/24px "IBM Plex Mono", monospace; color: #909090; }
+.top-github:hover { color: var(--fg); }
+.top-github svg { width: 14px; height: 14px; }
+
+.card {
+  position: absolute; top: 0; left: 0; width: var(--w, 420px);
+  padding: 16px; display: flex; flex-direction: column; gap: 8px;
+  background: var(--card); border-radius: 24px;
+  box-shadow: 0 0 0 1px var(--card-edge), 0 2px 6px rgb(0 0 0 / 0.25), 0 14px 36px rgb(0 0 0 / 0.45);
+  pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none;
+  will-change: transform, opacity; contain: layout style;
+  cursor: grab;
+}
+.card.dragging { cursor: grabbing; }
+.card.critical { box-shadow: 0 0 0 1px var(--danger), 0 2px 6px rgb(0 0 0 / 0.25), 0 14px 36px rgb(0 0 0 / 0.45); }
+.card:hover { background: #292929; }
+.head { display: flex; align-items: center; gap: 8px; height: 20px; }
+.badge { flex: none; width: 20px; height: 20px; border-radius: 10px; display: grid; place-items: center; overflow: hidden; }
+.badge svg { width: 20px; height: 20px; display: block; }
+.src { flex: 1; min-width: 0; font-size: 12px; font-weight: 550; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.time { font-size: 12px; color: var(--faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.x { width: 20px; height: 20px; margin-right: -2px; display: grid; place-items: center; color: var(--faint); border-radius: 10px; }
+.x:hover { color: var(--text); background: rgb(255 255 255 / 0.06); }
+.x svg { width: 10px; height: 10px; }
+.row { display: flex; gap: 10px; }
+.content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.avatar { flex: none; width: 44px; height: 44px; border-radius: 8px; display: grid; place-items: center; background: linear-gradient(140deg, oklch(0.72 0.12 75), oklch(0.58 0.13 40)); color: #fff; font: 700 19px/1 var(--sans); }
+.title { font-weight: 600; font-size: 14px; letter-spacing: -0.005em; overflow-wrap: anywhere; }
+.body { color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
+.progress { height: 6px; border-radius: 3px; background: rgb(255 255 255 / 0.16); overflow: hidden; margin-top: 6px; }
+.progress i { display: block; height: 100%; width: 100%; border-radius: 3px; background: rgb(255 255 255 / 0.62); transform-origin: left; transform: scaleX(0); }
+.actions { display: flex; gap: 4px; }
+.actions button { height: 28px; padding: 0 12px; border-radius: 10px; font-size: 13px; font-weight: 550; color: var(--muted); }
+.actions button:first-child { background: rgb(255 255 255 / 0.08); color: var(--text); }
+.actions button:hover { background: rgb(255 255 255 / 0.12); color: var(--text); }
+
+.stack { font: 14px/1.45 var(--sans); font-variant-numeric: normal; font-feature-settings: "cv11", "ss01"; letter-spacing: 0; }
+
+/* Anchored under the header, not centred in the screen: a modest gap that grows a little with it.
+   The words sit centred against the card column. */
+.split { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: clamp(40px, 7vw, 112px); align-items: center; width: var(--wrap); margin: 0 auto; padding-top: clamp(64px, 10vh, 110px); }
+.intro h1 { margin: 0; max-width: 7.6em; font: 400 clamp(56px, 6.6vw, 96px)/0.98 var(--serif); letter-spacing: -0.035em; color: var(--fg); }
+
+/* The story: a fixed-height column, so the stack never moves the page. */
+.desk { position: relative; height: 512px; }
+.stack { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.clock { position: absolute; top: 0; left: 0; right: 0; height: 22px; padding: 0 2px; display: flex; justify-content: flex-end; font: 12px/22px var(--mono); color: #5a5652; font-variant-numeric: tabular-nums; white-space: pre; border-bottom: 1px solid #141414; }
+.sound { position: absolute; z-index: 4; top: 0; left: 2px; height: 22px; font: 12px/22px var(--mono); color: #5a5652; transition: color 0.2s; }
+.sound:hover, .sound:focus-visible { color: var(--fg); }
+/* Gary's request, waiting for an answer: the buttons breathe. */
+.card.choosing .actions button { animation: ask 1.6s ease-in-out infinite; }
+.card.choosing .actions button:last-child { animation-delay: 0.8s; }
+@keyframes ask { 50% { background: rgb(255 255 255 / 0.2); color: var(--text); } }
+@media (prefers-reduced-motion: reduce) { .card.choosing .actions button { animation: none; outline: 1px solid rgb(255 255 255 / 0.25); } }
+.card .actions button.picked { background: rgb(255 255 255 / 0.24); color: var(--text); }
+.card .actions button:disabled { cursor: default; }
+
+/* Nothing while the story plays; Replay once it has ended. */
+.replay { position: absolute; z-index: 4; right: 2px; bottom: 0; font: 12px/1 var(--mono); color: #5a5652; opacity: 0; visibility: hidden; transition: opacity 0.6s, color 0.2s; }
+.desk.over .replay { opacity: 1; visibility: visible; }
+.replay:hover, .replay:focus-visible { color: var(--fg); }
+@media (prefers-reduced-motion: reduce) { .replay { transition: none; } }
+
+/* The install row: tabs over one `$` command, frameless. */
+.inst { margin-top: clamp(36px, 5vh, 56px); max-width: 560px; font: 15px/1.6 var(--mono); }
+.inst-tabs { display: flex; flex-wrap: wrap; gap: 4px 28px; margin-bottom: 14px; }
+.inst-tabs label { padding-bottom: 5px; border-bottom: 1px solid transparent; cursor: pointer; color: var(--fg); opacity: 0.38; transition: opacity 0.15s; }
+.inst-tabs label:hover { opacity: 0.8; }
+#p-arch:checked ~ .inst-tabs [for="p-arch"], #p-debian:checked ~ .inst-tabs [for="p-debian"],
+#p-fedora:checked ~ .inst-tabs [for="p-fedora"], #p-binary:checked ~ .inst-tabs [for="p-binary"] { opacity: 1; border-bottom-color: var(--fg); }
+/* Keyboard focus on a tab shows on that tab only, quietly. */
+.inst .sr:focus-visible ~ .inst-tabs { outline: none; }
+#p-arch:focus-visible ~ .inst-tabs [for="p-arch"], #p-debian:focus-visible ~ .inst-tabs [for="p-debian"],
+#p-fedora:focus-visible ~ .inst-tabs [for="p-fedora"], #p-binary:focus-visible ~ .inst-tabs [for="p-binary"],
+#arm:focus-visible ~ .inst-line .cpu { outline: 1px dotted rgb(255 255 255 / 0.45); outline-offset: 4px; }
+.inst-line { display: none; align-items: center; gap: 12px; padding: 12px 12px 12px 16px; border: 1px solid #1c1c1c; border-radius: 8px; color: var(--fg); }
+#p-arch:checked ~ #panel-arch, #p-debian:checked ~ #panel-debian, #p-fedora:checked ~ #panel-fedora, #p-binary:checked ~ #panel-binary { display: flex; }
+.inst-p { flex: none; color: var(--faint); }
+.inst-cmd { flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.inst-cmd code { min-width: 0; overflow-x: auto; white-space: nowrap; scrollbar-width: none; font-size: 15px; color: var(--fg); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); padding-right: 28px; }
+.inst-cmd code::-webkit-scrollbar { display: none; }
+.inst-cmd.arm64, #arm:checked ~ .inst-line .inst-cmd.x64 { display: none; }
+#arm:checked ~ .inst-line .inst-cmd.arm64 { display: flex; }
+.inst-copy { flex: none; display: grid; place-items: center; width: 24px; height: 24px; color: var(--faint); }
+.inst-copy:hover { color: var(--fg); }
+.inst-copy svg { width: 15px; height: 15px; }
+.inst-copy .i-done, .inst-copy.done .i-copy { display: none; }
+.inst-copy.done .i-done { display: block; color: var(--fg); }
+.inst-meta { flex: none; display: flex; gap: 14px; font-size: 12.5px; color: var(--faint); }
+.inst-meta a:hover, .cpu:hover { color: var(--fg); }
+.cpu { cursor: pointer; }
+.cpu .arm64, #arm:checked ~ .inst-line .cpu .x64 { display: none; }
+#arm:checked ~ .inst-line .cpu .arm64 { display: inline; }
+.cpu span::after { content: " ⇄"; opacity: 0.6; }
+
+/* The one picture: the settings window. */
+.shot { width: var(--wrap); margin: 24px auto 0; }
+.shot img { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid #1c1c1c; background: #0a0a0a; }
+
+/* ---- Moments (fx.js): fixed layers that are invisible until something happens ---- */
+.fx { position: fixed; inset: 0; pointer-events: none; opacity: 0; }
+.fx-canvas { z-index: 30; opacity: 1; width: 100%; height: 100%; }
+.fx-red { z-index: 25; background: radial-gradient(70% 90% at 0% 30%, rgb(255 40 60 / 0.5), transparent 70%); }
+.fx-blue { z-index: 25; background: radial-gradient(70% 90% at 100% 30%, rgb(40 100 255 / 0.5), transparent 70%); }
+
+/* ---- Footer: opentunnel's, exactly. The Anomaly copyright, as on the opencode console: the
+   signature sits faintly behind the line, both centred. ---- */
+.site-footer { display: flex; justify-content: center; margin-top: 128px; padding: 0 0 64px; }
+.copyright { position: relative; color: #909090; font: 400 13px/24px "IBM Plex Mono", monospace; font-variant-numeric: normal; }
+.copyright .signature { display: block; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+.copyright p { position: relative; margin: 0; }
+.copyright a { color: inherit; text-decoration: underline rgba(255, 255, 255, .2); text-underline-offset: 2px; }
+
+@media (max-width: 860px) {
+  .split { grid-template-columns: 1fr; gap: 48px; align-items: start; padding-top: 40px; }
+  .desk { width: 100%; max-width: 420px; height: 470px; }
+}
+@media (max-width: 720px) {
+  .site-footer { margin-top: 80px; padding-bottom: 48px; }
+  .top { height: 60px; }
+  .top-github span { display: none; }
+  .card { padding: 14px; border-radius: 22px; }
+  .title, .body { font-size: 13.5px; }
+  .intro h1 { font-size: 46px; line-height: 1; }
+  .inst { margin-top: 28px; font-size: 14px; }
+  .inst-tabs { gap: 4px 20px; }
+  .inst-cmd code { font-size: 14px; }
+  .inst-meta { display: none; }
+}

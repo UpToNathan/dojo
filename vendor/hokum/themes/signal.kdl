@@ -1,0 +1,48 @@
+// Signal: every card is its app's colour, so you know what it is before you read it.
+// White type, a big bold summary, and the app's icon on a frosted tile.
+name "Signal"
+
+tokens {
+    width 380
+    radius 18
+    padding 16
+    gap 8
+    spacing 10
+    accent "accent-deep"
+    fill "accent-deep" "accent-deeper"
+    text "white"
+    muted "white/82"
+    faint "white/62"
+    border "none"
+    shadow "deep"
+    mark "icon"
+    icon-size 22
+    badge-radius 7
+    title-weight 700
+    enter "scale"
+    motion 0.36 0.22
+}
+
+template "card" {
+    row gap=10 align="center" {
+        col padding=5 radius=11 fill="white/22" {
+            icon size=22 radius=7
+        }
+        col grow=#true {
+            text "{app|upper}" size=11 weight=700 tracking=1 color="faint" lines=1
+            if "context" { text "{context}" size=12 weight=550 color="muted" lines=1 }
+            else { text "{time}" size=12 color="faint" }
+        }
+        close
+    }
+    if "summary" { text "{summary}" size=17 weight="title" lines=2 }
+    if "body" { text "{body}" color="muted" lines=4 }
+    if "image" { image width=348 height=180 radius=12 }
+    if "value" { progress }
+    actions
+}
+
+// A critical card is already red all over; no outline on top.
+rule urgency="critical" {
+    tokens { border "none" }
+}

@@ -1,0 +1,15 @@
+// Capsule: wide, roomy and very round, floating on a deep shadow, with the
+// app's icon. The default.
+name "Capsule"
+
+tokens {
+    width 420
+    radius 24
+    badge-radius 10
+    padding 16
+    gap 8
+    spacing 12
+    border "none"
+    shadow "deep"
+    mark "icon"
+}

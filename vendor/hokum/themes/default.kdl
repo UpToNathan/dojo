@@ -1,0 +1,20 @@
+// The built-in card. Every other theme falls back to these templates, so a theme that only
+// changes tokens still gets this layout. Copy it into a theme to change the layout too.
+
+template "card" {
+    row gap=8 align="center" {
+        badge
+        text "{source}" size=11 weight=550 color="muted" lines=1 grow=#true
+        text "{time}" size=11 color="faint"
+        close
+    }
+    row gap=10 {
+        col gap=2 grow=#true {
+            if "summary" { text "{summary}" weight="title" }
+            if "body" { text "{body}" color="muted" lines=8 }
+            if "value" { progress }
+        }
+        if "image" { image width=44 height=44 radius=8 }
+    }
+    actions
+}

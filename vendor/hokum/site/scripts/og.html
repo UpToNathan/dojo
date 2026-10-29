@@ -1,0 +1,34 @@
+<!doctype html>
+<!-- The social share image (site/assets/og.png), 1200×630: the site's own CSS, fonts and Capsule
+     cards from the story. Rendered by site/scripts/og.sh. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/style.css">
+<style>
+  html, body { width: 1200px; height: 630px; margin: 0; overflow: hidden; background: #000; }
+  .first { width: 1200px; height: 630px; }
+  .og { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 420px; gap: 64px; align-items: center; padding: 0 72px 0 80px; }
+  .og h1 { margin: 0; font: 400 104px/0.96 var(--serif); letter-spacing: -0.035em; color: var(--fg); }
+  .og .stack { position: relative; inset: auto; display: flex; flex-direction: column; gap: 12px; }
+  .og .card { position: relative; --w: 420px; }
+  .mark { position: absolute; left: 80px; bottom: 48px; font: 400 15px/1 "IBM Plex Mono", monospace; color: #909090; }
+  .name { position: absolute; left: 80px; top: 48px; font: 22px/1 var(--serif); color: var(--fg); }
+</style>
+</head>
+<body>
+<div class="first">
+  <div class="name">Hokum</div>
+  <div class="og">
+    <h1>Notifications for Wayland.</h1>
+    <div class="stack">
+      <article class="card"><div class="head"><span class="badge"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="10" fill="#3d95ce"/><path d="M6.3 6.2l3 8h1.4c1.6-2.4 3-5 3-6.8 0-.8-.2-1.2-.5-1.5" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="src">Venmo</span><span class="time">Mon 12:41 PM</span><span class="x"><svg viewBox="0 0 10 10"><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span></div><div class="row"><div class="content"><div class="title">Gary requested $40</div><div class="body">for the thing 🍕</div></div></div><div class="actions"><button>Pay</button><button>Decline</button></div></article>
+      <article class="card"><div class="head"><span class="badge"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="10" fill="#30d158"/><path d="M10 4.8c3.2 0 5.6 2 5.6 4.5S13.2 13.8 10 13.8c-.6 0-1.2-.1-1.7-.2L5.6 15l.8-2.4C5 11.8 4.4 10.6 4.4 9.3 4.4 6.8 6.8 4.8 10 4.8z" fill="#fff"/></svg></span><span class="src">Messages</span><span class="time">Thu 9:58 PM</span><span class="x"><svg viewBox="0 0 10 10"><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span></div><div class="row"><div class="content"><div class="title">Gary</div><div class="body">ok. the lake. saturday. we settle this like men</div></div><div class="avatar" aria-hidden="true">G</div></div></article>
+      <article class="card"><div class="head"><span class="badge"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="10" fill="#30d158"/><path d="M10 4.8c3.2 0 5.6 2 5.6 4.5S13.2 13.8 10 13.8c-.6 0-1.2-.1-1.7-.2L5.6 15l.8-2.4C5 11.8 4.4 10.6 4.4 9.3 4.4 6.8 6.8 4.8 10 4.8z" fill="#fff"/></svg></span><span class="src">Messages</span><span class="time">Sat 4:09 PM</span><span class="x"><svg viewBox="0 0 10 10"><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span></div><div class="row"><div class="content"><div class="title">Gary</div><div class="body">ok i see u. why do u have an oar</div></div><div class="avatar" aria-hidden="true">G</div></div></article>
+      <article class="card"><div class="head"><span class="badge"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="10" fill="#232f3e"/><path d="M5 10.5c3 2.2 7 2.2 10 0" fill="none" stroke="#ff9900" stroke-width="1.8" stroke-linecap="round"/><path d="M13.2 9.6l2 .8-.6 2" fill="none" stroke="#ff9900" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="src">Amazon</span><span class="time">Sat 4:40 PM</span><span class="x"><svg viewBox="0 0 10 10"><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span></div><div class="row"><div class="content"><div class="title">Arriving tomorrow by 7 AM</div><div class="body">Shovel, tarp (2), garden lime (40 lb). Frequently bought together: more lime</div></div></div></article>
+    </div>
+  </div>
+  <div class="mark">hokum.app</div>
+</div>
+</body>
+</html>

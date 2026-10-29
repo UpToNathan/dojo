@@ -1,0 +1,49 @@
+// Terminal: monospace one-liners, phosphor green, no decoration.
+name "Terminal"
+
+tokens {
+    font "mono"
+    font-size 12
+    radius 3
+    padding 9 12
+    gap 4
+    spacing 6
+    fill "#0b0f0c"
+    text "#c8f7c5"
+    muted "#86c682"
+    faint "#4f7f4b"
+    border 1 "#2a4f27"
+    accent "#7cff6b"
+    shadow "flat"
+    mark "none"
+    enter "fade"
+    motion 0.18 0
+}
+
+tokens "light" {
+    fill "#f5f2e9"
+    text "#1d3b1a"
+    muted "#3c6a37"
+    faint "#7d9a77"
+    border 1 "#c3d0bd"
+    accent "#2b7a20"
+}
+
+template "card" {
+    row gap=8 align="center" {
+        text "[{app|lower}]" color="accent" weight=600
+        text "{summary}" weight=600 lines=1 grow=#true
+        text "{time}" color="faint"
+        close
+    }
+    if "body" { text "> {body}" color="muted" lines=4 }
+    if "value" { progress }
+    actions
+}
+
+rule urgency="critical" {
+    tokens {
+        border 1 "#ff5f56"
+        accent "#ff5f56"
+    }
+}

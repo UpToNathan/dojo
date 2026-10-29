@@ -1,0 +1,14 @@
+// Crisp: sharp, compact and flat, with a coloured dot for the app.
+name "Crisp"
+
+tokens {
+    width 320
+    radius 4
+    badge-radius 4
+    padding 10
+    gap 4
+    spacing 8
+    border 1 "border"
+    shadow "flat"
+    mark "dot"
+}

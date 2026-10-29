@@ -1,0 +1,65 @@
+# The hokum .deb and .rpm, built by scripts/package-linux.sh with nfpm from a
+# release executable, in a directory it stages with hokum, the two service
+# files, hokum.desktop, and LICENSE. They install what the AUR package
+# hokum-bin does.
+name: hokum
+arch: ${HOKUM_PACKAGE_ARCH}
+platform: linux
+version: ${HOKUM_PACKAGE_VERSION}
+version_schema: none
+release: "1"
+section: x11
+priority: optional
+maintainer: Anomaly <hokum@anoma.ly>
+vendor: Anomaly
+homepage: https://hokum.app
+license: MIT
+description: |-
+  Hokum: a freedesktop notification daemon for Wayland layer-shell compositors.
+  Notifications that look like they belong on a computer from this decade.
+contents:
+  - src: hokum
+    dst: /usr/bin/hokum
+    file_info:
+      mode: 0755
+  - src: hokum.service
+    dst: /usr/lib/systemd/user/hokum.service
+    file_info:
+      mode: 0644
+  - src: app.hokum.Notifications.service
+    dst: /usr/share/dbus-1/services/app.hokum.Notifications.service
+    file_info:
+      mode: 0644
+  - src: hokum.desktop
+    dst: /usr/share/applications/hokum.desktop
+    file_info:
+      mode: 0644
+  - src: LICENSE
+    dst: /usr/share/licenses/hokum/LICENSE
+    file_info:
+      mode: 0644
+overrides:
+  # Linked: glibc, libgcc_s, xkbcommon. Loaded at run time: the Vulkan loader
+  # and the Wayland client library.
+  deb:
+    depends:
+      - libc6 (>= 2.39)
+      - libgcc-s1
+      - libxkbcommon0
+      - libvulkan1
+      - libwayland-client0
+    recommends:
+      - mesa-vulkan-drivers
+    provides:
+      - notification-daemon
+  # Library names, so Fedora and openSUSE resolve them to their own packages.
+  rpm:
+    depends:
+      - libxkbcommon.so.0()(64bit)
+      - libvulkan.so.1()(64bit)
+      - libwayland-client.so.0()(64bit)
+    provides:
+      - desktop-notification-daemon
+rpm:
+  group: User Interface/Desktops
+  summary: Hokum notification daemon by Anomaly
