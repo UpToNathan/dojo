@@ -782,7 +782,8 @@ in
 	settings.screenshot-path = null;
 	settings.binds."Mod+Ctrl+Shift+S" = {
 	  _props.hotkey-overlay-title = "Supersampled screenshot to clipboard";
-	  spawn = [ "utsushot" "--copy" ];
+	  # The notice goes out only when utsushot succeeds (a cancelled selection sends nothing).
+	  spawn = [ "sh" "-c" "utsushot --copy && ${homeDirectory}/.local/bin/dojo-notify send --kind screenshot --urgency low --icon camera-photo-symbolic \"Screenshot copied\"" ];
 	};
 	settings.binds."Super+Alt+I" = {
 	  _props.hotkey-overlay-title = "Toggle idle inhibition";
@@ -808,17 +809,34 @@ in
 	settings.binds."XF86PowerOff" = {
 	  spawn = [ "${homeDirectory}/.local/bin/dojo-desktop" "--leave" "shutdown" ];
 	};
+	# dojo-notify sets the level and sends the progress notice of that kind (volume, brightness).
+	settings.binds."XF86AudioRaiseVolume" = {
+	  _props.hotkey-overlay-title = "Raise the volume";
+	  spawn = [ "${homeDirectory}/.local/bin/dojo-notify" "volume" "up" ];
+	};
+	settings.binds."XF86AudioLowerVolume" = {
+	  _props.hotkey-overlay-title = "Lower the volume";
+	  spawn = [ "${homeDirectory}/.local/bin/dojo-notify" "volume" "down" ];
+	};
+	settings.binds."XF86AudioMute" = {
+	  _props.hotkey-overlay-title = "Mute or unmute the volume";
+	  spawn = [ "${homeDirectory}/.local/bin/dojo-notify" "volume" "mute" ];
+	};
 	settings.binds."XF86MonBrightnessUp" = {
-	  spawn = [ "brightnessctl" "set" "+5%" ];
+	  _props.hotkey-overlay-title = "Raise the screen brightness";
+	  spawn = [ "${homeDirectory}/.local/bin/dojo-notify" "brightness" "up" ];
 	};
 	settings.binds."XF86MonBrightnessDown" = {
-	  spawn = [ "brightnessctl" "set" "5%-" ];
+	  _props.hotkey-overlay-title = "Lower the screen brightness";
+	  spawn = [ "${homeDirectory}/.local/bin/dojo-notify" "brightness" "down" ];
 	};
 	settings.binds."XF86KbdBrightnessUp" = {
-	  spawn = [ "brightnessctl" "--device" "tpacpi::kbd_backlight" "set" "+1" ];
+	  _props.hotkey-overlay-title = "Raise the keyboard backlight";
+	  spawn = [ "${homeDirectory}/.local/bin/dojo-notify" "brightness" "up" "--device" "tpacpi::kbd_backlight" ];
 	};
 	settings.binds."XF86KbdBrightnessDown" = {
-	  spawn = [ "brightnessctl" "--device" "tpacpi::kbd_backlight" "set" "1-" ];
+	  _props.hotkey-overlay-title = "Lower the keyboard backlight";
+	  spawn = [ "${homeDirectory}/.local/bin/dojo-notify" "brightness" "down" "--device" "tpacpi::kbd_backlight" ];
 	};
       # Niri paints the output backdrop in the gaps a workspace swipe reveals; it defaults to grey.
       # Fallback until the theme export publishes it in themes/niri.kdl, like the layout colour.

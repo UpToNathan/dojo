@@ -3,6 +3,7 @@
 mod apply;
 mod export;
 pub mod lock_wallpaper;
+mod notice;
 mod presets;
 mod preview;
 mod refined;
@@ -25,6 +26,7 @@ pub use apply::{
     refresh_lock_wallpaper, refresh_system, refresh_target, set_system_appearance, system_appearance,
     watch,
 };
+pub use notice::notice;
 pub use presets::{Preset, apply_preset, presets};
 pub use preview::preview;
 pub use refined::{RefinedTheme, derive_wallpaper, derive_wallpaper_mode, derive_wallpaper_modes};

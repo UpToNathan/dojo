@@ -274,8 +274,13 @@ fn procedural(store: &ThemeStore, mut args: impl Iterator<Item = String>) -> any
     print_report(theme::apply_procedural(store, recipe, aspect, retained.height, frame, retained.edge, None)?)
 }
 
+/// Prints the report as JSON on stdout, then tells the person the apply is done with a notice.
+/// A notice that cannot be sent (no notification service) is only a line on stderr.
 fn print_report(report: theme::ApplyReport) -> anyhow::Result<()> {
     println!("{}", serde_json::to_string_pretty(&report)?);
+    if let Err(error) = dojo::notify::send(&theme::notice(&report)) {
+        eprintln!("dojo-theme: could not send the notice: {error}");
+    }
     if report.targets.iter().any(|t| {
         matches!(
             t.status.as_str(),
