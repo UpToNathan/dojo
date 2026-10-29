@@ -18,6 +18,8 @@ use wayland_client::protocol::wl_registry::WlRegistry;
 use wayland_client::protocol::wl_surface::{self, WlSurface};
 use wayland_client::protocol::{wl_output::{self, WlOutput}, wl_seat::{self, WlSeat}, wl_pointer::{self, WlPointer}, wl_keyboard::{self, WlKeyboard}};
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle};
+use wayland_protocols::ext::background_effect::v1::client::ext_background_effect_manager_v1::ExtBackgroundEffectManagerV1;
+use wayland_protocols::ext::background_effect::v1::client::ext_background_effect_surface_v1::ExtBackgroundEffectSurfaceV1;
 use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1::{Layer, ZwlrLayerShellV1};
 use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1::{self, Anchor, KeyboardInteractivity, ZwlrLayerSurfaceV1};
 
@@ -51,6 +53,12 @@ struct State {
     xkb: Option<xkbcommon::xkb::State>,
 }
 
+impl Dispatch<ExtBackgroundEffectManagerV1, ()> for State {
+    fn event(_: &mut Self, _: &ExtBackgroundEffectManagerV1, _: <ExtBackgroundEffectManagerV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+}
+impl Dispatch<ExtBackgroundEffectSurfaceV1, ()> for State {
+    fn event(_: &mut Self, _: &ExtBackgroundEffectSurfaceV1, _: <ExtBackgroundEffectSurfaceV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+}
 impl Dispatch<WlOutput, ()> for State {
     fn event(_: &mut Self, _: &WlOutput, _: wl_output::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
 }
@@ -237,6 +245,57 @@ impl Drop for Watch {
     fn drop(&mut self) { self.stop.store(true, Ordering::Relaxed); }
 }
 
+/// One-pixel bands covering each rounded rect (x, y, width, height and corner radius, in
+/// logical points) as x, y, width, height integer rectangles.
+fn blur_bands(rects: &[([f32; 4], f32)]) -> Vec<[i32; 4]> {
+    let mut bands: Vec<[i32; 4]> = Vec::new();
+    for &([x, y, w, h], radius) in rects {
+        let (left, top, right, bottom) = (x, y, x + w, y + h);
+        let radius = radius.min(w / 2.0).min(h / 2.0).max(0.0);
+        for row in top.floor() as i32..bottom.ceil() as i32 {
+            let centre = row as f32 + 0.5;
+            let inset = if centre < top + radius {
+                let dy = top + radius - centre;
+                radius - (radius * radius - dy * dy).max(0.0).sqrt()
+            } else if centre > bottom - radius {
+                let dy = centre - (bottom - radius);
+                radius - (radius * radius - dy * dy).max(0.0).sqrt()
+            } else {
+                0.0
+            };
+            let start = (left + inset).floor() as i32;
+            let width = ((right - inset).ceil() as i32 - start).max(0);
+            if width > 0 { bands.push([start, row, width, 1]); }
+        }
+    }
+    bands
+}
+
+#[cfg(test)]
+mod tests {
+    use super::blur_bands;
+
+    #[test]
+    fn a_rounded_rect_is_a_stack_of_bands_narrower_at_the_corners() {
+        let bands = blur_bands(&[([10.0, 20.0, 100.0, 60.0], 20.0)]);
+        assert_eq!(bands.len(), 60, "one band per row");
+        assert!(bands[0][2] < 100 && bands[0][0] > 10, "the top row is inset by the corner");
+        assert_eq!(bands[30], [10, 50, 100, 1], "the middle rows are the full width");
+        assert!(bands[59][2] < 100, "so is the bottom row");
+        assert!(bands.windows(2).take(19).all(|w| w[1][2] >= w[0][2]), "the corner widens going down");
+    }
+
+    #[test]
+    fn a_radius_past_half_the_side_makes_a_capsule_and_a_square_is_one_block() {
+        let capsule = blur_bands(&[([0.0, 0.0, 40.0, 10.0], 99.0)]);
+        assert_eq!(capsule.len(), 10);
+        assert!(capsule[0][2] < capsule[5][2]);
+        let square = blur_bands(&[([5.0, 5.0, 8.0, 3.0], 0.0)]);
+        assert_eq!(square, vec![[5, 5, 8, 1], [5, 6, 8, 1], [5, 7, 8, 1]]);
+        assert!(blur_bands(&[]).is_empty());
+    }
+}
+
 /// What the overlay needs to know after the compositor talked to the surface.
 pub(crate) struct Changes {
     pub size: Option<(u32, u32)>,
@@ -252,6 +311,10 @@ pub(crate) struct LayerSurface {
     activation: Option<u32>,
     seat_global: Option<(u32, u32)>,
     regions: std::cell::RefCell<Option<Vec<[i32; 4]>>>,
+    /// `ext_background_effect_manager_v1`, for the blur behind `El::system_material` elements.
+    effect_manager: Option<ExtBackgroundEffectManagerV1>,
+    effect: Option<ExtBackgroundEffectSurfaceV1>,
+    blur: std::cell::RefCell<Vec<[i32; 4]>>,
     compositor: WlCompositor,
     output: Option<WlOutput>,
     seat: Option<WlSeat>,
@@ -276,6 +339,7 @@ impl LayerSurface {
         let qh = queue.handle();
         let compositor: WlCompositor = globals.bind(&qh, 1..=6, ()).ok()?;
         let shell: ZwlrLayerShellV1 = globals.bind(&qh, 1..=4, ()).ok()?;
+        let effect_manager: Option<ExtBackgroundEffectManagerV1> = globals.bind(&qh, 1..=1, ()).ok();
         let output = output_id.and_then(|id| {
             globals.contents().with_list(|list| list.iter().find(|g| g.name == id && g.interface == "wl_output").map(|g| {
                 globals.registry().bind::<WlOutput, _, _>(g.name, g.version.min(4), &qh, ())
@@ -298,7 +362,8 @@ impl LayerSurface {
         layer.set_exclusive_zone(0);
         let state = State { surface: Some(surface.clone()), want_pointer, want_keys, ..State::default() };
         let watch = wake.map(|wake| Watch::spawn(conn.backend().poll_fd().as_raw_fd(), wake));
-        let mut this = LayerSurface { conn, registry, activation, seat_global, regions: std::cell::RefCell::new(Some(Vec::new())), compositor, output, seat, options: options.clone(), queue, state, layer, surface, display: display.display, watch };
+        let effect = effect_manager.as_ref().map(|manager| manager.get_background_effect(&surface, &qh, ()));
+        let mut this = LayerSurface { conn, registry, activation, seat_global, regions: std::cell::RefCell::new(Some(Vec::new())), effect_manager, effect, blur: std::cell::RefCell::new(Vec::new()), compositor, output, seat, options: options.clone(), queue, state, layer, surface, display: display.display, watch };
         this.place(at);
         this.surface.commit();
         while this.state.configured.is_none() && !this.state.closed {
@@ -365,6 +430,26 @@ impl LayerSurface {
         }
         *self.regions.borrow_mut() = next;
         // No commit here: the following wgpu presentation commits input and pixels together.
+    }
+
+    /// Blurs what the compositor shows behind each `El::system_material` element's rounded rect
+    /// (`ext_background_effect_v1`). A `wl_region` is a union of integer rectangles, so one-pixel
+    /// bands approximate the corners and keep the blur inside the card, as the rest of the
+    /// desktop does. `rects` are x, y, width, height and the corner radius in logical points.
+    /// Like the input region, it is double buffered: the next presentation commits it.
+    pub fn blur_regions(&self, rects: &[([f32; 4], f32)]) {
+        let Some(effect) = &self.effect else { return };
+        let bands = blur_bands(rects);
+        if *self.blur.borrow() == bands { return; }
+        if bands.is_empty() {
+            effect.set_blur_region(None);
+        } else {
+            let region = self.compositor.create_region(&self.queue.handle(), ());
+            for &[x, y, w, h] in &bands { region.add(x, y, w, h); }
+            effect.set_blur_region(Some(&region));
+            region.destroy();
+        }
+        *self.blur.borrow_mut() = bands;
     }
 
     pub fn set_input(&mut self, input: OverlayInput) {
@@ -434,6 +519,8 @@ impl Drop for LayerSurface {
         if let Some(seat) = self.seat.take() && seat.version() >= 5 { seat.release(); }
         if let Some(output) = self.output.take() && output.version() >= 3 { output.release(); }
         crate::activation::forget(&self.surface);
+        if let Some(effect) = self.effect.take() { effect.destroy(); }
+        if let Some(manager) = self.effect_manager.take() { manager.destroy(); }
         self.layer.destroy();
         self.surface.destroy();
         let _ = self.queue.flush();

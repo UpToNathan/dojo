@@ -984,7 +984,12 @@ impl<T: 'static> Overlay<T> {
         #[cfg(all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android")))]
         if self.options.input.resolved(self.interactive) == OverlayInput::Regions && let Some(x11) = &mut self.x11 { x11.regions(self.rt.hit_regions(), live.scale); }
         #[cfg(all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android")))]
-        if let Backing::Layer(layer) = &live.backing { layer.input_regions(self.rt.hit_regions(), self.interactive); }
+        if let Backing::Layer(layer) = &live.backing {
+            layer.input_regions(self.rt.hit_regions(), self.interactive);
+            let scale = self.rt.env.scale.max(1e-3);
+            let blurred: Vec<([f32; 4], f32)> = self.rt.materials.iter().map(|m| (m.rect.map(|v| v / scale), m.radius / scale)).collect();
+            layer.blur_regions(&blurred);
+        }
         let _ = live;
     }
 
@@ -1507,7 +1512,12 @@ impl<T: 'static> Overlay<T> {
         #[cfg(all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android")))]
         if self.options.input == OverlayInput::Regions && let Some(x11) = &mut self.x11 { x11.regions(self.rt.hit_regions(), live.scale); }
         #[cfg(all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android")))]
-        if let Backing::Layer(layer) = &live.backing { layer.input_regions(self.rt.hit_regions(), self.interactive); }
+        if let Backing::Layer(layer) = &live.backing {
+            layer.input_regions(self.rt.hit_regions(), self.interactive);
+            let scale = self.rt.env.scale.max(1e-3);
+            let blurred: Vec<([f32; 4], f32)> = self.rt.materials.iter().map(|m| (m.rect.map(|v| v / scale), m.radius / scale)).collect();
+            layer.blur_regions(&blurred);
+        }
         let target_format = if self.rt.srgb_blend() { live.config.format.remove_srgb_suffix() } else { live.config.format };
         let view = frame.texture.create_view(&wgpu::TextureViewDescriptor {
             format: (target_format != live.config.format).then_some(target_format),

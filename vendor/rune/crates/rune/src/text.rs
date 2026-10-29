@@ -115,6 +115,20 @@ fn fontconfig_monospace() -> Option<(String, std::path::PathBuf)> {
     }).clone()
 }
 
+/// The font files fontconfig has for an installed family, asked of `fc-list`.
+#[cfg(all(unix, not(target_vendor = "apple"), not(target_os = "android")))]
+fn fontconfig_family_files(family: &str) -> Vec<std::path::PathBuf> {
+    let escaped: String = family.chars().flat_map(|c| if matches!(c, '\\' | '-' | ':' | ',') { vec!['\\', c] } else { vec![c] }).collect();
+    let Ok(out) = std::process::Command::new("fc-list").args(["--format=%{file}\n".to_owned(), format!(":family={escaped}")]).output() else { return Vec::new() };
+    let mut files: Vec<std::path::PathBuf> = String::from_utf8_lossy(&out.stdout).lines().filter(|l| !l.is_empty()).map(Into::into).collect();
+    files.sort();
+    files.dedup();
+    files
+}
+
+#[cfg(not(all(unix, not(target_vendor = "apple"), not(target_os = "android"))))]
+fn fontconfig_family_files(_: &str) -> Vec<std::path::PathBuf> { Vec::new() }
+
 /// The installed `Family::SystemMono` families, most preferred first, loading their files.
 fn load_system_mono(collection: &mut Collection, loaded: &mut LoadedFiles) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
@@ -1343,6 +1357,8 @@ pub struct TextSystem {
     system_mono: Option<Vec<String>>,
     /// The sans or mono slot names `ui-monospace` (see `family_list`).
     slot_system_mono: bool,
+    /// The `Family::Named` families already looked up among the installed fonts.
+    named_looked_up: std::collections::HashSet<String>,
     /// Bit `i` is set once `fallback::SCRIPT_FONTS[i]` has been looked up.
     scripts: u64,
     font_files: LoadedFiles,
@@ -1626,6 +1642,7 @@ impl TextSystem {
             math: None,
             system_mono: None,
             slot_system_mono: names_system_mono(families.0) || names_system_mono(families.1),
+            named_looked_up: Default::default(),
             scripts: 0,
             font_files,
             atlas: Atlas::new(),
@@ -1647,6 +1664,7 @@ impl TextSystem {
         if let Some(trak) = self.primary_traks.get(&key) {
             return trak.clone();
         }
+        if let Family::Named(name) = family { self.load_named(name); }
         if family == Family::SystemMono || self.slot_system_mono {
             self.system_mono();
         }
@@ -1672,6 +1690,15 @@ impl TextSystem {
         let trak = font.and_then(|f| font_trak(&mut self.traks, &f.blob, f.index));
         self.primary_traks.insert(key, trak.clone());
         trak
+    }
+
+    /// Loads the installed font files of a `Family::Named` family the app didn't register, once
+    /// per name. The collection reads no system fonts of its own, so a family such as the
+    /// desktop's UI font is found through fontconfig the first time text asks for it.
+    fn load_named(&mut self, name: &str) {
+        if self.font_cx.collection.family_id(name).is_some() || !self.named_looked_up.insert(name.to_owned()) { return; }
+        let files = fontconfig_family_files(name);
+        load_files(&mut self.font_cx.collection, &mut self.font_files, files.into_iter().take(24));
     }
 
     /// The installed `Family::SystemMono` families, loading them the first time.
@@ -1924,6 +1951,7 @@ impl TextSystem {
                 Some(spacing(trak, s.size.unwrap_or(style.size))).filter(|&v| v != base_spacing)
             })
             .collect();
+        if let Family::Named(name) = style.family { self.load_named(name); }
         if style.family == Family::SystemMono || self.slot_system_mono {
             self.system_mono();
         }

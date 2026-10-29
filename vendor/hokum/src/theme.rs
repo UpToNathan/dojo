@@ -162,6 +162,8 @@ pub struct Tokens {
     pub mark: Mark,
     pub enter: Enter,
     pub motion: (f32, f32),
+    /// The compositor blurs what is behind the card, where it can.
+    pub glass: bool,
 }
 
 /// Where every theme starts: Soft's values.
@@ -188,6 +190,7 @@ impl Default for Tokens {
             mark: Mark::Icon,
             enter: Enter::Slide,
             motion: (0.38, 0.12),
+            glass: false,
         }
     }
 }
@@ -226,6 +229,7 @@ pub struct Overrides {
     mark: Option<Mark>,
     enter: Option<Enter>,
     motion: Option<(f32, f32)>,
+    glass: Option<bool>,
 }
 
 impl Overrides {
@@ -233,7 +237,7 @@ impl Overrides {
         macro_rules! set {
             ($($f:ident),*) => { $(if let Some(v) = &self.$f { t.$f = v.clone(); })* };
         }
-        set!(width, radius, padding, gap, spacing, badge_radius, icon_size, font_size, title_weight, font, fill, text, muted, faint, border, accent, shadow, mark, enter, motion);
+        set!(width, radius, padding, gap, spacing, badge_radius, icon_size, font_size, title_weight, font, fill, text, muted, faint, border, accent, shadow, mark, enter, motion, glass);
     }
 
     /// `top`'s values over these.
@@ -241,7 +245,7 @@ impl Overrides {
         macro_rules! set {
             ($($f:ident),*) => { $(if top.$f.is_some() { self.$f = top.$f.clone(); })* };
         }
-        set!(width, radius, padding, gap, spacing, badge_radius, icon_size, font_size, title_weight, font, fill, text, muted, faint, border, accent, shadow, mark, enter, motion);
+        set!(width, radius, padding, gap, spacing, badge_radius, icon_size, font_size, title_weight, font, fill, text, muted, faint, border, accent, shadow, mark, enter, motion, glass);
     }
 }
 
@@ -831,6 +835,10 @@ impl Parser<'_> {
                         &[("letter", Mark::Letter), ("icon", Mark::Icon), ("dot", Mark::Dot), ("stripe", Mark::Stripe), ("none", Mark::None)],
                     )
                 }
+                "glass" => match v.as_bool() {
+                    Some(on) => o.glass = Some(on),
+                    None => self.problem(node, "`glass` takes #true or #false"),
+                },
                 "enter" => {
                     o.enter =
                         self.keyword(node, v, "entrance", &[("slide", Enter::Slide), ("fade", Enter::Fade), ("scale", Enter::Scale), ("drop", Enter::Drop)])
@@ -1318,6 +1326,18 @@ rule app="Spotify" { hide }
         n.summary = "song".into();
         assert!(t.routing(&n).hide);
         assert!(glob("a*c", "abbbc") && !glob("a*c", "abd") && glob("*", "") && glob("Slack", "slack"));
+    }
+
+    #[test]
+    fn glass_and_installed_font_families_are_tokens() {
+        let t = parse("tokens {\n  glass #true\n  font \"VictorMono Nerd Font Mono\"\n}\n", "x").unwrap();
+        let look = t.look(&Note::new(1, "App", "hi", ""), true);
+        assert!(look.tokens.glass);
+        assert_eq!(look.tokens.font, Font::Named("VictorMono Nerd Font Mono"));
+        let e = parse("tokens {\n  glass \"yes\"\n}\n", "x").unwrap_err();
+        assert!(e[0].message.contains("glass"), "{e:?}");
+        let plain = parse("tokens {\n  radius 3\n}\n", "x").unwrap();
+        assert!(!plain.look(&Note::new(1, "App", "hi", ""), true).tokens.glass);
     }
 
     #[test]

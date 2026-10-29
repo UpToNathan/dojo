@@ -91,7 +91,7 @@ Anything unset keeps the value from below, ultimately the default.
 | `spacing` | points | `10` | Between cards |
 | `badge-radius` | points | `7` | Corner radius of badges and icons |
 | `icon-size` | points | `20` | Badge and icon size |
-| `font` | `"sans"`, `"mono"` | `"sans"` | Typeface for all text: Inter or IBM Plex Mono. Other names fall back to Inter |
+| `font` | `"sans"`, `"mono"` | `"sans"` | Typeface for all text: Inter or IBM Plex Mono, or the name of an installed family (fontconfig finds it). A name nothing has falls back to Inter |
 | `font-size` | points | `13` | Default text size |
 | `title-weight` | 100 to 900 | `550` | The weight `weight="title"` uses |
 | `fill` | colour, or two colours | `"layer"` | Card background; two colours are a top-to-bottom gradient |
@@ -104,6 +104,7 @@ Anything unset keeps the value from below, ultimately the default.
 | `mark` | `"icon"`, `"letter"`, `"dot"`, `"stripe"`, `"none"` | `"icon"` | What `badge` draws (below) |
 | `enter` | `"slide"`, `"fade"`, `"scale"`, `"drop"` | `"slide"` | How cards arrive and leave |
 | `motion` | seconds and bounce (0 to 1) | `0.38 0.12` | The spring cards move on |
+| `glass` | `#true`, `#false` | `#false` | Ask the compositor to blur what is behind the card (`ext-background-effect`). Give `fill` some transparency so the blur shows |
 
 Marks:
 

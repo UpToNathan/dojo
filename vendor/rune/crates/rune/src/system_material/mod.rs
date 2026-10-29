@@ -1,7 +1,10 @@
 //! System backdrop materials (`El::system_material`): the platform blurs what is behind the
 //! window under an element's rounded rect. On macOS a native view per material sits under the
 //! transparent Metal layer and moves in the same Core Animation transaction as the drawable,
-//! so the material, Rune's shadow and the content on top present together. Everywhere else,
+//! so the material, Rune's shadow and the content on top present together. On a Wayland
+//! layer-shell overlay the materials' rounded rects are the blur region the compositor
+//! blurs behind the surface (`ext_background_effect_v1`; the element's fill still draws on
+//! top, so a translucent fill is the tint). Everywhere else,
 //! in opaque windows and in headless renders, the element's fill (or a neutral tint) stands in.
 
 #[cfg(target_os = "macos")]
@@ -23,8 +26,12 @@ pub enum SystemMaterial {
     Popover,
 }
 
-/// Native material views per window. Elements past this many draw their fallback instead.
+/// Native material views per window. Elements past this many draw their fallback instead. A
+/// Wayland overlay has no views to keep, only blur regions, so it takes more.
+#[cfg(target_os = "macos")]
 pub const MAX_NATIVE_MATERIALS: usize = 4;
+#[cfg(not(target_os = "macos"))]
+pub const MAX_NATIVE_MATERIALS: usize = 16;
 
 /// One material element as built this frame, in physical pixels like the instances.
 #[derive(Clone, Copy, Debug, PartialEq)]

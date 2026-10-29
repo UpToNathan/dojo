@@ -1,6 +1,5 @@
 {
   autoPatchelfHook,
-  fetchurl,
   lib,
   libGL,
   libx11,
@@ -8,25 +7,34 @@
   libxcursor,
   libxi,
   libxkbcommon,
+  pkg-config,
+  rustPlatform,
   stdenv,
-  stdenvNoCC,
   vulkan-loader,
   wayland,
 }:
 
-stdenvNoCC.mkDerivation {
+# Hokum, built from vendor/hokum and the Rune it draws with (vendor/rune), both Git subtrees
+# with Dojo's changes: a blur behind glass cards, installed font families, and no update
+# offers for a store path. See docs/notifications.md.
+rustPlatform.buildRustPackage {
   pname = "hokum";
-  version = "0.1.1";
+  version = "0.1.2";
 
-  src = fetchurl {
-    url = "https://github.com/anomalyco/hokum/releases/download/v0.1.1/hokum-0.1.1-linux-x64";
-    hash = "sha256-BaYiAhyQwqDgyN7USzTtm7NKehAmwP9ivFiCy4bQZC8=";
+  src = lib.fileset.toSource {
+    root = ../vendor;
+    fileset = lib.fileset.difference
+      (lib.fileset.unions [ ../vendor/hokum ../vendor/rune ])
+      (lib.fileset.unions [
+        (lib.fileset.maybeMissing ../vendor/hokum/target)
+        (lib.fileset.maybeMissing ../vendor/rune/target)
+      ]);
   };
+  sourceRoot = "source/hokum";
+  cargoLock.lockFile = ../vendor/hokum/Cargo.lock;
 
-  dontUnpack = true;
-  dontBuild = true;
-  nativeBuildInputs = [ autoPatchelfHook ];
-  buildInputs = [ libxkbcommon stdenv.cc.cc.lib ];
+  nativeBuildInputs = [ autoPatchelfHook pkg-config ];
+  buildInputs = [ libxkbcommon stdenv.cc.cc.lib wayland ];
   # winit and wgpu open these with dlopen, so they are not in the executable's NEEDED list.
   runtimeDependencies = [
     libGL
@@ -39,11 +47,7 @@ stdenvNoCC.mkDerivation {
     wayland
   ];
 
-  installPhase = ''
-    runHook preInstall
-    install -Dm0555 "$src" "$out/bin/hokum"
-    runHook postInstall
-  '';
+  doCheck = false;
 
   meta = {
     description = "Freedesktop notification daemon for Wayland";

@@ -204,6 +204,10 @@ pub fn card<S: Cards>(n: &Note, theme: &Theme, k: &Kit, from_right: bool) -> El 
     for sh in shadows(t.shadow, k, accent) {
         root = root.box_shadow(sh);
     }
+    if t.glass {
+        // The compositor blurs behind the card's rounded rect; the fill on top is the tint.
+        root = root.system_material(rune::SystemMaterial::Glass);
+    }
     let content = render::<S>(&cx, &look.template);
     root = if t.mark == Mark::Stripe {
         // The stripe stretches with the content, inset from the card's edge.

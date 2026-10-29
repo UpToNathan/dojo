@@ -118,13 +118,14 @@ pub enum Install {
     Package { manager: &'static str, package: String },
     /// Not writable and no package claims it.
     Unknown,
-    /// A cargo build: never offered updates.
+    /// A cargo build, or one the Nix store holds: never offered updates, because a new build
+    /// comes from the package that provides it.
     Source,
 }
 
 pub fn classify(path: &Path, owner: Option<(&'static str, String)>, writable: bool) -> Install {
     let s = path.to_string_lossy();
-    if s.contains("/target/release/") || s.contains("/target/debug/") {
+    if s.contains("/target/release/") || s.contains("/target/debug/") || s.starts_with("/nix/store/") {
         return Install::Source;
     }
     if let Some((manager, package)) = owner {
@@ -571,6 +572,7 @@ mod tests {
             Install::Package { manager: "pacman", package: "hokum-bin".into() }
         );
         assert_eq!(classify(Path::new("/home/d/hokum/target/release/hokum"), None, true), Install::Source);
+        assert_eq!(classify(Path::new("/nix/store/abc-hokum/bin/hokum"), None, false), Install::Source);
     }
 
     #[test]
