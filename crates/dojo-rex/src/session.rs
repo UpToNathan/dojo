@@ -119,10 +119,13 @@ impl Session {
                     continue;
                 }
                 let result = match event.name.as_str() {
-                    "session_destroyed" => {
+                    // It names the session in its payload, and comes for every session this
+                    // connection attached, such as an empty one replaced on open.
+                    "session_destroyed" if event.payload["session_id"] == watcher.0.id.as_str() => {
                         watcher.end();
                         return;
                     }
+                    "session_destroyed" => Ok(()),
                     "session_view_changed" => {
                         let newer = event.payload["revision"].as_u64().unwrap_or(u64::MAX)
                             > watcher.0.view.lock().unwrap().revision;
