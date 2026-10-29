@@ -77,10 +77,11 @@ pub struct Snapshot {
     pub error: Option<String>,
     pub observation_error: Option<String>,
 }
+const CHECKING: &str = "Checking Wi-Fi…";
 impl Default for Snapshot {
     fn default() -> Self {
         Self {
-            availability: Availability::Unavailable("Checking Wi-Fi…".into()),
+            availability: Availability::Unavailable(CHECKING.into()),
             active_connection: None,
             networks: vec![],
             pending: None,
@@ -92,6 +93,12 @@ impl Default for Snapshot {
     }
 }
 impl Snapshot {
+    /// Whether NetworkManager has been read: not the placeholder before the first read, and not
+    /// a failed read. Only a settled snapshot says anything about the active connection.
+    fn is_settled(&self) -> bool {
+        self.observation_error.is_none()
+            && !matches!(&self.availability, Availability::Unavailable(m) if m == CHECKING)
+    }
     pub fn connection_title(&self) -> &'static str {
         match self
             .active_connection
@@ -215,6 +222,45 @@ impl Controller {
             return Err("Wi-Fi worker is busy or unavailable".into());
         }
         Ok(())
+    }
+}
+/// The notice for a change of active connection, or none when nothing changed. A move from one
+/// connection to another is a single "Connected to" the new one. Ethernet and other kinds are
+/// named by their label like a network.
+pub fn connection_notice(
+    old: Option<&ActiveConnection>,
+    new: Option<&ActiveConnection>,
+) -> Option<dojo::notify::Notice> {
+    use dojo::notify::{Notice, Urgency};
+    if old == new {
+        return None;
+    }
+    let summary = match (old, new) {
+        (_, Some(now)) => format!("Connected to {}", now.label),
+        (Some(was), None) => format!("Disconnected from {}", was.label),
+        (None, None) => return None,
+    };
+    Some(Notice::new("wifi", summary).urgency(Urgency::Low))
+}
+
+/// Remembers the active connection between snapshots so the shell can send the notices for what
+/// changed. What was already true when the watch first saw a settled snapshot is not reported.
+#[derive(Default)]
+pub struct ConnectionWatch {
+    last: Option<Option<ActiveConnection>>,
+}
+impl ConnectionWatch {
+    pub fn observe(&mut self, snapshot: &Snapshot) -> Option<dojo::notify::Notice> {
+        if !snapshot.is_settled() {
+            return None;
+        }
+        let now = snapshot.active_connection.clone();
+        let notice = match &self.last {
+            Some(before) => connection_notice(before.as_ref(), now.as_ref()),
+            None => None,
+        };
+        self.last = Some(now);
+        notice
     }
 }
 fn publish(shared: &Shared, state: &Snapshot) {
@@ -961,6 +1007,79 @@ async fn wait_connected(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn connection(kind: ConnectionKind, label: &str) -> ActiveConnection {
+        ActiveConnection {
+            kind,
+            label: label.into(),
+            interface: "if0".into(),
+        }
+    }
+    fn settled(active: Option<ActiveConnection>) -> Snapshot {
+        Snapshot {
+            availability: Availability::Enabled,
+            active_connection: active,
+            ..Snapshot::default()
+        }
+    }
+    #[test]
+    fn connection_notices_name_the_connection_and_stay_low() {
+        use dojo::notify::Urgency;
+        let home = connection(ConnectionKind::Wifi, "Home");
+        let wired = connection(ConnectionKind::Ethernet { usb: false }, "Wired 1");
+        let up = connection_notice(None, Some(&home)).unwrap();
+        assert_eq!(
+            (up.kind.as_str(), up.summary.as_str()),
+            ("wifi", "Connected to Home")
+        );
+        assert_eq!(up.urgency, Urgency::Low);
+        let down = connection_notice(Some(&wired), None).unwrap();
+        assert_eq!(down.summary, "Disconnected from Wired 1");
+        assert_eq!(down.urgency, Urgency::Low);
+        assert_eq!(
+            connection_notice(None, Some(&wired)).unwrap().summary,
+            "Connected to Wired 1"
+        );
+        assert!(connection_notice(Some(&home), Some(&home)).is_none());
+        assert!(connection_notice(None, None).is_none());
+    }
+    #[test]
+    fn moving_between_networks_is_one_connected_notice() {
+        let home = connection(ConnectionKind::Wifi, "Home");
+        let cafe = connection(ConnectionKind::Wifi, "Cafe");
+        let notice = connection_notice(Some(&home), Some(&cafe)).unwrap();
+        assert_eq!(notice.summary, "Connected to Cafe");
+    }
+    #[test]
+    fn watch_is_silent_until_it_has_a_baseline() {
+        let home = connection(ConnectionKind::Wifi, "Home");
+        let mut watch = ConnectionWatch::default();
+        // Before NetworkManager is read, and after a failed read, nothing is known.
+        assert!(watch.observe(&Snapshot::default()).is_none());
+        let failed = Snapshot {
+            observation_error: Some("down".into()),
+            active_connection: Some(home.clone()),
+            ..settled(None)
+        };
+        assert!(watch.observe(&failed).is_none());
+        // The first settled snapshot is the baseline, even with a connection already up.
+        assert!(watch.observe(&settled(Some(home.clone()))).is_none());
+        assert!(watch.observe(&settled(Some(home.clone()))).is_none());
+        let down = watch.observe(&settled(None)).unwrap();
+        assert_eq!(down.summary, "Disconnected from Home");
+        assert!(watch.observe(&settled(None)).is_none());
+        let up = watch.observe(&settled(Some(home))).unwrap();
+        assert_eq!(up.summary, "Connected to Home");
+    }
+    #[test]
+    fn watch_reports_a_move_between_networks_once() {
+        let mut watch = ConnectionWatch::default();
+        assert!(watch.observe(&settled(None)).is_none());
+        let home = connection(ConnectionKind::Wifi, "Home");
+        let cafe = connection(ConnectionKind::Wifi, "Cafe");
+        assert!(watch.observe(&settled(Some(home))).is_some());
+        let moved = watch.observe(&settled(Some(cafe))).unwrap();
+        assert_eq!(moved.summary, "Connected to Cafe");
+    }
     fn point(ssid: &[u8], strength: u8, connected: bool, security: Security) -> AccessPoint {
         AccessPoint {
             id: NetworkId {

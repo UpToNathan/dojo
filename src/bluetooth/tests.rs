@@ -630,3 +630,167 @@ async fn real_dbus_discovery_connections_pairing_and_restart() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
+
+fn device(n: u8, connected: bool, battery: Option<u8>) -> Device {
+    Device {
+        id: DeviceId {
+            path: format!("/org/bluez/hci0/dev_{n:02}"),
+            epoch: 1,
+        },
+        name: format!("Device {n}"),
+        address: format!("00:00:00:00:00:{n:02}"),
+        icon: String::new(),
+        paired: true,
+        connected,
+        battery,
+    }
+}
+fn ready(devices: Vec<Device>) -> Snapshot {
+    Snapshot {
+        availability: Availability::Ready,
+        devices,
+        ..Snapshot::default()
+    }
+}
+fn summaries(notices: &[dojo::notify::Notice]) -> Vec<&str> {
+    notices.iter().map(|n| n.summary.as_str()).collect()
+}
+
+#[test]
+fn watch_is_silent_on_the_first_snapshot() {
+    let mut watch = DeviceWatch::default();
+    // Before the adapter is read there is nothing to compare against.
+    assert!(watch.observe(&Snapshot::default()).is_empty());
+    let first = ready(vec![device(1, true, Some(5)), device(2, false, None)]);
+    assert!(watch.observe(&first).is_empty());
+    assert!(watch.observe(&first).is_empty());
+}
+
+#[test]
+fn watch_reports_connections_by_name_per_device() {
+    use dojo::notify::Urgency;
+    let mut watch = DeviceWatch::default();
+    watch.observe(&ready(vec![device(1, false, None), device(2, false, None)]));
+    let notices = watch.observe(&ready(vec![device(1, true, None), device(2, true, None)]));
+    assert_eq!(
+        summaries(&notices),
+        ["Device 1 connected", "Device 2 connected"]
+    );
+    assert!(notices.iter().all(|n| n.urgency == Urgency::Low));
+    assert_ne!(notices[0].kind, notices[1].kind);
+    let notices = watch.observe(&ready(vec![device(1, false, None), device(2, true, None)]));
+    assert_eq!(summaries(&notices), ["Device 1 disconnected"]);
+    assert!(
+        watch
+            .observe(&ready(vec![device(1, false, None), device(2, true, None)]))
+            .is_empty()
+    );
+}
+
+#[test]
+fn watch_ignores_a_device_first_seen_connected_after_the_baseline() {
+    let mut watch = DeviceWatch::default();
+    watch.observe(&ready(vec![]));
+    let notices = watch.observe(&ready(vec![device(1, true, Some(10))]));
+    assert!(notices.is_empty());
+    // Its low battery was already true when it appeared, so it stays quiet until a new fall.
+    assert!(
+        watch
+            .observe(&ready(vec![device(1, true, Some(9))]))
+            .is_empty()
+    );
+}
+
+#[test]
+fn low_battery_fires_once_per_fall_and_rearms_above_twenty() {
+    use dojo::notify::Urgency;
+    let mut watch = DeviceWatch::default();
+    watch.observe(&ready(vec![device(1, true, Some(40))]));
+    assert!(
+        watch
+            .observe(&ready(vec![device(1, true, Some(16))]))
+            .is_empty()
+    );
+    let low = watch.observe(&ready(vec![device(1, true, Some(15))]));
+    assert_eq!(summaries(&low), ["Device 1 battery low"]);
+    assert_eq!(low[0].urgency, Urgency::Normal);
+    assert!(
+        watch
+            .observe(&ready(vec![device(1, true, Some(14))]))
+            .is_empty()
+    );
+    // Between 16 and 20 it has not recovered enough to re-arm.
+    assert!(
+        watch
+            .observe(&ready(vec![device(1, true, Some(20))]))
+            .is_empty()
+    );
+    assert!(
+        watch
+            .observe(&ready(vec![device(1, true, Some(12))]))
+            .is_empty()
+    );
+    assert!(
+        watch
+            .observe(&ready(vec![device(1, true, Some(21))]))
+            .is_empty()
+    );
+    let again = watch.observe(&ready(vec![device(1, true, Some(15))]));
+    assert_eq!(summaries(&again), ["Device 1 battery low"]);
+}
+
+#[test]
+fn low_battery_rearms_when_the_device_disconnects() {
+    let mut watch = DeviceWatch::default();
+    watch.observe(&ready(vec![device(1, true, Some(50))]));
+    assert_eq!(
+        watch.observe(&ready(vec![device(1, true, Some(10))])).len(),
+        1
+    );
+    let off = watch.observe(&ready(vec![device(1, false, None)]));
+    assert_eq!(summaries(&off), ["Device 1 disconnected"]);
+    let on = watch.observe(&ready(vec![device(1, true, Some(10))]));
+    assert_eq!(
+        summaries(&on),
+        ["Device 1 battery low", "Device 1 connected"]
+    );
+}
+
+#[test]
+fn removed_devices_are_forgotten_without_a_notice() {
+    let mut watch = DeviceWatch::default();
+    watch.observe(&ready(vec![
+        device(1, true, Some(10)),
+        device(2, true, None),
+    ]));
+    assert!(
+        watch
+            .observe(&ready(vec![device(2, true, None)]))
+            .is_empty()
+    );
+    // A device that comes back is new: first sight is silent.
+    assert!(
+        watch
+            .observe(&ready(vec![
+                device(1, true, Some(10)),
+                device(2, true, None)
+            ]))
+            .is_empty()
+    );
+}
+
+#[test]
+fn watch_ignores_snapshots_without_a_ready_adapter() {
+    let mut watch = DeviceWatch::default();
+    watch.observe(&ready(vec![device(1, true, None)]));
+    let gone = Snapshot {
+        availability: Availability::ServiceMissing,
+        ..Snapshot::default()
+    };
+    assert!(watch.observe(&gone).is_empty());
+    assert!(
+        watch
+            .observe(&ready(vec![device(1, true, None)]))
+            .is_empty()
+    );
+}

@@ -1,7 +1,9 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::bluetooth::{Action, Availability, Controller, Device, DeviceId, PromptKind, Snapshot};
+use crate::bluetooth::{
+    Action, Availability, Controller, Device, DeviceId, DeviceWatch, PromptKind, Snapshot,
+};
 use crate::config::ThemeColors;
 use gpui::{
     App, AppContext, Bounds, Context, DisplayId, FocusHandle, IntoElement, KeyDownEvent,
@@ -12,6 +14,7 @@ use gpui::{
 pub struct BluetoothUi {
     pub snapshot: Arc<Snapshot>,
     controller: Controller,
+    devices: DeviceWatch,
     panel: Option<WindowHandle<Dock>>,
     _updates: gpui::Task<()>,
 }
@@ -26,13 +29,24 @@ fn install(cx: &mut App, controller: Controller, changes: async_channel::Receive
     let task = cx.spawn(async move |cx| {
         while changes.recv().await.is_ok() {
             let snapshot = updates_controller.snapshot();
-            let _ =
-                cx.update(|cx| cx.update_global::<BluetoothUi, _>(|ui, _| ui.snapshot = snapshot));
+            let _ = cx.update(|cx| {
+                cx.update_global::<BluetoothUi, _>(|ui, _| {
+                    for notice in ui.devices.observe(&snapshot) {
+                        dojo::notify::post(notice);
+                    }
+                    ui.snapshot = snapshot;
+                })
+            });
         }
     });
+    let snapshot = controller.snapshot();
+    let mut devices = DeviceWatch::default();
+    // What is already true at startup is the baseline, not news.
+    let _ = devices.observe(&snapshot);
     cx.set_global(BluetoothUi {
-        snapshot: controller.snapshot(),
+        snapshot,
         controller,
+        devices,
         panel: None,
         _updates: task,
     });

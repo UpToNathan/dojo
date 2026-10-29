@@ -841,5 +841,95 @@ async fn run(
     Ok(())
 }
 
+/// A connected device's battery at or below this percentage is low.
+const BATTERY_LOW: u8 = 15;
+/// A low-battery warning re-arms once the battery is above this percentage.
+const BATTERY_REARM: u8 = 20;
+
+#[derive(Clone, Copy)]
+struct Seen {
+    connected: bool,
+    /// Whether a fall to low battery would be reported.
+    armed: bool,
+}
+
+/// Remembers each device between snapshots so the shell can send the notices for what changed:
+/// a device connecting or disconnecting, and a connected device's battery falling low (once per
+/// fall). What was already true when the watch first saw a ready adapter is not reported, and a
+/// device that is first seen already connected is silent. A device that vanishes is forgotten
+/// without a notice.
+#[derive(Default)]
+pub struct DeviceWatch {
+    known: Option<BTreeMap<DeviceId, Seen>>,
+}
+impl DeviceWatch {
+    pub fn observe(&mut self, snapshot: &Snapshot) -> Vec<dojo::notify::Notice> {
+        use dojo::notify::{Notice, Urgency};
+        // Only an adapter that was read says anything about devices: a missing service empties
+        // the list, and its return is not a string of reconnections.
+        if !matches!(
+            snapshot.availability,
+            Availability::Ready | Availability::NoAdapter
+        ) {
+            return Vec::new();
+        }
+        let before = self.known.take();
+        let announce = before.is_some();
+        let before = before.unwrap_or_default();
+        let mut notices = Vec::new();
+        let mut known = BTreeMap::new();
+        for device in &snapshot.devices {
+            let low = device.battery.is_some_and(|b| b <= BATTERY_LOW);
+            let seen = match before.get(&device.id) {
+                None => Seen {
+                    connected: device.connected,
+                    armed: !(device.connected && low),
+                },
+                Some(was) => {
+                    let mut armed = was.armed;
+                    if !device.connected {
+                        armed = true;
+                    } else if let Some(level) = device.battery {
+                        if level > BATTERY_REARM {
+                            armed = true;
+                        } else if level <= BATTERY_LOW && armed {
+                            armed = false;
+                            notices.push(
+                                Notice::new(
+                                    format!("bluetooth-battery-{}", device.address),
+                                    format!("{} battery low", device.name),
+                                )
+                                .body(format!("{level}% left"))
+                                .urgency(Urgency::Normal),
+                            );
+                        }
+                    }
+                    if was.connected != device.connected {
+                        let verb = if device.connected {
+                            "connected"
+                        } else {
+                            "disconnected"
+                        };
+                        notices.push(
+                            Notice::new(
+                                format!("bluetooth-{}", device.address),
+                                format!("{} {verb}", device.name),
+                            )
+                            .urgency(Urgency::Low),
+                        );
+                    }
+                    Seen {
+                        connected: device.connected,
+                        armed,
+                    }
+                }
+            };
+            known.insert(device.id.clone(), seen);
+        }
+        self.known = Some(known);
+        if announce { notices } else { Vec::new() }
+    }
+}
+
 #[cfg(test)]
 mod tests;
