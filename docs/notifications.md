@@ -48,6 +48,18 @@ The look comes from the theme system: `dojo-theme` has a `hokum` target that pub
 theme and selects it in `config.kdl` (see `docs/theme-application.md`). Until the first apply
 with that target, Hokum draws its own default look (Capsule).
 
+## Dojo's own notices
+
+Dojo sends notices through Hokum, as the app `Dojo` ([spec](../.scratch/notices/spec.md),
+[ADR-0012](adr/0012-notices-go-to-the-notification-service.md)): battery low, critical, plugged,
+unplugged and full; Wi-Fi connecting and disconnecting; Bluetooth devices connecting, disconnecting
+and running low; the volume, brightness and keyboard-backlight keys (a progress bar that replaces
+itself); screenshots copied; theme applies and their problems; software update runs; mesh keys close
+to expiring; remote input starting and stopping; and the agent pausing when you take the keyboard.
+They come from `dojo::notify` in the shell and the `dojo-notify` command (`~/.local/bin`) elsewhere,
+and each is a change, never what was already true at startup. Mute `Dojo` in Hokum's Applications
+list, or let it through Do not disturb, like any other app.
+
 ## Using it
 
 ```sh
