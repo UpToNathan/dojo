@@ -20,7 +20,7 @@ mod ws;
 pub use attach::Shared;
 pub use control::{Control, Event};
 pub use layout::{Layout, Rect, SessionView, WindowView};
-pub use session::{Session, SessionOptions};
+pub use session::{Session, SessionOptions, Target};
 pub use sessions::{SessionSummary, Status, list_sessions};
 pub use data::{DataStream, Welcome};
 pub use stream::{Demux, Message, Piece};

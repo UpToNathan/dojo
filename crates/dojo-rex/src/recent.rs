@@ -1,5 +1,6 @@
 //! The sessions this machine's terminals opened, most recent first, in
-//! `$XDG_STATE_HOME/dojo/terminal/recent` (one label per line).
+//! `$XDG_STATE_HOME/dojo/terminal/recent-sessions` (one session ID per line; IDs, because a
+//! session can be renamed).
 use std::path::PathBuf;
 
 fn path() -> Option<PathBuf> {
@@ -7,7 +8,7 @@ fn path() -> Option<PathBuf> {
         Some(path) if !path.is_empty() => PathBuf::from(path),
         _ => PathBuf::from(std::env::var_os("HOME")?).join(".local/state"),
     };
-    Some(state.join("dojo/terminal/recent"))
+    Some(state.join("dojo/terminal/recent-sessions"))
 }
 
 /// Most recent first.
@@ -15,14 +16,14 @@ pub fn load() -> Vec<String> {
     path().and_then(|path| std::fs::read_to_string(path).ok()).map(|text| parse(&text)).unwrap_or_default()
 }
 
-/// Moves `label` to the front.
-pub fn touch(label: &str) {
+/// Moves session `id` to the front.
+pub fn touch(id: &str) {
     let Some(path) = path() else { return };
-    let labels = touched(load(), label);
+    let ids = touched(load(), id);
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let _ = std::fs::write(path, labels.join("\n") + "\n");
+    let _ = std::fs::write(path, ids.join("\n") + "\n");
 }
 
 fn parse(text: &str) -> Vec<String> {
@@ -34,12 +35,6 @@ fn touched(mut labels: Vec<String>, label: &str) -> Vec<String> {
     labels.insert(0, label.to_owned());
     labels.truncate(64);
     labels
-}
-
-/// Orders `labels` by recency; ones never opened here keep their order after the rest.
-pub fn sort(labels: &mut [String]) {
-    let recent = load();
-    labels.sort_by_key(|label| recent.iter().position(|r| r == label).unwrap_or(usize::MAX));
 }
 
 #[cfg(test)]

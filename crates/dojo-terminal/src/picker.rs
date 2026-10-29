@@ -22,9 +22,9 @@ pub enum Accept {
     Nothing,
 }
 
-/// Most recent first (by `recent`), then the server's order.
+/// Most recent first (`recent` holds session IDs), then the server's order.
 pub fn order(mut entries: Vec<SessionSummary>, recent: &[String]) -> Vec<SessionSummary> {
-    entries.sort_by_key(|entry| recent.iter().position(|label| *label == entry.label).unwrap_or(usize::MAX));
+    entries.sort_by_key(|entry| recent.iter().position(|id| *id == entry.id).unwrap_or(usize::MAX));
     entries
 }
 
@@ -90,7 +90,7 @@ impl Picker {
 
     pub fn accept(&self) -> Accept {
         if let Some(entry) = self.visible().get(self.selected) {
-            return Accept::Switch(entry.label.clone());
+            return Accept::Switch(entry.id.clone());
         }
         match self.query.trim() {
             "" => Accept::Nothing,

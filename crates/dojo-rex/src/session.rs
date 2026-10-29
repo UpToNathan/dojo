@@ -17,10 +17,21 @@ use crate::terminal::KeyInput;
 
 const FLAVOR: &str = "com.superlogical.terminal.shell";
 
+/// Which session a view shows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Target {
+    /// That session, by ID; a new one when it is gone.
+    Id(String),
+    /// The session with that label, created with it when there is none.
+    Label(String),
+    /// A new session, named by the server (such as `quiet-meadow`).
+    New,
+}
+
 pub struct SessionOptions {
     pub socket: PathBuf,
-    /// The session's label; an existing session with it is opened.
-    pub label: String,
+    /// Which session to show.
+    pub target: Target,
     /// The program a new session's first terminal runs, without a shell. Empty runs the
     /// account's login shell.
     pub command: Vec<String>,
@@ -69,12 +80,16 @@ pub(crate) fn block_options(command: &[String], cwd: Option<&str>, size: Option<
 }
 
 impl Session {
-    /// Opens the session labelled `options.label`, creating it when there is none, and starts
+    /// Opens the session `options.target` names, creating it when there is none, and starts
     /// streaming its panes. `wake` runs whenever something to draw changed.
     pub fn open(options: SessionOptions, wake: impl Fn() + Send + Sync + 'static) -> Result<Self> {
         let control = Control::connect(&options.socket, &options.client_name)?;
         let events = control.take_events().context("control events already taken")?;
-        let mut id = find(&control, &options.label)?;
+        let mut id = match &options.target {
+            Target::Id(id) => exists(&control, id)?.then(|| id.clone()),
+            Target::Label(label) => find(&control, label)?,
+            Target::New => None,
+        };
         if let Some(existing) = &id {
             control.call("session.attach", json!({"session_id": existing}))?;
             let view = SessionView::parse(&control.call("session.view", json!({"session_id": existing}))?);
@@ -89,8 +104,7 @@ impl Session {
             None => {
                 let created = control.call(
                     "session.create",
-                    json!({"label": options.label, "initial_windows": [{"layout": {"block": {"flavor": FLAVOR,
-                        "options": block_options(&options.command, options.cwd.as_deref(), Some((options.cols, options.rows)))}}}]}),
+                    create_payload(&options),
                 )?;
                 let id = created["session_id"].as_str().context("session.create gave no session_id")?.to_owned();
                 control.call("session.attach", json!({"session_id": id}))?;
@@ -158,6 +172,11 @@ impl Session {
 
     pub fn id(&self) -> &str {
         &self.0.id
+    }
+
+    /// The session's label, which the server chose unless one was given.
+    pub fn label(&self) -> String {
+        self.0.view.lock().unwrap().label.clone()
     }
 
     pub fn view(&self) -> SessionView {
@@ -379,6 +398,21 @@ impl Drop for Inner {
     }
 }
 
+/// A new session: labelled when the target names one, otherwise the server picks a name.
+fn create_payload(options: &SessionOptions) -> Value {
+    let mut payload = json!({"initial_windows": [{"layout": {"block": {"flavor": FLAVOR,
+        "options": block_options(&options.command, options.cwd.as_deref(), Some((options.cols, options.rows)))}}}]});
+    if let Target::Label(label) = &options.target {
+        payload["label"] = json!(label);
+    }
+    payload
+}
+
+fn exists(control: &Control, id: &str) -> Result<bool> {
+    let sessions = control.call("session.list", json!({}))?;
+    Ok(sessions["sessions"].as_array().into_iter().flatten().any(|session| session["session_id"] == id))
+}
+
 fn find(control: &Control, label: &str) -> Result<Option<String>> {
     let sessions = control.call("session.list", json!({}))?;
     Ok(sessions["sessions"]
@@ -393,6 +427,22 @@ fn find(control: &Control, label: &str) -> Result<Option<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_new_session_is_named_by_the_server_unless_a_label_is_given() {
+        let options = |target| SessionOptions {
+            socket: PathBuf::new(),
+            target,
+            command: vec![],
+            pane_command: vec![],
+            cwd: None,
+            cols: 80,
+            rows: 24,
+            client_name: "test".into(),
+        };
+        assert!(create_payload(&options(Target::New)).get("label").is_none());
+        assert_eq!(create_payload(&options(Target::Label("work".into())))["label"], "work");
+    }
 
     #[test]
     fn a_block_runs_its_command_without_a_shell_in_the_given_directory() {

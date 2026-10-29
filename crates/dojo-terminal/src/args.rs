@@ -12,8 +12,10 @@ pub struct Panel {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Args {
-    /// None until one is chosen: `--picker` opens without a session.
+    /// `--session LABEL`, as given.
     pub session: Option<String>,
+    /// The session to open, settled at start; None for a bare `--picker`.
+    pub target: Option<dojo_rex::Target>,
     /// Open the most recently used session, or focus the window already showing it.
     pub reattach: bool,
     /// Open on the session picker.
@@ -29,7 +31,7 @@ pub const USAGE: &str = "usage: dojo-terminal [--session LABEL | --reattach] [--
 
 pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let mut args = args.into_iter();
-    let mut parsed = Args { session: None, reattach: false, picker: false, cwd: None, panel: None, demo: false, command: Vec::new() };
+    let mut parsed = Args { session: None, target: None, reattach: false, picker: false, cwd: None, panel: None, demo: false, command: Vec::new() };
     let mut panel = false;
     let mut output = None;
     let (mut x, mut y, mut width, mut height) = (0.0, 0.0, 800.0, 400.0);

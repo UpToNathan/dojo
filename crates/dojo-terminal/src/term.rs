@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use dojo_rex::layout::Rect;
-use dojo_rex::{Control, KeyAction, KeyInput, Screen, SessionOptions, SessionSummary, SessionView, Session};
+use dojo_rex::{Control, KeyAction, KeyInput, Screen, Session, SessionOptions, SessionSummary, SessionView, Target};
 use rune::{Key, KeyEvent, Tx, Waker};
 
 use crate::args::Args;
@@ -37,6 +37,8 @@ pub struct Pane {
 }
 
 pub struct Term {
+    /// The window title shown, which follows the session's label.
+    title: String,
     backend: Option<Backend>,
     pub view: SessionView,
     pub panes: HashMap<String, Pane>,
@@ -54,6 +56,7 @@ pub struct Term {
 
 pub fn init() -> Term {
     Term {
+        title: String::new(),
         backend: None,
         view: SessionView::default(),
         panes: HashMap::new(),
@@ -91,16 +94,16 @@ fn theme() -> Option<serde_json::Value> {
     Some(crate::settings::theme_payload(&source))
 }
 
-/// Opens `label` as a view of its Rex session. The first open honours `-- COMMAND` and `--cwd`;
+/// Opens `target` as a view of its Rex session. The first open honours `-- COMMAND` and `--cwd`;
 /// later ones, and every new pane, run the desktop's shell.
-fn open_session(label: &str, first: bool, grid: (u16, u16), wake: Waker) -> anyhow::Result<Backend> {
+fn open_session(target: Target, first: bool, grid: (u16, u16), wake: Waker) -> anyhow::Result<Backend> {
     let args = ARGS.get().expect("arguments parsed");
     let shell = launch::from_environment();
     let command = if first && !args.command.is_empty() { args.command.clone() } else { shell.clone() };
     let session = Session::open(
         SessionOptions {
             socket: dojo_rex::default_socket(),
-            label: label.to_owned(),
+            target,
             command,
             pane_command: shell,
             cwd: if first { args.cwd.clone() } else { None },
@@ -110,7 +113,7 @@ fn open_session(label: &str, first: bool, grid: (u16, u16), wake: Waker) -> anyh
         },
         move || wake(),
     )?;
-    dojo_rex::recent::touch(label);
+    dojo_rex::recent::touch(session.id());
     Ok(Backend::Rex(session))
 }
 
@@ -121,7 +124,7 @@ pub fn setup(s: &mut Term, wake: Waker) {
     let opened = if args.demo {
         Some(Backend::demo(grid.0, grid.1))
     } else {
-        args.session.as_deref().map(|label| open_session(label, true, grid, wake))
+        args.target.clone().map(|target| open_session(target, true, grid, wake))
     };
     match opened {
         Some(Ok(backend)) => s.backend = Some(backend),
@@ -276,9 +279,9 @@ impl Term {
     }
 
     /// Shows another session in this window.
-    fn switch(&mut self, label: &str, tx: &mut Tx) {
+    fn switch(&mut self, target: Target) {
         let Some(wake) = self.waker.clone() else { return };
-        match open_session(label, false, self.initial_grid(), wake) {
+        match open_session(target.clone(), false, self.initial_grid(), wake) {
             Ok(backend) => {
                 self.backend = Some(backend);
                 self.view = SessionView::default();
@@ -286,10 +289,9 @@ impl Term {
                 self.themed.clear();
                 self.held = None;
                 self.picker = None;
-                tx.set_title(label.to_owned());
                 self.refresh_view();
             }
-            Err(error) => eprintln!("dojo-terminal: opening {label}: {error:#}"),
+            Err(error) => eprintln!("dojo-terminal: opening {target:?}: {error:#}"),
         }
     }
 
@@ -307,7 +309,8 @@ impl Term {
             Key::Backspace => picker.backspace(),
             Key::Text(typed) if typing && !typed.chars().any(char::is_control) => picker.type_text(typed),
             Key::Enter => match picker.accept() {
-                Accept::Switch(label) | Accept::Create(label) => self.switch(&label, tx),
+                Accept::Switch(id) => self.switch(Target::Id(id)),
+                Accept::Create(label) => self.switch(Target::Label(label)),
                 Accept::Nothing => {}
             },
             _ => {}
@@ -382,6 +385,10 @@ fn arm(s: &mut Term, after: Duration, tx: &mut Tx) {
 }
 
 pub fn poll(s: &mut Term, _seconds: f64, tx: &mut Tx) -> bool {
+    if let Some(label) = s.backend.as_ref().map(|backend| backend.view().label).filter(|label| !label.is_empty() && *label != s.title) {
+        tx.set_title(label.clone());
+        s.title = label;
+    }
     if s.backend.as_ref().and_then(Backend::ended).is_some() {
         std::process::exit(0);
     }

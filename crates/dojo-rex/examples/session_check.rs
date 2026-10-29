@@ -7,7 +7,7 @@ fn main() -> anyhow::Result<()> {
     let session = dojo_rex::Session::open(
         dojo_rex::SessionOptions {
             socket: dojo_rex::default_socket(),
-            label: "dojo-session-check".into(),
+            target: dojo_rex::Target::Label("dojo-session-check".into()),
             command: vec![],
             pane_command: vec![],
             cwd: Some("/tmp".into()),

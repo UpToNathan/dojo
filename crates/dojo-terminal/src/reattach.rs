@@ -2,16 +2,12 @@
 use dojo_rex::SessionSummary;
 use serde_json::Value;
 
-pub const FALLBACK: &str = "dojo";
 pub const APP_ID: &str = "dojo-terminal";
 
-/// The most recently used session that still exists with at least one tab.
-pub fn choose(recent: &[String], live: &[SessionSummary]) -> String {
-    recent
-        .iter()
-        .find(|label| live.iter().any(|session| &session.label == *label && session.tabs > 0))
-        .cloned()
-        .unwrap_or_else(|| FALLBACK.to_owned())
+/// The most recently used session (by ID) that still exists with at least one tab; None means
+/// a new one.
+pub fn choose(recent: &[String], live: &[SessionSummary]) -> Option<SessionSummary> {
+    recent.iter().find_map(|id| live.iter().find(|session| &session.id == id && session.tabs > 0)).cloned()
 }
 
 /// The Niri window id of a `dojo-terminal` window titled `title`, from `niri msg --json windows`.
@@ -39,17 +35,17 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn summary(label: &str, tabs: usize) -> SessionSummary {
-        SessionSummary { id: label.into(), label: label.into(), tabs, directory: None, title: None, status: None }
+    fn summary(id: &str, tabs: usize) -> SessionSummary {
+        SessionSummary { id: id.into(), label: format!("name-{id}"), tabs, directory: None, title: None, status: None }
     }
 
     #[test]
-    fn the_first_recent_session_that_still_has_tabs_wins() {
+    fn the_first_recent_session_by_id_that_still_has_tabs_wins() {
         let live = [summary("a", 1), summary("b", 0), summary("c", 2)];
         let recent = ["gone".to_owned(), "b".to_owned(), "c".to_owned(), "a".to_owned()];
-        assert_eq!(choose(&recent, &live), "c");
-        assert_eq!(choose(&[], &live), "dojo");
-        assert_eq!(choose(&["gone".to_owned()], &live), "dojo");
+        assert_eq!(choose(&recent, &live).map(|s| s.label), Some("name-c".into()));
+        assert_eq!(choose(&[], &live), None, "nothing recent: a new session");
+        assert_eq!(choose(&["gone".to_owned()], &live), None);
     }
 
     #[test]

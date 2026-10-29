@@ -17,7 +17,7 @@ mod ui;
 use rune::{App, AppSpec, DisplayTarget, KeyPolicy, NativeDisplayId, OverlayInput, OverlayOptions, OverlayPlacement, OverlaySpec};
 
 use args::Panel;
-use dojo_rex::Control;
+use dojo_rex::{Control, Target};
 use term::ARGS;
 
 fn main() {
@@ -64,21 +64,29 @@ fn main() {
     }
 }
 
-/// Settles which session to open: the one asked for, the most recent one for `--reattach`
-/// (exiting instead when a window already shows it), `dojo`, or none for a bare `--picker`.
+/// Settles which session to open: the label asked for, the most recent one for `--reattach`
+/// (exiting instead when a window already shows it), a new one the server names, or none for a
+/// bare `--picker`.
 fn resolve_session(args: &mut args::Args) {
     if args.reattach {
         let live = Control::connect(&dojo_rex::default_socket(), "dojo-terminal-reattach")
             .and_then(|control| dojo_rex::list_sessions(&control))
             .unwrap_or_default();
-        let label = reattach::choose(&dojo_rex::recent::load(), &live);
-        if reattach::focus_existing(&label) {
-            dojo_rex::recent::touch(&label);
-            std::process::exit(0);
-        }
-        args.session = Some(label);
-    } else if args.session.is_none() && !args.picker {
-        args.session = Some(reattach::FALLBACK.to_owned());
+        args.target = Some(match reattach::choose(&dojo_rex::recent::load(), &live) {
+            Some(session) => {
+                if reattach::focus_existing(&session.label) {
+                    dojo_rex::recent::touch(&session.id);
+                    std::process::exit(0);
+                }
+                args.session = Some(session.label);
+                Target::Id(session.id)
+            }
+            None => Target::New,
+        });
+    } else if let Some(label) = &args.session {
+        args.target = Some(Target::Label(label.clone()));
+    } else if !args.picker {
+        args.target = Some(Target::New);
     }
 }
 
