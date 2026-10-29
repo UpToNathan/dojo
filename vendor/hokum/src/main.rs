@@ -79,6 +79,9 @@ fn main() {
         matches!(a.as_str(), "--snap" | "--tree" | "--trace" | "--frames" | "--strip" | "--list-scenes" | "--first-pixels")
     });
     let service = argv.first().is_some_and(|a| a == "service");
+    if headless {
+        apps::headless();
+    }
     match (headless, service) {
         (true, true) => cards::headless(),
         (true, false) => rune::App::new(settings::spec()).run(),

@@ -8,6 +8,13 @@ use std::sync::{Mutex, OnceLock};
 
 const KEEP: usize = 40;
 
+/// Headless renders (`--snap`, `--tree`, ...) draw sample notifications; they are not senders.
+static HEADLESS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn headless() {
+    HEADLESS.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
 fn path() -> PathBuf {
     crate::style::state_dir().join("apps")
 }
@@ -23,7 +30,7 @@ fn list() -> &'static Mutex<Vec<String>> {
 /// Notes that `app` sent something; saves when the list changes.
 pub fn record(app: &str) {
     let app = app.trim();
-    if app.is_empty() {
+    if app.is_empty() || HEADLESS.load(std::sync::atomic::Ordering::Relaxed) {
         return;
     }
     let mut apps = list().lock().unwrap();
