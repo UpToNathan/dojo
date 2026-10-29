@@ -78,6 +78,7 @@ in
         ./t3-home-manager.nix
         ./browser-control-home-manager.nix
         ./rift-home-manager.nix
+        ./hokum-home-manager.nix
         ./voice-home-manager.nix
         ./native-accessibility-home-manager.nix
         ./qt6-annotation-home-manager.nix

@@ -19,7 +19,7 @@ use super::{Appearance, Selection, ThemeStore};
 
 pub const TARGETS: &[&str] = &[
     "dojo", "niri", "kitty", "ghostty", "nvim", "opencode", "pi", "t3code", "yazi", "zen",
-    "helium", "gtk", "qt",
+    "helium", "hokum", "gtk", "qt",
 ];
 
 #[derive(Debug, Serialize)]
@@ -241,6 +241,33 @@ fn patch_json_settings(path: &Path, updates: serde_json::Value) -> anyhow::Resul
         object.insert(key.clone(), value.clone());
     }
     write_atomic(path, &serde_json::to_vec_pretty(&value)?)
+}
+
+/// Points Hokum's config at the Dojo theme, changing only its top-level `theme` line. Hokum's
+/// settings window edits the same file in place, so it is patched rather than owned.
+fn select_hokum_theme(path: &Path) -> anyhow::Result<()> {
+    const LINE: &str = "theme \"dojo\"";
+    let current = match fs::symlink_metadata(path) {
+        Ok(info) => {
+            anyhow::ensure!(
+                info.is_file() && !info.file_type().is_symlink(),
+                "{} is declaratively managed or non-regular; set `{LINE}` in it declaratively",
+                path.display()
+            );
+            fs::read_to_string(path)?
+        }
+        Err(_) => String::new(),
+    };
+    let mut lines = current.lines().map(str::to_string).collect::<Vec<_>>();
+    match lines
+        .iter()
+        .position(|line| line.starts_with("theme ") || line.starts_with("theme\t"))
+    {
+        Some(index) if lines[index] == LINE => return Ok(()),
+        Some(index) => lines[index] = LINE.into(),
+        None => lines.insert(0, LINE.into()),
+    }
+    write_atomic(path, format!("{}\n", lines.join("\n")).as_bytes())
 }
 
 pub fn apply(store: &ThemeStore, selection: Selection) -> anyhow::Result<ApplyReport> {
@@ -546,6 +573,12 @@ fn publish_target(
             anyhow::ensure!(config.contains(&current.join("ghostty.conf").to_string_lossy().to_string()),"Ghostty needs the Dojo config-file include from Home Manager before reload");
             Ok(("published","included color fragment selected".into()))
         },
+        "hokum"=>{
+            let directory=paths.config.join("hokum");
+            put("hokum.kdl",&directory.join("themes/dojo.kdl"),registry)?;
+            select_hokum_theme(&directory.join("config.kdl"))?;
+            Ok(("published","theme selected in config.kdl; a running Hokum redraws within a second".into()))
+        },
         "nvim"=>Ok(("published","dedicated Dojo colorscheme reads current/nvim.json; configured instances reload in-process, or :colorscheme dojo".into())),
         "opencode"=>{
             put("opencode.json",&paths.config.join("opencode/themes/dojo.json"),registry)?;
@@ -656,6 +689,35 @@ pub fn watch(store: &ThemeStore) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hokum_selection_changes_only_the_theme_line() -> anyhow::Result<()> {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let directory = std::env::temp_dir().join(format!(
+            "dojo-hokum-selection-{}",
+            SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+        ));
+        let path = directory.join("hokum/config.kdl");
+        select_hokum_theme(&path)?;
+        assert_eq!(fs::read_to_string(&path)?, "theme \"dojo\"\n");
+        fs::write(
+            &path,
+            "// mine\ntheme \"signal\"\nbehaviour {\n    theme-note 1\n}\n",
+        )?;
+        select_hokum_theme(&path)?;
+        assert_eq!(
+            fs::read_to_string(&path)?,
+            "// mine\ntheme \"dojo\"\nbehaviour {\n    theme-note 1\n}\n"
+        );
+        fs::write(&path, "behaviour {\n    stay 4\n}\n")?;
+        select_hokum_theme(&path)?;
+        assert_eq!(
+            fs::read_to_string(&path)?,
+            "theme \"dojo\"\nbehaviour {\n    stay 4\n}\n"
+        );
+        fs::remove_dir_all(&directory)?;
+        Ok(())
+    }
     #[test]
     fn t3_publication_selects_the_theme_in_the_configured_home() -> anyhow::Result<()> {
         use std::os::unix::fs::PermissionsExt as _;
