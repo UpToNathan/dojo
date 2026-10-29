@@ -171,7 +171,7 @@ fn niri(p: &SemanticPalette) -> String {
     )
 }
 
-/// A Hokum theme in the shell's own terms: the `background` at 20% opacity over a blur of what is
+/// A Hokum theme in the shell's own terms: the `background` at 70% opacity over a blur of what is
 /// behind it, the shell's 22 point corners, the 20% hairline border and the soft shadow, with the
 /// primary as the accent and the shell's font. Colours are literals because Dojo republishes the
 /// theme when its appearance changes. `glass` needs Dojo's Hokum build and a compositor with
@@ -197,8 +197,8 @@ fn hokum(p: &SemanticPalette) -> String {
 /// shell names is not installed.
 const HOKUM_FALLBACK_FONT: &str = "Victor Mono";
 
-/// 20% of 255: how much of the card is the background colour; the blur shows through the rest.
-const HOKUM_FILL_ALPHA: u8 = 0x33;
+/// 70% of 255: how much of the card is the background colour; the blur shows through the rest.
+const HOKUM_FILL_ALPHA: u8 = 0xb2;
 
 fn opencode(theme: &Theme) -> anyhow::Result<Value> {
     let dark = opencode_mode(&theme.dark)?;
@@ -982,7 +982,7 @@ mod tests {
             Some(61)
         );
         let hokum = hokum(&theme.dark);
-        assert!(hokum.contains(&format!("fill \"{}33\"", theme.dark.color("background"))));
+        assert!(hokum.contains(&format!("fill \"{}b2\"", theme.dark.color("background"))));
         assert!(hokum.contains("glass #true"));
         assert!(hokum.contains("font \"VictorMono Nerd Font Mono, Victor Mono\""));
         assert!(hokum.contains(&format!("accent \"{}\"", theme.dark.color("primary"))));
