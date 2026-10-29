@@ -846,10 +846,18 @@ in
 	  draw-border-with-background = false;
 	};
 	# Dojo surfaces use backdrop blur over the windows underneath.
-	settings."layer-rule" = {
-	  match._props.namespace = "^dojo-frame-[0-9]+$";
-	  background-effect.xray = false;
-	};
+	settings."layer-rule" = [
+	  {
+	    match._props.namespace = "^dojo-frame-[0-9]+$";
+	    background-effect.xray = false;
+	  }
+	  # Hokum's glass cards ask for a blur behind each card (ext-background-effect). Without
+	  # this the blur would show only the wallpaper, not the windows under the card.
+	  {
+	    match._props.namespace = "^hokum$";
+	    background-effect.xray = false;
+	  }
+	];
 	# Dojo restores its selected wallpaper after login.
       };
 }

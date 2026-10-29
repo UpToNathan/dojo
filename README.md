@@ -44,8 +44,8 @@ are exempt. The updater also refreshes the tracked package, service, and
 privileged-file inventory. See [software updates and restoration](docs/system-update.md)
 and [the system inventory](docs/system-inventory.md).
 
-Notifications come from [Hokum](docs/notifications.md), a user service that owns
-`org.freedesktop.Notifications`.
+Notifications come from [Hokum](docs/notifications.md), built from the `vendor/hokum` and
+`vendor/rune` subtrees and run as a user service that owns `org.freedesktop.Notifications`.
 
 Clipboard history and persistence are separate services: Clipvault stores past
 entries, while `wl-clip-persist` retains the regular clipboard in memory after
