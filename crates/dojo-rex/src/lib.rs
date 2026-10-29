@@ -17,7 +17,7 @@ pub mod stream;
 pub mod terminal;
 mod ws;
 
-pub use attach::{Attachment, Options};
+pub use attach::Shared;
 pub use control::{Control, Event};
 pub use layout::{Layout, Rect, SessionView, WindowView};
 pub use session::{Session, SessionOptions};

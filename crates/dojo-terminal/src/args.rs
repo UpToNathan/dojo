@@ -12,26 +12,33 @@ pub struct Panel {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Args {
-    pub session: String,
+    /// None until one is chosen: `--picker` opens without a session.
+    pub session: Option<String>,
+    /// Open the most recently used session, or focus the window already showing it.
+    pub reattach: bool,
+    /// Open on the session picker.
+    pub picker: bool,
     pub cwd: Option<String>,
     pub panel: Option<Panel>,
     pub demo: bool,
     pub command: Vec<String>,
 }
 
-pub const USAGE: &str = "usage: dojo-terminal [--session LABEL] [--cwd DIR] [--demo] \
+pub const USAGE: &str = "usage: dojo-terminal [--session LABEL | --reattach] [--picker] [--cwd DIR] [--demo] \
 [--panel [--output NAME] [--x X] [--y Y] [--width W] [--height H]] [-- COMMAND ARGS...]";
 
 pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let mut args = args.into_iter();
-    let mut parsed = Args { session: "dojo".into(), cwd: None, panel: None, demo: false, command: Vec::new() };
+    let mut parsed = Args { session: None, reattach: false, picker: false, cwd: None, panel: None, demo: false, command: Vec::new() };
     let mut panel = false;
     let mut output = None;
     let (mut x, mut y, mut width, mut height) = (0.0, 0.0, 800.0, 400.0);
     while let Some(arg) = args.next() {
         let mut value = |name: &str| args.next().ok_or_else(|| format!("{name} needs a value"));
         match arg.as_str() {
-            "--session" => parsed.session = value("--session")?,
+            "--session" => parsed.session = Some(value("--session")?),
+            "--reattach" => parsed.reattach = true,
+            "--picker" => parsed.picker = true,
             "--cwd" => parsed.cwd = Some(value("--cwd")?),
             "--demo" => parsed.demo = true,
             "--panel" => panel = true,
@@ -51,6 +58,9 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         parsed.panel = Some(Panel { output, x, y, width, height });
     } else if output.is_some() {
         return Err("--output needs --panel".into());
+    }
+    if parsed.reattach && parsed.session.is_some() {
+        return Err("--reattach and --session are alternatives".into());
     }
     Ok(parsed)
 }
@@ -73,7 +83,7 @@ mod tests {
     #[test]
     fn defaults_to_a_window_on_the_dojo_session() {
         let args = parse_all(&[]).unwrap();
-        assert_eq!(args.session, "dojo");
+        assert_eq!(args.session, None);
         assert_eq!(args.panel, None);
         assert!(args.command.is_empty());
     }
@@ -85,12 +95,19 @@ mod tests {
             "--height", "300", "--", "rush", "-l",
         ])
         .unwrap();
-        assert_eq!(args.session, "dojo-quick");
+        assert_eq!(args.session.as_deref(), Some("dojo-quick"));
         assert_eq!(
             args.panel,
             Some(Panel { output: Some("eDP-1".into()), x: 10.0, y: 20.0, width: 900.0, height: 300.0 })
         );
         assert_eq!(args.command, ["rush", "-l"]);
+    }
+
+    #[test]
+    fn reattach_and_picker_are_flags() {
+        let args = parse_all(&["--reattach", "--picker"]).unwrap();
+        assert!(args.reattach && args.picker);
+        assert!(parse_all(&["--reattach", "--session", "a"]).is_err());
     }
 
     #[test]

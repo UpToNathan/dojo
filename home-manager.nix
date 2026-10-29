@@ -741,9 +741,15 @@ in
 	# thing seen after the login screen's fade, ahead of the shell's own first frame.
 	settings.hotkey-overlay.skip-at-startup = {};
 	enableDefaultConfig = true;
+	# A terminal is a view of a Rex session: Mod+T reopens the most recent one, or focuses the
+	# window already showing it; Mod+Shift+T picks a session.
 	settings.binds."Mod+T" = {
-	  _props.hotkey-overlay-title = "Open a Terminal: kitty";
-	  spawn = [ "kitty" "--single-instance" ];
+	  _props.hotkey-overlay-title = "Open the last terminal session";
+	  spawn = [ "${root}/scripts/dojo-terminal" "--reattach" ];
+	};
+	settings.binds."Mod+Shift+T" = {
+	  _props.hotkey-overlay-title = "Choose a terminal session";
+	  spawn = [ "${root}/scripts/dojo-terminal" "--picker" ];
 	};
 	settings.binds."Mod+B" = {
 	  _props.hotkey-overlay-title = "Open Helium";

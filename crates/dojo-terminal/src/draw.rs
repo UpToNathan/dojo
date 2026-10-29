@@ -38,7 +38,48 @@ pub fn color(rgb: Rgb) -> Color {
     Color { r: linear(rgb.r), g: linear(rgb.g), b: linear(rgb.b), a: 1.0 }
 }
 
-pub fn screen(screen: &Screen, metrics: Metrics) -> El {
+/// `ns` keeps the elements of one pane from sharing Rune keys with another's.
+/// The colours of the window's own parts (tab bar, picker, separators), taken from the theme
+/// the focused pane shows.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Palette {
+    pub bg: Color,
+    pub fg: Color,
+    pub dim: Color,
+    /// Secondary text.
+    pub muted: Color,
+    pub accent: Color,
+    pub warning: Color,
+    pub bar: Color,
+    pub panel: Color,
+    pub selected: Color,
+}
+
+impl Palette {
+    pub fn new(background: Rgb, foreground: Rgb, cursor: Option<Rgb>) -> Self {
+        let (bg, fg) = (color(background), color(foreground));
+        Self {
+            bg,
+            fg,
+            dim: bg.mix(fg, 0.3),
+            muted: bg.mix(fg, 0.65),
+            accent: color(cursor.unwrap_or(foreground)),
+            warning: Color { r: 1.0, g: 0.45, b: 0.1, a: 1.0 },
+            bar: bg.mix(fg, 0.07),
+            panel: bg.mix(fg, 0.1),
+            selected: bg.mix(fg, 0.25),
+        }
+    }
+
+    pub fn of(screen: Option<&Screen>) -> Self {
+        match screen {
+            Some(screen) => Self::new(screen.background, screen.foreground, screen.cursor.and_then(|c| c.color)),
+            None => Self::new(Rgb { r: 0x14, g: 0x14, b: 0x18 }, Rgb { r: 0xdd, g: 0xdd, b: 0xdd }, None),
+        }
+    }
+}
+
+pub fn screen(screen: &Screen, metrics: Metrics, ns: &str, show_cursor: bool) -> El {
     let background = color(screen.background);
     let mut root = cell(el().w_full().h_full().fill(background)).instant_changes();
     for (row, cells) in screen.cells.iter().enumerate() {
@@ -48,21 +89,21 @@ pub fn screen(screen: &Screen, metrics: Metrics) -> El {
         }
         let y = metrics.inset + row as f32 * metrics.cell_height;
         for run in &runs {
-            root = run_elements(root, run, row, y, metrics, background);
+            root = run_elements(root, run, ns, row, y, metrics, background);
         }
     }
-    if let Some(cursor) = screen.cursor {
+    if let Some(cursor) = screen.cursor.filter(|_| show_cursor) {
         let under = screen.cells.get(cursor.y as usize).and_then(|row| row.get(cursor.x as usize));
-        root = root.children(cursor_elements(cursor, under.map(|c| c.text.as_str()), screen, metrics));
+        root = root.children(cursor_elements(cursor, under.map(|c| c.text.as_str()), screen, metrics, ns));
     }
     root
 }
 
 /// Every element is keyed by its place and style: Rune reuses unkeyed children by position and
 /// would keep an old run's colour on new text.
-fn run_elements(mut line: El, run: &Run, row: usize, y: f32, m: Metrics, background: Color) -> El {
+fn run_elements(mut line: El, run: &Run, ns: &str, row: usize, y: f32, m: Metrics, background: Color) -> El {
     let style_key = format!(
-        "{row}:{}:{:?}:{:?}:{}{}{}{}{}:{}",
+        "{ns}:{row}:{}:{:?}:{:?}:{}{}{}{}{}:{}",
         run.col, run.fg, run.bg, run.bold as u8, run.italic as u8, run.faint as u8, run.underline as u8, run.strikethrough as u8, run.cols
     );
     let x = m.inset + run.col as f32 * m.cell_width;
@@ -91,23 +132,23 @@ fn run_elements(mut line: El, run: &Run, row: usize, y: f32, m: Metrics, backgro
     line
 }
 
-fn cursor_elements(cursor: dojo_rex::Cursor, under: Option<&str>, screen: &Screen, m: Metrics) -> Vec<El> {
+fn cursor_elements(cursor: dojo_rex::Cursor, under: Option<&str>, screen: &Screen, m: Metrics, ns: &str) -> Vec<El> {
     let x = m.inset + cursor.x as f32 * m.cell_width;
     let y = m.inset + cursor.y as f32 * m.cell_height;
     let paint = color(cursor.color.unwrap_or(screen.foreground));
     let mut parts = Vec::new();
     match cursor.style {
         CursorStyle::Block => {
-            parts.push(cell(el()).absolute(x, y).size(m.cell_width, m.cell_height).fill(paint));
+            parts.push(cell(el()).key(format!("{ns}:cursor")).absolute(x, y).size(m.cell_width, m.cell_height).fill(paint));
             if let Some(glyph) = under.filter(|t| !t.trim().is_empty()) {
-                parts.push(cell(text(glyph.to_owned())).font(font()).color(color(screen.background)).absolute(x, y));
+                parts.push(cell(text(glyph.to_owned())).key(format!("{ns}:cursor-glyph")).font(font()).color(color(screen.background)).absolute(x, y));
             }
         }
         CursorStyle::HollowBlock => {
-            parts.push(cell(el()).absolute(x, y).size(m.cell_width, m.cell_height).border(1.0, paint));
+            parts.push(cell(el()).key(format!("{ns}:cursor")).absolute(x, y).size(m.cell_width, m.cell_height).border(1.0, paint));
         }
-        CursorStyle::Bar => parts.push(cell(el()).absolute(x, y).size(2.0, m.cell_height).fill(paint)),
-        CursorStyle::Underline => parts.push(cell(el()).absolute(x, y + m.cell_height - 2.0).size(m.cell_width, 2.0).fill(paint)),
+        CursorStyle::Bar => parts.push(cell(el()).key(format!("{ns}:cursor")).absolute(x, y).size(2.0, m.cell_height).fill(paint)),
+        CursorStyle::Underline => parts.push(cell(el()).key(format!("{ns}:cursor")).absolute(x, y + m.cell_height - 2.0).size(m.cell_width, 2.0).fill(paint)),
     }
     parts
 }
