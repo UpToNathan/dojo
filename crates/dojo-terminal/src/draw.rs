@@ -3,7 +3,7 @@
 use dojo_rex::{CursorStyle, Rgb, Screen};
 use std::sync::OnceLock;
 
-use rune::{Color, El, TextStyle, el, text};
+use rune::{Color, El, TextStyle, Transition, el, text};
 
 use crate::grid::{self, Run};
 
@@ -11,6 +11,11 @@ use crate::grid::{self, Run};
 pub static FONT: OnceLock<TextStyle> = OnceLock::new();
 /// The gap around the grid in window mode.
 pub const WINDOW_INSET: f32 = 8.0;
+
+/// A terminal surface never fades: elements appear and go in the frame that changes them.
+fn cell(element: El) -> El {
+    element.transition(Transition::identity())
+}
 
 pub fn font() -> TextStyle {
     *FONT.get_or_init(|| crate::settings::Font::default().style())
@@ -35,7 +40,7 @@ pub fn color(rgb: Rgb) -> Color {
 
 pub fn screen(screen: &Screen, metrics: Metrics) -> El {
     let background = color(screen.background);
-    let mut root = el().w_full().h_full().fill(background);
+    let mut root = cell(el().w_full().h_full().fill(background)).instant_changes();
     for (row, cells) in screen.cells.iter().enumerate() {
         let runs = grid::runs(cells);
         if runs.is_empty() {
@@ -63,7 +68,7 @@ fn run_elements(mut line: El, run: &Run, row: usize, y: f32, m: Metrics, backgro
     let x = m.inset + run.col as f32 * m.cell_width;
     let width = run.cols as f32 * m.cell_width;
     if let Some(bg) = run.bg {
-        line = line.child(el().key(format!("bg:{style_key}")).absolute(x, y).size(width, m.cell_height).fill(color(bg)));
+        line = line.child(cell(el()).key(format!("bg:{style_key}")).absolute(x, y).size(width, m.cell_height).fill(color(bg)));
     }
     let mut fg = color(run.fg);
     if run.faint {
@@ -75,13 +80,13 @@ fn run_elements(mut line: El, run: &Run, row: usize, y: f32, m: Metrics, backgro
             style.weight = 700.0;
         }
         style.italic = run.italic;
-        line = line.child(text(run.text.clone()).key(format!("text:{style_key}")).font(style).color(fg).absolute(x, y));
+        line = line.child(cell(text(run.text.clone())).key(format!("text:{style_key}")).font(style).color(fg).absolute(x, y));
     }
     if run.underline {
-        line = line.child(el().key(format!("under:{style_key}")).absolute(x, y + m.cell_height - 2.0).size(width, 1.0).fill(fg));
+        line = line.child(cell(el()).key(format!("under:{style_key}")).absolute(x, y + m.cell_height - 2.0).size(width, 1.0).fill(fg));
     }
     if run.strikethrough {
-        line = line.child(el().key(format!("strike:{style_key}")).absolute(x, y + (m.cell_height / 2.0).floor()).size(width, 1.0).fill(fg));
+        line = line.child(cell(el()).key(format!("strike:{style_key}")).absolute(x, y + (m.cell_height / 2.0).floor()).size(width, 1.0).fill(fg));
     }
     line
 }
@@ -93,16 +98,16 @@ fn cursor_elements(cursor: dojo_rex::Cursor, under: Option<&str>, screen: &Scree
     let mut parts = Vec::new();
     match cursor.style {
         CursorStyle::Block => {
-            parts.push(el().absolute(x, y).size(m.cell_width, m.cell_height).fill(paint));
+            parts.push(cell(el()).absolute(x, y).size(m.cell_width, m.cell_height).fill(paint));
             if let Some(glyph) = under.filter(|t| !t.trim().is_empty()) {
-                parts.push(text(glyph.to_owned()).font(font()).color(color(screen.background)).absolute(x, y));
+                parts.push(cell(text(glyph.to_owned())).font(font()).color(color(screen.background)).absolute(x, y));
             }
         }
         CursorStyle::HollowBlock => {
-            parts.push(el().absolute(x, y).size(m.cell_width, m.cell_height).border(1.0, paint));
+            parts.push(cell(el()).absolute(x, y).size(m.cell_width, m.cell_height).border(1.0, paint));
         }
-        CursorStyle::Bar => parts.push(el().absolute(x, y).size(2.0, m.cell_height).fill(paint)),
-        CursorStyle::Underline => parts.push(el().absolute(x, y + m.cell_height - 2.0).size(m.cell_width, 2.0).fill(paint)),
+        CursorStyle::Bar => parts.push(cell(el()).absolute(x, y).size(2.0, m.cell_height).fill(paint)),
+        CursorStyle::Underline => parts.push(cell(el()).absolute(x, y + m.cell_height - 2.0).size(m.cell_width, 2.0).fill(paint)),
     }
     parts
 }

@@ -271,6 +271,14 @@ impl QuickTerminal {
             });
         let launcher = Arc::new(Launcher::new(client, placement, &output_name));
         let visible = Arc::new(AtomicBool::new(false));
+        // The Rex client starts while the frame opens: connecting and its first frame take
+        // longer than the reveal, and nothing of it shows until it has drawn.
+        if client == QuickTerminalClient::Rex {
+            match launcher.show() {
+                Ok(()) => visible.store(true, Ordering::Relaxed),
+                Err(error) => eprintln!("Quick terminal failed: {error:#}"),
+            }
+        }
         let release_launcher = launcher.clone();
         let release_visible = visible.clone();
         self.panel = Some(cx.open_window(

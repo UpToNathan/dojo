@@ -159,6 +159,7 @@ pub fn view(s: &Term, cx: &mut Cx<Term>) -> El {
         None => el().w_full().h_full(),
     };
     el().key("terminal")
+        .instant_changes()
         .w_full()
         .h_full()
         .on_layout(move |s: &mut Term, [_, _, w, h]| {
@@ -178,6 +179,7 @@ pub fn on_key(s: &mut Term, event: &KeyEvent, tx: &mut Tx) -> bool {
     let action = if tx.key_repeat() { KeyAction::Repeat } else { KeyAction::Press };
     let Some(input) = keys::key_input(event, tx.physical_key(), tx.key_base(), action) else { return false };
     s.send(&input);
+    tx.instant();
     if panel() && action == KeyAction::Press {
         // The layer-shell path has no repeat of its own.
         s.held = Some(Held::new(input, Instant::now()));
@@ -216,6 +218,8 @@ pub fn poll(s: &mut Term, _seconds: f64, tx: &mut Tx) -> bool {
         }
         None => {}
     }
+    // Every commit lands at once: a terminal shows output in the frame it arrives.
+    tx.instant();
     let mut changed = s.refresh(false);
     let now = Instant::now();
     if s.timer.is_some_and(|at| at <= now) {
