@@ -115,9 +115,12 @@ impl Dispatch<WlKeyboard, ()> for State {
                 state.input.push(Input::Physical(crate::PhysicalInput::FocusLost, None));
             }
             wl_keyboard::Event::Keymap { format: wayland_client::WEnum::Value(wl_keyboard::KeymapFormat::XkbV1), fd, size } => {
-                use std::io::Read;
-                let mut map = String::new();
-                if size <= 16 * 1024 * 1024 && std::fs::File::from(fd).take(u64::from(size)).read_to_string(&mut map).is_ok() {
+                // Dojo: read from offset 0. Compositors hand every client the same memfd, so
+                // its shared file offset may already be at the end.
+                use std::os::unix::fs::FileExt;
+                let mut bytes = vec![0; size as usize];
+                let read = size <= 16 * 1024 * 1024 && std::fs::File::from(fd).read_exact_at(&mut bytes, 0).is_ok();
+                if let (true, Ok(map)) = (read, String::from_utf8(bytes)) {
                     let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
                     state.xkb = xkb::Keymap::new_from_string(&context, map.trim_end_matches('\0').to_owned(), xkb::KEYMAP_FORMAT_TEXT_V1, xkb::COMPILE_NO_FLAGS).map(|map| xkb::State::new(&map));
                 }
@@ -463,7 +466,8 @@ impl LayerSurface {
 
     pub fn request_keys(&self) -> bool {
         if self.layer.version() < 4 { return false; }
-        self.layer.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
+        // Dojo: a shown panel holds the keyboard, as kitty's quick-access terminal does.
+        self.layer.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
         self.surface.commit();
         let _ = self.queue.flush();
         true

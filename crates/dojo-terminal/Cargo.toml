@@ -1,0 +1,15 @@
+[package]
+name = "dojo-terminal"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "A Rune front end for Rex terminal sessions: a window, or a layer-shell panel"
+
+[workspace]
+
+[dependencies]
+dojo-rex = { path = "../dojo-rex" }
+rune = { path = "../../vendor/rune/crates/rune" }
+anyhow = "1"
+toml = "0.9"
+wayland-client = "0.31"

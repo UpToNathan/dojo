@@ -1,0 +1,18 @@
+[package]
+name = "dojo-rex"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "A client for the Rex terminal server: its control and data connections, and libghostty-vt for the terminal they carry"
+
+[workspace]
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+serde_json = "1"
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+
+[build-dependencies]
+bindgen = "0.73"
+pkg-config = "0.3"

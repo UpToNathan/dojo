@@ -42,7 +42,18 @@ fi
     exit 1
 }
 
-revision="$(sha256sum "$binary" | cut -c1-16)-mmap128k"
+# The Rex terminal client ships beside the shell, which starts it for the quick terminal.
+terminal_binary="$repo_root/crates/dojo-terminal/target/release/dojo-terminal"
+if [[ ! -x $terminal_binary ]]; then
+    printf 'Missing %s. Build it with: (cd crates/dojo-terminal && cargo build --release)\n' "$terminal_binary" >&2
+    exit 1
+fi
+if ldd "$terminal_binary" | grep -q 'not found'; then
+    printf 'The terminal client has unresolved runtime libraries.\n' >&2
+    exit 1
+fi
+
+revision="$(cat "$binary" "$terminal_binary" | sha256sum | cut -c1-16)-mmap128k"
 installation_root="$data_home/dojo/desktop"
 installation="$installation_root/$revision"
 mkdir -p "$installation/roots"
@@ -50,7 +61,7 @@ if [[ ! -f "$installation/dojo" ]] || ! cmp -s "$binary" "$installation/dojo"; t
     install -m 0755 "$binary" "$installation/dojo.new-$$"
     mv -f -- "$installation/dojo.new-$$" "$installation/dojo"
 fi
-for lock_file in "$lock_binary" "$lock_helper"; do
+for lock_file in "$lock_binary" "$lock_helper" "$terminal_binary"; do
     installed_lock="$installation/$(basename -- "$lock_file")"
     if [[ ! -f $installed_lock ]] || ! cmp -s "$lock_file" "$installed_lock"; then
         install -m 0755 "$lock_file" "$installed_lock.new-$$"
@@ -74,7 +85,7 @@ mapfile -t store_paths < <(
 for store_path in "${store_paths[@]}"; do
     nix-store --add-root "$installation/roots/$(basename "$store_path")" --indirect --realise "$store_path" >/dev/null
 done
-mapfile -t lock_store_paths < <(ldd "$lock_binary" "$lock_helper" | grep -o -E '/nix/store/[^/[:space:]:]+' | sort -u)
+mapfile -t lock_store_paths < <(ldd "$lock_binary" "$lock_helper" "$terminal_binary" | grep -o -E '/nix/store/[^/[:space:]:]+' | sort -u)
 for store_path in "${lock_store_paths[@]}"; do
     nix-store --add-root "$installation/roots/$(basename "$store_path")" --indirect --realise "$store_path" >/dev/null
 done

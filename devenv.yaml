@@ -13,6 +13,11 @@ inputs:
   # which scripts/install-rex-token.sh writes from 1Password.
   rex:
     url: https://pkgs.superlogical.com/rex/nix/preview.tar.gz
+  # libghostty-vt for dojo-rex. Rex streams terminals in libghostty's snapshot format, which is
+  # not yet stable, so this pins the Ghostty revision the installed Rex is built with (the
+  # go.mitchellh.com/libghostty dependency in `rex`, and its CMakeLists GIT_TAG).
+  ghostty:
+    url: github:ghostty-org/ghostty/f54340ad77814fe319d136e5e915d6a48de8dd23
   bend:
     url: github:bendlang/bend/042e797ebd1cfc060603e2682879909fe86fa8c2
     inputs:
