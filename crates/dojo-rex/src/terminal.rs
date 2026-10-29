@@ -120,8 +120,14 @@ pub struct Terminal {
     cursor_requests: CursorRequests,
     image_iterator: GhosttyRenderStateImageIterator,
     pixels: crate::images::PixelCache,
-    /// The render state's placements generation at the last screen read.
-    placements: u64,
+    /// The render state's placements generation and the image storage's, at the last read.
+    placements: (u64, u64),
+    /// The cell size in device pixels, from the last resize that gave one.
+    cell_px: [u32; 2],
+    /// The animation clock's start: Kitty animations keep time from it.
+    epoch: std::time::Instant,
+    /// When the next animation frame is due, on the same clock; None when nothing plays.
+    next_frame: Option<u64>,
 }
 
 /// Watches the output for DECSCUSR (`CSI Ps SP q`): a program choosing a cursor shape wins over
@@ -258,7 +264,10 @@ impl Terminal {
             cursor_requests: CursorRequests::default(),
             image_iterator: ptr::null_mut(),
             pixels: Default::default(),
-            placements: u64::MAX,
+            placements: (u64::MAX, u64::MAX),
+            cell_px: [0, 0],
+            epoch: std::time::Instant::now(),
+            next_frame: None,
         };
         crate::images::install_png_decoder();
         crate::images::enable(raw);
@@ -273,6 +282,12 @@ impl Terminal {
         Ok(this)
     }
 
+    /// How long until an animated image shows its next frame; read the screen again then.
+    pub fn next_frame_in(&self) -> Option<std::time::Duration> {
+        let now = self.epoch.elapsed().as_millis() as u64;
+        self.next_frame.map(|due| std::time::Duration::from_millis(due.saturating_sub(now)))
+    }
+
     /// The cursor shape to show while no program has chosen one.
     pub fn set_default_cursor(&mut self, style: Option<CursorStyle>) {
         self.default_cursor = style;
@@ -284,6 +299,9 @@ impl Terminal {
     }
 
     pub fn resize(&mut self, cols: u16, rows: u16, cell_width_px: u32, cell_height_px: u32) -> Result<()> {
+        if cell_width_px > 0 && cell_height_px > 0 {
+            self.cell_px = [cell_width_px, cell_height_px];
+        }
         check(
             unsafe { ghostty_terminal_resize(self.raw, cols.max(1), rows.max(1), cell_width_px, cell_height_px) },
             "resizing the terminal",
@@ -354,10 +372,17 @@ impl Terminal {
 
     /// The visible screen. `None` when nothing changed since the last call.
     pub fn screen(&mut self, force: bool) -> Result<Option<Screen>> {
+        // Animated images move to the frame that is due before the frame is read.
+        let now = self.epoch.elapsed().as_millis() as u64;
+        let animating = self.next_frame.is_some_and(|due| due <= now);
+        self.next_frame = crate::images::tick(self.raw, now);
         check(unsafe { ghostty_render_state_update(self.render, self.raw) }, "updating render state")?;
         let dirty: GhosttyRenderStateDirty = self.render_get(GHOSTTY_RENDER_STATE_DATA_DIRTY).unwrap_or_default();
-        let placements: u64 = self.render_get(GHOSTTY_RENDER_STATE_DATA_IMAGE_PLACEMENTS_GENERATION).unwrap_or(0);
-        if !force && dirty == GHOSTTY_RENDER_STATE_DIRTY_FALSE && placements == self.placements {
+        let placements = (
+            self.render_get::<u64>(GHOSTTY_RENDER_STATE_DATA_IMAGE_PLACEMENTS_GENERATION).unwrap_or(0),
+            crate::images::storage_generation(self.raw),
+        );
+        if !force && !animating && dirty == GHOSTTY_RENDER_STATE_DIRTY_FALSE && placements == self.placements {
             return Ok(None);
         }
         self.placements = placements;
@@ -370,7 +395,7 @@ impl Terminal {
             background,
             cells: Vec::new(),
             cursor: None,
-            images: unsafe { crate::images::collect(self.raw, self.render, &mut self.image_iterator, &mut self.pixels) },
+            images: unsafe { crate::images::collect(self.raw, self.render, &mut self.image_iterator, &mut self.pixels, self.cell_px) },
         };
 
         let visible = self.render_get::<bool>(GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE).unwrap_or(false);

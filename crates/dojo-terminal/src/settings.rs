@@ -9,8 +9,8 @@
 //! theme = "/path/to/colours.conf"   # Ghostty colour keys; "" keeps the session's own colours
 //! ```
 //!
-//! Left out, the font is Victor Mono with `ss01`, or the system monospace font when Victor Mono
-//! is not installed, the cursor is a bar, and the colours are Dojo's current theme
+//! Left out, the font is Victor Mono's Nerd Font build with `ss01`, so programs' icons draw;
+//! then plain Victor Mono, then the system monospace font, whichever is installed first; the cursor is a bar, and the colours are Dojo's current theme
 //! (`$XDG_STATE_HOME/dojo/themes/current/ghostty.conf`, written by the theme switcher).
 use std::path::PathBuf;
 
@@ -18,7 +18,9 @@ use anyhow::{Context as _, Result, bail};
 use dojo_rex::CursorStyle;
 use rune::{Family, TextStyle};
 
-pub const DEFAULT_FAMILY: &str = "Victor Mono";
+pub const DEFAULT_FAMILY: &str = "VictorMono Nerd Font Mono";
+/// The default family's fallbacks, before the system monospace font.
+const DEFAULT_FALLBACKS: &[&str] = &["Victor Mono"];
 pub const DEFAULT_FEATURES: &[&str] = &["ss01"];
 pub const DEFAULT_SIZE: f32 = 14.0;
 
@@ -209,14 +211,18 @@ pub fn css_features(list: &[&str]) -> Result<String> {
 }
 
 /// A family fontconfig does not know falls back to the system monospace font rather than to
-/// Rune's proportional fallback.
+/// Rune's proportional fallback; the default family tries its own fallbacks first.
 fn installed(mut font: Font, known: impl Fn(&str) -> bool) -> Font {
-    if let Some(family) = &font.family {
-        if !known(family) {
-            eprintln!("dojo-terminal: font {family:?} is not installed; using the system monospace font");
-            font.family = None;
-        }
+    let Some(family) = font.family.clone() else { return font };
+    if known(&family) {
+        return font;
     }
+    let fallbacks: &[&str] = if family == DEFAULT_FAMILY { DEFAULT_FALLBACKS } else { &[] };
+    font.family = fallbacks.iter().find(|name| known(name)).map(|name| name.to_string());
+    eprintln!(
+        "dojo-terminal: font {family:?} is not installed; using {}",
+        font.family.as_deref().unwrap_or("the system monospace font")
+    );
     font
 }
 
@@ -238,7 +244,7 @@ mod tests {
         let settings = parse("").unwrap();
         assert_eq!(settings.cursor, CursorStyle::Bar);
         let font = settings.font;
-        assert_eq!(font.family.as_deref(), Some("Victor Mono"));
+        assert_eq!(font.family.as_deref(), Some("VictorMono Nerd Font Mono"));
         assert_eq!(font.features, "'ss01' 1");
         assert_eq!(font.size, 14.0);
         assert_eq!(parse("[theme]\nx = 1\n").unwrap().font, font);
@@ -277,6 +283,9 @@ mod tests {
     #[test]
     fn a_missing_family_falls_back_to_system_monospace() {
         assert_eq!(installed(Font::default(), |_| false).family, None);
-        assert_eq!(installed(Font::default(), |_| true).family.as_deref(), Some("Victor Mono"));
+        assert_eq!(installed(Font::default(), |_| true).family.as_deref(), Some("VictorMono Nerd Font Mono"));
+        assert_eq!(installed(Font::default(), |name| name == "Victor Mono").family.as_deref(), Some("Victor Mono"));
+        let other = Font { family: Some("Iosevka".into()), ..Font::default() };
+        assert_eq!(installed(other, |name| name == "Victor Mono").family, None, "only the default falls back to Victor Mono");
     }
 }

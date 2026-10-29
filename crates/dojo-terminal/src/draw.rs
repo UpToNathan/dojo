@@ -21,7 +21,10 @@ fn cell(element: El) -> El {
 
 /// A screen's image placements in `layers`, at their cells, sized from device pixels.
 fn images(screen: &Screen, m: Metrics, ns: &str, pixels: &HashMap<String, rune::Pixels>, layers: impl Fn(ImageLayer) -> bool) -> Vec<El> {
-    let logical = |device: u32| device as f32 / m.scale.max(0.1);
+    // Image pixels map through the cell: the terminal's cells are whole device pixels
+    // (`grid::cell_px`), so this keeps pieces that tile a picture edge to edge on the grid.
+    let per_x = m.cell_width / grid::cell_px(m.cell_width, m.scale) as f32;
+    let per_y = m.cell_height / grid::cell_px(m.cell_height, m.scale) as f32;
     screen
         .images
         .iter()
@@ -29,13 +32,13 @@ fn images(screen: &Screen, m: Metrics, ns: &str, pixels: &HashMap<String, rune::
         .filter(|(_, image)| layers(image.layer))
         .filter_map(|(index, image)| {
             let pixels = pixels.get(&image.key)?;
-            let x = m.inset + image.col as f32 * m.cell_width + logical(image.offset_x);
-            let y = m.inset + image.row as f32 * m.cell_height + logical(image.offset_y);
+            let x = m.inset + image.col as f32 * m.cell_width + image.offset_x as f32 * per_x;
+            let y = m.inset + image.row as f32 * m.cell_height + image.offset_y as f32 * per_y;
             Some(
                 cell(el())
                     .key(format!("{ns}:image:{index}:{}", image.key))
                     .absolute(x, y)
-                    .size(logical(image.draw_width), logical(image.draw_height))
+                    .size(image.draw_width as f32 * per_x, image.draw_height as f32 * per_y)
                     .pixels(pixels)
                     .inert(),
             )
@@ -146,16 +149,25 @@ impl ThemeColors {
 pub fn screen(screen: &Screen, metrics: Metrics, ns: &str, show_cursor: bool, pixels: &HashMap<String, rune::Pixels>) -> El {
     let background = color(screen.background);
     let mut root = cell(el().w_full().h_full().fill(background)).instant_changes();
-    // Kitty graphics below the text go first; the rest after it.
-    root = root.children(images(screen, metrics, ns, pixels, |layer| layer != ImageLayer::AboveText));
-    for (row, cells) in screen.cells.iter().enumerate() {
-        let runs = grid::runs(cells);
-        if runs.is_empty() {
-            continue;
+    // Ghostty's layers: images below the backgrounds, cell backgrounds, images below the text,
+    // the text, then images above it.
+    root = root.children(images(screen, metrics, ns, pixels, |layer| layer == ImageLayer::BelowBackground));
+    let rows: Vec<(usize, f32, Vec<Run>)> = screen
+        .cells
+        .iter()
+        .enumerate()
+        .map(|(row, cells)| (row, metrics.inset + row as f32 * metrics.cell_height, grid::runs(cells)))
+        .filter(|(_, _, runs)| !runs.is_empty())
+        .collect();
+    for (row, y, runs) in &rows {
+        for run in runs {
+            root = run_background(root, run, ns, *row, *y, metrics);
         }
-        let y = metrics.inset + row as f32 * metrics.cell_height;
-        for run in &runs {
-            root = run_elements(root, run, ns, row, y, metrics, background);
+    }
+    root = root.children(images(screen, metrics, ns, pixels, |layer| layer == ImageLayer::BelowText));
+    for (row, y, runs) in &rows {
+        for run in runs {
+            root = run_elements(root, run, ns, *row, *y, metrics, background);
         }
     }
     root = root.children(images(screen, metrics, ns, pixels, |layer| layer == ImageLayer::AboveText));
@@ -168,16 +180,25 @@ pub fn screen(screen: &Screen, metrics: Metrics, ns: &str, show_cursor: bool, pi
 
 /// Every element is keyed by its place and style: Rune reuses unkeyed children by position and
 /// would keep an old run's colour on new text.
-fn run_elements(mut line: El, run: &Run, ns: &str, row: usize, y: f32, m: Metrics, background: Color) -> El {
-    let style_key = format!(
+fn style_key(run: &Run, ns: &str, row: usize) -> String {
+    format!(
         "{ns}:{row}:{}:{:?}:{:?}:{}{}{}{}{}:{}",
         run.col, run.fg, run.bg, run.bold as u8, run.italic as u8, run.faint as u8, run.underline as u8, run.strikethrough as u8, run.cols
-    );
+    )
+}
+
+fn run_background(line: El, run: &Run, ns: &str, row: usize, y: f32, m: Metrics) -> El {
+    let Some(bg) = run.bg else { return line };
     let x = m.inset + run.col as f32 * m.cell_width;
     let width = run.cols as f32 * m.cell_width;
-    if let Some(bg) = run.bg {
-        line = line.child(cell(el()).key(format!("bg:{style_key}")).absolute(x, y).size(width, m.cell_height).fill(color(bg)));
-    }
+    line.child(cell(el()).key(format!("bg:{}", style_key(run, ns, row))).absolute(x, y).size(width, m.cell_height).fill(color(bg)))
+}
+
+/// A run's text and its underline and strikethrough; its background is `run_background`.
+fn run_elements(mut line: El, run: &Run, ns: &str, row: usize, y: f32, m: Metrics, background: Color) -> El {
+    let style_key = style_key(run, ns, row);
+    let x = m.inset + run.col as f32 * m.cell_width;
+    let width = run.cols as f32 * m.cell_width;
     let mut fg = color(run.fg);
     if run.faint {
         fg = fg.mix(background, 0.5);

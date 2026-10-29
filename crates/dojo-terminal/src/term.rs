@@ -219,6 +219,11 @@ impl Term {
     }
 
     /// Reads the visible panes that changed. True when any did.
+    fn next_frame_in(&self) -> Option<std::time::Duration> {
+        let backend = self.backend.as_ref()?;
+        self.layout().iter().filter_map(|(block, _)| backend.next_frame_in(block)).min()
+    }
+
     fn refresh_panes(&mut self) -> bool {
         let layout = self.layout();
         let Some(backend) = &mut self.backend else { return false };
@@ -412,6 +417,10 @@ pub fn poll(s: &mut Term, _seconds: f64, tx: &mut Tx) -> bool {
     }
     changed |= s.refresh_view();
     changed |= s.refresh_panes();
+    // An animated image wakes the window for its next frame, and only then.
+    if let Some(due) = s.next_frame_in() {
+        tx.wake_after(due);
+    }
     let now = Instant::now();
     if s.timer.is_some_and(|at| at <= now) {
         s.timer = None;

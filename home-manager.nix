@@ -236,6 +236,9 @@ in
             pyftfeatfreeze -f ss01 -S -U SS01 "$font" "$out/share/fonts/SS01-$(basename "$font")"
           done
         '')
+        # Victor Mono with the Nerd Font icons ("VictorMono Nerd Font Mono"), the default font of
+        # dojo-terminal: yazi, starship and the like draw their file and status icons from it.
+        pkgs.nerd-fonts.victor-mono
         # Colour emoji: GPUI falls back to a system "NotoColorEmoji" face for them, and without
         # one every emoji in the shell's speech bubbles draws as an empty box.
         pkgs.noto-fonts-color-emoji

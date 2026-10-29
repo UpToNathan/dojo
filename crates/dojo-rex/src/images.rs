@@ -11,7 +11,7 @@ use crate::ffi::*;
 /// Images and placements kept per terminal: Ghostty's own default.
 const STORAGE_LIMIT: u64 = 320 * 1024 * 1024;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ImageLayer {
     BelowBackground,
     BelowText,
@@ -30,9 +30,10 @@ pub struct Image {
     /// The top-left cell, which may be above or left of the viewport.
     pub col: i32,
     pub row: i32,
-    /// Where in that cell the image starts.
-    pub offset_x: u32,
-    pub offset_y: u32,
+    /// Where the image starts from that cell's top-left corner; past the cell, or before it,
+    /// when pieces were merged.
+    pub offset_x: i32,
+    pub offset_y: i32,
     /// The size to draw at.
     pub draw_width: u32,
     pub draw_height: u32,
@@ -104,6 +105,32 @@ pub fn enable(terminal: GhosttyTerminal) {
     }
 }
 
+/// Advances playing animations to the frame due at `now_ms` (a clock that started with the
+/// terminal), and says when the next frame is due on that clock; None when nothing plays.
+pub fn tick(terminal: GhosttyTerminal, now_ms: u64) -> Option<u64> {
+    let mut graphics: GhosttyKittyGraphics = ptr::null_mut();
+    let mut next = 0u64;
+    unsafe {
+        (ghostty_terminal_get(terminal, GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS, &mut graphics as *mut _ as *mut c_void) == GHOSTTY_SUCCESS
+            && ghostty_kitty_graphics_animation_tick(graphics, now_ms, &mut next) == GHOSTTY_SUCCESS)
+            .then_some(next)
+    }
+}
+
+/// The image storage's generation: it changes whenever a program sends, places or deletes an
+/// image. Placeholder cells can be drawn before their image arrives, and the image's arrival
+/// then changes this without changing the render state's placements generation.
+pub fn storage_generation(terminal: GhosttyTerminal) -> u64 {
+    let mut graphics: GhosttyKittyGraphics = ptr::null_mut();
+    let mut generation = 0u64;
+    unsafe {
+        if ghostty_terminal_get(terminal, GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS, &mut graphics as *mut _ as *mut c_void) == GHOSTTY_SUCCESS {
+            ghostty_kitty_graphics_get(graphics, GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION, &mut generation as *mut u64 as *mut c_void);
+        }
+    }
+    generation
+}
+
 /// Converted pixels by image, generation and part, so a frame doesn't copy them again.
 #[derive(Default)]
 pub struct PixelCache(HashMap<String, Arc<Vec<u8>>>);
@@ -117,6 +144,7 @@ pub unsafe fn collect(
     render: GhosttyRenderState,
     iterator: &mut GhosttyRenderStateImageIterator,
     cache: &mut PixelCache,
+    cell_px: [u32; 2],
 ) -> Vec<Image> {
     let mut graphics: GhosttyKittyGraphics = ptr::null_mut();
     unsafe {
@@ -126,8 +154,7 @@ pub unsafe fn collect(
             return Vec::new();
         }
     }
-    let mut seen = HashMap::new();
-    let mut images = Vec::new();
+    let mut pieces = Vec::new();
     while unsafe { ghostty_render_state_image_iterator_next(*iterator) } {
         let get = |key, out: *mut c_void| unsafe { ghostty_render_state_image_get(*iterator, key, out) == GHOSTTY_SUCCESS };
         let mut protocol: GhosttyImageProtocol = Default::default();
@@ -141,37 +168,26 @@ pub unsafe fn collect(
                 value
             }};
         }
-        let id = read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_IMAGE_ID, u32);
-        let generation = read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_IMAGE_GENERATION, u64);
-        let source = [
-            read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_SOURCE_X, u32),
-            read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_SOURCE_Y, u32),
-            read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_SOURCE_WIDTH, u32),
-            read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_SOURCE_HEIGHT, u32),
-        ];
-        let key = format!("{id}:{generation}:{}:{}:{}:{}", source[0], source[1], source[2], source[3]);
-        let rgba = match cache.0.get(&key) {
-            Some(rgba) => rgba.clone(),
-            None => {
-                let Some(rgba) = (unsafe { image_rgba(graphics, id, source) }) else { continue };
-                let rgba = Arc::new(rgba);
-                cache.0.insert(key.clone(), rgba.clone());
-                rgba
-            }
-        };
-        seen.insert(key.clone(), ());
         let layer: GhosttyRenderStateImageLayer = read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_LAYER, GhosttyRenderStateImageLayer);
-        images.push(Image {
-            key,
-            rgba,
-            width: source[2],
-            height: source[3],
+        let kind: GhosttyRenderStateKittyPlacementKind = read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_KITTY_KIND, GhosttyRenderStateKittyPlacementKind);
+        pieces.push(Piece {
+            id: read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_IMAGE_ID, u32),
+            generation: read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_IMAGE_GENERATION, u64),
+            placement: read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_KITTY_PLACEMENT_ID, u32),
+            virtual_: kind == GHOSTTY_RENDER_STATE_KITTY_PLACEMENT_KIND_VIRTUAL,
+            source: [
+                read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_SOURCE_X, u32),
+                read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_SOURCE_Y, u32),
+                read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_SOURCE_WIDTH, u32),
+                read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_SOURCE_HEIGHT, u32),
+            ],
             col: read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_VIEWPORT_COL, i32),
             row: read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_VIEWPORT_ROW, i32),
-            offset_x: read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_CELL_OFFSET_X, u32),
-            offset_y: read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_CELL_OFFSET_Y, u32),
-            draw_width: read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_PIXEL_WIDTH, u32),
-            draw_height: read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_PIXEL_HEIGHT, u32),
+            offset: [
+                read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_CELL_OFFSET_X, u32) as i32,
+                read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_CELL_OFFSET_Y, u32) as i32,
+            ],
+            draw: [read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_PIXEL_WIDTH, u32), read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_PIXEL_HEIGHT, u32)],
             layer: match layer {
                 GHOSTTY_RENDER_STATE_IMAGE_LAYER_BELOW_BACKGROUND => ImageLayer::BelowBackground,
                 GHOSTTY_RENDER_STATE_IMAGE_LAYER_BELOW_TEXT => ImageLayer::BelowText,
@@ -180,10 +196,128 @@ pub unsafe fn collect(
             z: read!(GHOSTTY_RENDER_STATE_IMAGE_DATA_Z, i32),
         });
     }
+    let mut seen = HashMap::new();
+    let mut images = Vec::new();
+    for piece in merge_tiles(pieces, cell_px) {
+        let source = piece.source;
+        let key = format!("{}:{}:{}:{}:{}:{}", piece.id, piece.generation, source[0], source[1], source[2], source[3]);
+        let rgba = match cache.0.get(&key) {
+            Some(rgba) => rgba.clone(),
+            None => {
+                let Some(rgba) = (unsafe { image_rgba(graphics, piece.id, source) }) else { continue };
+                let rgba = Arc::new(rgba);
+                cache.0.insert(key.clone(), rgba.clone());
+                rgba
+            }
+        };
+        seen.insert(key.clone(), ());
+        images.push(Image {
+            key,
+            rgba,
+            width: source[2],
+            height: source[3],
+            col: piece.col,
+            row: piece.row,
+            offset_x: piece.offset[0],
+            offset_y: piece.offset[1],
+            draw_width: piece.draw[0],
+            draw_height: piece.draw[1],
+            layer: piece.layer,
+            z: piece.z,
+        });
+    }
     // Pixels of images no longer shown are let go.
     cache.0.retain(|key, _| seen.contains_key(key));
     images.sort_by_key(|image| (image.layer, image.z));
     images
+}
+
+/// One placement as the render state lists it, before its pixels are read.
+#[derive(Debug, Clone, PartialEq)]
+struct Piece {
+    id: u32,
+    generation: u64,
+    placement: u32,
+    virtual_: bool,
+    source: [u32; 4],
+    col: i32,
+    row: i32,
+    offset: [i32; 2],
+    draw: [u32; 2],
+    layer: ImageLayer,
+    z: i32,
+}
+
+/// Programs often show one picture as many placements, one per cell (yazi) or one per run of
+/// placeholder cells. Drawn separately, scaled pieces show seams where their edges filter.
+/// Placements of the same image at the same scale whose pieces put the whole image at the same
+/// place on screen are one picture, and become one image covering all of them. `cell_px` is
+/// the terminal's cell size in device pixels; without it nothing is merged.
+fn merge_tiles(pieces: Vec<Piece>, [cell_w, cell_h]: [u32; 2]) -> Vec<Piece> {
+    if cell_w == 0 || cell_h == 0 {
+        return pieces;
+    }
+    let (cw, ch) = (cell_w as f64, cell_h as f64);
+    let mut out: Vec<Piece> = Vec::new();
+    // Columns of a picture share an exact horizontal mapping; rows may round their heights
+    // differently, so vertically a picture is the pieces whose origins are within a cell.
+    let mut columns: HashMap<(u32, u64, ImageLayer, i32, i64, i64), Vec<(f64, Piece)>> = HashMap::new();
+    for piece in pieces {
+        if piece.source[2] == 0 || piece.source[3] == 0 {
+            out.push(piece);
+            continue;
+        }
+        let sx = piece.draw[0] as f64 / piece.source[2] as f64;
+        let sy = piece.draw[1] as f64 / piece.source[3] as f64;
+        let origin_x = piece.col as f64 * cw + piece.offset[0] as f64 - piece.source[0] as f64 * sx;
+        let origin_y = piece.row as f64 * ch + piece.offset[1] as f64 - piece.source[1] as f64 * sy;
+        let key = (piece.id, piece.generation, piece.layer, piece.z, origin_x.round() as i64, (sx * 1000.0).round() as i64);
+        columns.entry(key).or_default().push((origin_y, piece));
+    }
+    for (_, mut group) in columns {
+        group.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut picture: Vec<Piece> = Vec::new();
+        let mut last = f64::NEG_INFINITY;
+        for (origin_y, piece) in group {
+            if !picture.is_empty() && origin_y - last > ch {
+                out.push(merged(std::mem::take(&mut picture), cw, ch));
+            }
+            last = origin_y;
+            picture.push(piece);
+        }
+        if !picture.is_empty() {
+            out.push(merged(picture, cw, ch));
+        }
+    }
+    out
+}
+
+/// One image covering `pieces`: their source rectangles' union, drawn over their destinations'.
+fn merged(pieces: Vec<Piece>, cw: f64, ch: f64) -> Piece {
+    if pieces.len() == 1 {
+        return pieces.into_iter().next().unwrap();
+    }
+    let first = pieces.iter().min_by_key(|p| (p.row, p.col)).unwrap().clone();
+    let dest = |p: &Piece| {
+        let x = p.col as f64 * cw + p.offset[0] as f64;
+        let y = p.row as f64 * ch + p.offset[1] as f64;
+        [x, y, x + p.draw[0] as f64, y + p.draw[1] as f64]
+    };
+    let fold = |pick: fn(&[f64; 4]) -> f64, min: bool| {
+        let values = pieces.iter().map(|p| pick(&dest(p)));
+        if min { values.fold(f64::INFINITY, f64::min) } else { values.fold(f64::NEG_INFINITY, f64::max) }
+    };
+    let (x0, y0, x1, y1) = (fold(|d| d[0], true), fold(|d| d[1], true), fold(|d| d[2], false), fold(|d| d[3], false));
+    let left = pieces.iter().map(|p| p.source[0]).min().unwrap();
+    let top = pieces.iter().map(|p| p.source[1]).min().unwrap();
+    let right = pieces.iter().map(|p| p.source[0] + p.source[2]).max().unwrap();
+    let bottom = pieces.iter().map(|p| p.source[1] + p.source[3]).max().unwrap();
+    Piece {
+        source: [left, top, right - left, bottom - top],
+        offset: [(x0 - first.col as f64 * cw).round() as i32, (y0 - first.row as f64 * ch).round() as i32],
+        draw: [(x1 - x0).round() as u32, (y1 - y0).round() as u32],
+        ..first
+    }
 }
 
 /// The shown part of an image as straight-alpha RGBA.
@@ -247,6 +381,52 @@ mod tests {
         let part = crop_rgba(&pixels, 3, 2, 3, [1, 0, 2, 2]).unwrap();
         assert_eq!(part, [1, 1, 1, 255, 2, 2, 2, 255, 4, 4, 4, 255, 5, 5, 5, 255]);
         assert!(crop_rgba(&pixels, 3, 2, 3, [2, 0, 2, 1]).is_none(), "past the edge");
+    }
+
+    fn piece(col: i32, row: i32, sx: u32, sy: u32) -> Piece {
+        Piece {
+            id: 7,
+            generation: 1,
+            placement: 3 + (col * 10 + row) as u32,
+            virtual_: false,
+            source: [sx, sy, 8, 16],
+            col,
+            row,
+            offset: [0, 0],
+            draw: [10, 20],
+            layer: ImageLayer::BelowText,
+            z: 0,
+        }
+    }
+
+    #[test]
+    fn pieces_of_one_picture_become_one_image() {
+        // A 3x2 cell picture, one placement per cell, its top-left cell scrolled away.
+        let pieces = vec![piece(11, 5, 8, 0), piece(12, 5, 16, 0), piece(10, 6, 0, 16), piece(11, 6, 8, 16), piece(12, 6, 16, 16)];
+        let merged = merge_tiles(pieces, [10, 20]);
+        assert_eq!(merged.len(), 1);
+        let image = &merged[0];
+        assert_eq!(image.source, [0, 0, 24, 32]);
+        assert_eq!(image.draw, [30, 40]);
+        assert_eq!((image.col, image.row), (11, 5));
+        assert_eq!(image.offset, [-10, 0], "the image starts a cell to the left of its first visible piece");
+    }
+
+    #[test]
+    fn rows_that_round_their_heights_differently_still_merge() {
+        let mut short = piece(10, 6, 0, 16);
+        short.source[3] = 15;
+        let merged = merge_tiles(vec![piece(10, 5, 0, 0), short], [10, 20]);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].source, [0, 0, 8, 31]);
+        assert_eq!(merged[0].draw, [10, 40]);
+    }
+
+    #[test]
+    fn the_same_image_shown_twice_stays_two_images() {
+        let elsewhere = piece(40, 5, 0, 0);
+        assert_eq!(merge_tiles(vec![piece(10, 5, 0, 0), elsewhere], [10, 20]).len(), 2);
+        assert_eq!(merge_tiles(vec![piece(10, 5, 0, 0), piece(11, 5, 8, 0)], [0, 0]).len(), 2, "no cell size: no merging");
     }
 
     #[test]

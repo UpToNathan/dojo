@@ -48,6 +48,14 @@ impl Backend {
     }
 
     /// The pane's screen if it changed since the last call.
+    /// How long until an animated image in the pane shows its next frame.
+    pub fn next_frame_in(&self, block: &str) -> Option<std::time::Duration> {
+        match self {
+            Self::Rex(session) => session.pane(block)?.terminal.lock().unwrap().as_ref()?.next_frame_in(),
+            Self::Demo(terminal) => terminal.next_frame_in(),
+        }
+    }
+
     pub fn screen(&mut self, block: &str, force: bool) -> Option<Screen> {
         let cursor = CURSOR.get().copied();
         let result = match self {
