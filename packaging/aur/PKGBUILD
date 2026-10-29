@@ -1,0 +1,50 @@
+# Maintainer: dax
+#
+# Generated from anomalyco/hokum packaging/aur by scripts/release-aur.sh,
+# which sets pkgver, the release service's linux-x64 and linux-arm64 file
+# URLs, and the checksums for each release.
+#
+# Like dunst and xfce4-notifyd it provides notification-daemon. Like mako,
+# dunst, and swaync it installs its D-Bus activation file under its own name,
+# so it shares no file with them and conflicts with none: whichever daemon
+# runs first owns org.freedesktop.Notifications, and hokum.service stops
+# mako, dunst, and swaync when it starts.
+pkgname=hokum-bin
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc='Hokum: a freedesktop notification daemon for Wayland layer-shell compositors'
+arch=('x86_64' 'aarch64')
+url='https://hokum.app'
+license=('MIT')
+provides=('hokum' 'notification-daemon')
+conflicts=('hokum')
+# Linked: glibc, libgcc, xkbcommon. Loaded at run time (so namcap calls them
+# unneeded): the Vulkan loader and a driver, and the Wayland client library.
+depends=('glibc' 'libgcc' 'libxkbcommon' 'vulkan-driver' 'vulkan-icd-loader' 'wayland')
+options=('!strip' '!debug')
+install=hokum-bin.install
+source=(
+  'hokum.service'
+  'app.hokum.Notifications.service'
+  'hokum.desktop'
+  'LICENSE'
+)
+source_x86_64=("hokum-${pkgver}-linux-x64::@URL_X64@")
+source_aarch64=("hokum-${pkgver}-linux-arm64::@URL_ARM64@")
+sha256sums=('@SERVICE_SHA256@'
+            '@DBUS_SHA256@'
+            '@DESKTOP_SHA256@'
+            '@LICENSE_SHA256@')
+sha256sums_x86_64=('@SHA256_X64@')
+sha256sums_aarch64=('@SHA256_ARM64@')
+
+package() {
+  local target=x64
+  [ "$CARCH" = aarch64 ] && target=arm64
+  install -Dm755 "hokum-${pkgver}-linux-${target}" "$pkgdir/usr/bin/hokum"
+  install -Dm644 hokum.service "$pkgdir/usr/lib/systemd/user/hokum.service"
+  install -Dm644 app.hokum.Notifications.service \
+    "$pkgdir/usr/share/dbus-1/services/app.hokum.Notifications.service"
+  install -Dm644 hokum.desktop "$pkgdir/usr/share/applications/hokum.desktop"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

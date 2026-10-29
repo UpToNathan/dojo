@@ -1,0 +1,33 @@
+// Pill: one line per notification, icon first. Click to open, the rest is noise.
+name "Pill"
+
+tokens {
+    width 340
+    radius 999
+    padding 7 14 7 8
+    gap 4
+    spacing 8
+    border "none"
+    shadow "deep"
+    mark "icon"
+    icon-size 22
+    enter "drop"
+    motion 0.34 0.2
+}
+
+template "card" {
+    row gap=10 align="center" {
+        icon size=22 radius=11
+        text "{summary}" weight="title" lines=1
+        if "body" { text "{body}" color="muted" lines=1 grow=#true }
+        else { spacer }
+        if "value" { col width=90 { progress } }
+    }
+}
+
+rule urgency="critical" {
+    tokens {
+        fill "danger/25"
+        border 1 "danger"
+    }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "hokum-site",
+  "account_id": "15d29c8639fd3733b1b5486a2acfd968",
+  "main": "worker.ts",
+  "compatibility_date": "2026-06-01",
+  "assets": {
+    "directory": "dist",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "none"
+  },
+  "routes": [
+    { "pattern": "hokum.app", "custom_domain": true },
+    { "pattern": "www.hokum.app", "custom_domain": true }
+  ],
+  "workers_dev": false,
+  "preview_urls": false
+}

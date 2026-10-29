@@ -1,0 +1,14 @@
+// Ribbon: a stripe down each card in its app's colour.
+name "Ribbon"
+
+tokens {
+    width 360
+    radius 10
+    badge-radius 6
+    padding 12
+    gap 6
+    spacing 10
+    border 1 "border"
+    shadow "soft"
+    mark "stripe"
+}

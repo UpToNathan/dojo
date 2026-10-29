@@ -1,0 +1,10 @@
+{
+  "name": "hokum-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build.ts",
+    "dev": "bun build.ts && wrangler dev",
+    "deploy": "bun build.ts && wrangler deploy"
+  }
+}
