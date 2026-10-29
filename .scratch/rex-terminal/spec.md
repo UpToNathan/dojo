@@ -23,3 +23,15 @@ Dojo's terminals become clients of a Rex session instead of windows that own the
 ## Out of scope for the first cut
 
 Mouse reporting, selection and copy, scrollback scrolling, Kitty graphics, the Dojo theme (Rex's default colours first), splits and windows inside a session, remote Rex servers over Tailscale.
+
+## Sessions, tabs and splits
+
+`dojo-terminal` shows a whole Rex session the way Rex for Mac does: the session's Rex windows are tabs, a window's layout of blocks is split panes, and a session picker switches the window to another session.
+
+- **Super+T** runs `dojo-terminal --reattach`: it opens the most recently used session (Dojo keeps the order in `$XDG_STATE_HOME/dojo/terminal/recent`), or focuses the window already showing it. With no sessions it creates one. **Super+Shift+T** runs `dojo-terminal --picker`, which opens on the picker.
+- **Session picker** (Ctrl+Shift+S, Rex's "Change Session…"): every session, most recent first, with its label, directory, running program, and a marker when a program in it reported `done`, `blocked` or `error` through the Program Status Protocol. Typing filters; Enter switches the window to the selected session; a typed name that matches nothing creates a session with that name; Escape closes the picker.
+- **Tabs**: a tab bar shows the session's windows when there is more than one. Ctrl+Shift+T new tab, Ctrl+Shift+W close tab, Ctrl+Tab / Ctrl+Shift+Tab next / previous, Ctrl+1…9 go to a tab.
+- **Splits**: the active window's layout is drawn as panes, each its own terminal stream sized to its rectangle; the focused pane gets the keys and a visible border. Ctrl+Shift+D split right, Ctrl+Shift+E split down, Ctrl+Shift+arrows move focus, Ctrl+Shift+Z zoom, Ctrl+Shift+X close the pane. Clicking a pane focuses it.
+- Tabs, splits and focus are Rex's own (`session.new_window`, `session.new_split`, `session.focus_*`, `session.zoom_block`, `block.close`), so every client of the session sees the same arrangement.
+- The window title is the session's label, and the Wayland app id is `dojo-terminal`.
+- The quick terminal stays on session `dojo-quick` and uses the same client, tabs and splits included.

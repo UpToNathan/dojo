@@ -96,6 +96,12 @@ impl DataStream {
         Ok(())
     }
 
+    /// A handle that ends the stream from another thread: shutting it down makes a blocked
+    /// `next` return an error.
+    pub fn shutdown_handle(&self) -> Result<UnixStream> {
+        Ok(self.ws.get_ref().try_clone()?)
+    }
+
     pub fn received(&self) -> u64 {
         self.received
     }

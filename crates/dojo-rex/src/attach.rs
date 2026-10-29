@@ -141,7 +141,7 @@ impl Attachment {
     }
 }
 
-fn create_payload(options: &Options) -> Value {
+pub(crate) fn create_payload(options: &Options) -> Value {
     let mut block_options = json!({"size": {"columns": options.cols.max(1), "rows": options.rows.max(1)}});
     if !options.command.is_empty() {
         block_options["shell"] = json!("none");
@@ -175,7 +175,7 @@ fn terminal_block(view: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn run_stream(mut stream: DataStream, shared: &Shared, wake: &dyn Fn()) -> Result<()> {
+pub(crate) fn run_stream(mut stream: DataStream, shared: &Shared, wake: &dyn Fn()) -> Result<()> {
     let (terminal, rest) = Terminal::from_snapshot(&mut || match stream.next()? {
         Chunk::Bytes(bytes) => Ok(Some(bytes)),
         Chunk::End => Ok(None),
