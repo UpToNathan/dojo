@@ -2,7 +2,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::config::ThemeColors;
-use crate::wifi::{Action, Availability, Controller, Network, NetworkId, Security, Snapshot};
+use crate::wifi::{
+    Action, Availability, ConnectionWatch, Controller, Network, NetworkId, Security, Snapshot,
+};
 use gpui::{
     App, AppContext, Bounds, Context, DisplayId, FocusHandle, IntoElement, KeyDownEvent,
     MouseButton, Render, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle,
@@ -17,6 +19,7 @@ const MAX_PASSWORD_BYTES: usize = 128;
 pub struct WifiUi {
     pub snapshot: Arc<Snapshot>,
     controller: Controller,
+    connection: ConnectionWatch,
     panel: Option<(DisplayId, WindowHandle<Dock>)>,
     _updates: gpui::Task<()>,
 }
@@ -28,12 +31,24 @@ pub fn initialize(cx: &mut App) -> anyhow::Result<()> {
     let task = cx.spawn(async move |cx| {
         while changes.recv().await.is_ok() {
             let snapshot = updates_controller.snapshot();
-            let _ = cx.update(|cx| cx.update_global::<WifiUi, _>(|ui, _| ui.snapshot = snapshot));
+            let _ = cx.update(|cx| {
+                cx.update_global::<WifiUi, _>(|ui, _| {
+                    if let Some(notice) = ui.connection.observe(&snapshot) {
+                        dojo::notify::post(notice);
+                    }
+                    ui.snapshot = snapshot;
+                })
+            });
         }
     });
+    let snapshot = controller.snapshot();
+    let mut connection = ConnectionWatch::default();
+    // What is already true at startup is the baseline, not news.
+    let _ = connection.observe(&snapshot);
     cx.set_global(WifiUi {
-        snapshot: controller.snapshot(),
+        snapshot,
         controller,
+        connection,
         panel: None,
         _updates: task,
     });
