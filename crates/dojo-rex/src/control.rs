@@ -69,8 +69,8 @@ type Reply = Sender<Result<Value>>;
 pub struct Control {
     requests: Sender<(Value, Option<Reply>)>,
     wake: UnixStream,
-    pub events: Receiver<Event>,
-    next_id: std::cell::Cell<u64>,
+    events: std::sync::Mutex<Option<Receiver<Event>>>,
+    next_id: std::sync::atomic::AtomicU64,
 }
 
 impl Control {
@@ -177,13 +177,17 @@ impl Control {
                     }
                 }
             })?;
-        Ok(Self { requests, wake, events, next_id: 1.into() })
+        Ok(Self { requests, wake, events: std::sync::Mutex::new(Some(events)), next_id: 1.into() })
+    }
+
+    /// The server's events, for one consumer; None once taken.
+    pub fn take_events(&self) -> Option<Receiver<Event>> {
+        self.events.lock().unwrap().take()
     }
 
     /// Calls `method` and waits for its result payload.
     pub fn call(&self, method: &str, payload: Value) -> Result<Value> {
-        let id = self.next_id.get();
-        self.next_id.set(id + 1);
+        let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let (reply, response) = mpsc::channel();
         self.queue(json!({"type": "request", "id": id.to_string(), "method": method, "payload": payload}), Some(reply))?;
         response
@@ -194,8 +198,7 @@ impl Control {
 
     /// Calls `method` without waiting for its result, for typing: a failure is not reported.
     pub fn send(&self, method: &str, payload: Value) -> Result<()> {
-        let id = self.next_id.get();
-        self.next_id.set(id + 1);
+        let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.queue(json!({"type": "request", "id": id.to_string(), "method": method, "payload": payload}), None)
     }
 

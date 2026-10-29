@@ -1,21 +1,19 @@
-//! What the terminal view talks to: a Rex session, or with `--demo` a local terminal that
+//! What the terminal view talks to: a Rex session, or with `--demo` one fake pane that
 //! shows sample output and echoes what is typed.
-use dojo_rex::{Attachment, KeyInput, Screen, Terminal};
-use std::sync::atomic::Ordering;
+use dojo_rex::{KeyInput, Layout, Screen, Session, SessionView, Terminal, WindowView};
+use serde_json::Value;
+
+use crate::bindings::Action;
 
 /// The configured default cursor shape (`settings`), set once at start.
 pub static CURSOR: std::sync::OnceLock<dojo_rex::CursorStyle> = std::sync::OnceLock::new();
 
 pub enum Backend {
-    Rex(Attachment),
+    Rex(Session),
     Demo(Terminal),
 }
 
-/// Why the view should go away.
-pub enum Ended {
-    Clean,
-    Failed(String),
-}
+const DEMO_BLOCK: &str = "demo";
 
 const SAMPLE: &str = "\x1b[1;32mdojo-terminal\x1b[0m demo (no Rex session)\r\n\
 \x1b[31mred\x1b[0m \x1b[32mgreen\x1b[0m \x1b[33myellow\x1b[0m \x1b[34mblue\x1b[0m \x1b[35mmagenta\x1b[0m \x1b[36mcyan\x1b[0m\r\n\
@@ -32,12 +30,30 @@ impl Backend {
         Ok(Self::Demo(terminal))
     }
 
-    /// The screen if it changed since the last call.
-    pub fn screen(&mut self, force: bool) -> Option<Screen> {
+    pub fn view(&self) -> SessionView {
+        match self {
+            Self::Rex(session) => session.view(),
+            Self::Demo(_) => SessionView {
+                active_window: Some("demo".into()),
+                windows: vec![WindowView {
+                    id: "demo".into(),
+                    label: "Window demo".into(),
+                    focused_block: Some(DEMO_BLOCK.into()),
+                    zoomed_block: None,
+                    layout: Some(Layout::Block(DEMO_BLOCK.into())),
+                }],
+                ..SessionView::default()
+            },
+        }
+    }
+
+    /// The pane's screen if it changed since the last call.
+    pub fn screen(&mut self, block: &str, force: bool) -> Option<Screen> {
         let cursor = CURSOR.get().copied();
         let result = match self {
-            Self::Rex(attachment) => {
-                let mut guard = attachment.shared.terminal.lock().unwrap();
+            Self::Rex(session) => {
+                let pane = session.pane(block)?;
+                let mut guard = pane.terminal.lock().unwrap();
                 let terminal = guard.as_mut()?;
                 terminal.set_default_cursor(cursor);
                 terminal.screen(force)
@@ -50,31 +66,31 @@ impl Backend {
         result.ok().flatten()
     }
 
-    pub fn key(&mut self, key: &KeyInput) {
+    pub fn key(&mut self, block: &str, key: &KeyInput) {
         match self {
-            Self::Rex(attachment) => {
-                let _ = attachment.key(key);
+            Self::Rex(session) => {
+                let _ = session.key(block, key);
             }
             Self::Demo(terminal) => {
                 let bytes = terminal.encode_key(key);
-                self.write(&echo(&bytes));
+                terminal.write(&echo(&bytes));
             }
         }
     }
 
-    pub fn write(&mut self, bytes: &[u8]) {
+    pub fn write(&mut self, block: &str, bytes: &[u8]) {
         match self {
-            Self::Rex(attachment) => {
-                let _ = attachment.write(bytes);
+            Self::Rex(session) => {
+                let _ = session.write(block, bytes);
             }
             Self::Demo(terminal) => terminal.write(bytes),
         }
     }
 
-    pub fn resize(&mut self, cols: u16, rows: u16, cell_width_px: u32, cell_height_px: u32) {
+    pub fn resize(&mut self, block: &str, cols: u16, rows: u16, cell_width_px: u32, cell_height_px: u32) {
         match self {
-            Self::Rex(attachment) => {
-                let _ = attachment.resize(cols, rows, cell_width_px, cell_height_px);
+            Self::Rex(session) => {
+                let _ = session.resize(block, cols, rows, cell_width_px, cell_height_px);
             }
             Self::Demo(terminal) => {
                 let _ = terminal.resize(cols, rows, cell_width_px, cell_height_px);
@@ -82,16 +98,53 @@ impl Backend {
         }
     }
 
-    pub fn ended(&self) -> Option<Ended> {
-        match self {
-            Self::Rex(attachment) if attachment.shared.ended.load(Ordering::SeqCst) => {
-                Some(match attachment.shared.error.lock().unwrap().clone() {
-                    Some(error) => Ended::Failed(error),
-                    None => Ended::Clean,
-                })
+    pub fn set_theme(&self, block: &str, theme: Value) {
+        if let Self::Rex(session) = self {
+            if let Err(error) = session.set_theme(block, theme) {
+                eprintln!("dojo-terminal: applying the theme: {error:#}");
             }
-            _ => None,
         }
+    }
+
+    pub fn focus_tab(&self, window: &str) {
+        self.report(|session| session.focus_tab(window));
+    }
+
+    pub fn focus_pane(&self, block: &str) {
+        self.report(|session| session.focus_pane(block));
+    }
+
+    /// Runs a binding that is the session's to carry out.
+    pub fn act(&self, action: Action) {
+        self.report(|session| match action {
+            Action::NewTab => session.new_tab(),
+            Action::CloseTab => session.close_tab(),
+            Action::NextTab => session.next_tab(true),
+            Action::PreviousTab => session.next_tab(false),
+            Action::GoToTab(number) => match session.view().windows.get(number - 1) {
+                Some(window) => session.focus_tab(&window.id.clone()),
+                None => Ok(()),
+            },
+            Action::SplitRight => session.split(true),
+            Action::SplitDown => session.split(false),
+            Action::Focus(direction) => session.focus_direction(direction.name()),
+            Action::Zoom => session.toggle_zoom(),
+            Action::ClosePane => session.close_pane(),
+            Action::Picker | Action::Paste => Ok(()),
+        });
+    }
+
+    fn report(&self, call: impl FnOnce(&Session) -> anyhow::Result<()>) {
+        if let Self::Rex(session) = self {
+            if let Err(error) = call(session) {
+                eprintln!("dojo-terminal: {error:#}");
+            }
+        }
+    }
+
+    /// The session is gone: destroyed, or its last tab closed.
+    pub fn ended(&self) -> Option<()> {
+        matches!(self, Self::Rex(session) if session.ended()).then_some(())
     }
 }
 

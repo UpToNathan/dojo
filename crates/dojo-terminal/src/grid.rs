@@ -155,4 +155,18 @@ mod tests {
         row[2].underline = true;
         assert_eq!(runs(&row).len(), 2);
     }
+
+    #[test]
+    fn split_panes_get_a_grid_each_from_their_rectangle() {
+        let layout = dojo_rex::Layout::Split {
+            id: "s".into(),
+            horizontal: true,
+            ratio: 0.5,
+            before: Box::new(dojo_rex::Layout::Block("a".into())),
+            after: Box::new(dojo_rex::Layout::Block("b".into())),
+        };
+        let rects = layout.rects([0.0, 0.0, 801.0, 340.0], 1.0);
+        let grids: Vec<_> = rects.iter().map(|(_, [_, _, w, h])| cols_rows(*w, *h, 8.0, 17.0)).collect();
+        assert_eq!(grids, [(50, 20), (50, 20)]);
+    }
 }

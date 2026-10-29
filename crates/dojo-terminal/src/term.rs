@@ -1,195 +1,367 @@
-//! The terminal view's state and the handlers Rune calls: setup, poll, keys, layout.
-use std::sync::OnceLock;
+//! The terminal window's state and the handlers Rune calls: setup, poll, keys, layout.
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use dojo_rex::{Attachment, KeyAction, KeyInput, Options, Screen};
-use rune::{Cx, El, KeyEvent, Tx, Waker, el, text};
+use dojo_rex::layout::Rect;
+use dojo_rex::{Control, KeyAction, KeyInput, Screen, SessionOptions, SessionSummary, SessionView, Session};
+use rune::{Key, KeyEvent, Tx, Waker};
 
 use crate::args::Args;
-use crate::backend::{Backend, Ended};
+use crate::backend::Backend;
+use crate::bindings::{self, Action};
 use crate::draw::{self, Metrics};
 use crate::grid;
 use crate::keys::{self, Held};
+use crate::picker::{self, Accept, Picker};
+use crate::{launch, tabs};
 
 pub static ARGS: OnceLock<Args> = OnceLock::new();
+/// The configured colour file (`settings`), set once at start.
+pub static THEME: OnceLock<Option<std::path::PathBuf>> = OnceLock::new();
 
-/// Stand-in cell size until the probe has been laid out.
 /// Until the probe is measured: a typical monospace advance at the font's size.
-fn guess_cell() -> (f32, f32) {
+pub fn guess_cell() -> (f32, f32) {
     let font = draw::font();
     (font.size * 0.6, font.line_height)
 }
 /// The window's first size, before the compositor says otherwise.
 pub const WINDOW_SIZE: (f32, f32) = (960.0, 600.0);
-/// The probe is this many `M`s wide, so rounding its width to device pixels barely moves the
-/// per-cell advance.
-const PROBE_LEN: usize = 100;
+/// The gap between panes, which shows the separator colour.
+pub const GAP: f32 = 1.0;
+
+#[derive(Default)]
+pub struct Pane {
+    pub screen: Option<Screen>,
+    grid: (u16, u16),
+}
 
 pub struct Term {
     backend: Option<Backend>,
-    screen: Option<Screen>,
-    cell: Option<(f32, f32)>,
-    area: Option<(f32, f32)>,
-    grid: (u16, u16),
+    pub view: SessionView,
+    pub panes: HashMap<String, Pane>,
+    themed: HashSet<String>,
+    pub cell: Option<(f32, f32)>,
+    pub area: Option<(f32, f32)>,
+    pub scale: f32,
     held: Option<Held>,
     /// When a wake for key repeat is already scheduled.
     timer: Option<Instant>,
+    pub picker: Option<Picker>,
+    listing: Arc<Mutex<Option<Vec<SessionSummary>>>>,
+    waker: Option<Waker>,
 }
 
 pub fn init() -> Term {
-    Term { backend: None, screen: None, cell: None, area: None, grid: (0, 0), held: None, timer: None }
-}
-
-fn panel() -> bool {
-    ARGS.get().is_some_and(|args| args.panel.is_some())
-}
-
-/// The configured colour file (`settings`), set once at start.
-pub static THEME: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
-
-/// Gives the session the configured colours on every open, so a theme switched since the last
-/// open shows. A missing file leaves the session's colours as they are.
-fn apply_theme(attachment: &Attachment) {
-    let Some(Some(path)) = THEME.get() else { return };
-    let Ok(source) = std::fs::read_to_string(path) else { return };
-    if let Err(error) = attachment.set_theme(crate::settings::theme_payload(&source)) {
-        eprintln!("dojo-terminal: applying {}: {error:#}", path.display());
+    Term {
+        backend: None,
+        view: SessionView::default(),
+        panes: HashMap::new(),
+        themed: HashSet::new(),
+        cell: None,
+        area: None,
+        scale: 1.0,
+        held: None,
+        timer: None,
+        picker: None,
+        listing: Arc::default(),
+        waker: None,
     }
 }
 
-fn inset() -> f32 {
+pub fn panel() -> bool {
+    ARGS.get().is_some_and(|args| args.panel.is_some())
+}
+
+pub fn inset() -> f32 {
     if panel() { 0.0 } else { draw::WINDOW_INSET }
+}
+
+/// The window's size before layout has reported it.
+fn first_size() -> (f32, f32) {
+    match ARGS.get().and_then(|args| args.panel.as_ref()) {
+        Some(panel) => (panel.width, panel.height),
+        None => WINDOW_SIZE,
+    }
+}
+
+fn theme() -> Option<serde_json::Value> {
+    let path = THEME.get()?.as_ref()?;
+    let source = std::fs::read_to_string(path).ok()?;
+    Some(crate::settings::theme_payload(&source))
+}
+
+/// Opens `label` as a view of its Rex session. The first open honours `-- COMMAND` and `--cwd`;
+/// later ones, and every new pane, run the desktop's shell.
+fn open_session(label: &str, first: bool, grid: (u16, u16), wake: Waker) -> anyhow::Result<Backend> {
+    let args = ARGS.get().expect("arguments parsed");
+    let shell = launch::from_environment();
+    let command = if first && !args.command.is_empty() { args.command.clone() } else { shell.clone() };
+    let session = Session::open(
+        SessionOptions {
+            socket: dojo_rex::default_socket(),
+            label: label.to_owned(),
+            command,
+            pane_command: shell,
+            cwd: if first { args.cwd.clone() } else { None },
+            cols: grid.0,
+            rows: grid.1,
+            client_name: "dojo-terminal".into(),
+        },
+        move || wake(),
+    )?;
+    dojo_rex::recent::touch(label);
+    Ok(Backend::Rex(session))
 }
 
 pub fn setup(s: &mut Term, wake: Waker) {
     let args = ARGS.get().expect("arguments parsed");
-    let (width, height) = match &args.panel {
-        Some(panel) => (panel.width, panel.height),
-        None => (WINDOW_SIZE.0 - 2.0 * draw::WINDOW_INSET, WINDOW_SIZE.1 - 2.0 * draw::WINDOW_INSET),
-    };
-    let (cols, rows) = grid::cols_rows(width, height, guess_cell().0, guess_cell().1);
-    let backend = if args.demo {
-        Backend::demo(cols, rows)
+    s.waker = Some(wake.clone());
+    let grid = s.initial_grid();
+    let opened = if args.demo {
+        Some(Backend::demo(grid.0, grid.1))
     } else {
-        Attachment::open(
-            Options {
-                socket: dojo_rex::default_socket(),
-                label: args.session.clone(),
-                command: args.command.clone(),
-                cwd: args.cwd.clone(),
-                cols,
-                rows,
-                client_name: "dojo-terminal".into(),
-            },
-            move || wake(),
-        )
-        .inspect(apply_theme)
-        .map(Backend::Rex)
+        args.session.as_deref().map(|label| open_session(label, true, grid, wake))
     };
-    match backend {
-        Ok(backend) => s.backend = Some(backend),
-        Err(error) => {
+    match opened {
+        Some(Ok(backend)) => s.backend = Some(backend),
+        Some(Err(error)) => {
             eprintln!("dojo-terminal: {error:#}");
             std::process::exit(1);
         }
+        None => {}
     }
-    s.grid = (cols, rows);
+    if args.picker {
+        s.open_picker();
+    }
+    s.refresh_view();
 }
 
 impl Term {
-    fn metrics(&self) -> Metrics {
+    pub fn metrics(&self) -> Metrics {
         let (cell_width, cell_height) = self.cell.unwrap_or_else(guess_cell);
-        Metrics { cell_width, cell_height, inset: inset() }
+        Metrics { cell_width, cell_height, inset: 0.0 }
     }
 
-    /// Resizes the terminal when the area and cell size give a different grid.
-    fn reconcile(&mut self, scale: f32) {
-        let (Some((cw, ch)), Some((w, h))) = (self.cell, self.area) else { return };
-        let grid = grid::cols_rows(w - 2.0 * inset(), h - 2.0 * inset(), cw, ch);
-        if grid == self.grid {
-            return;
-        }
-        self.grid = grid;
-        if let Some(backend) = &mut self.backend {
-            backend.resize(grid.0, grid.1, grid::cell_px(cw, scale), grid::cell_px(ch, scale));
-        }
-        self.refresh(true);
+    /// The window's logical size.
+    pub fn size(&self) -> (f32, f32) {
+        self.area.unwrap_or_else(first_size)
     }
 
-    fn refresh(&mut self, force: bool) -> bool {
-        match self.backend.as_mut().and_then(|backend| backend.screen(force)) {
-            Some(screen) => {
-                self.screen = Some(screen);
-                true
+    /// Where the panes go: inside the window's inset and below the tab bar.
+    pub fn pane_area(&self) -> Rect {
+        let (w, h) = self.size();
+        let bar = if tabs::visible(&self.view) { tabs::height(self.metrics()) } else { 0.0 };
+        let i = inset();
+        [i, i + bar, (w - 2.0 * i).max(1.0), (h - 2.0 * i - bar).max(1.0)]
+    }
+
+    pub fn layout(&self) -> Vec<(String, Rect)> {
+        self.view.panes(self.pane_area(), GAP)
+    }
+
+    pub fn focused(&self) -> Option<String> {
+        self.view.focused_block()
+    }
+
+    fn initial_grid(&self) -> (u16, u16) {
+        let [_, _, w, h] = self.pane_area();
+        let (cw, ch) = self.cell.unwrap_or_else(guess_cell);
+        grid::cols_rows(w, h, cw, ch)
+    }
+
+    /// Takes the session's view when it changed. True when the panes need redrawing.
+    fn refresh_view(&mut self) -> bool {
+        let Some(backend) = &self.backend else { return false };
+        let view = backend.view();
+        if view == self.view {
+            return false;
+        }
+        self.view = view;
+        let blocks: HashSet<String> = self.view.windows.iter().filter_map(|w| w.layout.as_ref()).flat_map(|l| l.blocks()).collect();
+        self.panes.retain(|block, _| blocks.contains(block));
+        self.themed.retain(|block| blocks.contains(block));
+        let fresh: Vec<&String> = blocks.iter().filter(|block| !self.themed.contains(*block)).collect();
+        if !fresh.is_empty() {
+            if let Some(theme) = theme() {
+                for block in &fresh {
+                    backend.set_theme(block, theme.clone());
+                }
             }
-            None => false,
+            let fresh: Vec<String> = fresh.into_iter().cloned().collect();
+            self.themed.extend(fresh);
+        }
+        self.sync();
+        true
+    }
+
+    /// Sizes every visible pane to its rectangle, and fetches the screens it hasn't got yet.
+    pub fn sync(&mut self) {
+        let Some((cw, ch)) = self.cell else { return };
+        let (scale, layout) = (self.scale, self.layout());
+        let Some(backend) = &mut self.backend else { return };
+        for (block, [_, _, w, h]) in layout {
+            let pane = self.panes.entry(block.clone()).or_default();
+            let grid = grid::cols_rows(w, h, cw, ch);
+            if pane.grid != grid {
+                pane.grid = grid;
+                backend.resize(&block, grid.0, grid.1, grid::cell_px(cw, scale), grid::cell_px(ch, scale));
+            }
+            if pane.screen.is_none() {
+                pane.screen = backend.screen(&block, true);
+            }
+        }
+    }
+
+    /// Reads the visible panes that changed. True when any did.
+    fn refresh_panes(&mut self) -> bool {
+        let layout = self.layout();
+        let Some(backend) = &mut self.backend else { return false };
+        let mut changed = false;
+        for (block, _) in layout {
+            let pane = self.panes.entry(block.clone()).or_default();
+            if let Some(screen) = backend.screen(&block, false) {
+                pane.screen = Some(screen);
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    pub fn focus_tab(&mut self, window: &str) {
+        if let Some(backend) = &self.backend {
+            backend.focus_tab(window);
+        }
+    }
+
+    pub fn focus_pane(&mut self, block: &str) {
+        if let Some(backend) = &self.backend {
+            backend.focus_pane(block);
         }
     }
 
     fn send(&mut self, key: &KeyInput) {
+        let Some(block) = self.focused() else { return };
         if let Some(backend) = &mut self.backend {
-            backend.key(key);
+            backend.key(&block, key);
         }
     }
 
     fn paste(&mut self, pasted: &str) {
+        let Some(block) = self.focused() else { return };
         if pasted.is_empty() {
             return;
         }
         let clean = pasted.replace('\x1b', "");
         if let Some(backend) = &mut self.backend {
-            backend.write(format!("\x1b[200~{clean}\x1b[201~").as_bytes());
+            backend.write(&block, format!("\x1b[200~{clean}\x1b[201~").as_bytes());
         }
-        self.refresh(false);
+        self.refresh_panes();
+    }
+
+    fn open_picker(&mut self) {
+        self.picker = Some(Picker::default());
+        let (slot, wake) = (self.listing.clone(), self.waker.clone());
+        std::thread::spawn(move || {
+            let listed = Control::connect(&dojo_rex::default_socket(), "dojo-terminal-picker").and_then(|control| dojo_rex::list_sessions(&control));
+            let entries = listed.unwrap_or_else(|error| {
+                eprintln!("dojo-terminal: listing sessions: {error:#}");
+                Vec::new()
+            });
+            *slot.lock().unwrap() = Some(entries);
+            if let Some(wake) = wake {
+                wake();
+            }
+        });
+    }
+
+    /// Shows another session in this window.
+    fn switch(&mut self, label: &str, tx: &mut Tx) {
+        let Some(wake) = self.waker.clone() else { return };
+        match open_session(label, false, self.initial_grid(), wake) {
+            Ok(backend) => {
+                self.backend = Some(backend);
+                self.view = SessionView::default();
+                self.panes.clear();
+                self.themed.clear();
+                self.held = None;
+                self.picker = None;
+                tx.set_title(label.to_owned());
+                self.refresh_view();
+            }
+            Err(error) => eprintln!("dojo-terminal: opening {label}: {error:#}"),
+        }
+    }
+
+    fn picker_key(&mut self, event: &KeyEvent, tx: &mut Tx) -> bool {
+        if bindings::action(event, tx.physical_key()) == Some(Action::Picker) {
+            self.close_picker();
+            return true;
+        }
+        let Some(picker) = &mut self.picker else { return false };
+        let typing = !(event.mods.ctrl || event.mods.cmd || event.mods.alt || event.mods.logo);
+        match &event.key {
+            Key::Escape => self.close_picker(),
+            Key::Up => picker.step(false),
+            Key::Down => picker.step(true),
+            Key::Backspace => picker.backspace(),
+            Key::Text(typed) if typing && !typed.chars().any(char::is_control) => picker.type_text(typed),
+            Key::Enter => match picker.accept() {
+                Accept::Switch(label) | Accept::Create(label) => self.switch(&label, tx),
+                Accept::Nothing => {}
+            },
+            _ => {}
+        }
+        true
+    }
+
+    fn close_picker(&mut self) {
+        self.picker = None;
+        if self.backend.is_none() {
+            std::process::exit(0);
+        }
+    }
+
+    fn run(&mut self, action: Action, tx: &mut Tx) {
+        match action {
+            Action::Picker => self.open_picker(),
+            Action::Paste => tx.read_clipboard(|s: &mut Term, content, _| s.paste(&content.text())),
+            other => {
+                if let Some(backend) = &self.backend {
+                    backend.act(other);
+                }
+            }
+        }
     }
 }
 
-pub fn view(s: &Term, cx: &mut Cx<Term>) -> El {
-    let scale = cx.env().scale;
-    let probe = text("M".repeat(PROBE_LEN))
-        .font(draw::font())
-        .key("probe")
-        .absolute(-20000.0, 0.0)
-        .on_layout(move |s: &mut Term, [_, _, w, h]| {
-            s.cell = Some((w / PROBE_LEN as f32, h));
-            s.reconcile(scale);
-        });
-    let body = match &s.screen {
-        Some(screen) => draw::screen(screen, s.metrics()),
-        None => el().w_full().h_full(),
-    };
-    el().key("terminal")
-        .instant_changes()
-        .w_full()
-        .h_full()
-        .on_layout(move |s: &mut Term, [_, _, w, h]| {
-            s.area = Some((w, h));
-            s.reconcile(scale);
-        })
-        .on_key_up(on_key_up)
-        .child(body)
-        .child(probe)
-}
-
 pub fn on_key(s: &mut Term, event: &KeyEvent, tx: &mut Tx) -> bool {
-    if keys::is_paste(event) {
-        tx.read_clipboard(|s: &mut Term, content, _| s.paste(&content.text()));
+    tx.instant();
+    if s.picker.is_some() {
+        return s.picker_key(event, tx);
+    }
+    if let Some(action) = bindings::action(event, tx.physical_key()) {
+        if !tx.key_repeat() {
+            s.run(action, tx);
+        }
         return true;
     }
     let action = if tx.key_repeat() { KeyAction::Repeat } else { KeyAction::Press };
     let Some(input) = keys::key_input(event, tx.physical_key(), tx.key_base(), action) else { return false };
     s.send(&input);
-    tx.instant();
     if panel() && action == KeyAction::Press {
         // The layer-shell path has no repeat of its own.
         s.held = Some(Held::new(input, Instant::now()));
         arm(s, keys::REPEAT_DELAY, tx);
     }
-    s.refresh(false);
+    s.refresh_panes();
     true
 }
 
-fn on_key_up(s: &mut Term, event: &KeyEvent, tx: &mut Tx) -> bool {
+pub fn on_key_up(s: &mut Term, event: &KeyEvent, tx: &mut Tx) -> bool {
+    if s.picker.is_some() {
+        return true;
+    }
     let Some(input) = keys::key_input(event, tx.physical_key(), tx.key_base(), KeyAction::Release) else { return false };
     if s.held.as_ref().is_some_and(|held| held.input.code == input.code) {
         s.held = None;
@@ -210,17 +382,19 @@ fn arm(s: &mut Term, after: Duration, tx: &mut Tx) {
 }
 
 pub fn poll(s: &mut Term, _seconds: f64, tx: &mut Tx) -> bool {
-    match s.backend.as_ref().and_then(Backend::ended) {
-        Some(Ended::Clean) => std::process::exit(0),
-        Some(Ended::Failed(error)) => {
-            eprintln!("dojo-terminal: {error}");
-            std::process::exit(1);
-        }
-        None => {}
+    if s.backend.as_ref().and_then(Backend::ended).is_some() {
+        std::process::exit(0);
     }
     // Every commit lands at once: a terminal shows output in the frame it arrives.
     tx.instant();
-    let mut changed = s.refresh(false);
+    let mut changed = false;
+    let listed = s.listing.lock().unwrap().take();
+    if let (Some(entries), Some(picker)) = (listed, &mut s.picker) {
+        picker.entries = Some(picker::order(entries, &dojo_rex::recent::load()));
+        changed = true;
+    }
+    changed |= s.refresh_view();
+    changed |= s.refresh_panes();
     let now = Instant::now();
     if s.timer.is_some_and(|at| at <= now) {
         s.timer = None;
@@ -229,7 +403,7 @@ pub fn poll(s: &mut Term, _seconds: f64, tx: &mut Tx) -> bool {
         let (repeat, left) = held.due(now);
         if let Some(input) = repeat {
             s.send(&input);
-            changed |= s.refresh(false);
+            changed |= s.refresh_panes();
         }
         if s.timer.is_none() {
             arm(s, left, tx);

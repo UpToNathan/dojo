@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# The installed terminal client (crates/dojo-terminal), with the installation's runtime libraries.
+set -euo pipefail
+installation=${XDG_DATA_HOME:-"$HOME/.local/share"}/dojo/desktop/current
+source "$installation/environment.sh"
+exec "$installation/dojo-terminal" "$@"

@@ -63,12 +63,6 @@ pub fn key_input(event: &KeyEvent, code: Option<PhysicalKeyCode>, base: Option<c
     })
 }
 
-/// Ctrl+Shift+V.
-pub fn is_paste(event: &KeyEvent) -> bool {
-    let mods = event.mods;
-    mods.shift && (mods.ctrl || mods.cmd) && !mods.alt && matches!(&event.key, Key::Command(c) if c.eq_ignore_ascii_case(&'v'))
-}
-
 /// The key being held down, and when it repeats next.
 pub struct Held {
     pub input: KeyInput,
@@ -142,14 +136,6 @@ mod tests {
         assert_eq!(code(Key::Function(0)), None);
         assert_eq!(code(Key::Text(" ".into())).as_deref(), Some("Space"));
         assert_eq!(code(Key::Text("x".into())), None);
-    }
-
-    #[test]
-    fn only_ctrl_shift_v_pastes() {
-        let both = Mods { ctrl: true, cmd: true, shift: true, ..Mods::default() };
-        let ctrl = Mods { ctrl: true, cmd: true, ..Mods::default() };
-        assert!(is_paste(&event(Key::Command('v'), both)));
-        assert!(!is_paste(&event(Key::Command('v'), ctrl)));
     }
 
     #[test]
