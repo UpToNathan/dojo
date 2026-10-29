@@ -105,9 +105,11 @@ impl Attachment {
             return Ok(());
         }
         let data = String::from_utf8_lossy(bytes);
-        self.control
-            .block_call("com.superlogical.terminal.write", &self.session, &self.block, json!({"data": data}))
-            .map(drop)
+        // Typing does not wait for the server's answer; the echo comes back on the stream.
+        self.control.send(
+            "com.superlogical.terminal.write",
+            json!({"session_id": self.session, "block_id": self.block, "args": {"data": data}}),
+        )
     }
 
     /// Encodes a key with the terminal's current modes and types it.

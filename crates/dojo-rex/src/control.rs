@@ -2,6 +2,9 @@
 //! text message. One thread owns the socket; callers send requests through a channel and wait
 //! for the matching response.
 use std::collections::HashMap;
+use std::io::{Read as _, Write as _};
+use std::os::fd::{AsRawFd as _, RawFd};
+use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
@@ -11,8 +14,30 @@ use serde_json::{Value, json};
 use tungstenite::Message as WsMessage;
 
 pub const API_REVISION: u64 = 7;
-/// How long the worker waits on the socket before looking for requests to send.
-const POLL: Duration = Duration::from_millis(15);
+unsafe extern "C" {
+    fn poll(fds: *mut PollFd, count: u64, timeout_ms: i32) -> i32;
+}
+
+#[repr(C)]
+struct PollFd {
+    fd: i32,
+    events: i16,
+    revents: i16,
+}
+
+const POLLIN: i16 = 0x1;
+const POLLOUT: i16 = 0x4;
+
+/// Sleeps until the socket or the wake-up end is ready. True when the socket has something.
+fn wait(socket: RawFd, wake: RawFd, want_write: bool) -> bool {
+    let mut fds = [
+        PollFd { fd: socket, events: POLLIN | if want_write { POLLOUT } else { 0 }, revents: 0 },
+        PollFd { fd: wake, events: POLLIN, revents: 0 },
+    ];
+    // An interrupted poll just goes round again.
+    unsafe { poll(fds.as_mut_ptr(), 2, -1) };
+    fds[0].revents != 0
+}
 
 /// A server event, such as `block_closed`, with its fields. A session's events name it.
 #[derive(Debug, Clone, PartialEq)]
@@ -42,7 +67,8 @@ impl Event {
 type Reply = Sender<Result<Value>>;
 
 pub struct Control {
-    requests: Sender<(Value, Reply)>,
+    requests: Sender<(Value, Option<Reply>)>,
+    wake: UnixStream,
     pub events: Receiver<Event>,
     next_id: std::cell::Cell<u64>,
 }
@@ -68,9 +94,13 @@ impl Control {
             welcome["type"] == "welcome" && welcome["protocol"] == "rex.control.v1",
             "unexpected first message: {welcome}"
         );
-        ws.get_ref().set_read_timeout(Some(POLL))?;
+        // The worker sleeps in poll() on the socket and on a wake-up pair, so a request goes out
+        // as soon as it is queued and nothing runs while the connection is quiet.
+        ws.get_ref().set_nonblocking(true)?;
+        let (wake, wake_worker) = UnixStream::pair()?;
+        wake_worker.set_nonblocking(true)?;
 
-        let (requests, inbox) = mpsc::channel::<(Value, Reply)>();
+        let (requests, inbox) = mpsc::channel::<(Value, Option<Reply>)>();
         let (events_tx, events) = mpsc::channel();
         std::thread::Builder::new()
             .name("rex-control".into())
@@ -81,56 +111,73 @@ impl Control {
                         let _ = reply.send(Err(anyhow!("{why}")));
                     }
                 };
+                let mut unflushed = false;
                 loop {
+                    let socket_ready = wait(ws.get_ref().as_raw_fd(), wake_worker.as_raw_fd(), unflushed);
+                    let _ = (&wake_worker).read(&mut [0u8; 64]);
                     loop {
                         match inbox.try_recv() {
                             Ok((request, reply)) => {
-                                pending.insert(request["id"].as_str().unwrap_or_default().to_owned(), reply);
-                                if let Err(error) = ws.send(WsMessage::text(request.to_string())) {
-                                    fail(&mut pending, &format!("control connection failed: {error}"));
-                                    return;
+                                if let Some(reply) = reply {
+                                    pending.insert(request["id"].as_str().unwrap_or_default().to_owned(), reply);
+                                }
+                                match ws.send(WsMessage::text(request.to_string())) {
+                                    Ok(()) => unflushed = false,
+                                    Err(tungstenite::Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => unflushed = true,
+                                    Err(error) => {
+                                        fail(&mut pending, &format!("control connection failed: {error}"));
+                                        return;
+                                    }
                                 }
                             }
                             Err(mpsc::TryRecvError::Empty) => break,
                             Err(mpsc::TryRecvError::Disconnected) => {
                                 let _ = ws.close(None);
+                                let _ = ws.flush();
                                 return;
                             }
                         }
                     }
-                    match ws.read() {
-                        Ok(WsMessage::Text(text)) => {
-                            let Ok(message) = serde_json::from_str::<Value>(&text) else { continue };
-                            match message["type"].as_str() {
-                                Some("response") => {
-                                    let id = message["id"].as_str().unwrap_or_default();
-                                    if let Some(reply) = pending.remove(id) {
-                                        let _ = reply.send(response_result(message));
+                    if unflushed {
+                        unflushed = matches!(ws.flush(), Err(tungstenite::Error::Io(ref error)) if error.kind() == std::io::ErrorKind::WouldBlock);
+                    }
+                    if !socket_ready {
+                        continue;
+                    }
+                    loop {
+                        match ws.read() {
+                            Ok(WsMessage::Text(text)) => {
+                                let Ok(message) = serde_json::from_str::<Value>(&text) else { continue };
+                                match message["type"].as_str() {
+                                    Some("response") => {
+                                        let id = message["id"].as_str().unwrap_or_default();
+                                        if let Some(reply) = pending.remove(id) {
+                                            let _ = reply.send(response_result(message));
+                                        }
                                     }
-                                }
-                                Some("event") => {
-                                    if let Some(event) = Event::from_message(&message) {
-                                        let _ = events_tx.send(event);
+                                    Some("event") => {
+                                        if let Some(event) = Event::from_message(&message) {
+                                            let _ = events_tx.send(event);
+                                        }
                                     }
+                                    _ => {}
                                 }
-                                _ => {}
                             }
-                        }
-                        Ok(WsMessage::Close(frame)) => {
-                            fail(&mut pending, &format!("server closed the control connection: {frame:?}"));
-                            return;
-                        }
-                        Ok(_) => {}
-                        Err(tungstenite::Error::Io(error))
-                            if matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
-                        Err(error) => {
-                            fail(&mut pending, &format!("control connection failed: {error}"));
-                            return;
+                            Ok(WsMessage::Close(frame)) => {
+                                fail(&mut pending, &format!("server closed the control connection: {frame:?}"));
+                                return;
+                            }
+                            Ok(_) => {}
+                            Err(tungstenite::Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                            Err(error) => {
+                                fail(&mut pending, &format!("control connection failed: {error}"));
+                                return;
+                            }
                         }
                     }
                 }
             })?;
-        Ok(Self { requests, events, next_id: 1.into() })
+        Ok(Self { requests, wake, events, next_id: 1.into() })
     }
 
     /// Calls `method` and waits for its result payload.
@@ -138,13 +185,24 @@ impl Control {
         let id = self.next_id.get();
         self.next_id.set(id + 1);
         let (reply, response) = mpsc::channel();
-        self.requests
-            .send((json!({"type": "request", "id": id.to_string(), "method": method, "payload": payload}), reply))
-            .map_err(|_| anyhow!("control connection is closed"))?;
+        self.queue(json!({"type": "request", "id": id.to_string(), "method": method, "payload": payload}), Some(reply))?;
         response
             .recv_timeout(Duration::from_secs(15))
             .with_context(|| format!("waiting for {method}"))?
             .with_context(|| format!("calling {method}"))
+    }
+
+    /// Calls `method` without waiting for its result, for typing: a failure is not reported.
+    pub fn send(&self, method: &str, payload: Value) -> Result<()> {
+        let id = self.next_id.get();
+        self.next_id.set(id + 1);
+        self.queue(json!({"type": "request", "id": id.to_string(), "method": method, "payload": payload}), None)
+    }
+
+    fn queue(&self, request: Value, reply: Option<Reply>) -> Result<()> {
+        self.requests.send((request, reply)).map_err(|_| anyhow!("control connection is closed"))?;
+        let _ = (&self.wake).write(&[1]);
+        Ok(())
     }
 
     /// Calls a block method, such as `com.superlogical.terminal.write`.
